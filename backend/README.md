@@ -1,10 +1,14 @@
 # GORDO backend (FastAPI)
 
-## Railway (Docker)
+## Railway (Docker, API)
 
-В **корне репозитория**: `railway.json` (builder `DOCKERFILE`) и **`Dockerfile`**. В образ копируется каталог `backend/` (`COPY backend/ .`). Запуск: **`uvicorn main:app`** — модуль `main.py` в корне `backend/` реэкспортирует приложение из пакета `app`.
+Отдельный сервис **backend** на Railway:
 
-В панели Railway у сервиса **Root Directory** оставьте пустым (корень репозитория).
+- **Root Directory**: `backend`
+- **Builder**: **Dockerfile** (`backend/Dockerfile`, конфиг `backend/railway.json`)
+- Запуск: **`python run.py`** (uvicorn на `0.0.0.0`, порт из `PORT`)
+
+Фронтенд (Next.js) в **корне** репозитория: **Nixpacks** (`railway.json` + `nixpacks.toml` в корне) — другой сервис Railway.
 
 ## Локальный запуск
 

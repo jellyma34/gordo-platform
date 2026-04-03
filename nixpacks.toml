@@ -1,0 +1,14 @@
+# Frontend Next.js на Railway (Nixpacks). Node подхватывается автоматически по package.json.
+# Сервис: Root Directory = корень репозитория, Builder = Nixpacks.
+
+[variables]
+NODE_ENV = "production"
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start"
