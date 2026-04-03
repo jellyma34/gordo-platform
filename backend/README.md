@@ -1,11 +1,11 @@
 # GORDO backend (FastAPI)
 
-## Railway (Nixpacks, API)
+## Railway (Docker, API)
 
 Отдельный сервис **backend** на Railway:
 
 - **Root Directory**: `backend`
-- **Builder**: **Nixpacks** (без Docker)
+- **Builder**: **Dockerfile** (`backend/Dockerfile`)
 - Запуск: **`uvicorn main:app --host 0.0.0.0 --port $PORT`**
 
 Фронтенд (Next.js) в **корне** репозитория: **Nixpacks** (`railway.json` + `nixpacks.toml` в корне) — другой сервис Railway.
@@ -15,16 +15,16 @@
 Из каталога `backend` в корне репозитория:
 
 ```bash
-uvicorn main:app --reload --port 8000
+PORT=8080 uvicorn main:app --reload --host 0.0.0.0 --port $PORT
 ```
 
-API: `http://127.0.0.1:8000`  
-Документация: `http://127.0.0.1:8000/docs`  
-Логин: `POST http://127.0.0.1:8000/auth/login`
+API: `http://127.0.0.1:${PORT}`  
+Документация: `http://127.0.0.1:${PORT}/docs`  
+Логин: `POST http://127.0.0.1:${PORT}/auth/login`
 
 Фронтенд в `.env.local` должен указывать **HTTP**, не HTTPS:
 
-`NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`
+`NEXT_PUBLIC_API_URL=http://127.0.0.1:${PORT}`
 
 ## CORS (продакшен)
 
