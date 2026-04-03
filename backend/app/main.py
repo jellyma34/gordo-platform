@@ -15,7 +15,9 @@ from app.database import (
     ensure_users_full_name_column,
 )
 from app.models import ProjectPart
-from app.routers import admin, auth, debug, gpr, sections, tmc
+from auth import router as auth_router
+
+from app.routers import admin, debug, gpr, sections, tmc
 
 
 def ensure_project_parts() -> None:
@@ -58,7 +60,7 @@ app.add_middleware(
 def ping():
     return {"status": "ok"}
 
-app.include_router(auth.router)
+app.include_router(auth_router)
 app.include_router(tmc.router)
 app.include_router(admin.router)
 app.include_router(debug.router)

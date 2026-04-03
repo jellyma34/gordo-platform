@@ -4,17 +4,6 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    token: str
-    role: Literal["admin", "manager", "employee"]
-    allowed_sections: list[str]
-
-
 class CreateUserRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, description="Задаётся на клиенте; в ответе API не возвращается")
