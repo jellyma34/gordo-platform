@@ -1,0 +1,387 @@
+export type Role = "admin" | "manager" | "employee";
+export type ApiSection = "gpr" | "tenders" | "materials";
+
+/** Сообщение при 401 от POST /auth/login (для UI). */
+export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
+
+/**
+ * Базовый URL API задаётся только через `NEXT_PUBLIC_API_URL`
+ * (см. `.env.example`, для локальной разработки — `.env.local`).
+ */
+function normalizeApiBaseUrl(raw: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "";
+
+  try {
+    const u = new URL(trimmed);
+    const host = u.hostname.toLowerCase();
+    const isLoopback = host === "localhost" || host === "127.0.0.1";
+    // Локальный FastAPI без TLS — https://localhost даёт ERR_SSL_PROTOCOL_ERROR
+    if (isLoopback && u.protocol === "https:") {
+      u.protocol = "http:";
+      return u.href.replace(/\/$/, "");
+    }
+    return trimmed.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Базовый URL API (без завершающего `/`). */
+export const API_URL = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL);
+
+/** Полный URL эндпоинта; бросает ошибку, если `NEXT_PUBLIC_API_URL` не задан. */
+function api(path: string): string {
+  if (!API_URL) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL не задан. Скопируйте .env.example в .env.local и укажите URL бэкенда.",
+    );
+  }
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${API_URL}${p}`;
+}
+
+if (process.env.VERCEL === "1" && !API_URL) {
+  console.warn(
+    "[gordo] NEXT_PUBLIC_API_URL не задан. Укажите публичный URL бэкенда в Vercel → Settings → Environment Variables.",
+  );
+}
+
+if (typeof window !== "undefined" && API_URL) {
+  const h = window.location.hostname;
+  if (h !== "localhost" && h !== "127.0.0.1") {
+    try {
+      const u = new URL(API_URL);
+      if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
+        console.warn(
+          "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL на URL бэкенда в интернете.",
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+const STORAGE_TOKEN = "gordo_token";
+const STORAGE_ROLE = "gordo_role";
+const STORAGE_SECTIONS = "gordo_allowed_sections";
+
+export type AuthSnapshot = {
+  token: string;
+  role: Role;
+  allowedSections: ApiSection[];
+};
+
+function isApiSection(x: string): x is ApiSection {
+  return x === "gpr" || x === "tenders" || x === "materials";
+}
+
+export function parseAllowedSections(raw: string | null): ApiSection[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is ApiSection => typeof x === "string" && isApiSection(x));
+  } catch {
+    return [];
+  }
+}
+
+export function loadStoredAuth(): AuthSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const token = window.localStorage.getItem(STORAGE_TOKEN);
+    const roleRaw = window.localStorage.getItem(STORAGE_ROLE);
+    const sectionsRaw = window.localStorage.getItem(STORAGE_SECTIONS);
+    if (
+      !token ||
+      (roleRaw !== "admin" && roleRaw !== "manager" && roleRaw !== "employee")
+    )
+      return null;
+    return {
+      token,
+      role: roleRaw,
+      allowedSections: parseAllowedSections(sectionsRaw),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveAuth(token: string, role: Role, allowedSections: ApiSection[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_TOKEN, token);
+  window.localStorage.setItem(STORAGE_ROLE, role);
+  window.localStorage.setItem(STORAGE_SECTIONS, JSON.stringify(allowedSections));
+}
+
+export function clearAuth(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_TOKEN);
+  window.localStorage.removeItem(STORAGE_ROLE);
+  window.localStorage.removeItem(STORAGE_SECTIONS);
+}
+
+export type UiConstructionSection = "gpr" | "tenders" | "tmc";
+
+export function uiToApi(ui: UiConstructionSection): ApiSection {
+  return ui === "tmc" ? "materials" : ui;
+}
+
+export function canAccessConstructionSection(
+  role: Role | null,
+  allowed: ApiSection[],
+  ui: UiConstructionSection,
+): boolean {
+  if (role === "admin" || role === "manager") return true;
+  if (role !== "employee") return false;
+  return allowed.includes(uiToApi(ui));
+}
+
+const SECTION_ORDER: ApiSection[] = ["gpr", "tenders", "materials"];
+
+export function apiSectionToQuery(s: ApiSection): UiConstructionSection {
+  return s === "materials" ? "tmc" : s;
+}
+
+/** Первый доступный раздел строительства (после входа сотрудника). */
+export function firstConstructionPath(
+  role: Role,
+  allowed: ApiSection[],
+  mode: "presentation" | "edit" = "presentation",
+): string {
+  const base = mode === "presentation" ? "/presentation/construction" : "/edit/construction";
+  if (role === "admin" || role === "manager") return `${base}?section=gpr`;
+  for (const s of SECTION_ORDER) {
+    if (allowed.includes(s)) return `${base}?section=${apiSectionToQuery(s)}`;
+  }
+  return "/";
+}
+
+export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
+  try {
+    const res = await fetch(api("/auth/login"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (res.status === 401) {
+      throw new Error(INVALID_LOGIN_MESSAGE);
+    }
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = (await res.json()) as {
+      token: string;
+      user: { email: string; role: Role };
+    };
+    const role = data.user.role;
+    const allowedSections: ApiSection[] =
+      role === "admin" || role === "manager" ? [...SECTION_ORDER] : [];
+    saveAuth(data.token, role, allowedSections);
+    return {
+      token: data.token,
+      role,
+      allowedSections,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.message === INVALID_LOGIN_MESSAGE) {
+      throw err;
+    }
+    if (err instanceof TypeError) {
+      throw new Error("Ошибка соединения с сервером");
+    }
+    if (err instanceof Error) {
+      if (err.message.startsWith("HTTP")) throw err;
+    }
+    throw new Error("Ошибка соединения с сервером");
+  }
+}
+
+export type CreateUserPayload = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+  role: Role;
+  allowed_sections: ApiSection[];
+};
+
+export async function createUserRequest(token: string, body: CreateUserPayload) {
+  const res = await fetch(api("/admin/create-user"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(typeof err.detail === "string" ? err.detail : "Не удалось создать пользователя");
+  }
+  return res.json() as Promise<{
+    id: number;
+    email: string;
+    full_name?: string | null;
+    role: string;
+    allowed_sections: string[];
+  }>;
+}
+
+export type AdminUserRow = {
+  id: number;
+  email: string;
+  full_name: string | null;
+  role: Role;
+  allowed_sections: ApiSection[];
+};
+
+export function parseRole(raw: string): Role {
+  if (raw === "admin" || raw === "manager" || raw === "employee") return raw;
+  return "employee";
+}
+
+function parseUserRow(raw: {
+  id: number;
+  email: string;
+  full_name?: string | null;
+  role: string;
+  allowed_sections: string[];
+}): AdminUserRow {
+  return {
+    id: raw.id,
+    email: raw.email,
+    full_name: raw.full_name?.trim() ? raw.full_name.trim() : null,
+    role: parseRole(raw.role),
+    allowed_sections: raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s)),
+  };
+}
+
+async function adminJsonError(res: Response, fallback: string): Promise<never> {
+  const err = (await res.json().catch(() => ({}))) as { detail?: string };
+  throw new Error(typeof err.detail === "string" ? err.detail : fallback);
+}
+
+export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
+  const res = await fetch(api("/admin/users"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить пользователей");
+  const data = (await res.json()) as Array<{
+    id: number;
+    email: string;
+    full_name?: string | null;
+    role: string;
+    allowed_sections: string[];
+  }>;
+  return data.map(parseUserRow);
+}
+
+export type UpdateUserPayload = {
+  full_name?: string | null;
+  role: Role;
+  allowed_sections: ApiSection[];
+};
+
+export async function updateAdminUser(token: string, userId: number, body: UpdateUserPayload): Promise<AdminUserRow> {
+  const res = await fetch(api(`/admin/users/${userId}`), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось обновить пользователя");
+  const raw = (await res.json()) as {
+    id: number;
+    email: string;
+    full_name?: string | null;
+    role: string;
+    allowed_sections: string[];
+  };
+  return parseUserRow(raw);
+}
+
+export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {
+  const res = await fetch(api(`/admin/users/${userId}/password`), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ password: password.trim() }),
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось сменить пароль");
+}
+
+export async function deleteAdminUser(token: string, userId: number): Promise<void> {
+  const res = await fetch(api(`/admin/users/${userId}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось удалить пользователя");
+}
+
+export type ActivityLogRow = {
+  id: number;
+  user_email: string;
+  role: string;
+  action: string;
+  entity: string;
+  details: unknown;
+  created_at: string;
+};
+
+export type ActivityLogsPageResponse = {
+  items: ActivityLogRow[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type RelatedDeviationRow = {
+  section: string;
+  deviation_days: number;
+  comment: string | null;
+  link: string;
+};
+
+export async function listActivityLogs(
+  token: string,
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<ActivityLogsPageResponse> {
+  const q = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const res = await fetch(`${api("/admin/logs")}?${q.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
+  return res.json() as Promise<ActivityLogsPageResponse>;
+}
+
+export async function getRelatedDeviations(token: string, taskId: number): Promise<RelatedDeviationRow[]> {
+  const res = await fetch(api(`/gpr/tasks/${taskId}/related-deviations`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить связанные отклонения");
+  return res.json() as Promise<RelatedDeviationRow[]>;
+}
+
+/** Случайный пароль на клиенте (до отправки на сервер; API пароль не возвращает). */
+export function generateClientPassword(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "").slice(0, 22);
+}

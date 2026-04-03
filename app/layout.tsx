@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import "@/lib/chartSetup";
 import "./globals.css";
+import { AuthGate } from "@/components/auth/AuthGate";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ModeBar } from "@/components/mode/ModeBar";
+import { ModeProvider } from "@/components/mode/ModeProvider";
 
 export const metadata: Metadata = {
   title: "ГОРДО. ГПР",
@@ -14,7 +19,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        <ModeProvider>
+          <AuthProvider>
+            <AuthGate>
+              <ModeBar />
+              {children}
+            </AuthGate>
+          </AuthProvider>
+        </ModeProvider>
+      </body>
     </html>
   );
 }

@@ -1,11 +1,504 @@
-import type { GPRTask } from "@/lib/gprUtils";
+import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import dynamic from "next/dynamic";
+
 import {
+  partIdToProjectPartKey,
+  PROJECT_PARTS,
+  type GPRTask,
+  type ProjectPartKey,
+} from "@/lib/gprUtils";
+import {
+  calculateDeviation,
+  filterByPeriod,
   flattenTasks,
-  durationDays,
   getProjectStats,
   getStatusByDeviation,
-  toDate,
+  type PlanFactPeriodFilterType,
 } from "@/lib/gprUtils";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Tooltip as ChartTooltip,
+  Legend as ChartLegend,
+} from "chart.js";
+import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
+import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
+import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
+import { gprStageDisplayTitle, gprStageGroupKeysForProjectPart } from "@/lib/gprTmcDependency";
+import type { TMCItem } from "@/lib/tmcData";
+import { filterTmcByProjectPart, getTmcData, mergeTmcSnapshotWithSeed } from "@/lib/tmcData";
+import {
+  buildTenderStageInsight,
+  getGprStageFromTenderCode,
+  mergeTenderSnapshotWithSeed,
+  readTenderSnapshotFromStorage,
+  tenderStageHasContractRisk,
+  type Tender,
+} from "@/lib/tenderData";
+import { getProjectStatus } from "@/utils/status";
+
+const ResponsiveContainer = dynamic(
+  () => import("recharts").then((m) => m.ResponsiveContainer),
+  { ssr: false },
+);
+const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), {
+  ssr: false,
+});
+const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
+const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
+const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
+const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  ChartTooltip,
+  ChartLegend,
+);
+
+const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
+
+const fmt = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return DATE_FMT.format(date);
+};
+
+const isoMs = (value: string | null | undefined) => {
+  if (!value) return null;
+  const ms = new Date(`${value}T00:00:00`).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const daysInclusive = (startIso: string | null | undefined, endIso: string | null | undefined) => {
+  const startMs = isoMs(startIso);
+  const endMs = isoMs(endIso);
+  if (startMs === null || endMs === null) return null;
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  const diff = Math.round((endMs - startMs) / MS_PER_DAY) + 1;
+  if (!Number.isFinite(diff) || diff <= 0) return null;
+  return diff;
+};
+
+const COLORS = {
+  green: "#22c55e",
+  yellow: "#f59e0b",
+  red: "#ef4444",
+  gray: "#6b7280",
+  bg: "#0f172a",
+  card: "#1e293b",
+} as const;
+
+/** Корневые этапы для агрегата и порядка карточек по части проекта. */
+const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
+  residential: ["2.04", "2.05"],
+  parking: ["2.06", "2.07"],
+};
+
+const PART_SHORT_TITLE: Record<ProjectPartKey, string> = {
+  residential: "Жилой дом",
+  parking: "Автостоянка",
+};
+
+/** Подписи для блока «Состав» (жилой дом) — совпадают с корневыми этапами 2.04 / 2.05. */
+const RESIDENTIAL_AGGREGATE_STAGE_TITLES: readonly [string, string] = [
+  "Подготовка территории строительства",
+  "Строительство зданий и сооружений",
+];
+const RESIDENTIAL_WEIGHT_LABELS: readonly [string, string] = ["Подготовка", "Строительство"];
+
+type AggregateStageBreakdown = {
+  composeTitle: string;
+  weightShortLabel: string;
+  completion: number;
+  planDays: number | null;
+  /** Доля плановой длительности среди корневых этапов части, % */
+  weightPercent: number | null;
+};
+
+function shortWeightLabelForPart(name: string, index: number): string {
+  const n = name.trim();
+  if (n.length <= 28) return n;
+  return `Этап ${index + 1}`;
+}
+
+function computeTmcProblemSignals(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+): { notPurchased: boolean; overdueDelivery: boolean } {
+  const tmcById = new Map(tmcItems.map((x) => [x.id, x]));
+  const todayMs = new Date(`${todayIso}T00:00:00`).getTime();
+  let notPurchased = false;
+  let overdueDelivery = false;
+  for (const task of tasks) {
+    for (const tmcId of task.relatedTmcIds ?? []) {
+      const item = tmcById.get(tmcId);
+      if (!item) continue;
+      const planMs = new Date(`${item.planDate}T00:00:00`).getTime();
+      const factMs = item.factDate ? new Date(`${item.factDate}T00:00:00`).getTime() : null;
+      if (!item.factDate && Number.isFinite(planMs) && planMs < todayMs) notPurchased = true;
+      if (factMs !== null && Number.isFinite(planMs) && factMs > planMs) overdueDelivery = true;
+    }
+  }
+  return { notPurchased, overdueDelivery };
+}
+
+/** Разница в п.п. между этапами, при которой показываем короткое пояснение в поповере. */
+const AGGREGATE_POPOVER_STAGE_GAP_PTS = 15;
+
+function buildAggregateProgressPopoverExplanation(
+  partKey: ProjectPartKey,
+  stages: AggregateStageBreakdown[],
+  tmc: { notPurchased: boolean; overdueDelivery: boolean },
+  scheduleLag: boolean,
+): string[] {
+  const prepProgress = stages[0]?.completion;
+  const buildProgress = stages[1]?.completion;
+  const hasTwoStages =
+    stages.length >= 2 &&
+    typeof prepProgress === "number" &&
+    typeof buildProgress === "number";
+
+  if (tmc.notPurchased || tmc.overdueDelivery) {
+    return [
+      "Прогресс снижен из-за отсутствия или задержки поставок материалов (ТМЦ).",
+    ];
+  }
+
+  if (hasTwoStages) {
+    const prep = prepProgress as number;
+    const build = buildProgress as number;
+    if (prep + AGGREGATE_POPOVER_STAGE_GAP_PTS <= build) {
+      const line =
+        partKey === "residential"
+          ? "Прогресс снижен из-за отставания на этапе подготовки территории."
+          : "Прогресс снижен из-за отставания по первому корневому этапу относительно второго.";
+      return scheduleLag
+        ? [line, "Дополнительно зафиксировано отставание по срокам относительно плана."]
+        : [line];
+    }
+    if (build + AGGREGATE_POPOVER_STAGE_GAP_PTS <= prep) {
+      const line =
+        partKey === "residential"
+          ? "Прогресс снижен из-за того, что этап строительства выполнен значительно меньше по сравнению с подготовкой."
+          : "Общий прогресс в большей степени ограничен вторым корневым этапом: он заметно отстаёт от первого.";
+      return scheduleLag
+        ? [line, "Дополнительно зафиксировано отставание по срокам относительно плана."]
+        : [line];
+    }
+  }
+
+  if (scheduleLag) {
+    return [
+      "Общий показатель учитывает отставание по срокам завершения работ относительно плана.",
+    ];
+  }
+
+  return [
+    "Взвешенный по длительности плана прогресс по этапам сбалансирован; выраженного перекоса между ними не наблюдается.",
+  ];
+}
+
+const STATUS_DISTRIBUTION_POPOVER_MAX_TASKS = 5;
+
+function formatDeviationForStatusDistributionPopover(status: Traffic, deviationDays: number | null): string {
+  if (deviationDays === null) return "—";
+  if (status === "green") {
+    return deviationDays > 0 ? `+${deviationDays} дн` : `${deviationDays} дн`;
+  }
+  if (status === "yellow" || status === "red") {
+    return `+${deviationDays} дн`;
+  }
+  return "—";
+}
+
+function StatusDistributionTaskChunk({
+  rows,
+  status,
+  showDeviation,
+}: {
+  rows: TrafficRow[];
+  status: Traffic;
+  showDeviation: boolean;
+}) {
+  const limit = STATUS_DISTRIBUTION_POPOVER_MAX_TASKS;
+  const shown = rows.slice(0, limit);
+  const rest = rows.length - shown.length;
+  return (
+    <>
+      <ul className="mt-1.5 space-y-1 text-[11px] leading-snug text-slate-300">
+        {shown.map((r) => (
+          <li key={r.task.id}>
+            • {r.task.name}
+            {showDeviation
+              ? ` (${formatDeviationForStatusDistributionPopover(status, r.deviationDays)})`
+              : ""}
+          </li>
+        ))}
+      </ul>
+      {rest > 0 ? (
+        <p className="mt-1.5 text-[11px] text-slate-500">и ещё {rest}…</p>
+      ) : null}
+    </>
+  );
+}
+
+type Traffic = "green" | "yellow" | "red" | "gray";
+type GroupKey = "prep" | "build" | "network" | "improve";
+
+type TrafficRow = {
+  task: GPRTask;
+  status: Traffic;
+  planDays: number | null;
+  factDays: number | null;
+  deviationDays: number | null;
+};
+
+type StatusDonutSlice = {
+  status: Traffic;
+  name: string;
+  value: number;
+  fill: string;
+  items: string[];
+};
+
+function formatStatusDonutItemLine(row: TrafficRow): string {
+  if (row.status === "gray") return row.task.name;
+  const d = row.deviationDays;
+  if (d === null) return row.task.name;
+  return `${row.task.name} (${formatDeviationForStatusDistributionPopover(row.status, d)})`;
+}
+
+function StatusDistributionPieTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: StatusDonutSlice }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const data = payload[0]?.payload;
+  if (!data) return null;
+  return (
+    <div
+      className="max-w-xs rounded-lg border border-slate-500/50 bg-[#1e293b] p-3 shadow-xl"
+      style={{ maxWidth: "min(18rem, calc(100vw - 2rem))" }}
+    >
+      <div className="mb-2 font-semibold text-slate-100">
+        {data.name}: {data.value}
+      </div>
+      {data.items.length > 0 ? (
+        <ul className="max-h-40 list-none space-y-1 overflow-y-auto break-words text-xs leading-snug text-slate-300">
+          {data.items.map((item, i) => (
+            <li key={`${data.status}-${i}`} className="pl-0">
+              <span className="text-slate-500">•</span> {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-slate-500">Нет задач в этой категории</p>
+      )}
+    </div>
+  );
+}
+
+/** Состояние фильтра диаграммы «План vs Факт»: `value` — месяц 1–12 или квартал 1–4. */
+type PlanFactChartFilter =
+  | { filterType: "all" }
+  | { filterType: "month"; value: number }
+  | { filterType: "quarter"; value: number };
+
+const QUARTER_FILTER_BUTTONS: { value: number; label: string; range: string }[] = [
+  { value: 1, label: "Q1", range: "Янв–Мар" },
+  { value: 2, label: "Q2", range: "Апр–Июн" },
+  { value: 3, label: "Q3", range: "Июл–Сен" },
+  { value: 4, label: "Q4", range: "Окт–Дек" },
+];
+
+const MONTH_FILTER_BUTTONS: { value: number; label: string }[] = [
+  { value: 1, label: "Янв" },
+  { value: 2, label: "Фев" },
+  { value: 3, label: "Мар" },
+  { value: 4, label: "Апр" },
+  { value: 5, label: "Май" },
+  { value: 6, label: "Июн" },
+  { value: 7, label: "Июл" },
+  { value: 8, label: "Авг" },
+  { value: 9, label: "Сен" },
+  { value: 10, label: "Окт" },
+  { value: 11, label: "Ноя" },
+  { value: 12, label: "Дек" },
+];
+
+function periodFilterToArgs(f: PlanFactChartFilter): {
+  filterType: PlanFactPeriodFilterType;
+  value?: number;
+} {
+  if (f.filterType === "all") return { filterType: "all" };
+  return { filterType: f.filterType, value: f.value };
+}
+
+function filterChipClass(active: boolean) {
+  return [
+    "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+    active
+      ? "border-sky-400/80 bg-sky-500/25 text-sky-100 shadow-[0_0_0_1px_rgba(56,189,248,0.35)]"
+      : "border-slate-600 bg-slate-900/35 text-slate-300 hover:border-slate-500 hover:bg-slate-800/50",
+  ].join(" ");
+}
+
+function inferGroup(task: GPRTask): GroupKey {
+  const n = `${task.code} ${task.name}`.toLowerCase();
+  if (/благоустрой|озелен|тротуар|покрыт|дорож|асфальт/.test(n)) return "improve";
+  if (/сет|теплов|водопровод|канализ|электр|слаботоч/.test(n)) return "network";
+  if (/подготов|снос|вынос|времен|площадк|территор/.test(n)) return "prep";
+  return "build";
+}
+
+/**
+ * Общий % по части: взвешенное по длительности плана выполнение корневых этапов
+ * (prep*prepDuration + build*buildDuration + …) / sum(planDuration).
+ * Не требует полных фактов по срокам — опирается на % выполнения карточек этапов.
+ * totalDeviation — взвешенное по плану отклонение по сроку (цвет карточки).
+ */
+function computePartAggregate(
+  tasks: GPRTask[],
+  rootCodes: readonly string[],
+  partKey: ProjectPartKey,
+): {
+  totalPercent: number | null;
+  totalDeviation: number | null;
+  stages: AggregateStageBreakdown[];
+} {
+  let weightedCompletionSum = 0;
+  let sumPlanForCompletionWeight = 0;
+  let weightedDevSum = 0;
+  let sumPlanForDeviationWeight = 0;
+  let sumPlanForWeights = 0;
+  const stages: AggregateStageBreakdown[] = [];
+
+  let residentialStageIndex = 0;
+  for (const code of rootCodes) {
+    const t = tasks.find(
+      (x) => x.code.trim() === code && (x.level ?? x.code.split(".").length - 1) === 1,
+    );
+    if (!t) continue;
+
+    const planD = daysInclusive(t.planStart, t.planEnd);
+    if (planD !== null && planD > 0) sumPlanForWeights += planD;
+
+    const composeTitle =
+      partKey === "residential" && residentialStageIndex < RESIDENTIAL_AGGREGATE_STAGE_TITLES.length
+        ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
+        : t.name;
+    const weightShortLabel =
+      partKey === "residential" && residentialStageIndex < RESIDENTIAL_WEIGHT_LABELS.length
+        ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
+        : shortWeightLabelForPart(t.name, residentialStageIndex);
+    residentialStageIndex += 1;
+
+    const c = Math.max(0, Math.min(100, Number(t.completion) || 0));
+    stages.push({
+      composeTitle,
+      weightShortLabel,
+      completion: c,
+      planDays: planD,
+      weightPercent: null,
+    });
+
+    if (planD !== null && planD > 0) {
+      weightedCompletionSum += c * planD;
+      sumPlanForCompletionWeight += planD;
+    }
+
+    const d = calculateDeviation(t);
+    if (d !== null && planD !== null && planD > 0) {
+      weightedDevSum += d * planD;
+      sumPlanForDeviationWeight += planD;
+    }
+  }
+
+  if (sumPlanForWeights > 0) {
+    for (const s of stages) {
+      if (s.planDays !== null && s.planDays > 0) {
+        s.weightPercent = Math.round((s.planDays / sumPlanForWeights) * 1000) / 10;
+      }
+    }
+  }
+
+  const totalPercent =
+    sumPlanForCompletionWeight > 0
+      ? Math.round((weightedCompletionSum / sumPlanForCompletionWeight) * 10) / 10
+      : null;
+
+  const totalDeviation =
+    sumPlanForDeviationWeight > 0
+      ? weightedDevSum / sumPlanForDeviationWeight
+      : null;
+
+  return { totalPercent, totalDeviation, stages };
+}
+
+/** Цвет этапа только по отклонению корневой работы (как у карточек % выполнения). */
+function stageAccentFromTotalDeviation(totalDeviation: number | null): string {
+  if (totalDeviation === null) return "#64748b";
+  const status = getProjectStatus(totalDeviation);
+  if (status === "success") return COLORS.green;
+  if (status === "warning") return COLORS.yellow;
+  return COLORS.red;
+}
+
+function trafficStatusForTask(task: GPRTask): {
+  status: Traffic;
+  planDays: number | null;
+  factDays: number | null;
+  deviationDays: number | null;
+} {
+  const planDays = daysInclusive(task.planStart, task.planEnd);
+  if (planDays === null) return { status: "gray", planDays: null, factDays: null, deviationDays: null };
+  const factDays = daysInclusive(task.factStart, task.factEnd);
+  const deviationDays = calculateDeviation(task);
+  if (deviationDays === null) return { status: "gray", planDays, factDays, deviationDays: null };
+  const st = getStatusByDeviation(deviationDays);
+  return { status: st as Traffic, planDays, factDays, deviationDays };
+}
+
+function kpiCard({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  color: keyof typeof COLORS;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium text-slate-300">{label}</div>
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: COLORS[color] }}
+          aria-hidden
+        />
+      </div>
+      <div className="mt-2 text-3xl font-bold text-slate-50 tabular-nums">{value}</div>
+    </div>
+  );
+}
 
 function getProjectCompletion(tasks: GPRTask[]) {
   const all = flattenTasks(tasks);
@@ -17,87 +510,474 @@ function getProjectCompletion(tasks: GPRTask[]) {
 export function GPRAnalytics({
   tasks,
   mode,
+  activePartId,
 }: {
   tasks: GPRTask[];
   mode: "edit" | "view";
+  /** Часть проекта для графика «ГПР — ТМЦ» (только ТМЦ этой части). */
+  activePartId: number;
 }) {
-  const metrics = getProjectStats(tasks);
-  const projectCompletion = getProjectCompletion(tasks);
-  const flatTasks = flattenTasks(tasks);
-  const inTimeTasks = metrics.statusCounts.green;
-  const riskLongTasks = flatTasks.filter((task) => {
-    const duration = Math.max(
-      1,
-      Math.round(
-        (new Date(`${task.planEnd}T00:00:00`).getTime() -
-          new Date(`${task.planStart}T00:00:00`).getTime()) /
-          (1000 * 60 * 60 * 24),
-      ) + 1,
-    );
-    return duration > 14;
-  }).length;
+  const pathname = usePathname();
+  const isPresentationRoute = pathname.startsWith("/presentation");
+  const activeProjectPart = partIdToProjectPartKey(activePartId);
+  const activePartLabel =
+    PROJECT_PARTS.find((p) => p.id === activePartId)?.name ?? "Часть проекта";
 
-  const totalStatus = Math.max(
-    1,
-    metrics.statusCounts.green + metrics.statusCounts.yellow + metrics.statusCounts.red,
+  /** Только задачи выбранной части (жилой дом / автостоянка) — ГПР, donut, «План vs Факт». */
+  const tasksForActivePart = useMemo(
+    () => tasks.filter((t) => t.partId === activePartId),
+    [tasks, activePartId],
   );
 
-  const greenPercent = Math.round((metrics.statusCounts.green / totalStatus) * 100);
-  const yellowPercent = Math.round((metrics.statusCounts.yellow / totalStatus) * 100);
-  const redPercent = 100 - greenPercent - yellowPercent;
+  const partProgressAggregate = useMemo(
+    () =>
+      computePartAggregate(
+        tasksForActivePart,
+        AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
+        activeProjectPart,
+      ),
+    [tasksForActivePart, activeProjectPart],
+  );
+  const orderedStageRoots = useMemo(() => {
+    const codes = AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
+    return codes
+      .map((code) =>
+        tasksForActivePart.find(
+          (t) =>
+            t.code.trim() === code && (t.level ?? t.code.split(".").length - 1) === 1,
+        ),
+      )
+      .filter((t): t is GPRTask => t != null);
+  }, [tasksForActivePart, activeProjectPart]);
 
-  const pieStyle = {
-    background: `conic-gradient(
-      #10b981 0% ${greenPercent}%,
-      #f59e0b ${greenPercent}% ${greenPercent + yellowPercent}%,
-      #ef4444 ${greenPercent + yellowPercent}% 100%
-    )`,
-  };
-
-  const chartDomain = Math.max(1, Math.abs(metrics.avgDeviation), 3);
-  const chartHeight = 70;
-  const baselineY = 110;
-  const actualY = baselineY - (metrics.avgDeviation / chartDomain) * chartHeight;
-  const actualBarY = Math.min(actualY, baselineY);
-  const actualBarHeight = Math.max(2, Math.abs(baselineY - actualY));
+  /** Сид + localStorage (как в TMCSection), затем жёсткая фильтрация по части проекта для графика. */
+  const tmcItemsForPart = useMemo(() => {
+    if (typeof window === "undefined") {
+      return getTmcData(activeProjectPart);
+    }
+    try {
+      const raw = window.localStorage.getItem("gordo_tmc_snapshot");
+      const merged = mergeTmcSnapshotWithSeed(raw ? (JSON.parse(raw) as unknown) : undefined);
+      return filterTmcByProjectPart(merged, activeProjectPart);
+    } catch {
+      return getTmcData(activeProjectPart);
+    }
+  }, [activeProjectPart]);
+  const metrics = getProjectStats(tasksForActivePart);
+  const projectCompletion = getProjectCompletion(tasksForActivePart);
+  const flatTasks = flattenTasks(tasksForActivePart);
   const projectStatus = getStatusByDeviation(metrics.avgDeviation);
   const todayIso = new Date().toISOString().slice(0, 10);
+  const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
+  const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
+  const [tenderRevision, setTenderRevision] = useState(0);
 
-  // Aggregate to avoid per-row noise: show only top-level stages (e.g. codes without ".")
-  const chartData: Array<{ name: string; plan: number; fact: number }> =
-    flatTasks
-      .filter((task) => !task.code.includes("."))
-      .sort((a, b) => toDate(a.planStart).getTime() - toDate(b.planStart).getTime())
+  useEffect(() => {
+    const bump = () => setTenderRevision((x) => x + 1);
+    window.addEventListener("gordo-tenders-saved", bump);
+    return () => window.removeEventListener("gordo-tenders-saved", bump);
+  }, []);
+
+  useEffect(() => {
+    setActiveGroup(null);
+  }, [activeProjectPart]);
+
+  useEffect(() => {
+    setPlanFactFilter({ filterType: "all" });
+  }, [activePartId]);
+
+  const tendersForActivePart: Tender[] = useMemo(() => {
+    void tenderRevision;
+    const merged =
+      typeof window !== "undefined"
+        ? mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage())
+        : mergeTenderSnapshotWithSeed(undefined);
+    return merged.filter((t) => t.partId === activePartId);
+  }, [activePartId, tenderRevision]);
+
+  const planFactFilteredTasks = useMemo(() => {
+    const { filterType, value } = periodFilterToArgs(planFactFilter);
+    return filterByPeriod(flatTasks, filterType, value);
+  }, [flatTasks, planFactFilter]);
+
+  /** Задачи с полными интервалами план/факт, с учётом фильтра по месяцу начала плана. */
+  const chartData = useMemo(() => {
+    return planFactFilteredTasks
       .map((task) => {
-        const plan = durationDays(task.planStart, task.planEnd);
-        const factStart = task.factStart ?? task.planStart;
-        const factEnd = task.factEnd ?? todayIso;
-        const fact = durationDays(factStart, factEnd);
-        return { name: task.name, plan, fact };
-      });
+        const plan = daysInclusive(task.planStart, task.planEnd);
+        const fact =
+          task.factStart && task.factEnd ? daysInclusive(task.factStart, task.factEnd) : null;
+        if (plan === null || fact === null) return null;
+        if (!Number.isFinite(plan) || !Number.isFinite(fact)) return null;
+        if (plan <= 0 || fact <= 0) return null;
+        return { name: task.code, plan, fact };
+      })
+      .filter(Boolean) as Array<{ name: string; plan: number; fact: number }>;
+  }, [planFactFilteredTasks]);
+
+  const traffic = useMemo(() => {
+    const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
+    const rows: TrafficRow[] = flatTasks.map((t) => ({ task: t, ...trafficStatusForTask(t) }));
+    for (const r of rows) counts[r.status] += 1;
+    return { counts, rows };
+  }, [flatTasks]);
+
+  const {
+    totalPercent: aggTotalPercent,
+    totalDeviation: aggTotalDeviation,
+    stages: aggregateStages,
+  } = partProgressAggregate;
+
+  const aggregateProblemSignals = useMemo(
+    () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, todayIso),
+    [tasksForActivePart, tmcItemsForPart, todayIso],
+  );
+
+  const [aggregatePopoverOpen, setAggregatePopoverOpen] = useState(false);
+  const [aggregatePopoverPos, setAggregatePopoverPos] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const [aggregatePopoverEntered, setAggregatePopoverEntered] = useState(false);
+  const aggregateCardRef = useRef<HTMLButtonElement>(null);
+  const aggregatePopoverRef = useRef<HTMLDivElement>(null);
+  const [aggregatePortalMounted, setAggregatePortalMounted] = useState(false);
+
+  useEffect(() => {
+    setAggregatePortalMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!aggregatePopoverOpen) return;
+    setAggregatePopoverEntered(false);
+    const id = requestAnimationFrame(() => setAggregatePopoverEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, [aggregatePopoverOpen]);
+
+  useEffect(() => {
+    if (!aggregatePopoverOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (aggregateCardRef.current?.contains(t)) return;
+      if (aggregatePopoverRef.current?.contains(t)) return;
+      setAggregatePopoverOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAggregatePopoverOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [aggregatePopoverOpen]);
+
+  useEffect(() => {
+    if (!aggregatePopoverOpen) return;
+    const place = () => {
+      const el = aggregateCardRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const w = Math.min(360, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+      setAggregatePopoverPos({ top: r.bottom + 8, left });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [aggregatePopoverOpen]);
+
+  const statusDistributionGroups = useMemo(() => {
+    const m: Record<Traffic, TrafficRow[]> = { green: [], yellow: [], red: [], gray: [] };
+    for (const r of traffic.rows) m[r.status].push(r);
+    m.green.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
+    m.yellow.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.red.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.gray.sort((a, b) => a.task.name.localeCompare(b.task.name, "ru"));
+    return m;
+  }, [traffic.rows]);
+
+  const statusDonutData = useMemo((): StatusDonutSlice[] => {
+    const slice = (status: Traffic, name: string, fill: string): StatusDonutSlice => {
+      const rows = statusDistributionGroups[status];
+      return {
+        status,
+        name,
+        value: rows.length,
+        fill,
+        items: rows.map(formatStatusDonutItemLine),
+      };
+    };
+    return [
+      slice("green", "В срок", COLORS.green),
+      slice("yellow", "Риск", COLORS.yellow),
+      slice("red", "Отставание", COLORS.red),
+      slice("gray", "Нет данных", "#9ca3af"),
+    ];
+  }, [statusDistributionGroups]);
+
+  const tasksWithoutFactForStatusDistribution = useMemo(
+    () => tasksForActivePart.some((t) => !t.factEnd),
+    [tasksForActivePart],
+  );
+
+  const hasScheduleDeviationsForStatusDistribution = useMemo(
+    () => traffic.rows.some((r) => r.deviationDays !== null && r.deviationDays > 0),
+    [traffic.rows],
+  );
+
+  const hasTmcDelaysForStatusDistribution =
+    aggregateProblemSignals.notPurchased || aggregateProblemSignals.overdueDelivery;
+
+  const tenderRiskForStatusDistribution = useMemo(() => {
+    const stages = new Set<string>();
+    for (const t of tendersForActivePart) {
+      const s = getGprStageFromTenderCode(t.code);
+      if (s) stages.add(s);
+    }
+    let delayed = 0;
+    let risk = 0;
+    for (const s of stages) {
+      const ins = buildTenderStageInsight(tendersForActivePart, s);
+      delayed += ins.delayed;
+      risk += ins.risk;
+    }
+    return { delayed, risk };
+  }, [tendersForActivePart]);
+
+  const statusDistributionReasons = useMemo(
+    () =>
+      [
+        hasTmcDelaysForStatusDistribution ? "Есть просрочки по ТМЦ" : null,
+        hasScheduleDeviationsForStatusDistribution ? "Есть отклонения по срокам" : null,
+        tasksWithoutFactForStatusDistribution ? "Есть задачи без факта" : null,
+        tenderRiskForStatusDistribution.delayed > 0
+          ? `Задержка тендеров по договору (${tenderRiskForStatusDistribution.delayed})`
+          : null,
+        tenderRiskForStatusDistribution.risk > 0 && tenderRiskForStatusDistribution.delayed === 0
+          ? `Риск по тендерам (1–14 дн.): ${tenderRiskForStatusDistribution.risk}`
+          : null,
+      ].filter((x): x is string => x != null),
+    [
+      hasTmcDelaysForStatusDistribution,
+      hasScheduleDeviationsForStatusDistribution,
+      tasksWithoutFactForStatusDistribution,
+      tenderRiskForStatusDistribution.delayed,
+      tenderRiskForStatusDistribution.risk,
+    ],
+  );
+
+  const primaryStatusDistributionProblem = useMemo(() => {
+    const red = traffic.rows.filter((r) => r.status === "red");
+    if (red.length > 0) {
+      const w = red.reduce((a, b) =>
+        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+      );
+      const g = inferGroup(w.task);
+      const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
+      return `отставание на этапе «${stageTitle}»`;
+    }
+    const yellow = traffic.rows.filter((r) => r.status === "yellow");
+    if (yellow.length > 0) {
+      const w = yellow.reduce((a, b) =>
+        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+      );
+      const g = inferGroup(w.task);
+      const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
+      return `риски сроков на этапе «${stageTitle}»`;
+    }
+    if (hasTmcDelaysForStatusDistribution) return "просрочки и дефицит по ТМЦ";
+    if (tasksWithoutFactForStatusDistribution) return "задачи без фактического завершения по срокам";
+    return "критических проблем не выявлено";
+  }, [
+    traffic.rows,
+    tasksForActivePart,
+    hasTmcDelaysForStatusDistribution,
+    tasksWithoutFactForStatusDistribution,
+  ]);
+
+  const [statusDistributionPopoverOpen, setStatusDistributionPopoverOpen] = useState(false);
+  const [statusDistributionPopoverPos, setStatusDistributionPopoverPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [statusDistributionPopoverEntered, setStatusDistributionPopoverEntered] = useState(false);
+  const statusDistributionCardRef = useRef<HTMLButtonElement>(null);
+  const statusDistributionPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!statusDistributionPopoverOpen) return;
+    setStatusDistributionPopoverEntered(false);
+    const id = requestAnimationFrame(() => setStatusDistributionPopoverEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, [statusDistributionPopoverOpen]);
+
+  useEffect(() => {
+    if (!statusDistributionPopoverOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (statusDistributionCardRef.current?.contains(t)) return;
+      if (statusDistributionPopoverRef.current?.contains(t)) return;
+      setStatusDistributionPopoverOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatusDistributionPopoverOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [statusDistributionPopoverOpen]);
+
+  useEffect(() => {
+    if (!statusDistributionPopoverOpen) return;
+    const place = () => {
+      const el = statusDistributionCardRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const w = Math.min(400, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+      const estimatedH = Math.min(560, Math.max(320, window.innerHeight * 0.78));
+      const gap = 8;
+      const canPlaceBelow = r.bottom + gap + estimatedH <= window.innerHeight - 12;
+      const top = canPlaceBelow
+        ? r.bottom + gap
+        : Math.max(12, Math.min(window.innerHeight - estimatedH - 12, r.top - gap - estimatedH));
+      setStatusDistributionPopoverPos({ top, left });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [statusDistributionPopoverOpen]);
+
+  const scheduleLagForAggregate =
+    aggTotalDeviation !== null && aggTotalDeviation > 0;
+  const aggregatePopoverExplanation = useMemo(
+    () =>
+      buildAggregateProgressPopoverExplanation(
+        activeProjectPart,
+        aggregateStages,
+        {
+          notPurchased: aggregateProblemSignals.notPurchased,
+          overdueDelivery: aggregateProblemSignals.overdueDelivery,
+        },
+        scheduleLagForAggregate,
+      ),
+    [
+      activeProjectPart,
+      aggregateStages,
+      aggregateProblemSignals.notPurchased,
+      aggregateProblemSignals.overdueDelivery,
+      scheduleLagForAggregate,
+    ],
+  );
+  const deviationUiAgg =
+    aggTotalDeviation === null ? null : getStatusByDeviation(aggTotalDeviation);
+  const statusAgg: Traffic =
+    aggTotalDeviation === null ? "gray" : (deviationUiAgg as Traffic);
+  const accentAgg = stageAccentFromTotalDeviation(aggTotalDeviation);
+  const glowAgg =
+    statusAgg === "green"
+      ? "0 0 20px rgba(34,197,94,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+      : statusAgg === "yellow"
+        ? "0 0 20px rgba(245,158,11,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+        : statusAgg === "red"
+          ? "0 0 20px rgba(239,68,68,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+          : "0 0 20px rgba(100,116,139,0.3), 0 10px 30px rgba(0,0,0,0.3)";
+  const aggPctDisplay =
+    aggTotalPercent === null
+      ? "—"
+      : `${aggTotalPercent % 1 === 0 ? String(Math.round(aggTotalPercent)) : aggTotalPercent.toFixed(1)}%`;
+  const aggBarPct =
+    aggTotalPercent === null ? 0 : Math.max(0, Math.min(100, aggTotalPercent));
+
+  const handleAggregateCardClick = () => {
+    if (aggregatePopoverOpen) {
+      setAggregatePopoverOpen(false);
+      return;
+    }
+    setStatusDistributionPopoverOpen(false);
+    const el = aggregateCardRef.current;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      const w = Math.min(360, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+      setAggregatePopoverPos({ top: r.bottom + 8, left });
+    }
+    setAggregatePopoverOpen(true);
+  };
+
+  const handleStatusDistributionClick = () => {
+    if (statusDistributionPopoverOpen) {
+      setStatusDistributionPopoverOpen(false);
+      return;
+    }
+    setAggregatePopoverOpen(false);
+    const el = statusDistributionCardRef.current;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      const w = Math.min(400, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+      const estimatedH = Math.min(560, Math.max(320, window.innerHeight * 0.78));
+      const gap = 8;
+      const canPlaceBelow = r.bottom + gap + estimatedH <= window.innerHeight - 12;
+      const top = canPlaceBelow
+        ? r.bottom + gap
+        : Math.max(12, Math.min(window.innerHeight - estimatedH - 12, r.top - gap - estimatedH));
+      setStatusDistributionPopoverPos({ top, left });
+    }
+    setStatusDistributionPopoverOpen(true);
+  };
+
+  const aggregateLagDaysRounded =
+    aggTotalDeviation !== null && aggTotalDeviation > 0
+      ? Math.round(aggTotalDeviation)
+      : null;
+  const aggregateProblemsList = [
+    aggregateProblemSignals.notPurchased ? "Не закуплен материал (из ТМЦ)" : null,
+    aggregateLagDaysRounded !== null
+      ? `Есть отставание (+${aggregateLagDaysRounded} дн.)`
+      : null,
+    aggregateProblemSignals.overdueDelivery ? "Заблокировано" : null,
+    tenderRiskForStatusDistribution.delayed > 0 || tenderRiskForStatusDistribution.risk > 0
+      ? "Влияние тендеров: по кодам этапов есть отклонения дат договоров от плана"
+      : null,
+  ].filter((x): x is string => x != null);
 
   if (mode === "edit") {
     return (
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-          <div className="rounded bg-slate-50 p-3">
-            <p className="text-slate-500">Всего задач</p>
-            <p className="mt-1 text-xl font-semibold text-slate-900">{metrics.total}</p>
-          </div>
-          <div className="rounded bg-slate-50 p-3">
-            <p className="text-slate-500">Завершено</p>
-            <p className="mt-1 text-xl font-semibold text-slate-900">{metrics.completed}</p>
-          </div>
-          <div className="rounded bg-slate-50 p-3">
-            <p className="text-slate-500">Просрочено</p>
-            <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
-          </div>
-          <div className="rounded bg-slate-50 p-3">
-            <p className="text-slate-500">Ср. отклонение</p>
-            <p className="mt-1 text-xl font-semibold text-slate-900">
-              {metrics.avgDeviation > 0 ? "+" : ""}
-              {metrics.avgDeviation} дн.
-            </p>
+      <section className="space-y-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div className="rounded bg-slate-50 p-3">
+              <p className="text-slate-500">Всего задач</p>
+              <p className="mt-1 text-xl font-semibold text-slate-900">{metrics.total}</p>
+            </div>
+            <div className="rounded bg-slate-50 p-3">
+              <p className="text-slate-500">Завершено</p>
+              <p className="mt-1 text-xl font-semibold text-slate-900">{metrics.completed}</p>
+            </div>
+            <div className="rounded bg-slate-50 p-3">
+              <p className="text-slate-500">Просрочено</p>
+              <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
+            </div>
+            <div className="rounded bg-slate-50 p-3">
+              <p className="text-slate-500">Ср. отклонение</p>
+              <p className="mt-1 text-xl font-semibold text-slate-900">
+                {metrics.avgDeviation > 0 ? "+" : ""}
+                {metrics.avgDeviation} дн.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -106,242 +986,893 @@ export function GPRAnalytics({
 
   return (
     <section className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">% выполнения</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{projectCompletion}%</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Задач в срок</p>
-          <p className="mt-2 text-3xl font-semibold text-emerald-600">{inTimeTasks}</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Просроченные задачи</p>
-          <p className="mt-2 text-3xl font-semibold text-rose-600">{metrics.overdue}</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Задачи &gt; 14 дней</p>
-          <p className="mt-2 text-3xl font-semibold text-amber-600">{riskLongTasks}</p>
-        </div>
-      </div>
+      <div className="top-cards">
+        {orderedStageRoots.map((task) => {
+          const deviation = calculateDeviation(task);
+          const deviationLabel =
+            deviation === null ? "—" : deviation > 0 ? `+${deviation}` : `${deviation}`;
+          const progress = task.completion || 0;
+          const isNoData = progress === 0;
+          const deviationUi = deviation === null ? null : getStatusByDeviation(deviation);
+          const status: Traffic =
+            isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
+          const accent =
+            status === "green"
+              ? COLORS.green
+              : status === "yellow"
+                ? COLORS.yellow
+                : status === "red"
+                  ? COLORS.red
+                  : "#64748b";
+          const glow =
+            status === "green"
+              ? "0 0 20px rgba(34,197,94,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+              : status === "yellow"
+                ? "0 0 20px rgba(245,158,11,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+                : status === "red"
+                  ? "0 0 20px rgba(239,68,68,0.3), 0 10px 30px rgba(0,0,0,0.3)"
+                  : "0 0 20px rgba(100,116,139,0.3), 0 10px 30px rgba(0,0,0,0.3)";
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900">Отклонение (план vs факт)</h3>
-          <p className="mt-2 text-xs text-slate-500">
-            Агрегированное сравнение по проекту: план (0) и среднее отклонение факта.
-          </p>
-          <svg viewBox="0 0 280 150" className="mt-4 w-full">
-            <line x1="25" y1={baselineY} x2="250" y2={baselineY} stroke="#cbd5e1" strokeWidth="1.5" />
-            <line x1="25" y1="30" x2="25" y2="130" stroke="#cbd5e1" strokeWidth="1.5" />
-            <rect x="80" y={baselineY - 2} width="38" height="2" rx="2" fill="#64748b" />
-            <rect
-              x="160"
-              y={actualBarY}
-              width="38"
-              height={actualBarHeight}
-              rx="4"
-              fill={metrics.avgDeviation <= 0 ? "#10b981" : "#ef4444"}
-            />
-            <text x="99" y="145" textAnchor="middle" fontSize="11" fill="#64748b">
-              План
-            </text>
-            <text x="179" y="145" textAnchor="middle" fontSize="11" fill="#64748b">
-              Факт
-            </text>
-            <text x="140" y="145" textAnchor="middle" fontSize="11" fill="#0f172a">
-              Проект
-            </text>
-          </svg>
-        </div>
+          return (
+            <div
+              key={task.id}
+              className={`top-card card relative w-full overflow-hidden rounded-[20px] border border-white/10 bg-white/5 p-6 backdrop-blur-[12px] ${
+                status === "green"
+                  ? "status-green"
+                  : status === "yellow"
+                    ? "status-yellow"
+                    : status === "red"
+                      ? "status-red"
+                      : "status-gray"
+              } border-l-[6px]`}
+              style={{ borderLeftColor: accent, boxShadow: glow }}
+            >
+              <div>
+                <div className="text-base font-semibold text-slate-200">{task.name}</div>
+                <div className="mt-3 flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-slate-300">% выполнения</div>
+                    <div className="mt-1 text-[34px] font-bold text-white tabular-nums leading-none">
+                      {task.completion}%
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-slate-300">
+                    <div className="text-xs text-slate-400">Отклонение</div>
+                    <div
+                      className="mt-1 text-lg font-semibold tabular-nums"
+                      style={{
+                        color:
+                          deviationUi === null
+                            ? COLORS.gray
+                            : deviationUi === "green"
+                              ? COLORS.green
+                              : deviationUi === "yellow"
+                                ? COLORS.yellow
+                                : COLORS.red,
+                      }}
+                    >
+                      {deviationLabel} дн.
+                    </div>
+                  </div>
+                </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900">Динамика сроков</h3>
-          <p className="mt-2 text-xs text-slate-500">
-            Распределение задач по статусам и риск-профилю проекта.
-          </p>
-          <div className="mt-4 flex items-center gap-5">
-            <div className="h-36 w-36 rounded-full" style={pieStyle} />
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2 text-slate-700">
-                <span className="h-3 w-3 rounded-full bg-emerald-500" />
-                В срок: {metrics.statusCounts.green} ({greenPercent}%)
+                <div className="mt-4">
+                  <div className="h-1.5 w-full rounded-full bg-white/10">
+                    <div
+                      className="h-1.5 rounded-full"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, task.completion))}%`,
+                        backgroundColor: accent,
+                      }}
+                      aria-hidden
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-slate-700">
-                <span className="h-3 w-3 rounded-full bg-amber-500" />
-                Риск: {metrics.statusCounts.yellow} ({yellowPercent}%)
-              </div>
-              <div className="flex items-center gap-2 text-slate-700">
-                <span className="h-3 w-3 rounded-full bg-rose-500" />
-                Просрочка: {metrics.statusCounts.red} ({redPercent}%)
+            </div>
+          );
+        })}
+        <button
+          key="part-aggregate"
+          type="button"
+          ref={aggregateCardRef}
+          onClick={handleAggregateCardClick}
+          aria-expanded={aggregatePopoverOpen}
+          aria-haspopup="dialog"
+          title="Нажмите для пояснения расчёта"
+          className={`top-card card relative w-full overflow-hidden rounded-[20px] border border-white/10 bg-white/5 p-6 text-left backdrop-blur-[12px] transition-colors hover:bg-white/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+            statusAgg === "green"
+              ? "status-green"
+              : statusAgg === "yellow"
+                ? "status-yellow"
+                : statusAgg === "red"
+                  ? "status-red"
+                  : "status-gray"
+          } cursor-pointer border-l-[6px]`}
+          style={{ borderLeftColor: accentAgg, boxShadow: glowAgg }}
+        >
+          <div>
+            <div className="text-base font-semibold text-slate-200">
+              {PART_SHORT_TITLE[activeProjectPart]}
+            </div>
+            <div className="mt-1 text-xs font-medium text-slate-400">Общий прогресс</div>
+            <div className="mt-3 text-[34px] font-bold text-white tabular-nums leading-none">
+              {aggPctDisplay}
+            </div>
+            <div className="mt-4">
+              <div className="h-1.5 w-full rounded-full bg-white/10">
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{
+                    width: `${aggBarPct}%`,
+                    backgroundColor: accentAgg,
+                  }}
+                  aria-hidden
+                />
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-slate-900">
-          План vs Факт (длительность)
-        </h3>
-        <p className="mt-2 text-xs text-slate-500">
-          Плановые сроки (синяя линия) и фактическое выполнение (красная линия).
-        </p>
-
-        {(() => {
-          const n = chartData.length;
-          const maxY = Math.max(1, ...chartData.flatMap((d) => [d.plan, d.fact]));
-          const paddingLeft = 44;
-          const paddingRight = 16;
-          const paddingTop = 18;
-          const paddingBottom = 28;
-          const width = 280;
-          const height = 100;
-          const chartW = width - paddingLeft - paddingRight;
-          const chartH = height - paddingTop - paddingBottom;
-          const y0 = paddingTop + chartH;
-          const xAt = (index: number) =>
-            paddingLeft + (n === 1 ? chartW / 2 : (index * chartW) / (n - 1));
-          const yAt = (value: number) => paddingTop + (1 - value / maxY) * chartH;
-
-          const planPath = chartData
-            .map((d, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(d.plan)}`)
-            .join(" ");
-          const factPath = chartData
-            .map((d, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(d.fact)}`)
-            .join(" ");
-
-          const yTicks = [0, Math.round(maxY / 2), maxY];
-
-          return (
-            <>
-              <svg viewBox="0 0 280 100" className="mt-4 w-full">
-              {/* Grid + Axes */}
-              {/* Vertical grid lines */}
-              {chartData.map((d, i) => {
-                const cx = xAt(i);
-                return (
-                  <line
-                    key={`vx-${d.name}-${i}`}
-                    x1={cx}
-                    y1={paddingTop}
-                    x2={cx}
-                    y2={y0}
-                    stroke="#e5e7eb"
-                    strokeWidth="1"
-                  />
-                );
-              })}
-
-                <line
-                  x1={paddingLeft}
-                  y1={y0}
-                  x2={width - paddingRight}
-                  y2={y0}
-                  stroke="#e5e7eb"
-                  strokeWidth="1"
-                />
-                <line
-                  x1={paddingLeft}
-                  y1={paddingTop}
-                  x2={paddingLeft}
-                  y2={y0}
-                  stroke="#e5e7eb"
-                  strokeWidth="1"
-                />
-
-                {/* Y ticks */}
-                {yTicks.map((t) => {
-                  const y = yAt(t);
-                  return (
-                    <g key={`yt-${t}`}>
-                      <line
-                        x1={paddingLeft - 4}
-                        y1={y}
-                        x2={paddingLeft}
-                        y2={y}
-                        stroke="#e5e7eb"
-                        strokeWidth="1"
-                      />
-                      <text
-                        x={paddingLeft - 8}
-                        y={y + 4}
-                        textAnchor="end"
-                        fontSize="10"
-                        fill="#64748b"
-                      >
-                        {t}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Plan line */}
-                <path
-                  d={planPath}
-                  fill="none"
-                  stroke="#64748b"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-
-                {/* Fact line */}
-                <path
-                  d={factPath}
-                  fill="none"
-                  stroke="#ef4444"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-
-                {/* Hit areas + Tooltip (no visible dots) */}
-                {chartData.map((d, i) => {
-                  const cx = xAt(i);
-                  const cyPlan = yAt(d.plan);
-                  const cyFact = yAt(d.fact);
-                  const deviation = d.fact - d.plan;
-                  const deviationText =
-                    deviation >= 0
-                      ? `+${deviation} дней`
-                      : `-${Math.abs(deviation)} дней`;
-                  const stageLabel = `Этап ${i + 1}`;
-                  return (
-                    <g key={`hit-${d.name}-${i}`}>
-                      <circle cx={cx} cy={cyFact} r={8} opacity={0}>
-                        <title>
-                          {`${d.name}\n${stageLabel}\nПлан: ${d.plan} дн.\nФакт: ${d.fact} дн.\nОтклонение (Факт - План): ${deviationText}`}
-                        </title>
-                      </circle>
-                      <text
-                        x={cx}
-                        y={y0 + 16}
-                        textAnchor="middle"
-                        fontSize="10"
-                        fill="#64748b"
-                      >
-                        {stageLabel}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-
-              <div className="mt-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <span className="h-2 w-2 rounded-full bg-[#64748b]" />
-                  План
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <span className="h-2 w-2 rounded-full bg-[#ef4444]" />
-                  Факт
+        </button>
+        {aggregatePortalMounted &&
+          aggregatePopoverOpen &&
+          aggregatePopoverPos &&
+          createPortal(
+            <div
+              ref={aggregatePopoverRef}
+              role="dialog"
+              aria-label="Пояснение: общий прогресс"
+              className={`fixed z-[200] w-[min(360px,calc(100vw-24px))] max-h-[min(520px,85vh)] overflow-y-auto rounded-xl border border-slate-500/45 bg-[#1e293b] p-[14px] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+                aggregatePopoverEntered ? "opacity-100 scale-100" : "opacity-0 scale-[0.98]"
+              }`}
+              style={{
+                top: aggregatePopoverPos.top,
+                left: aggregatePopoverPos.left,
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-white/10 pb-3">
+                <div className="text-sm font-semibold text-slate-100">
+                  Общий прогресс: {aggPctDisplay}
                 </div>
               </div>
-            </>
+
+              <div className="mt-3 space-y-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Состав
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
+                    {aggregateStages.map((s, i) => (
+                      <li key={`agg-stage-${i}`}>
+                        {s.composeTitle} — {Math.round(s.completion)}%
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Пояснение
+                  </div>
+                  <div className="mt-2 space-y-2 text-xs leading-relaxed text-slate-300">
+                    {aggregatePopoverExplanation.map((paragraph, i) => (
+                      <p key={`agg-expl-${i}`}>{paragraph}</p>
+                    ))}
+                  </div>
+                </div>
+
+                {aggregateProblemsList.length > 0 ? (
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Проблемы
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
+                      {aggregateProblemsList.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )}
+      </div>
+
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-50">
+                План vs Факт (длительность, дни)
+              </h3>
+              <p className="mt-1 text-xs font-medium text-sky-200/90">
+                Часть проекта: {activePartLabel}
+              </p>
+              <p className="mt-2 text-xs text-slate-300">
+                План — {COLORS.gray}. Факт — зелёный, если ≤ плана; красный, если &gt; плана. Отбор по месяцу
+                начала плана (<span className="font-mono text-slate-200">planStart</span>): все данные, квартал
+                или месяц. На диаграмме только задачи этой части проекта. Значок ⚠ у кода задачи: по корню кода (
+                <span className="font-mono text-slate-200">2.xx</span> из шифра) есть риск или отставание по
+                тендерам — см. подсказку при наведении.
+              </p>
+            </div>
+            <div className="text-xs text-slate-300">
+              <span className="font-medium text-slate-100">Статус проекта:</span>{" "}
+              <span
+                className="ml-1 inline-flex items-center rounded-full px-2 py-0.5"
+                style={{
+                  backgroundColor:
+                    projectStatus === "green"
+                      ? "rgba(34,197,94,0.15)"
+                      : projectStatus === "yellow"
+                        ? "rgba(245,158,11,0.15)"
+                        : "rgba(239,68,68,0.15)",
+                  color:
+                    projectStatus === "green"
+                      ? COLORS.green
+                      : projectStatus === "yellow"
+                        ? COLORS.yellow
+                        : COLORS.red,
+                }}
+              >
+                {projectStatus === "green" ? "В срок" : projectStatus === "yellow" ? "Риск" : "Просрочка"}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Период</span>
+            <button
+              type="button"
+              className={filterChipClass(planFactFilter.filterType === "all")}
+              onClick={() => setPlanFactFilter({ filterType: "all" })}
+            >
+              Все
+            </button>
+            {QUARTER_FILTER_BUTTONS.map((q) => {
+              const active = planFactFilter.filterType === "quarter" && planFactFilter.value === q.value;
+              return (
+                <button
+                  key={q.label}
+                  type="button"
+                  title={q.range}
+                  className={filterChipClass(active)}
+                  onClick={() => setPlanFactFilter({ filterType: "quarter", value: q.value })}
+                >
+                  {q.label}{" "}
+                  <span className="text-[10px] font-normal text-slate-400">({q.range})</span>
+                </button>
+              );
+            })}
+            {MONTH_FILTER_BUTTONS.map((m) => {
+              const active = planFactFilter.filterType === "month" && planFactFilter.value === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  className={filterChipClass(active)}
+                  onClick={() => setPlanFactFilter({ filterType: "month", value: m.value })}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 h-[320px] w-full">
+            {chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+                {planFactFilter.filterType === "all"
+                  ? "Нет задач с парами дат план/факт для расчёта длительности (дни)."
+                  : "Нет задач с план/факт в выбранном периоде (по дате начала плана)."}
+              </div>
+            ) : (
+              (() => {
+                const labels = chartData.map((d) => {
+                  const stage = getGprStageFromTenderCode(d.name);
+                  const warn = stage ? tenderStageHasContractRisk(tendersForActivePart, stage) : false;
+                  return warn ? `${d.name} ⚠` : d.name;
+                });
+                const planArr = chartData.map((d) => d.plan);
+                const factArr = chartData.map((d) => d.fact);
+                const deviationFloating = planArr.map((p, i) => {
+                  const f = factArr[i]!;
+                  return [Math.min(p, f), Math.max(p, f)] as [number, number];
+                });
+
+                return (
+              <Chart
+                type="bar"
+                data={{
+                  labels,
+                  datasets: [
+                    {
+                      // вертикальные зоны МЕЖДУ линиями (floating bars)
+                      type: "bar" as const,
+                      label: "",
+                      data: deviationFloating,
+                      borderWidth: 0,
+                      barThickness: 16,
+                      order: 1,
+                      backgroundColor: (ctx: any) => {
+                        const i = ctx.dataIndex as number;
+                        const plan = planArr[i];
+                        const fact = factArr[i];
+                        if (typeof plan !== "number" || typeof fact !== "number") return "rgba(148,163,184,0.10)";
+                        const diff = fact - plan;
+                        return diff <= 0 ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
+                      },
+                    },
+                    {
+                      type: "line" as const,
+                      label: "План",
+                      data: planArr,
+                      borderColor: "#94a3b8",
+                      backgroundColor: "#94a3b8",
+                      borderWidth: 2,
+                      opacity: 0.5,
+                      tension: 0.4,
+                      pointRadius: 3,
+                      pointHoverRadius: 4,
+                      pointBackgroundColor: "#94a3b8",
+                      pointBorderColor: "#94a3b8",
+                      order: 1,
+                    },
+                    {
+                      type: "line" as const,
+                      label: "Факт",
+                      data: factArr,
+                      borderWidth: 3,
+                      tension: 0.4,
+                      pointRadius: 4,
+                      pointHoverRadius: 5,
+                      segment: {
+                        borderColor: (ctx: any) => {
+                          const i = ctx.p1DataIndex as number;
+                          const plan = planArr[i];
+                          const fact = factArr[i];
+                          if (typeof plan !== "number" || typeof fact !== "number") return "#cbd5e1";
+                          return fact <= plan ? "#22c55e" : "#ef4444";
+                        },
+                      },
+                      borderColor: "#22c55e",
+                      pointBackgroundColor: (ctx: any) => {
+                        const i = ctx.dataIndex as number;
+                        const plan = planArr[i];
+                        const fact = factArr[i];
+                        if (typeof plan !== "number" || typeof fact !== "number") return "#94a3b8";
+                        return fact <= plan ? "#22c55e" : "#ef4444";
+                      },
+                      pointBorderColor: "rgba(255,255,255,0.25)",
+                      order: 2,
+                    },
+                  ],
+                } as any}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: {
+                      position: "bottom",
+                      labels: {
+                        color: "#cbd5f5",
+                        filter: (item: any) => item.datasetIndex !== 0,
+                      },
+                    },
+                    tooltip: {
+                      enabled: true,
+                      backgroundColor: "rgba(15,23,42,0.92)",
+                      borderColor: "rgba(148,163,184,0.35)",
+                      borderWidth: 1,
+                      titleColor: "#e2e8f0",
+                      bodyColor: "#e2e8f0",
+                      callbacks: {
+                        afterBody: (tooltipItems: { dataIndex?: number }[]) => {
+                          const ti = tooltipItems[0];
+                          const idx = ti?.dataIndex;
+                          if (typeof idx !== "number") return [];
+                          const row = chartData[idx];
+                          if (!row) return [];
+                          const stage = getGprStageFromTenderCode(row.name);
+                          if (!stage) return [];
+                          const insight = buildTenderStageInsight(tendersForActivePart, stage);
+                          if (insight.delayed === 0 && insight.risk === 0) return [];
+                          const lines: string[] = [
+                            "",
+                            "──────────",
+                            `Тендеры (этап ${insight.stage})`,
+                          ];
+                          if (insight.delayed > 0) {
+                            lines.push("Причина: задержка тендеров");
+                            lines.push(`Кол-во: ${insight.delayed}`);
+                            if (
+                              insight.maxPositiveDeviation != null &&
+                              insight.maxPositiveDeviation > 14
+                            ) {
+                              lines.push(`Макс отклонение: +${insight.maxPositiveDeviation} дн.`);
+                            }
+                          }
+                          if (insight.risk > 0) {
+                            lines.push(`Риск (1–14 дн.): ${insight.risk}`);
+                          }
+                          if (insight.examples.length > 0) {
+                            lines.push("Примеры:");
+                            insight.examples.forEach((ex) => lines.push(` • ${ex}`));
+                          }
+                          return lines;
+                        },
+                      },
+                    },
+                  },
+                  scales: {
+                    x: {
+                      grid: { color: "rgba(148,163,184,0.18)" },
+                      ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true },
+                    },
+                    y: {
+                      grid: { color: "rgba(148,163,184,0.18)" },
+                      ticks: { color: "#94a3b8" },
+                    },
+                  },
+                }}
+              />
+                );
+              })()
+            )}
+          </div>
+        </div>
+
+        <>
+          <button
+            type="button"
+            ref={statusDistributionCardRef}
+            onClick={handleStatusDistributionClick}
+            aria-expanded={statusDistributionPopoverOpen}
+            aria-haspopup="dialog"
+            title="Нажмите для детализации по задачам"
+            className="flex h-full w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a]"
+          >
+            <h3 className="text-lg font-semibold text-slate-50">Распределение статусов</h3>
+            <p className="mt-2 text-xs text-slate-300">
+              Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
+            </p>
+            <div className="mt-4 h-[220px] w-full">
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                  <Tooltip content={StatusDistributionPieTooltip} />
+                  <Pie
+                    data={statusDonutData}
+                    dataKey="value"
+                    nameKey="name"
+                    fill="#9ca3af"
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={44}
+                    outerRadius={78}
+                    paddingAngle={2}
+                    stroke="rgba(255,255,255,0.18)"
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 space-y-2 text-xs text-slate-300">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.green }} />
+                  В срок
+                </span>
+                <span className="tabular-nums text-slate-50">{traffic.counts.green}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.yellow }} />
+                  Риск
+                </span>
+                <span className="tabular-nums text-slate-50">{traffic.counts.yellow}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.red }} />
+                  Отставание
+                </span>
+                <span className="tabular-nums text-slate-50">{traffic.counts.red}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.gray }} />
+                  Нет данных
+                </span>
+                <span className="tabular-nums text-slate-50">{traffic.counts.gray}</span>
+              </div>
+            </div>
+          </button>
+          {aggregatePortalMounted &&
+            statusDistributionPopoverOpen &&
+            statusDistributionPopoverPos &&
+            createPortal(
+              <div
+                ref={statusDistributionPopoverRef}
+                role="dialog"
+                aria-label="Распределение статусов: детализация"
+                className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border border-slate-500/45 bg-[#1e293b] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+                  statusDistributionPopoverEntered ? "scale-100 opacity-100" : "scale-[0.98] opacity-0"
+                }`}
+                style={{
+                  top: statusDistributionPopoverPos.top,
+                  left: statusDistributionPopoverPos.left,
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-white/10 p-[14px] pb-3">
+                  <div className="text-sm font-semibold text-slate-100">Распределение статусов</div>
+                </div>
+                <div className="max-h-[min(480px,78vh)] space-y-4 overflow-y-auto p-[14px] pt-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-100">
+                      🟢 В срок ({traffic.counts.green}):
+                    </div>
+                    {statusDistributionGroups.green.length > 0 ? (
+                      <StatusDistributionTaskChunk
+                        rows={statusDistributionGroups.green}
+                        status="green"
+                        showDeviation
+                      />
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-100">
+                      🟡 Риск ({traffic.counts.yellow}):
+                    </div>
+                    {statusDistributionGroups.yellow.length > 0 ? (
+                      <StatusDistributionTaskChunk
+                        rows={statusDistributionGroups.yellow}
+                        status="yellow"
+                        showDeviation
+                      />
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-100">
+                      🔴 Отставание ({traffic.counts.red}):
+                    </div>
+                    {statusDistributionGroups.red.length > 0 ? (
+                      <StatusDistributionTaskChunk
+                        rows={statusDistributionGroups.red}
+                        status="red"
+                        showDeviation
+                      />
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-100">
+                      ⚪ Нет данных ({traffic.counts.gray})
+                    </div>
+                    {statusDistributionGroups.gray.length > 0 ? (
+                      <StatusDistributionTaskChunk
+                        rows={statusDistributionGroups.gray}
+                        status="gray"
+                        showDeviation={false}
+                      />
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
+                    )}
+                  </div>
+                </div>
+                {statusDistributionReasons.length > 0 ? (
+                  <div className="border-t border-white/10 px-[14px] pb-3 pt-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Причины
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-[11px] text-slate-300 marker:text-slate-500">
+                      {statusDistributionReasons.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <p className="border-t border-white/10 p-[14px] pt-3 text-xs leading-relaxed text-slate-400">
+                  Основная проблема:{" "}
+                  <span className="font-medium text-slate-200">{primaryStatusDistributionProblem}</span>
+                </p>
+              </div>,
+              document.body,
+            )}
+        </>
+      </div>
+
+      {!isPresentationRoute && (
+        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-50">Этапы / задачи</h3>
+          <p className="mt-2 text-xs text-slate-300">
+            Слева — статус (светофор). Серый — нет фактических дат.
+          </p>
+
+          <div className="mt-4 space-y-2">
+            {traffic.rows
+              .slice()
+              .sort(
+                (a: TrafficRow, b: TrafficRow) => (b.deviationDays ?? -999) - (a.deviationDays ?? -999),
+              )
+              .slice(0, 12)
+              .map(({ task, status, planDays, factDays, deviationDays }: TrafficRow) => {
+                const bar =
+                  status === "green"
+                    ? COLORS.green
+                    : status === "yellow"
+                      ? COLORS.yellow
+                      : status === "red"
+                        ? COLORS.red
+                        : COLORS.gray;
+                return (
+                  <div
+                    key={task.id}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="h-10 w-1.5 rounded-full" style={{ backgroundColor: bar }} />
+                      <div className="min-w-0">
+                        <div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-50">
+                          {task.code} — {task.name}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-300">
+                          План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
+                          {" • "}
+                          Откл.:{" "}
+                          <span
+                            style={{
+                              color:
+                                status === "red"
+                                  ? COLORS.red
+                                  : status === "yellow"
+                                    ? COLORS.yellow
+                                    : status === "green"
+                                      ? COLORS.green
+                                      : COLORS.gray,
+                            }}
+                          >
+                            {deviationDays === null ? "—" : deviationDays > 0 ? `+${deviationDays}` : deviationDays}
+                          </span>
+                          {" • "}
+                          Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right text-xs text-slate-300">
+                      {status === "gray"
+                        ? "нет данных"
+                        : status === "green"
+                          ? "в срок"
+                          : status === "yellow"
+                            ? "риск"
+                            : "отставание"}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
+        <p className="mt-2 text-xs text-slate-300">
+          Положительное значение — отставание \(Факт дольше Плана\), отрицательное — опережение.
+        </p>
+        {(() => {
+          const MAX = 14;
+          const allowedGroupKeys = gprStageGroupKeysForProjectPart(activeProjectPart);
+
+          const devRows = flatTasks
+            .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
+            .map((t) => {
+              const deviation = calculateDeviation(t);
+              const planDuration = daysInclusive(t.planStart, t.planEnd);
+              const factDuration = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
+              const group = inferGroup(t);
+              return { task: t, deviation, planDuration, factDuration, group };
+            });
+
+          const groupCards = allowedGroupKeys
+            .map((g) => {
+              const rows = devRows.filter((r) => r.group === g);
+              const withDev = rows.filter((r) => r.deviation !== null) as Array<
+                (typeof rows)[number] & { deviation: number }
+              >;
+              const avg = withDev.length
+                ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
+                : 0;
+              const critical = withDev.filter((r) => getStatusByDeviation(r.deviation) === "red").length;
+              const rootForGroup = tasksForActivePart.find((t) => {
+                const level = t.level ?? t.code.split(".").length - 1;
+                return level === 1 && inferGroup(t) === g;
+              });
+              const totalDeviation = rootForGroup ? calculateDeviation(rootForGroup) : null;
+              const accent = stageAccentFromTotalDeviation(totalDeviation);
+              const label = gprStageDisplayTitle(tasksForActivePart, g);
+              return {
+                key: g,
+                label,
+                rows,
+                avg,
+                critical,
+                totalDeviation,
+                accent,
+              };
+            })
+            .filter((card) => card.rows.length > 0);
+
+          const active = activeGroup ? groupCards.find((g) => g.key === activeGroup) ?? null : null;
+
+          const toggleGroup = (group: GroupKey) => {
+            setActiveGroup((prev) => (prev === group ? null : group));
+          };
+
+          return (
+            <div className="mt-4 space-y-4">
+              {groupCards.length === 0 ? (
+                <div className="rounded-xl border border-slate-700/50 bg-slate-900/20 py-10 text-center text-sm text-slate-400">
+                  Нет подзадач (уровень &gt; 1) по этапам выбранной части проекта — карточки не показываются.
+                </div>
+              ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {groupCards.map((g) => {
+                  const activeCard = activeGroup === g.key;
+                  return (
+                    <button
+                      key={g.key}
+                      type="button"
+                      onClick={() => toggleGroup(g.key)}
+                      className={`rounded-xl border p-4 text-left transition-all ${
+                        activeCard
+                          ? "scale-[1.02] border-slate-500 bg-slate-900/55"
+                          : "border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40"
+                      }`}
+                      style={{
+                        boxShadow: activeCard ? `0 0 20px ${g.accent}55` : undefined,
+                        borderLeft: `4px solid ${g.accent}`,
+                      }}
+                    >
+                      <div
+                        className="stage-title min-h-[2.75rem] text-sm font-semibold leading-snug text-slate-100"
+                        title={g.label}
+                      >
+                        {g.label}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-300">
+                        Среднее:{" "}
+                        <span className="font-semibold tabular-nums">
+                          {g.avg > 0 ? "+" : ""}
+                          {g.avg.toFixed(1)} дн
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-300">
+                        Критично: <span className="font-semibold tabular-nums">{g.critical}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              )}
+
+              {active ? (
+                <div
+                  className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4"
+                  style={{ borderLeft: `4px solid ${active.accent}` }}
+                >
+                  <div
+                    className="stage-title mb-3 text-sm font-semibold leading-snug text-slate-100"
+                    title={active.label}
+                  >
+                    {active.label}
+                  </div>
+                  <div>
+                    <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
+                      <div className="relative h-6 text-[11px] text-slate-400">
+                        <span className="absolute left-0 -translate-x-0">-14д</span>
+                        <span className="absolute left-1/4 -translate-x-1/2">-7д</span>
+                        <span className="absolute left-1/2 -translate-x-1/2 text-slate-200">0</span>
+                        <span className="absolute left-3/4 -translate-x-1/2">+7д</span>
+                        <span className="absolute right-0 translate-x-0">+14д</span>
+                      </div>
+                    </div>
+
+                    <div className="relative z-10 mt-3 space-y-3">
+                      {active.rows.map((r, i) => {
+                        const deviation = r.deviation;
+                        const status =
+                          deviation === null ? "gray" : getStatusByDeviation(deviation);
+                        const color =
+                          status === "green"
+                            ? COLORS.green
+                            : status === "yellow"
+                              ? COLORS.yellow
+                              : status === "red"
+                                ? COLORS.red
+                                : COLORS.gray;
+                        const raw = deviation ?? 0;
+                        const normalized = raw > MAX ? MAX : raw < -MAX ? -MAX : raw;
+                        const percent = normalized / MAX; // -1..1
+                        const dotLeftPct = 50 + percent * 50;
+                        const minLeft = Math.min(50, dotLeftPct);
+                        const width = Math.abs(dotLeftPct - 50);
+                        const clipped = Math.abs(raw) > MAX;
+                        const clipMark = !clipped ? "" : raw > 0 ? " →" : " ←";
+                        return (
+                          <div
+                            key={`dev-line-${active.key}-${r.task.id}-${i}`}
+                            className="grid grid-cols-12 items-start gap-3 rounded-xl border border-slate-700/60 bg-slate-900/20 p-3"
+                          >
+                            <div className="col-span-12 min-w-0 text-sm font-semibold leading-snug text-slate-100 md:col-span-3 line-clamp-2 break-words">
+                              {r.task.name}
+                            </div>
+                            <div className="col-span-12 md:col-span-7">
+                              <div className="relative h-7 w-full max-w-[800px] overflow-visible px-6">
+                                <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-white/10" />
+                                <div className="absolute left-1/2 top-1/2 h-4 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded bg-white/30" />
+                                <div
+                                  className="absolute top-1/2 h-px -translate-y-1/2"
+                                  style={{
+                                    left: `${minLeft}%`,
+                                    width: `${width}%`,
+                                    backgroundColor: color,
+                                  }}
+                                />
+                                <div
+                                  className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                                  style={{
+                                    left: `${dotLeftPct}%`,
+                                    backgroundColor: color,
+                                    boxShadow: `0 0 12px ${color}`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div className="col-span-12 text-right text-sm text-slate-200 md:col-span-2">
+                              <div className="font-semibold tabular-nums" style={{ color }}>
+                                {deviation === null
+                                  ? "—"
+                                  : `${deviation > 0 ? `+${deviation}` : deviation} дн${clipMark}`}
+                              </div>
+                              <div className="text-xs text-slate-400">
+                                {r.factDuration ?? "—"} / {r.planDuration ?? "—"} дн
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           );
         })()}
       </div>
+
+      <GPRTmcDependencyChart
+        tasks={tasksForActivePart}
+        tmcItems={tmcItemsForPart}
+        activeProjectPart={activeProjectPart}
+      />
+      <GPRTenderDependencyChart
+        tasks={tasksForActivePart}
+        tenders={tendersForActivePart}
+        activeProjectPart={activeProjectPart}
+      />
+      <GPRForecastChart
+        tasks={tasksForActivePart}
+        tmcItems={tmcItemsForPart}
+        tenders={tendersForActivePart}
+        activeProjectPart={activeProjectPart}
+      />
     </section>
   );
 }

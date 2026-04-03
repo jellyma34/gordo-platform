@@ -1,8 +1,299 @@
-export function TMCSection() {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-xl font-semibold text-slate-900">Закупка ТМЦ</h2>
-      <p className="mt-2 text-sm text-slate-600">Раздел в разработке</p>
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { EditLayout } from "@/components/EditLayout";
+import { useAppMode } from "@/components/mode/ModeProvider";
+import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
+import { getStatusByDeviation, partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
+import { getTmcData, mergeTmcSnapshotWithSeed, type TMCItem } from "@/lib/tmcData";
+
+const ResponsiveContainer = dynamic(
+  () => import("recharts").then((m) => m.ResponsiveContainer),
+  { ssr: false },
+);
+const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
+const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
+const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
+const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), {
+  ssr: false,
+});
+const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
+const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
+const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
+const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
+
+type Traffic = "green" | "yellow" | "red" | "gray";
+type DrillKey = "completion" | "saving" | "delays" | "planned";
+
+const COLORS = {
+  green: "#22c55e",
+  yellow: "#f59e0b",
+  red: "#ef4444",
+  gray: "#6b7280",
+  card: "#1e293b",
+} as const;
+
+function ms(iso: string | null) {
+  if (!iso) return null;
+  const value = new Date(`${iso}T00:00:00`).getTime();
+  return Number.isNaN(value) ? null : value;
+}
+
+function deviationDays(item: TMCItem): number | null {
+  const p = ms(item.planDate);
+  if (p === null) return null;
+  const f = ms(item.factDate);
+  if (f === null) return null;
+  return Math.round((f - p) / (1000 * 60 * 60 * 24));
+}
+
+function statusOf(item: TMCItem): Traffic {
+  if (!item.factDate) return "gray";
+  const d = deviationDays(item);
+  if (d === null) return "gray";
+  return getStatusByDeviation(d) as Traffic;
+}
+
+export function TMCSection({
+  activePartId,
+  onChangePart,
+}: {
+  activePartId: number;
+  onChangePart: (partId: number) => void;
+}) {
+  const { mode } = useAppMode();
+  const isPresentationSkin = mode === "presentation";
+  const [activeDrill, setActiveDrill] = useState<DrillKey | null>(null);
+  const tmcRef = useRef<TmcTableHandle>(null);
+  const activeProjectPart = partIdToProjectPartKey(activePartId);
+
+  const partTabs = (
+    <div className="mb-4 flex flex-wrap gap-2">
+      {PROJECT_PARTS.map((part) => {
+        const active = activePartId === part.id;
+        if (isPresentationSkin) {
+          return (
+            <button
+              key={part.id}
+              type="button"
+              onClick={() => onChangePart(part.id)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                active ? "bg-slate-100 text-slate-900" : "bg-white/10 text-slate-200 hover:bg-white/20"
+              }`}
+            >
+              {part.name}
+            </button>
+          );
+        }
+        return (
+          <button
+            key={part.id}
+            type="button"
+            onClick={() => onChangePart(part.id)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+              active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+          >
+            {part.name}
+          </button>
+        );
+      })}
     </div>
+  );
+
+  if (mode !== "presentation") {
+    return (
+      <EditLayout
+        title="Закупка ТМЦ"
+        subtitle="Позиции по части проекта (жилой дом / автостоянка); график ГПР—ТМЦ использует те же данные."
+        onSave={() => tmcRef.current?.save()}
+        onCancel={() => tmcRef.current?.cancel()}
+      >
+        {partTabs}
+        <TmcTable ref={tmcRef} embedded activePartId={activePartId} />
+      </EditLayout>
+    );
+  }
+
+  const enriched = useMemo(() => {
+    let items: TMCItem[] = getTmcData(activeProjectPart);
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
+        const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
+        items = mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === activeProjectPart);
+      } catch {
+        items = getTmcData(activeProjectPart);
+      }
+    }
+    return items.map((item) => {
+      const status = statusOf(item);
+      const dev = deviationDays(item);
+      return { ...item, status, deviation: dev };
+    });
+  }, [activeProjectPart]);
+
+  const totals = useMemo(() => {
+    const plan = enriched.reduce((sum, i) => sum + i.planCost, 0);
+    const fact = enriched.reduce((sum, i) => sum + (i.factCost ?? 0), 0);
+    const completionPct = plan > 0 ? Math.round((fact / plan) * 100) : 0;
+    const saving = enriched.reduce((sum, i) => sum + (i.planCost - (i.factCost ?? 0)), 0);
+    const delays = enriched.filter((i) => (i.deviation ?? -999) > 0).length;
+    const planned = enriched.filter((i) => !i.factDate).length;
+    const pie = {
+      delivered: enriched.filter((i) => i.status === "green").length,
+      risk: enriched.filter((i) => i.status === "yellow").length,
+      overdue: enriched.filter((i) => i.status === "red").length,
+      planned,
+    };
+    return { plan, fact, completionPct, saving, delays, planned, pie };
+  }, [enriched]);
+
+  const drillRows = useMemo(() => {
+    if (!activeDrill) return [] as typeof enriched;
+    if (activeDrill === "completion") return enriched;
+    if (activeDrill === "saving") return enriched.filter((i) => i.factCost !== null);
+    if (activeDrill === "delays") return enriched.filter((i) => (i.deviation ?? 0) > 0);
+    return enriched.filter((i) => !i.factDate);
+  }, [activeDrill, enriched]);
+
+  return (
+    <section className="space-y-6">
+      {partTabs}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            key: "completion" as const,
+            label: "Выполнение",
+            value: `${totals.completionPct}%`,
+            sub: `${(totals.fact / 1_000_000).toFixed(1)} / ${(totals.plan / 1_000_000).toFixed(1)} млн`,
+            color: COLORS.green,
+          },
+          {
+            key: "saving" as const,
+            label: "Экономия / перерасход",
+            value: `${totals.saving > 0 ? "+" : ""}${(totals.saving / 1_000_000).toFixed(1)} млн`,
+            sub: "Σ(план - факт)",
+            color: totals.saving >= 0 ? COLORS.green : COLORS.red,
+          },
+          {
+            key: "delays" as const,
+            label: "Просрочки",
+            value: totals.delays,
+            sub: "factDate > planDate",
+            color: COLORS.red,
+          },
+          {
+            key: "planned" as const,
+            label: "Не закуплено",
+            value: totals.planned,
+            sub: "status = план",
+            color: COLORS.gray,
+          },
+        ].map((card) => {
+          const active = activeDrill === card.key;
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => setActiveDrill((prev) => (prev === card.key ? null : card.key))}
+              className={`text-left rounded-[20px] border border-white/10 bg-white/5 p-5 backdrop-blur-[12px] transition-all ${
+                active ? "scale-[1.02]" : ""
+              }`}
+              style={{ borderLeft: `6px solid ${card.color}`, boxShadow: active ? `0 0 24px ${card.color}66` : "0 10px 30px rgba(0,0,0,0.3)" }}
+            >
+              <div className="text-xs text-slate-300">{card.label}</div>
+              <div className="mt-2 text-3xl font-bold text-white tabular-nums">{card.value}</div>
+              <div className="mt-1 text-xs text-slate-400">{card.sub}</div>
+              <div className="mt-3 h-1.5 w-full rounded-full bg-white/10">
+                <div className="h-1.5 rounded-full" style={{ width: card.key === "completion" ? `${Math.min(100, totals.completionPct)}%` : "100%", backgroundColor: card.color }} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm lg:col-span-2">
+          <h3 className="text-lg font-semibold text-slate-50">План vs Факт (стоимость)</h3>
+          <div className="mt-4 h-[320px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={enriched.map((i) => ({ name: i.name, plan: i.planCost, fact: i.factCost ?? 0 }))}>
+                <CartesianGrid stroke="rgba(148,163,184,0.18)" />
+                <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} interval={0} angle={-15} height={60} textAnchor="end" />
+                <YAxis tick={{ fill: "#94a3b8" }} />
+                <Tooltip contentStyle={{ background: COLORS.card, border: "1px solid rgba(148,163,184,0.35)", color: "#e2e8f0" }} />
+                <Line type="monotone" dataKey="plan" stroke="#94a3b8" dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="fact" stroke={COLORS.green} strokeWidth={2.5} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-50">Распределение статусов</h3>
+          <div className="mt-4 h-[220px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: "Поставлено", value: totals.pie.delivered },
+                    { name: "Риск", value: totals.pie.risk },
+                    { name: "Просрочка", value: totals.pie.overdue },
+                    { name: "Не закуплено", value: totals.pie.planned },
+                  ]}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={42}
+                  outerRadius={78}
+                  paddingAngle={2}
+                >
+                  <Cell fill={COLORS.green} />
+                  <Cell fill={COLORS.yellow} />
+                  <Cell fill={COLORS.red} />
+                  <Cell fill={COLORS.gray} />
+                </Pie>
+                <Tooltip contentStyle={{ background: COLORS.card, border: "1px solid rgba(148,163,184,0.35)", color: "#e2e8f0" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-50">Детализация</h3>
+        {!activeDrill ? (
+          <p className="mt-3 text-sm text-slate-300">Кликните на карточку сверху, чтобы показать список позиций ТМЦ.</p>
+        ) : (
+          <div className="mt-4 space-y-2">
+            {drillRows.map((i) => {
+              const color = i.status === "green" ? COLORS.green : i.status === "yellow" ? COLORS.yellow : i.status === "red" ? COLORS.red : COLORS.gray;
+              return (
+                <div key={i.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-700/60 bg-slate-900/25 p-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-100">{i.name}</div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      Этап: {i.gprStage} • План/Факт: {(i.planCost / 1_000_000).toFixed(2)} / {((i.factCost ?? 0) / 1_000_000).toFixed(2)} млн
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right text-xs">
+                    <div className="font-semibold tabular-nums" style={{ color }}>
+                      {i.deviation === null ? "—" : i.deviation > 0 ? `+${i.deviation}` : i.deviation} дн
+                    </div>
+                    <div className="mt-1 rounded-full px-2 py-0.5 text-[11px] text-slate-900" style={{ backgroundColor: color }}>
+                      {i.status === "green" ? "поставлено" : i.status === "yellow" ? "риск" : i.status === "red" ? "просрочка" : "не закуплено"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

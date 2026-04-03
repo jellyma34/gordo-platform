@@ -5,26 +5,33 @@ import { useRouter } from "next/navigation";
 import { GPRSection } from "@/components/construction/GPRSection";
 import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
+import { useAppMode } from "@/components/mode/ModeProvider";
 import { gprMockData } from "@/lib/gprMockData";
 import type { GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | "gpr" | "tenders" | "tmc";
 
 function cloneTasks(tasks: GPRTask[]): GPRTask[] {
-  return tasks.map((task) => ({
-    ...task,
-    children: task.children ? cloneTasks(task.children) : undefined,
-  }));
+  return tasks.map((task) => ({ ...task }));
 }
 
 export default function ConstructionPage() {
   const router = useRouter();
   const [activeSection, setActiveSection] = useState<ActiveSection>("menu");
-  const [mode, setMode] = useState<"edit" | "view">("view");
+  const { mode: appMode } = useAppMode();
+  const mode: "edit" | "presentation" = appMode === "edit" ? "edit" : "presentation";
   const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
+  const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
+  const gprTasksForPart = tasks.filter((task) => task.partId === activeGprPartId);
+  const saveGprTasksForPart = (partTasks: GPRTask[]) => {
+    setTasks((prev) => [
+      ...prev.filter((task) => task.partId !== activeGprPartId),
+      ...partTasks.map((task) => ({ ...task, partId: activeGprPartId })),
+    ]);
+  };
 
   return (
-    <section className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-6">
+    <section className="mx-auto w-full max-w-[1400px] space-y-6 p-4 md:p-6">
       <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
@@ -120,10 +127,20 @@ export default function ConstructionPage() {
       ) : (
         <>
           {activeSection === "gpr" && (
-            <GPRSection mode={mode} setMode={setMode} tasks={tasks} onSaveTasks={setTasks} />
+            <GPRSection
+              mode={mode}
+              tasks={gprTasksForPart}
+              onSaveTasks={saveGprTasksForPart}
+              activePartId={activeGprPartId}
+              onChangePart={setActiveGprPartId}
+            />
           )}
-          {activeSection === "tenders" && <TendersSection />}
-          {activeSection === "tmc" && <TMCSection />}
+          {activeSection === "tenders" && (
+            <TendersSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+          )}
+          {activeSection === "tmc" && (
+            <TMCSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+          )}
         </>
       )}
     </section>
