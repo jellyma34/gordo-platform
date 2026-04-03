@@ -1,14 +1,19 @@
-# Frontend Next.js на Railway (Nixpacks). Node подхватывается автоматически по package.json.
-# Сервис: Root Directory = корень репозитория, Builder = Nixpacks.
+# Railway Nixpacks: чистая сборка Next.js без устаревшего tsbuildinfo в кэше слоёв.
+# См. https://nixpacks.com/docs/configuration/file
 
 [variables]
 NODE_ENV = "production"
+# Отключает кэш слоёв Nixpacks (устраняет «залипание» старых артефактов между деплоями).
+NIXPACKS_NO_CACHE = "1"
 
 [phases.install]
 cmds = ["npm install"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = [
+  "rm -f tsconfig.tsbuildinfo",
+  "npm run build",
+]
 
 [start]
 cmd = "npm run start"
