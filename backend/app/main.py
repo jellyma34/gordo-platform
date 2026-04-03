@@ -15,9 +15,7 @@ from app.database import (
     ensure_users_full_name_column,
 )
 from app.models import ProjectPart
-from auth import router as auth_router
-
-from app.routers import admin, debug, gpr, sections, tmc
+from app.routers import admin, auth as auth_router, debug, gpr, sections, tmc
 
 
 def ensure_project_parts() -> None:
@@ -65,7 +63,7 @@ def ping():
 def api_status():
     return {"status": "ok"}
 
-app.include_router(auth_router)
+app.include_router(auth_router.router, prefix="/auth")
 app.include_router(tmc.router)
 app.include_router(admin.router)
 app.include_router(debug.router)
