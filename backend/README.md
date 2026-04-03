@@ -2,16 +2,16 @@
 
 ## Railway (Docker)
 
-В корне репозитория лежит `railway.json`: сборка через `backend/Dockerfile`, контекст — **корень репозитория**, в образ копируется только `backend/` (`COPY backend/ .`). Точка входа: `uvicorn app.main:app` (модуль `app/main.py`).
+В **корне репозитория**: `railway.json` (builder `DOCKERFILE`) и **`Dockerfile`**. В образ копируется каталог `backend/` (`COPY backend/ .`). Запуск: **`uvicorn main:app`** — модуль `main.py` в корне `backend/` реэкспортирует приложение из пакета `app`.
 
-В панели Railway у сервиса **Root Directory** оставьте пустым (корень репозитория), если репозиторий совпадает с этим проектом.
+В панели Railway у сервиса **Root Directory** оставьте пустым (корень репозитория).
 
 ## Локальный запуск
 
-Из каталога `backend` в корне репозитория (где лежит папка `app`):
+Из каталога `backend` в корне репозитория:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 API: `http://127.0.0.1:8000`  
