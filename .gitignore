@@ -6,3 +6,8 @@ dist
 build
 *.log
 node_modules
+
+# Python / backend
+__pycache__/
+*.py[cod]
+*.db

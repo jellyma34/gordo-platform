@@ -1,0 +1,66 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+
+from app.bootstrap_admin import bootstrap_admin_if_needed
+from app.config import settings
+from app.database import (
+    Base,
+    SessionLocal,
+    engine,
+    ensure_gpr_global_task_id_column,
+    ensure_gpr_related_tmc_ids_column,
+    ensure_users_full_name_column,
+)
+from app.models import ProjectPart
+from app.routers import admin, auth, debug, gpr, sections, tmc
+
+
+def ensure_project_parts() -> None:
+    db = SessionLocal()
+    try:
+        existing = set(db.scalars(select(ProjectPart.name)).all())
+        for name in ("Жилой дом", "Встроенно-пристроенная автостоянка"):
+            if name not in existing:
+                db.add(ProjectPart(name=name))
+        db.commit()
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    ensure_users_full_name_column()
+    ensure_gpr_global_task_id_column()
+    ensure_gpr_related_tmc_ids_column()
+    ensure_project_parts()
+    bootstrap_admin_if_needed()
+    print("Backend started", flush=True)
+    yield
+
+
+app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
+
+# CORS must be registered immediately after app creation (before routers).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
+app.include_router(auth.router)
+app.include_router(tmc.router)
+app.include_router(admin.router)
+app.include_router(debug.router)
+app.include_router(sections.router)
+app.include_router(gpr.router)
