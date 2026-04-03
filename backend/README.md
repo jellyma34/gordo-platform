@@ -1,11 +1,11 @@
 # GORDO backend (FastAPI)
 
-## Railway (Docker, API)
+## Railway (Nixpacks, API)
 
 Отдельный сервис **backend** на Railway:
 
 - **Root Directory**: `backend`
-- **Builder**: **Dockerfile** (`backend/Dockerfile`, конфиг `backend/railway.json`)
+- **Builder**: **Nixpacks** (без Docker)
 - Запуск: **`uvicorn main:app --host 0.0.0.0 --port $PORT`**
 
 Фронтенд (Next.js) в **корне** репозитория: **Nixpacks** (`railway.json` + `nixpacks.toml` в корне) — другой сервис Railway.
