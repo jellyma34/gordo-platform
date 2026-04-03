@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     # Пример: http://localhost:3000,http://127.0.0.1:3000,https://your-app.vercel.app
     cors_origins: str = (
         "http://localhost:3000,http://127.0.0.1:3000,"
-        "http://localhost:3001,http://127.0.0.1:3001"
+        "http://localhost:3001,http://127.0.0.1:3001,"
+        "https://gordo-platform-production.up.railway.app,"
+        "http://gordo-platform-production.up.railway.app"
     )
 
     bootstrap_admin_email: str | None = None
