@@ -6,7 +6,7 @@
 
 - **Root Directory**: `backend`
 - **Builder**: **Dockerfile** (`backend/Dockerfile`, конфиг `backend/railway.json`)
-- Запуск: **`python run.py`** (uvicorn на `0.0.0.0`, порт из `PORT`)
+- Запуск: **`uvicorn main:app --host 0.0.0.0 --port $PORT`**
 
 Фронтенд (Next.js) в **корне** репозитория: **Nixpacks** (`railway.json` + `nixpacks.toml` в корне) — другой сервис Railway.
 

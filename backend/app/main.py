@@ -60,6 +60,11 @@ app.add_middleware(
 def ping():
     return {"status": "ok"}
 
+
+@app.get("/api/status")
+def api_status():
+    return {"status": "ok"}
+
 app.include_router(auth_router)
 app.include_router(tmc.router)
 app.include_router(admin.router)
