@@ -17,7 +17,7 @@ def _listen_port() -> int:
 if __name__ == "__main__":
     port = _listen_port()
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=port,
         log_level="info",
