@@ -4,9 +4,10 @@
 
 Отдельный сервис **backend** на Railway:
 
-- **Root Directory**: `backend`
-- **Builder**: **Dockerfile** (`backend/Dockerfile`)
-- Запуск: **`uvicorn main:app --host 0.0.0.0 --port $PORT`**
+- **Root Directory**: корень репозитория (пусто / `.`), не каталог `backend` — иначе `COPY backend /app` в **`Dockerfile`** на корне не сработает.
+- **Dockerfile**: **`Dockerfile`** в корне репозитория (контекст сборки — весь репозиторий).
+- Локальная сборка только из `backend/`: **`backend/Dockerfile`** (`docker build -t gordo-api .` из `backend/`).
+- Запуск в контейнере: **`python run.py`**
 
 Фронтенд (Next.js) в **корне** репозитория: **Nixpacks** (`railway.json` + `nixpacks.toml` в корне) — другой сервис Railway.
 
@@ -15,7 +16,8 @@
 Из каталога `backend` в корне репозитория:
 
 ```bash
-PORT=8080 uvicorn main:app --reload --host 0.0.0.0 --port $PORT
+PORT=8080 python run.py
+# или: PORT=8080 uvicorn app.main:app --reload --host 0.0.0.0 --port $PORT
 ```
 
 API: `http://127.0.0.1:${PORT}`  
@@ -28,4 +30,4 @@ API: `http://127.0.0.1:${PORT}`
 
 ## CORS
 
-В `app/main.py` — **`CORSMiddleware`**: явный список origin (прод-фронтенд Railway + localhost для `next dev`), без `["*"]` при `allow_credentials=True`. Проверка: **`GET /test`**.
+В `app/main.py` — **`CORSMiddleware`**. Проверка: **`GET /health`**, **`GET /test`**.
