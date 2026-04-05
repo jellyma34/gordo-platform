@@ -5,7 +5,6 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "python run.py",
     "restartPolicyType": "ON_FAILURE"
   }
 }

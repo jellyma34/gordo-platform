@@ -9,7 +9,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "node server.js",
-    "backend": "cd backend && python run.py",
+    "backend": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8080",
     "dev:all": "npm run clean-ports && concurrently \"npm run backend\" \"npm run dev\"",
     "clean-ports": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ports = @(8080,3000); foreach ($p in $ports) { Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }\""
   },
