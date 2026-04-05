@@ -38,6 +38,7 @@ async def lifespan(_: FastAPI):
     ensure_project_parts()
     bootstrap_admin_if_needed()
     print("Backend started", flush=True)
+    print("DEPLOY CHECK v2", flush=True)
     yield
 
 
