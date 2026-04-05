@@ -28,4 +28,4 @@ API: `http://127.0.0.1:${PORT}`
 
 ## CORS
 
-В `app/main.py` настроен **`CORSMiddleware`** с `allow_origins=["*"]` (все источники). Проверка: **`GET /test-cors`**.
+В `app/main.py` — **`CORSMiddleware`**: явный список origin (прод-фронтенд Railway + localhost для `next dev`), без `["*"]` при `allow_credentials=True`. Проверка: **`GET /test`**.
