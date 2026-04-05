@@ -28,8 +28,10 @@ API: `http://127.0.0.1:${PORT}`
 
 ## CORS (продакшен)
 
-Список разрешённых origin для браузера задаётся переменной **`CORS_ORIGINS`** (через запятую, без пробелов вокруг URL или с пробелами — обрежутся). В `app/config.py` по умолчанию уже есть `localhost` / `127.0.0.1` на портах 3000 и 3001.
+В `app/main.py` в список origin всегда входит прод-фронтенд Railway: **`https://gordo-frontend-production.up.railway.app`**.
 
-Добавьте URL фронтенда (например Vercel), иначе запросы с прод-страницы к API на Railway будут блокироваться браузером:
+Дополнительные origin (Vercel, другой домен) задаются переменной **`CORS_ORIGINS`** (через запятую). В `app/config.py` по умолчанию — `localhost` / `127.0.0.1` на портах 3000 и 3001.
 
-`CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-app.vercel.app`
+Пример:
+
+`CORS_ORIGINS=http://localhost:3000,https://your-app.vercel.app`

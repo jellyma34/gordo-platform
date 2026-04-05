@@ -44,10 +44,25 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
-# CORS must be registered immediately after app creation (before routers).
+
+def _cors_allow_origins() -> list[str]:
+    """Прод-фронтенд Railway + значения из CORS_ORIGINS (без дубликатов)."""
+    required = ("https://gordo-frontend-production.up.railway.app",)
+    seen: set[str] = set()
+    out: list[str] = []
+    for origin in (*required, *settings.cors_origins_list):
+        o = origin.strip()
+        if not o or o in seen:
+            continue
+        seen.add(o)
+        out.append(o)
+    return out
+
+
+# CORS — сразу после создания app, до include_router.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=_cors_allow_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

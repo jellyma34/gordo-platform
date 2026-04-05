@@ -11,13 +11,11 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./gordo.db"
 
-    # Список origin фронтенда через запятую (локальная разработка + прод, например Vercel).
-    # Пример: http://localhost:3000,http://127.0.0.1:3000,https://your-app.vercel.app
+    # Origin страницы в браузере (не URL API). Через запятую; в проде задайте CORS_ORIGINS в Railway.
+    # Прод-фронтенд всегда добавляется в app/main.py; здесь — локальная разработка и доп. хосты.
     cors_origins: str = (
         "http://localhost:3000,http://127.0.0.1:3000,"
-        "http://localhost:3001,http://127.0.0.1:3001,"
-        "https://gordo-platform-production.up.railway.app,"
-        "http://gordo-platform-production.up.railway.app"
+        "http://localhost:3001,http://127.0.0.1:3001"
     )
 
     bootstrap_admin_email: str | None = None
