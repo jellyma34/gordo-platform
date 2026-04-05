@@ -44,9 +44,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
-@app.options("/{full_path:path}")
-async def preflight_handler():
-    return {}
+
 
 app.add_middleware(
     CORSMiddleware,
