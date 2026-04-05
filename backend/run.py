@@ -1,8 +1,9 @@
 import os
-
 import uvicorn
 
-# ASGI-приложение: корневой `main.py` реэкспортирует `app` из `app.main` (см. backend/main.py).
+from app.main import app
+
+
 def _listen_port() -> int:
     raw = os.environ.get("PORT", "8080").strip()
     try:
@@ -17,11 +18,8 @@ def _listen_port() -> int:
 if __name__ == "__main__":
     port = _listen_port()
     uvicorn.run(
-        "app.main:app",
+        app,
         host="0.0.0.0",
         port=port,
         log_level="info",
-        # За reverse-proxy Railway (X-Forwarded-Proto / Host)
-        proxy_headers=True,
-        forwarded_allow_ips="*",
     )
