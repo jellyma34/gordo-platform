@@ -2,6 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+@app.options("/{full_path:path}")
+async def preflight_handler():
+    return {}
 from sqlalchemy import select
 
 from app.bootstrap_admin import bootstrap_admin_if_needed
