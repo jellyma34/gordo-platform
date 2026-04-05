@@ -80,6 +80,10 @@ def ping():
 def api_status():
     return {"status": "ok"}
 
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
 app.include_router(auth_router.router, prefix="/auth")
 app.include_router(tmc.router)
 app.include_router(admin.router)
