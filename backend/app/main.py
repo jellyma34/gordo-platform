@@ -43,22 +43,22 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
-# CORS до include_router; один экземпляр. С allow_credentials=True нельзя allow_origins=["*"].
-_CORS_ORIGINS = [
-    "https://gordo-frontend-production.up.railway.app",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_CORS_ORIGINS,
+    allow_origins=[
+        "https://gordo-frontend-production.up.railway.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.get("/test")
@@ -73,11 +73,6 @@ def ping():
 
 @app.get("/api/status")
 def api_status():
-    return {"status": "ok"}
-
-
-@app.get("/health")
-def health():
     return {"status": "ok"}
 
 app.include_router(auth_router.router, prefix="/auth")
