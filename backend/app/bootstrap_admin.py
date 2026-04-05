@@ -2,23 +2,26 @@
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models import User
 from app.security import hash_password
 
 _BOOTSTRAP_SECTIONS = ["gpr", "tenders", "materials"]
 
-_ADMIN_EMAIL = "marislova34@gmail.com"
-_ADMIN_PASSWORD_PLAIN = "1234"
+_DEFAULT_ADMIN_EMAIL = "marislova34@gmail.com"
+_DEFAULT_ADMIN_PASSWORD = "1234"
 
 
 def bootstrap_admin_if_needed() -> None:
     """
     Если пользователя с email нет — создать; если есть — обновить пароль.
     Пароль хешируется через hash_password (как в admin-роутере и auth).
+    На Railway можно задать BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD.
     """
-    email = _ADMIN_EMAIL.lower().strip()
-    pwd_hash = hash_password(_ADMIN_PASSWORD_PLAIN)
+    email = (settings.bootstrap_admin_email or _DEFAULT_ADMIN_EMAIL).lower().strip()
+    plain = settings.bootstrap_admin_password or _DEFAULT_ADMIN_PASSWORD
+    pwd_hash = hash_password(plain)
 
     db = SessionLocal()
     try:

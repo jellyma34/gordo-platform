@@ -1,7 +1,19 @@
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+import logging
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.database import get_db
+from app.deps import ALL_SECTIONS_ORDERED, normalize_allowed_sections
+from app.models import User
+from app.security import create_access_token, verify_password
 
 router = APIRouter(tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
@@ -9,13 +21,52 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class LoginUserOut(BaseModel):
+    email: str
+    role: Literal["admin", "manager", "employee"]
+    allowed_sections: list[str] = Field(default_factory=list)
+
+
 class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    token: str
+    user: LoginUserOut
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(data: LoginRequest) -> LoginResponse:
-    if data.email == "admin@test.com" and data.password == "123456":
-        return LoginResponse(access_token="mock-access-token")
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+    email_norm = data.email.strip().lower()
+    logger.info(
+        "POST /auth/login email_norm=%s password_len=%s",
+        email_norm,
+        len(data.password),
+    )
+    if settings.login_debug:
+        logger.warning("LOGIN_DEBUG enabled: login attempt for email=%s", email_norm)
+
+    user = db.execute(select(User).where(User.email == email_norm)).scalar_one_or_none()
+    if user is None:
+        logger.info("POST /auth/login 401: user not found email=%s", email_norm)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    if not verify_password(data.password, user.password_hash):
+        logger.info("POST /auth/login 401: invalid password email=%s", email_norm)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    role: Literal["admin", "manager", "employee"]
+    if user.role in ("admin", "manager", "employee"):
+        role = user.role
+    else:
+        role = "employee"
+
+    if role == "employee":
+        allowed = normalize_allowed_sections(user.allowed_sections)
+    else:
+        allowed = list(ALL_SECTIONS_ORDERED)
+
+    token = create_access_token(subject=str(user.id))
+    logger.info("POST /auth/login 200 email=%s role=%s", email_norm, role)
+
+    return LoginResponse(
+        token=token,
+        user=LoginUserOut(email=user.email, role=role, allowed_sections=allowed),
+    )

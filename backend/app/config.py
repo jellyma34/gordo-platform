@@ -11,6 +11,10 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./gordo.db"
 
+    # Список origin через запятую (например https://app.up.railway.app).
+    # "*" — все origin; в этом режиме allow_credentials в CORS будет False (требование браузера).
+    cors_origins: str = "*"
+
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: str | None = None
 

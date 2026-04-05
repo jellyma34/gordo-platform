@@ -183,11 +183,13 @@ export async function loginRequest(email: string, password: string): Promise<Aut
 
     const data = (await res.json()) as {
       token: string;
-      user: { email: string; role: Role };
+      user: { email: string; role: Role; allowed_sections?: string[] };
     };
     const role = data.user.role;
     const allowedSections: ApiSection[] =
-      role === "admin" || role === "manager" ? [...SECTION_ORDER] : [];
+      role === "admin" || role === "manager"
+        ? [...SECTION_ORDER]
+        : (data.user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
     saveAuth(data.token, role, allowedSections);
     return {
       token: data.token,

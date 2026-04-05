@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.bootstrap_admin import bootstrap_admin_if_needed
+from app.config import settings
 from app.database import (
     Base,
     SessionLocal,
@@ -45,11 +46,23 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
 
+def _cors_allowlist(raw: str) -> tuple[list[str], bool]:
+    """(origins, allow_credentials). Для credentials нельзя использовать origin="*"."""
+    s = (raw or "*").strip()
+    if s == "*":
+        return ["*"], False
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    if not parts:
+        return ["*"], False
+    return parts, True
+
+
+_cors_origins, _cors_credentials = _cors_allowlist(settings.cors_origins)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
