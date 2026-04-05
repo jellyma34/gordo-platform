@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.bootstrap_admin import bootstrap_admin_if_needed
-from app.config import settings
 from app.database import (
     Base,
     SessionLocal,
@@ -44,29 +43,19 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
-
-def _cors_allow_origins() -> list[str]:
-    """Прод-фронтенд Railway + значения из CORS_ORIGINS (без дубликатов)."""
-    required = ("https://gordo-frontend-production.up.railway.app",)
-    seen: set[str] = set()
-    out: list[str] = []
-    for origin in (*required, *settings.cors_origins_list):
-        o = origin.strip()
-        if not o or o in seen:
-            continue
-        seen.add(o)
-        out.append(o)
-    return out
-
-
-# CORS — сразу после создания app, до include_router.
+# CORS до include_router; один экземпляр CORSMiddleware.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_allow_origins(),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/test-cors")
+def test():
+    return {"ok": True}
 
 
 @app.get("/ping")

@@ -26,12 +26,6 @@ API: `http://127.0.0.1:${PORT}`
 
 `NEXT_PUBLIC_API_URL=http://127.0.0.1:${PORT}`
 
-## CORS (продакшен)
+## CORS
 
-В `app/main.py` в список origin всегда входит прод-фронтенд Railway: **`https://gordo-frontend-production.up.railway.app`**.
-
-Дополнительные origin (Vercel, другой домен) задаются переменной **`CORS_ORIGINS`** (через запятую). В `app/config.py` по умолчанию — `localhost` / `127.0.0.1` на портах 3000 и 3001.
-
-Пример:
-
-`CORS_ORIGINS=http://localhost:3000,https://your-app.vercel.app`
+В `app/main.py` настроен **`CORSMiddleware`** с `allow_origins=["*"]` (все источники). Проверка: **`GET /test-cors`**.
