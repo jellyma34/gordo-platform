@@ -3,7 +3,7 @@
 import os
 import uvicorn
 
-from app.main import app
+
 
 
 def _listen_port() -> int:
