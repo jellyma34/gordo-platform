@@ -15,13 +15,17 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
   try {
     const u = new URL(trimmed);
     const host = u.hostname.toLowerCase();
+    // Публичный домен Railway не должен содержать порт в URL (например :8000).
+    if (host.endsWith(".railway.app") && u.port !== "") {
+      u.port = "";
+    }
     const isLoopback = host === "localhost" || host === "127.0.0.1";
     // Локальный FastAPI без TLS — https://localhost даёт ERR_SSL_PROTOCOL_ERROR
     if (isLoopback && u.protocol === "https:") {
       u.protocol = "http:";
       return u.href.replace(/\/$/, "");
     }
-    return trimmed.replace(/\/+$/, "");
+    return u.href.replace(/\/+$/, "");
   } catch {
     return "";
   }
