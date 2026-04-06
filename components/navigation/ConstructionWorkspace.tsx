@@ -105,6 +105,11 @@ function ConstructionWorkspaceInner({
   const searchParams = useSearchParams();
   const { role, hasFullConstructionAccess, allowedSections, token, hydrated } = useAuth();
 
+  const canSyncGprToBackend =
+    Boolean(token) &&
+    role != null &&
+    canAccessConstructionSection(role, allowedSections, "gpr");
+
   const prefix = pathname.startsWith("/presentation") ? "/presentation" : "/edit";
   const sectionParam = searchParams.get("section");
 
@@ -122,7 +127,7 @@ function ConstructionWorkspaceInner({
     const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
     setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
 
-    if (!token || !hasFullConstructionAccess) return;
+    if (!canSyncGprToBackend || !token) return;
 
     void (async () => {
       try {
@@ -139,8 +144,8 @@ function ConstructionWorkspaceInner({
           }
         }
         setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
-      } catch {
-        /* ошибка уже через adminJsonError в fetch; локальное состояние сохранено */
+      } catch (e) {
+        console.error("[GPR] Сохранение в backend не удалось:", e);
       }
     })();
   };

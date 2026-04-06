@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +43,14 @@ async def lifespan(_: FastAPI):
     bootstrap_admin_if_needed()
     print("Backend started", flush=True)
     print("DEPLOY CHECK v2", flush=True)
+    raw_db = (settings.database_url or "").strip()
+    if raw_db:
+        try:
+            u = urlparse(raw_db)
+            safe = f"{u.scheme}://{u.hostname or ''}:{u.port or ''}{u.path or ''}"
+            print(f"[DB] Using PostgreSQL (sanitized URL, no credentials): {safe}", flush=True)
+        except Exception:
+            print("[DB] DATABASE_URL is set (could not parse for log)", flush=True)
     yield
 
 

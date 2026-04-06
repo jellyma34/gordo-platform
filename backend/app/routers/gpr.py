@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_admin_or_manager
+from app.deps import get_current_user, require_admin_or_manager, require_gpr_write
 from app.models import GprDataVersion, GprRelatedDeviation, GprTask, ProjectPart, User
 from app.routers.tmc import tmc_row_for_part
 from app.schemas import (
@@ -144,7 +144,7 @@ def list_gpr_tasks(
 @router.post("/tasks", response_model=GprTaskItem, status_code=status.HTTP_201_CREATED)
 def create_gpr_task(
     body: GprTaskCreate,
-    _: User = Depends(require_admin_or_manager),
+    actor: User = Depends(require_gpr_write),
     db: Session = Depends(get_db),
 ):
     part = db.get(ProjectPart, body.part_id)
@@ -152,27 +152,48 @@ def create_gpr_task(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
     payload = body.model_dump()
     payload["global_task_id"] = payload.get("global_task_id") or body.code
+    print(f"[GPR] Creating task: user={actor.email!r} payload={payload}", flush=True)
     task = GprTask(**payload)
     db.add(task)
     db.commit()
     db.refresh(task)
+    print(f"[GPR] Created task id={task.id} code={task.code!r}", flush=True)
     return _to_task_item(task)
 
 
-@router.put("/tasks/{task_id}", response_model=GprTaskItem)
-def update_gpr_task(
+def read_gpr_task_item_or_404(entity_id: int, db: Session) -> GprTaskItem:
+    """Одна задача ГПР из БД (для GET /gpr/tasks/{id} и GET /entity/{id})."""
+    task = db.get(GprTask, entity_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
+    return _to_task_item(task)
+
+
+@router.get("/tasks/{task_id}", response_model=GprTaskItem)
+def get_gpr_task(
     task_id: int,
-    body: GprTaskUpdate,
-    actor: User = Depends(require_admin_or_manager),
+    _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    return read_gpr_task_item_or_404(task_id, db)
+
+
+def persist_gpr_task_update(
+    db: Session,
+    task_id: int,
+    body: GprTaskUpdate,
+    actor_email: str | None,
+) -> GprTaskItem:
+    """Обновление задачи в PostgreSQL: снимок версии → правки → commit + refresh."""
     task = db.get(GprTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
     part = db.get(ProjectPart, body.part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
-    _create_gpr_version(db, task, actor.email)
+    print(f"[GPR] Saving task update: entity_id={task_id} user={actor_email!r}", flush=True)
+    print(f"[GPR] Data: {body.model_dump()}", flush=True)
+    _create_gpr_version(db, task, actor_email)
     payload = body.model_dump()
     if not payload.get("global_task_id"):
         payload["global_task_id"] = task.global_task_id or payload["code"]
@@ -180,7 +201,18 @@ def update_gpr_task(
         setattr(task, key, value)
     db.commit()
     db.refresh(task)
+    print(f"[GPR] Committed task id={task.id} code={task.code!r}", flush=True)
     return _to_task_item(task)
+
+
+@router.put("/tasks/{task_id}", response_model=GprTaskItem)
+def update_gpr_task(
+    task_id: int,
+    body: GprTaskUpdate,
+    actor: User = Depends(require_gpr_write),
+    db: Session = Depends(get_db),
+):
+    return persist_gpr_task_update(db, task_id, body, actor.email)
 
 
 @router.get("/tasks/{task_id}/related-deviations", response_model=list[RelatedDeviationItem])

@@ -2,14 +2,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_admin_or_manager
+from app.deps import get_current_user, require_admin_or_manager, require_gpr_write
 from app.models import User
 from app.routers.gpr import (
     get_entity_version,
     list_entity_versions,
+    persist_gpr_task_update,
+    read_gpr_task_item_or_404,
     rollback_entity_version,
 )
-from app.schemas import GprDataVersionDetail, GprDataVersionListItem, GprTaskItem
+from app.schemas import GprDataVersionDetail, GprDataVersionListItem, GprTaskItem, GprTaskUpdate
 
 router = APIRouter(prefix="/entity", tags=["entity-versions"])
 
@@ -41,3 +43,24 @@ def rollback_version_alias(
     db: Session = Depends(get_db),
 ):
     return rollback_entity_version(entity_id, version_id, actor, db)
+
+
+@router.get("/{entity_id}", response_model=GprTaskItem)
+def get_entity(
+    entity_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Текущее состояние сущности ГПР из PostgreSQL (не mock)."""
+    return read_gpr_task_item_or_404(entity_id, db)
+
+
+@router.put("/{entity_id}", response_model=GprTaskItem)
+def put_entity(
+    entity_id: int,
+    body: GprTaskUpdate,
+    actor: User = Depends(require_gpr_write),
+    db: Session = Depends(get_db),
+):
+    """Сохранение сущности ГПР (то же, что `PUT /gpr/tasks/{id}`)."""
+    return persist_gpr_task_update(db, entity_id, body, actor.email)

@@ -69,6 +69,14 @@ def require_admin_or_manager(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_gpr_write(user: User = Depends(get_current_user)) -> User:
+    """Создание и обновление задач ГПР: админ/руководитель или сотрудник с доступом к разделу gpr."""
+    if user.role in ("admin", "manager"):
+        return user
+    assert_section_access(user, "gpr")
+    return user
+
+
 def normalize_allowed_sections(raw: list[str] | None) -> list[str]:
     if not raw:
         return []

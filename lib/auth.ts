@@ -588,6 +588,15 @@ export async function createGprTaskApi(token: string, body: GprTaskWritePayload)
   return res.json() as Promise<GprTaskApiItem>;
 }
 
+/** Текущая задача ГПР из БД: `GET /entity/{id}` (алиас семантики «сущность»). */
+export async function getEntityGprTaskApi(token: string, entityId: number): Promise<GprTaskApiItem> {
+  const res = await fetch(api(`/entity/${entityId}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Сущность не найдена или нет доступа");
+  return res.json() as Promise<GprTaskApiItem>;
+}
+
 /** Случайный пароль на клиенте (до отправки на сервер; API пароль не возвращает). */
 export function generateClientPassword(): string {
   const bytes = new Uint8Array(16);
