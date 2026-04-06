@@ -93,7 +93,7 @@ export function overlapInclusiveDays(a1: Date, a2: Date, b1: Date, b2: Date): nu
 function safeTaskPlanBounds(task: GPRTask): { start: Date; end: Date } | null {
   const start = toDate(task.planStart);
   const end = toDate(task.planEnd);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return null;
+  if (!start || !end || start > end) return null;
   return { start, end };
 }
 
@@ -101,7 +101,7 @@ function safeTaskFactBounds(task: GPRTask): { start: Date; end: Date } | null {
   if (!task.factStart || !task.factEnd) return null;
   const start = toDate(task.factStart);
   const end = toDate(task.factEnd);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return null;
+  if (!start || !end || start > end) return null;
   return { start, end };
 }
 
@@ -295,8 +295,13 @@ export function computeQuarterlyLoadRatioPercent(tasks: GPRTask[]): Map<string, 
   return m;
 }
 
-export function serialDayFromOrigin(isoDate: string, origin: Date): number {
-  return (toDate(isoDate).getTime() - origin.getTime()) / MS_PER_DAY;
+export function serialDayFromOrigin(
+  isoDate: string | null | undefined,
+  origin: Date | null | undefined,
+): number | null {
+  const date = toDate(isoDate);
+  if (!date || !origin || Number.isNaN(origin.getTime())) return null;
+  return (date.getTime() - origin.getTime()) / MS_PER_DAY;
 }
 
 /** Окно оси X: начало (полночь) и длина в днях. */
@@ -344,7 +349,7 @@ export function clampSerialRange(
 ): [number, number] | null {
   let a = serialDayFromOrigin(isoStart, origin);
   let b = serialDayFromOrigin(isoEnd, origin);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b)) return null;
   if (b < a) return null;
   a = Math.max(0, a);
   b = Math.min(maxSerial, b);

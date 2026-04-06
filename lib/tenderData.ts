@@ -43,7 +43,8 @@ export function inferPartIdFromStage(stage: string): number {
 /** Отклонение по договору: факт − план (дней). Положительное — просрочка заключения. */
 export function contractDeviationDays(t: Tender): number | null {
   if (!t.factContractDate) return null;
-  return daysBetween(t.planContractDate, t.factContractDate);
+  const d = daysBetween(t.planContractDate, t.factContractDate);
+  return Number.isFinite(d) ? d : null;
 }
 
 /** Синоним ТЗ: отклонение даты договора (факт − план), дни. */

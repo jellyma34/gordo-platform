@@ -634,10 +634,12 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               const blockedReasons = blockedReasonsByTaskId.get(task.id) ?? [];
               const status = blockedReasons.length > 0 ? "blocked" : getStatus(task);
               const planDuration = durationDays(task.planStart, task.planEnd);
-              const factDuration =
+              const factDurationRaw =
                 task.factStart && task.factEnd
                   ? durationDays(task.factStart, task.factEnd)
                   : null;
+              const factDuration =
+                factDurationRaw != null && Number.isFinite(factDurationRaw) ? factDurationRaw : null;
               const treePad = Math.max(0, task.level - 1) * 16;
               const relatedDeviations = getRelatedDeviations(task.globalTaskId);
 
@@ -727,7 +729,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                       />
                     </div>
                     <p className="mt-2 text-center text-[11px] tabular-nums text-slate-500">
-                      {planDuration} дн.
+                      {Number.isFinite(planDuration) ? `${planDuration} дн.` : "—"}
                     </p>
                   </div>
 

@@ -182,13 +182,10 @@ export const aggregateGprTasksByMainProcess = aggregateToMainProcesses;
 export function aggregatedMainProcessDelayDays(task: GPRTask): number | null {
   if (!isAggregatedMainProcessTask(task)) return null;
   if (!task.factStart?.trim() || !task.factEnd?.trim()) return null;
-  try {
-    const dp = durationDays(task.planStart, task.planEnd);
-    const df = durationDays(task.factStart, task.factEnd);
-    return df - dp;
-  } catch {
-    return null;
-  }
+  const dp = durationDays(task.planStart, task.planEnd);
+  const df = durationDays(task.factStart, task.factEnd);
+  if (!Number.isFinite(dp) || !Number.isFinite(df)) return null;
+  return df - dp;
 }
 
 export function aggregatedMainProcessStatus(

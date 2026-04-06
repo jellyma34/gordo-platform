@@ -51,8 +51,14 @@ export type GPRStatus = "green" | "yellow" | "red" | "gray" | "blocked";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-export function toDate(date: string) {
-  return new Date(`${date}T00:00:00`);
+export function toDate(value: string | null | undefined): Date | null {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === "—") return null;
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? new Date(`${trimmed}T00:00:00`)
+    : new Date(trimmed);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export function parseDate(date?: string | null): Date | null {
@@ -62,12 +68,16 @@ export function parseDate(date?: string | null): Date | null {
 }
 
 export function daysBetween(start: string, end: string) {
-  const diff = toDate(end).getTime() - toDate(start).getTime();
-  return Math.round(diff / MS_PER_DAY);
+  const a = toDate(start);
+  const b = toDate(end);
+  if (!a || !b) return NaN;
+  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
 }
 
 export function durationDays(start: string, end: string) {
-  return daysBetween(start, end) + 1;
+  const n = daysBetween(start, end);
+  if (!Number.isFinite(n)) return NaN;
+  return n + 1;
 }
 
 export function calculateDeviation(task: GPRTask): number | null {
@@ -143,7 +153,7 @@ export type PlanFactPeriodFilterType = "all" | "month" | "quarter";
 export function planStartCalendarMonth(planStart: string | null | undefined): number | null {
   if (!planStart) return null;
   const d = toDate(planStart);
-  if (Number.isNaN(d.getTime())) return null;
+  if (!d) return null;
   return d.getMonth() + 1;
 }
 

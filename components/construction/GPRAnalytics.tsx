@@ -32,7 +32,7 @@ import {
   Tooltip as ChartTooltip,
   Legend as ChartLegend,
 } from "chart.js";
-import type { Plugin } from "chart.js";
+import type { Chart as ChartType, LegendItem, Plugin } from "chart.js";
 import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
@@ -55,8 +55,8 @@ import {
   filterKvartalyTasksForGantt,
   formatQuarterDisplayLabel,
   getGanttXWindow,
-  getTimelineQuarterPeriodBounds,
   quarterOverloadThreshold,
+  serialDayFromOrigin,
   toKvartalyGanttFilter,
   type QuarterlyAggregateBucket,
 } from "@/lib/gprQuarterlyTimeline";
@@ -111,44 +111,77 @@ type PlanFactDurationRow = {
   xLabel: string;
 };
 
-type GprQuarterBandsPluginOpts = {
+/** Локальная календарная дата для шкалы Ганта (как у origin окна). */
+function localTodayIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+type GanttTodayLinePluginOpts = {
   origin: Date;
   maxSerial: number;
-  counts: Map<string, number>;
-  overloadAt: number;
 };
 
-const gprQuarterBandsPlugin: Plugin<"bar"> = {
-  id: "gprQuarterBands",
+/** Вертикальная линия «сегодня» под полосами (beforeDatasetsDraw); подпись над областью графика. */
+const ganttTodayLinePlugin: Plugin<"bar"> = {
+  id: "ganttTodayLine",
   beforeDatasetsDraw(chart) {
-    const opts = (chart.options.plugins as { gprQuarterBands?: GprQuarterBandsPluginOpts } | undefined)
-      ?.gprQuarterBands;
-    if (!opts?.counts || !chart.scales.x) return;
-    const xScale = chart.scales.x;
-    const { ctx, chartArea } = chart;
-    const ox = opts.origin.getTime();
-    for (const [key, count] of opts.counts) {
-      const b = getTimelineQuarterPeriodBounds(key);
-      if (!b) continue;
-      let s0 = (b.periodStart.getTime() - ox) / MS_PER_DAY_CHART;
-      let s1 = (b.periodEnd.getTime() - ox) / MS_PER_DAY_CHART;
-      if (s1 < 0 || s0 > opts.maxSerial) continue;
-      s0 = Math.max(0, s0);
-      s1 = Math.min(opts.maxSerial, s1);
-      const x1 = xScale.getPixelForValue(s0);
-      const x2 = xScale.getPixelForValue(s1);
-      const left = Math.min(x1, x2);
-      const w = Math.abs(x2 - x1);
-      if (w < 0.5) continue;
-      let fill: string;
-      if (count === 0) fill = "rgba(239,68,68,0.11)";
-      else if (count >= opts.overloadAt) fill = "rgba(245,158,11,0.14)";
-      else fill = "rgba(30,41,59,0.42)";
-      ctx.save();
-      ctx.fillStyle = fill;
-      ctx.fillRect(left, chartArea.top, w, chartArea.bottom - chartArea.top);
-      ctx.restore();
+    const opts = (chart.options.plugins as { ganttTodayLine?: GanttTodayLinePluginOpts } | undefined)
+      ?.ganttTodayLine;
+    if (!opts || !chart.scales.x) return;
+
+    const todayIso = localTodayIso();
+    const serial = serialDayFromOrigin(todayIso, opts.origin);
+    if (
+      serial === null ||
+      !Number.isFinite(serial) ||
+      serial < -1e-6 ||
+      serial > opts.maxSerial + 1e-6
+    ) {
+      return;
     }
+
+    const xScale = chart.scales.x;
+    const x = xScale.getPixelForValue(serial);
+    const { ctx, chartArea } = chart;
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
+
+    const [yy, mm, dd] = todayIso.split("-").map((s) => Number(s));
+    const labelDate =
+      yy != null && mm != null && dd != null
+        ? new Date(yy, mm - 1, dd).toLocaleDateString("ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+          })
+        : todayIso;
+    const label = `Сегодня • ${labelDate}`;
+
+    const xi = Math.round(x) + 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(163, 179, 199, 0.52)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 5]);
+    ctx.moveTo(xi, chartArea.top);
+    ctx.lineTo(xi, chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const textY = chartArea.top - 3;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(label, x, textY);
+    ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
+    ctx.fillText(label, x, textY);
+    ctx.restore();
   },
 };
 
@@ -161,7 +194,7 @@ ChartJS.register(
   LineElement,
   ChartTooltip,
   ChartLegend,
-  gprQuarterBandsPlugin,
+  ganttTodayLinePlugin,
 );
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
@@ -198,6 +231,39 @@ function truncateAxisLabel(s: string, maxLen: number): string {
   const t = s.trim().replace(/\s+/g, " ");
   if (t.length <= maxLen) return t;
   return `${t.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+const GANTT_FACT_LEGEND_GRAY = "rgba(148, 163, 184, 0.5)";
+
+/** Те же уровни, что у полос факта: серый < зелёный < жёлтый < красный. */
+function ganttFactColorRankForLegend(color: string): number {
+  const t = color.trim();
+  if (t === "#ef4444") return 3;
+  if (t === "#f59e0b") return 2;
+  if (t === "#22c55e") return 1;
+  return 0;
+}
+
+/**
+ * Цвет квадрата «Факт» в легенде: совпадает с палитрой полос.
+ * Несколько полос — берём худший статус (как наиболее критичный для сроков).
+ */
+function pickGanttFactLegendColor(
+  factBg: string[],
+  factBars: Array<[number, number] | null>,
+): string {
+  let best = GANTT_FACT_LEGEND_GRAY;
+  let bestRank = -1;
+  for (let i = 0; i < factBg.length; i++) {
+    if (factBars[i] == null) continue;
+    const c = factBg[i] ?? GANTT_FACT_LEGEND_GRAY;
+    const r = ganttFactColorRankForLegend(c);
+    if (r > bestRank) {
+      bestRank = r;
+      best = c;
+    }
+  }
+  return best;
 }
 
 function rowVisibleInGanttWindow(task: GPRTask, origin: Date, maxSerial: number): boolean {
@@ -459,9 +525,6 @@ type PlanFactKvartalyGranularity = "overview" | "aggregated" | "detailed";
 type KvartalyGanttModel = {
   candidates: GPRTask[];
   window: { origin: Date; maxSerial: number } | null;
-  quarterCounts: Map<string, number>;
-  overloadAt: number;
-  quarterLoadPct: Map<string, number>;
   ganttRows: GPRTask[];
   timelineCaption: string | null;
   planFactSummary: { avg: number; severeLate: number } | null;
@@ -488,21 +551,6 @@ function useKvartalyGanttModel(
     return getGanttXWindow(candidates, kvartalyPlanFactFilter);
   }, [enabled, candidates, kvartalyPlanFactFilter]);
 
-  const quarterCounts = useMemo(() => {
-    if (!enabled) return new Map<string, number>();
-    return computeQuarterlyActiveWorkCounts(tasks);
-  }, [enabled, tasks]);
-
-  const overloadAt = useMemo(
-    () => quarterOverloadThreshold(quarterCounts.values()),
-    [quarterCounts],
-  );
-
-  const quarterLoadPct = useMemo(() => {
-    if (!enabled) return new Map<string, number>();
-    return computeQuarterlyLoadRatioPercent(tasks);
-  }, [enabled, tasks]);
-
   const ganttRows = useMemo(() => {
     if (!enabled || !ganttWindow) return [];
     const { origin, maxSerial } = ganttWindow;
@@ -523,7 +571,11 @@ function useKvartalyGanttModel(
   }, [enabled, ganttWindow, candidates, granularity]);
 
   const timelineCaption = useMemo((): string | null => {
-    if (!enabled || quarterCounts.size === 0) return null;
+    if (!enabled) return null;
+    const quarterCounts = computeQuarterlyActiveWorkCounts(tasks);
+    if (quarterCounts.size === 0) return null;
+    const overloadAt = quarterOverloadThreshold(quarterCounts.values());
+    const quarterLoadPct = computeQuarterlyLoadRatioPercent(tasks);
     const entries = [...quarterCounts.entries()];
     let peak: [string, number] | null = null;
     for (const e of entries) {
@@ -548,7 +600,7 @@ function useKvartalyGanttModel(
       parts.push(`Кварталы без плановых работ (провал): ${gaps.join(", ")}.`);
     }
     return parts.join(" ");
-  }, [enabled, quarterCounts, overloadAt, quarterLoadPct]);
+  }, [enabled, tasks]);
 
   const planFactSummary = useMemo((): { avg: number; severeLate: number } | null => {
     if (!enabled) return null;
@@ -579,9 +631,6 @@ function useKvartalyGanttModel(
   return {
     candidates,
     window: ganttWindow,
-    quarterCounts,
-    overloadAt,
-    quarterLoadPct,
     ganttRows,
     timelineCaption,
     planFactSummary,
@@ -589,7 +638,7 @@ function useKvartalyGanttModel(
 }
 
 function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
-  const { window: gw, candidates, ganttRows, quarterCounts, overloadAt } = model;
+  const { window: gw, candidates, ganttRows } = model;
 
   if (!gw) {
     return (
@@ -664,6 +713,8 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
         return fact <= plan ? "#22c55e" : "#ef4444";
       });
 
+  const legendFactColor = pickGanttFactLegendColor(factBg, factBars);
+
   return (
     <Chart
       type="bar"
@@ -698,7 +749,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
         indexAxis: "y" as const,
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 8, right: 12, left: 4, bottom: 8 } },
+        layout: { padding: { top: 22, right: 12, left: 4, bottom: 8 } },
         interaction: { mode: "nearest", axis: "y", intersect: false },
         datasets: {
           bar: {
@@ -707,15 +758,39 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
           },
         },
         plugins: {
-          gprQuarterBands: {
+          ganttTodayLine: {
             origin,
             maxSerial,
-            counts: quarterCounts,
-            overloadAt,
           },
           legend: {
             position: "bottom",
-            labels: { color: "#cbd5e1", boxWidth: 12 },
+            labels: {
+              color: "#cbd5e1",
+              boxWidth: 12,
+              generateLabels(chart: ChartType): LegendItem[] {
+                const barChart = chart as InstanceType<typeof ChartJS>;
+                return [
+                  {
+                    text: "План",
+                    fillStyle: "rgba(148, 163, 184, 0.42)",
+                    strokeStyle: "rgba(148, 163, 184, 0.55)",
+                    lineWidth: 1,
+                    pointStyle: "rect" as const,
+                    hidden: !barChart.isDatasetVisible(0),
+                    datasetIndex: 0,
+                  },
+                  {
+                    text: "Факт",
+                    fillStyle: legendFactColor,
+                    strokeStyle: legendFactColor,
+                    lineWidth: 1,
+                    pointStyle: "rect" as const,
+                    hidden: !barChart.isDatasetVisible(1),
+                    datasetIndex: 1,
+                  },
+                ];
+              },
+            },
           },
           tooltip: {
             enabled: true,
@@ -1878,8 +1953,6 @@ export function GPRAnalytics({
                         Зелёный факт, если длительность факта ≤ плана; иначе красный.
                       </>
                     )}{" "}
-                    Фон по кварталам: тёмный — обычная загрузка, янтарный — много параллельных работ по плану,
-                    красноватый — в квартале нет плановых работ (провал).
                   </>
                 ) : (
                   <>
