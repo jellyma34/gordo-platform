@@ -17,7 +17,7 @@ export const gprForecastTodayPlugin: Plugin = {
     if (x < chartArea.left || x > chartArea.right) return;
 
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -26,8 +26,8 @@ export const gprForecastTodayPlugin: Plugin = {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.font = "600 11px system-ui, sans-serif";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillText("Сегодня", x, chartArea.top - 2);
@@ -51,24 +51,37 @@ export const gprForecastGlowPlugin: Plugin = {
     const plugins = chart.options.plugins as { gprForecastGlow?: boolean } | undefined;
     if (!plugins?.gprForecastGlow) return;
 
-    const raw = chart.data.datasets[fcIdx]?.data;
+    const raw = chart.data.datasets[fcIdx]?.data as { y?: number }[] | undefined;
     if (!raw || raw.length < 2) return;
-    const p0 = raw[0] as { y?: number };
-    const p1 = raw[1] as { y?: number };
-    const y0 = p0?.y;
-    const y1 = p1?.y;
-    if (typeof y0 !== "number" || typeof y1 !== "number") return;
 
-    const drop = y0 - y1;
+    const pluginsOpts = chart.options.plugins as
+      | { gprForecastPlanLagPp?: number; gprForecastFactNow?: number }
+      | undefined;
+    const lag = pluginsOpts?.gprForecastPlanLagPp;
+    const yLast = raw[raw.length - 1]?.y;
+    if (typeof yLast !== "number") return;
+
     let shadowColor: string;
-    if (drop <= 0) shadowColor = "rgba(34, 197, 94, 0.55)";
-    else if (drop <= 12) shadowColor = "rgba(245, 158, 11, 0.55)";
-    else shadowColor = "rgba(239, 68, 68, 0.55)";
+    if (typeof lag === "number") {
+      if (lag <= 0) shadowColor = "rgba(34, 197, 94, 0.55)";
+      else if (lag <= 12) shadowColor = "rgba(245, 158, 11, 0.55)";
+      else shadowColor = "rgba(239, 68, 68, 0.55)";
+    } else {
+      const factNow = pluginsOpts?.gprForecastFactNow;
+      if (typeof factNow === "number") {
+        const cumDrop = factNow - yLast;
+        if (cumDrop <= 0) shadowColor = "rgba(34, 197, 94, 0.55)";
+        else if (cumDrop <= 12) shadowColor = "rgba(245, 158, 11, 0.55)";
+        else shadowColor = "rgba(239, 68, 68, 0.55)";
+      } else {
+        shadowColor = "rgba(148, 163, 184, 0.45)";
+      }
+    }
 
     const ctx = chart.ctx;
     ctx.save();
     c.$gprGlowActive = true;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 16;
     ctx.shadowColor = shadowColor;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
@@ -83,4 +96,32 @@ export const gprForecastGlowPlugin: Plugin = {
   },
 };
 
-ChartJS.register(gprForecastTodayPlugin, gprForecastGlowPlugin);
+/** Свечение линии факта (датасет «Факт ГПР») — plugins.gprFactGlow. */
+export const gprFactGlowPlugin: Plugin = {
+  id: "gprFactGlow",
+  beforeDatasetDraw(chart, args) {
+    const c = chart as { $factGlowActive?: boolean };
+    delete c.$factGlowActive;
+
+    const plugins = chart.options.plugins as { gprFactGlow?: boolean } | undefined;
+    if (!plugins?.gprFactGlow) return;
+    if (chart.data.datasets[args.index]?.label !== "Факт ГПР") return;
+
+    const ctx = chart.ctx;
+    ctx.save();
+    c.$factGlowActive = true;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#22c55e";
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+  },
+  afterDatasetDraw(chart, args) {
+    const c = chart as { $factGlowActive?: boolean };
+    if (!c.$factGlowActive) return;
+    if (chart.data.datasets[args.index]?.label !== "Факт ГПР") return;
+    delete c.$factGlowActive;
+    chart.ctx.restore();
+  },
+};
+
+ChartJS.register(gprForecastTodayPlugin, gprForecastGlowPlugin, gprFactGlowPlugin);

@@ -550,31 +550,44 @@ function weightedAvgFromStageSeries(
 
 export type GprTimeForecastPoint = { x: number; y: number };
 
-/** Горизонт прогноза от «сегодня», дней. */
+/**
+ * Устаревшая константа (раньше горизонт +30 дн.). Оставлена для совместимости импортов в UI.
+ * @deprecated Прогноз на графике времени строится до конца проекта по датам плана.
+ */
 export const GPR_FORECAST_HORIZON_DAYS = 30;
 
 export type GprTimeForecastModel = {
   todayIso: string;
   todayMs: number;
+  /** Дата последней точки прогноза (конец проекта по оси плана). */
   forecastDateIso: string;
   forecastMs: number;
   factNow: number | null;
   planAtToday: number | null;
+  /** Отставание факта от плана на сегодня (п.п.): planAtToday − factNow; &gt; 0 — отстаём от плана. */
+  planFactLagPp: number | null;
   tmcPct: number | null;
   tenderPct: number | null;
+  /** Прогноз на последней дате (конец серии): plan(конец) − planFactLagPp. */
   forecastValue: number | null;
   forecastReason: string;
   changePct: string | null;
   planSeries: GprTimeForecastPoint[];
   factSeries: GprTimeForecastPoint[];
+  /** От «сегодня» (факт) по тем же X, что и план, до последней точки плана: forecast[i] = plan[i] − planFactLagPp. */
   forecastSeries: GprTimeForecastPoint[];
   axisMinMs: number;
   axisMaxMs: number;
 };
 
+function clampPercent(y: number): number {
+  return Math.round(Math.max(0, Math.min(100, y)) * 10) / 10;
+}
+
 /**
- * Временная модель для графика «Прогноз ГПР»: план и факт по месяцам, прогноз — от сегодня на +30 дней.
- * ТМЦ/тендеры — взвешенные по длительности плана корневых этапов части (как серии зависимостей).
+ * Временная модель для графика «Прогноз ГПР»: план и факт по месяцам; прогноз — от сегодня до конца проекта
+ * по тем же датам, что и план: forecast(x) = plan(x) − (planAtToday − factNow).
+ * ТМЦ/тендеры — в подсказках и тексте insight (как факторы риска), серия прогноза — от отставания от плана.
  */
 export function buildGprTimeForecastModel(
   tasks: GPRTask[],
@@ -591,6 +604,8 @@ export function buildGprTimeForecastModel(
 
   const factNow = weightedFactGprPart(tasks, activeProjectPart);
   const planAtToday = weightedPlanGprPartAtDate(tasks, activeProjectPart, todayIso);
+  const planFactLagPp =
+    factNow != null && planAtToday != null ? planAtToday - factNow : null;
   const tmcPct = weightedAvgFromStageSeries(
     tmcSeries.map((r) => ({ groupKey: r.groupKey, value: r.tmcSupply })),
     tasks,
@@ -602,21 +617,10 @@ export function buildGprTimeForecastModel(
     activeProjectPart,
   );
 
-  const forecastValue = computeGprForecastPercent(factNow, tmcPct, tenderPct);
-  const forecastReason = buildGprForecastInsight(factNow, forecastValue, tmcPct, tenderPct);
-
-  let changePct: string | null = null;
-  if (factNow != null && forecastValue != null && factNow !== 0) {
-    const ch = ((forecastValue - factNow) / factNow) * 100;
-    changePct = `${ch > 0 ? "+" : ""}${ch.toFixed(1)}%`;
-  }
-
   const todayMs = dateToMs(todayIso);
-  const forecastDateIso = addDaysToIso(todayIso, GPR_FORECAST_HORIZON_DAYS);
-  const forecastMs = dateToMs(forecastDateIso);
   const startMs = dateToMs(bounds.startIso);
   const endPlanMs = dateToMs(bounds.endIso);
-  const axisEndMs = Math.max(endPlanMs, forecastMs, todayMs) + 10 * 86400000;
+  const axisEndMs = Math.max(endPlanMs, todayMs) + 10 * 86400000;
   const axisMinMs = Math.min(startMs, todayMs) - 5 * 86400000;
 
   const monthMs = eachMonthStartMs(bounds.startIso, msToIso(axisEndMs));
@@ -645,9 +649,32 @@ export function buildGprTimeForecastModel(
   factSeries.sort((a, b) => a.x - b.x);
 
   const forecastSeries: GprTimeForecastPoint[] = [];
-  if (factNow != null && forecastValue != null) {
+  if (factNow != null) {
+    const delayPp = planFactLagPp ?? 0;
     forecastSeries.push({ x: todayMs, y: factNow });
-    forecastSeries.push({ x: forecastMs, y: forecastValue });
+    for (const p of planSeries) {
+      if (p.x <= todayMs) continue;
+      const y = clampPercent(p.y - delayPp);
+      forecastSeries.push({ x: p.x, y });
+    }
+  }
+
+  let forecastValue: number | null = null;
+  let forecastMs = todayMs;
+  let forecastDateIso = todayIso;
+  if (forecastSeries.length > 0) {
+    const last = forecastSeries[forecastSeries.length - 1]!;
+    forecastValue = last.y;
+    forecastMs = last.x;
+    forecastDateIso = msToIso(last.x);
+  }
+
+  const forecastReason = buildGprForecastInsight(factNow, forecastValue, tmcPct, tenderPct);
+
+  let changePct: string | null = null;
+  if (factNow != null && forecastValue != null && factNow !== 0) {
+    const ch = ((forecastValue - factNow) / factNow) * 100;
+    changePct = `${ch > 0 ? "+" : ""}${ch.toFixed(1)}%`;
   }
 
   return {
@@ -657,6 +684,7 @@ export function buildGprTimeForecastModel(
     forecastMs,
     factNow,
     planAtToday,
+    planFactLagPp,
     tmcPct,
     tenderPct,
     forecastValue,

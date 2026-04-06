@@ -3,20 +3,21 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Chart as ChartJS } from "chart.js";
-import type { ChartData, ChartOptions, ScriptableLineSegmentContext } from "chart.js/auto";
+import type { ChartData, ChartOptions } from "chart.js/auto";
 import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import type { TMCItem } from "@/lib/tmcData";
-import {
-  buildGprTimeForecastModel,
-  GPR_FORECAST_HORIZON_DAYS,
-  type GprTimeForecastModel,
-} from "@/lib/gprTmcDependency";
+import { buildGprTimeForecastModel, type GprTimeForecastModel } from "@/lib/gprTmcDependency";
 
 const PLAN_LINE = "#e2e8f0";
 const FACT_LINE = "#22c55e";
 
 const monthTickFmt = new Intl.DateTimeFormat("ru-RU", { month: "short", year: "numeric" });
+const endDateFmt = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
 
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
@@ -28,34 +29,46 @@ function formatDateLong(ms: number): string {
   }).format(new Date(ms));
 }
 
-/** Падение по сегменту прогноза: факт «сегодня» минус значение на конце сегмента (п.п.). */
-function segmentDrop(ctx: ScriptableLineSegmentContext): number {
-  const y0 = ctx.p0.parsed.y;
-  const y1 = ctx.p1.parsed.y;
-  if (typeof y0 !== "number" || typeof y1 !== "number") return 0;
-  return y0 - y1;
-}
-
-function segmentBorderColor(ctx: ScriptableLineSegmentContext): string {
-  const drop = segmentDrop(ctx);
-  if (drop <= 0) return "#22c55e";
-  if (drop <= 12) return "#f59e0b";
+/** Риск по отставанию факта от плана на сегодня (п.п.): >0 — отстаём. */
+function colorFromPlanFactLag(lagPp: number | null): string {
+  if (lagPp == null) return "#22c55e";
+  if (lagPp <= 0) return "#22c55e";
+  if (lagPp <= 12) return "#f59e0b";
   return "#ef4444";
 }
 
-function segmentFillColor(ctx: ScriptableLineSegmentContext): string {
-  const drop = segmentDrop(ctx);
-  if (drop <= 0) return "rgba(34, 197, 94, 0.08)";
-  if (drop <= 12) return "rgba(245, 158, 11, 0.08)";
+function forecastAreaFillRgba(model: GprTimeForecastModel): string {
+  const lag = model.planFactLagPp;
+  if (lag == null) return "rgba(34, 197, 94, 0.08)";
+  if (lag <= 0) return "rgba(34, 197, 94, 0.08)";
+  if (lag <= 12) return "rgba(245, 158, 11, 0.08)";
   return "rgba(239, 68, 68, 0.12)";
 }
 
-function forecastPointColor(model: GprTimeForecastModel): string {
-  if (model.factNow == null || model.forecastValue == null) return "#22c55e";
-  const drop = model.factNow - model.forecastValue;
-  if (drop <= 0) return "#22c55e";
-  if (drop <= 12) return "#f59e0b";
-  return "#ef4444";
+function badgeStyleFromLag(lag: number | null): { bg: string; border: string; shadow: string; text: string } {
+  const c = colorFromPlanFactLag(lag);
+  if (lag == null || lag <= 0) {
+    return {
+      bg: "rgba(34, 197, 94, 0.15)",
+      border: "rgba(34, 197, 94, 0.35)",
+      shadow: "0 0 14px rgba(34, 197, 94, 0.45), 0 0 4px rgba(34, 197, 94, 0.25)",
+      text: "text-emerald-100/95",
+    };
+  }
+  if (lag <= 12) {
+    return {
+      bg: "rgba(245, 158, 11, 0.12)",
+      border: "rgba(245, 158, 11, 0.4)",
+      shadow: "0 0 14px rgba(245, 158, 11, 0.4), 0 0 4px rgba(245, 158, 11, 0.2)",
+      text: "text-amber-100/95",
+    };
+  }
+  return {
+    bg: "rgba(239, 68, 68, 0.12)",
+    border: "rgba(239, 68, 68, 0.35)",
+    shadow: "0 0 14px rgba(239, 68, 68, 0.4), 0 0 4px rgba(239, 68, 68, 0.2)",
+    text: "text-red-100/95",
+  };
 }
 
 export function GPRForecastChart({
@@ -131,11 +144,14 @@ export function GPRForecastChart({
     const factPast = model.factSeries.filter((p) => p.x <= model.todayMs);
 
     const forecastPts =
-      model.factNow != null && model.forecastValue != null
+      model.factNow != null && model.forecastSeries.length >= 2
         ? model.forecastSeries.map((p) => ({ x: p.x, y: p.y }))
         : [];
 
-    const fcColor = forecastPointColor(model);
+    const factNow = model.factNow;
+    const lag = model.planFactLagPp;
+    const lineColor = colorFromPlanFactLag(lag);
+    const areaFill = forecastAreaFillRgba(model);
 
     const planDs = {
       label: "План ГПР",
@@ -171,30 +187,29 @@ export function GPRForecastChart({
       parsing: { xAxisKey: "x", yAxisKey: "y" },
     };
 
-    const forecastDs = {
-      label: "Прогноз ГПР",
-      data: forecastPts,
-      borderColor: fcColor,
-      backgroundColor: "transparent",
-      tension: 0.4,
-      borderDash: [6, 5],
-      pointRadius: 4.5,
-      pointHoverRadius: 6.5,
-      pointBackgroundColor: fcColor,
-      pointBorderColor: "rgba(15,23,42,0.55)",
-      pointBorderWidth: 2,
-      borderWidth: 3,
-      fill: "origin" as const,
-      segment: {
-        borderColor: (ctx: ScriptableLineSegmentContext) => segmentBorderColor(ctx),
-        backgroundColor: (ctx: ScriptableLineSegmentContext) => segmentFillColor(ctx),
-      },
-      order: 2,
-      parsing: { xAxisKey: "x", yAxisKey: "y" },
-    };
+    const forecastDs =
+      factNow != null && forecastPts.length >= 2
+        ? {
+            label: "Прогноз ГПР",
+            data: forecastPts,
+            borderColor: lineColor,
+            backgroundColor: areaFill,
+            tension: 0.4,
+            borderDash: [6, 5],
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            pointBackgroundColor: lineColor,
+            pointBorderColor: "rgba(15,23,42,0.55)",
+            pointBorderWidth: 2,
+            borderWidth: 3,
+            fill: "origin" as const,
+            order: 2,
+            parsing: { xAxisKey: "x", yAxisKey: "y" },
+          }
+        : null;
 
     return {
-      datasets: forecastPts.length >= 2 ? [planDs, factDs, forecastDs] : [planDs, factDs],
+      datasets: forecastDs ? [planDs, factDs, forecastDs] : [planDs, factDs],
     };
   }, [model]);
 
@@ -211,7 +226,7 @@ export function GPRForecastChart({
               intersect: false,
             },
             layout: {
-              padding: { top: 36, right: 56, left: 4, bottom: 4 },
+              padding: { top: 38, right: 56, left: 4, bottom: 4 },
             },
             animation: {
               duration: 450,
@@ -251,6 +266,9 @@ export function GPRForecastChart({
             },
             plugins: {
               gprForecastGlow: true,
+              gprFactGlow: true,
+              gprForecastFactNow: model.factNow ?? undefined,
+              gprForecastPlanLagPp: model.planFactLagPp ?? undefined,
               gprForecastToday: {
                 todayMs: model.todayMs,
               },
@@ -289,25 +307,36 @@ export function GPRForecastChart({
                     const ds = item.datasetIndex;
                     const di = item.dataIndex;
                     const m = model as GprTimeForecastModel;
+                    const fcLen = m.forecastSeries.length;
 
                     if (ds === 2 && di === 0) {
+                      const lag = m.planFactLagPp;
+                      const lagLine =
+                        lag == null
+                          ? "—"
+                          : `${lag > 0 ? "+" : ""}${lag.toFixed(1).replace(/\.0$/, "")} п.п.`;
                       return [
                         "",
                         "Сегодня:",
                         `  факт: ${m.factNow == null ? "—" : `${m.factNow}%`}`,
+                        `  план: ${m.planAtToday == null ? "—" : `${m.planAtToday}%`}`,
+                        `  отставание от плана: ${lagLine}`,
                         `  ТМЦ: ${m.tmcPct == null ? "—" : `${m.tmcPct}%`}`,
                         `  тендеры: ${m.tenderPct == null ? "—" : `${m.tenderPct}%`}`,
                       ];
                     }
-                    if (ds === 2 && di === 1) {
+                    if (ds === 2 && fcLen > 0 && di === fcLen - 1) {
                       return [
                         "",
-                        "Прогноз:",
-                        `  период: +${GPR_FORECAST_HORIZON_DAYS} дней (${m.forecastDateIso})`,
-                        `  прогноз: ${m.forecastValue == null ? "—" : `${m.forecastValue}%`}`,
-                        `  изменение: ${m.changePct ?? "—"}`,
-                        `  причина: ${m.forecastReason}`,
+                        "Прогноз (до конца проекта):",
+                        `  дата: ${m.forecastDateIso}`,
+                        `  значение: ${m.forecastValue == null ? "—" : `${m.forecastValue}%`}`,
+                        `  изменение к факту: ${m.changePct ?? "—"}`,
+                        `  примечание: ${m.forecastReason}`,
                       ];
+                    }
+                    if (ds === 2 && di > 0 && di < fcLen - 1) {
+                      return ["", "Точка прогноза по тем же датам, что и план (смещение от текущего отставания)."];
                     }
                     return [];
                   },
@@ -318,6 +347,12 @@ export function GPRForecastChart({
     [model],
   );
 
+  const badgeUi = model ? badgeStyleFromLag(model.planFactLagPp) : null;
+  const badgeLabel =
+    model && model.forecastSeries.length >= 2
+      ? `до ${endDateFmt.format(new Date(model.forecastMs))}`
+      : "";
+
   return (
     <div className="mt-6 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
       <div>
@@ -325,7 +360,7 @@ export function GPRForecastChart({
         <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-400">
           Прогноз на основе текущих данных ТМЦ и тендеров.
           <br />
-          Пунктир — ожидаемое изменение.
+          Пунктир — ожидаемое выполнение по тем же датам, что и план, с учётом текущего отставания от плана.
         </p>
       </div>
 
@@ -342,18 +377,21 @@ export function GPRForecastChart({
               data={chartData as ChartData<"line">}
               options={options}
             />
-            {badgePos && model.forecastSeries.length >= 2 && (
+            {badgePos && model.forecastSeries.length >= 2 && badgeUi ? (
               <div
-                className="pointer-events-none absolute z-10 whitespace-nowrap rounded-full border border-emerald-500/35 px-2 py-0.5 text-[11px] font-semibold text-emerald-100/95"
+                className={`pointer-events-none absolute z-10 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeUi.text}`}
                 style={{
-                  left: badgePos.left + 10,
-                  top: badgePos.top - 10,
-                  background: "rgba(34, 197, 94, 0.15)",
+                  left: badgePos.left,
+                  top: badgePos.top,
+                  transform: "translate(12px, -50%)",
+                  background: badgeUi.bg,
+                  borderColor: badgeUi.border,
+                  boxShadow: badgeUi.shadow,
                 }}
               >
-                &lt;{GPR_FORECAST_HORIZON_DAYS} дн.
+                {badgeLabel}
               </div>
-            )}
+            ) : null}
           </>
         )}
       </div>
@@ -362,15 +400,15 @@ export function GPRForecastChart({
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 border-t border-slate-700/40 pt-3 text-[11px] text-slate-400">
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#22c55e]" aria-hidden />
-            без снижения к факту
+            по плану или опережение
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" aria-hidden />
-            умеренное падение
+            умеренное отставание от плана (до 12 п.п.)
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#ef4444]" aria-hidden />
-            сильное падение
+            сильное отставание от плана (свыше 12 п.п.)
           </span>
         </div>
       ) : null}
