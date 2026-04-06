@@ -109,6 +109,94 @@ a {
   }
 }
 
+/* Карточки групп «Отклонения по этапам»: тот же radial + glow, слабее верхних светофоров */
+[data-stage-deviation-card="green"],
+[data-stage-deviation-card="red"],
+[data-stage-deviation-card="gray"] {
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  transition: box-shadow 0.2s ease, background 0.2s ease;
+}
+
+[data-stage-deviation-card="green"] {
+  background-color: #0f172a;
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(34, 197, 94, 0.2) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.08);
+}
+[data-stage-deviation-card="red"] {
+  background-color: #0f172a;
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(255, 80, 80, 0.2) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 20px rgba(255, 80, 80, 0.08);
+}
+[data-stage-deviation-card="gray"] {
+  background-color: #0f172a;
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(148, 163, 184, 0.16) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 20px rgba(148, 163, 184, 0.06);
+}
+
+@media (hover: hover) {
+  [data-stage-deviation-card="green"]:hover {
+    background-image: radial-gradient(
+      circle at 85% 15%,
+      rgba(34, 197, 94, 0.25) 0%,
+      transparent 65%
+    );
+    box-shadow: 0 0 22px rgba(34, 197, 94, 0.1);
+  }
+  [data-stage-deviation-card="red"]:hover {
+    background-image: radial-gradient(
+      circle at 85% 15%,
+      rgba(255, 80, 80, 0.25) 0%,
+      transparent 65%
+    );
+    box-shadow: 0 0 22px rgba(255, 80, 80, 0.1);
+  }
+  [data-stage-deviation-card="gray"]:hover {
+    background-image: radial-gradient(
+      circle at 85% 15%,
+      rgba(148, 163, 184, 0.21) 0%,
+      transparent 65%
+    );
+    box-shadow: 0 0 22px rgba(148, 163, 184, 0.08);
+  }
+}
+
+[data-stage-deviation-card="green"][aria-pressed="true"] {
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(34, 197, 94, 0.25) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.11);
+}
+[data-stage-deviation-card="red"][aria-pressed="true"] {
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(255, 80, 80, 0.25) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 24px rgba(255, 80, 80, 0.11);
+}
+[data-stage-deviation-card="gray"][aria-pressed="true"] {
+  background-image: radial-gradient(
+    circle at 85% 15%,
+    rgba(148, 163, 184, 0.21) 0%,
+    transparent 65%
+  );
+  box-shadow: 0 0 24px rgba(148, 163, 184, 0.09);
+}
+
 /* Страница входа «Презентация» — landing / dashboard entry */
 .presentation-wrapper {
   align-items: center;

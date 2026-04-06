@@ -2614,12 +2614,6 @@ export function GPRAnalytics({
                 ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
                 : 0;
               const critical = withDev.filter((r) => getStatusByDeviation(r.deviation) === "red").length;
-              const rootForGroup = tasksForActivePart.find((t) => {
-                const level = t.level ?? t.code.split(".").length - 1;
-                return level === 1 && inferGroup(t) === g;
-              });
-              const totalDeviation = rootForGroup ? calculateDeviation(rootForGroup) : null;
-              const accent = stageAccentFromTotalDeviation(totalDeviation);
               const label = gprStageDisplayTitle(tasksForActivePart, g);
               return {
                 key: g,
@@ -2627,8 +2621,7 @@ export function GPRAnalytics({
                 rows,
                 avg,
                 critical,
-                totalDeviation,
-                accent,
+                withDevCount: withDev.length,
               };
             })
             .filter((card) => card.rows.length > 0);
@@ -2649,20 +2642,18 @@ export function GPRAnalytics({
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {groupCards.map((g) => {
                   const activeCard = activeGroup === g.key;
+                  const stageCardTone: "green" | "red" | "gray" =
+                    g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
                   return (
                     <button
                       key={g.key}
                       type="button"
                       onClick={() => toggleGroup(g.key)}
-                      className={`rounded-xl border p-4 text-left transition-all ${
-                        activeCard
-                          ? "scale-[1.02] border-slate-500 bg-slate-900/55"
-                          : "border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40"
+                      aria-pressed={activeCard}
+                      data-stage-deviation-card={stageCardTone}
+                      className={`w-full rounded-xl p-4 text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] ${
+                        activeCard ? "scale-[1.02]" : ""
                       }`}
-                      style={{
-                        boxShadow: activeCard ? `0 0 20px ${g.accent}55` : undefined,
-                        borderLeft: `4px solid ${g.accent}`,
-                      }}
                     >
                       <div
                         className="stage-title min-h-[2.75rem] text-sm font-semibold leading-snug text-slate-100"
@@ -2687,10 +2678,7 @@ export function GPRAnalytics({
               )}
 
               {active ? (
-                <div
-                  className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4"
-                  style={{ borderLeft: `4px solid ${active.accent}` }}
-                >
+                <div className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4">
                   <div
                     className="stage-title mb-3 text-sm font-semibold leading-snug text-slate-100"
                     title={active.label}
