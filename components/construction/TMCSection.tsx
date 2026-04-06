@@ -170,6 +170,7 @@ export function TMCSection({
             value: `${totals.completionPct}%`,
             sub: `${(totals.fact / 1_000_000).toFixed(1)} / ${(totals.plan / 1_000_000).toFixed(1)} млн`,
             color: COLORS.green,
+            traffic: (totals.completionPct > 0 ? "green" : "gray") as Traffic,
           },
           {
             key: "saving" as const,
@@ -177,6 +178,7 @@ export function TMCSection({
             value: `${totals.saving > 0 ? "+" : ""}${(totals.saving / 1_000_000).toFixed(1)} млн`,
             sub: "Σ(план - факт)",
             color: totals.saving >= 0 ? COLORS.green : COLORS.red,
+            traffic: (totals.saving > 0 ? "green" : totals.saving < 0 ? "red" : "gray") as Traffic,
           },
           {
             key: "delays" as const,
@@ -184,6 +186,7 @@ export function TMCSection({
             value: totals.delays,
             sub: "factDate > planDate",
             color: COLORS.red,
+            traffic: (totals.delays > 0 ? "red" : "gray") as Traffic,
           },
           {
             key: "planned" as const,
@@ -191,6 +194,7 @@ export function TMCSection({
             value: totals.planned,
             sub: "status = план",
             color: COLORS.gray,
+            traffic: "gray" as Traffic,
           },
         ].map((card) => {
           const active = activeDrill === card.key;
@@ -199,10 +203,14 @@ export function TMCSection({
               key={card.key}
               type="button"
               onClick={() => setActiveDrill((prev) => (prev === card.key ? null : card.key))}
-              className={`text-left rounded-[20px] border border-white/10 bg-white/5 p-5 backdrop-blur-[12px] transition-all ${
+              data-traffic-card={card.traffic}
+              className={`top-card card text-left p-5 backdrop-blur-[12px] transition-all ${
                 active ? "scale-[1.02]" : ""
               }`}
-              style={{ borderLeft: `6px solid ${card.color}`, boxShadow: active ? `0 0 24px ${card.color}66` : "0 10px 30px rgba(0,0,0,0.3)" }}
+              style={{
+                borderLeft: `6px solid ${card.color}`,
+                boxShadow: active ? `0 0 24px ${card.color}66` : undefined,
+              }}
             >
               <div className="text-xs text-slate-300">{card.label}</div>
               <div className="mt-2 text-3xl font-bold text-white tabular-nums">{card.value}</div>
