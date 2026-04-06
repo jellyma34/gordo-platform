@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
@@ -14,7 +14,7 @@ import {
   type ChartOptions,
   type ScriptableLineSegmentContext,
 } from "chart.js";
-import { getStatusByDeviation, type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
 import { buildGprTmcDependencySeries } from "@/lib/gprTmcDependency";
 
@@ -46,6 +46,33 @@ function tmcChartRiskLevel(series: { deviationDays: number | null }[]): "high" |
   if (days.some((d) => d > THRESHOLD_DAYS)) return "high";
   if (days.every((d) => d <= 0)) return "low";
   return "medium";
+}
+
+/** Цвет маркера этапа в списке (референс: подготовка — красный, строительство — зелёный). */
+function stageDeviationDotColor(groupKey: string): string {
+  if (groupKey === "prep") return "#ef4444";
+  if (groupKey === "build") return "#22c55e";
+  if (groupKey === "network") return "#f59e0b";
+  return "#94a3b8";
+}
+
+/** Подсветка числа отклонения по знаку (красный / зелёный + лёгкое свечение). */
+function deviationListValueStyle(d: number | null): CSSProperties {
+  if (d === null) {
+    return { color: "#94a3b8", fontWeight: 700 };
+  }
+  if (d > 0) {
+    return {
+      color: "#ef4444",
+      fontWeight: 700,
+      textShadow: "0 0 8px rgba(239,68,68,0.35)",
+    };
+  }
+  return {
+    color: "#22c55e",
+    fontWeight: 700,
+    textShadow: "0 0 8px rgba(34,197,94,0.35)",
+  };
 }
 
 function KpiMiniIconRuler() {
@@ -118,25 +145,38 @@ export function GPRTmcDependencyChart({
         return {
           value: "Высокий",
           sub: "требует внимания",
-          card: "border-orange-500/40 bg-orange-500/10 text-orange-50",
-          iconWrap: "text-orange-300",
+          card: "border border-[rgba(245,158,11,0.5)] bg-[rgba(245,158,11,0.08)]",
+          valueClass: "text-[#f59e0b]",
+          mutedClass: "text-amber-900/55",
+          iconWrap: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25",
         };
       case "low":
         return {
           value: "Низкий",
           sub: "в норме",
-          card: "border-emerald-500/35 bg-emerald-500/10 text-emerald-50",
-          iconWrap: "text-emerald-300",
+          card: "border border-slate-600/50 bg-slate-900/40",
+          valueClass: "text-slate-100",
+          mutedClass: "text-slate-500",
+          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
         };
       default:
         return {
           value: "Средний",
           sub: "наблюдение",
-          card: "border-amber-500/35 bg-amber-500/10 text-amber-50",
-          iconWrap: "text-amber-300",
+          card: "border border-slate-600/50 bg-slate-900/40",
+          valueClass: "text-slate-100",
+          mutedClass: "text-slate-500",
+          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
         };
     }
   }, [kpiStats.risk]);
+
+  const avgValueColor = useMemo(() => {
+    if (kpiStats.avgDev === null) return "#e2e8f0";
+    if (kpiStats.avgDev < 0) return "#22c55e";
+    if (kpiStats.avgDev > 0) return "#ef4444";
+    return "#e2e8f0";
+  }, [kpiStats.avgDev]);
 
   const chartData = useMemo(() => {
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
@@ -306,22 +346,32 @@ export function GPRTmcDependencyChart({
         Расхождение между ними указывает на влияние дефицита ресурсов.
       </p>
 
-      <div className="mt-6 border-t border-slate-700/60 pt-5">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
-          <div>
+      <div className="mt-5 border-t border-slate-700/60 pt-5">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-4">
+          <div className="w-full min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/35 p-4 lg:w-[45%] lg:max-w-[50%] lg:shrink-0">
             <h4 className="text-sm font-semibold text-slate-200">Отклонения по этапам</h4>
-            <ul className="mt-3 space-y-2 text-xs leading-snug text-slate-300">
+            <ul className="mt-3 space-y-2.5 text-xs leading-snug">
               {series.map((row) => {
                 const d = row.deviationDays;
-                const st = d === null ? null : getStatusByDeviation(d);
-                const valueColor =
-                  st === null ? "#94a3b8" : st === "green" ? "#86efac" : st === "yellow" ? "#fcd34d" : "#fca5a5";
+                const dot = stageDeviationDotColor(row.groupKey);
                 return (
-                  <li key={row.groupKey} title={row.stageFull}>
-                    <span className="text-slate-500">•</span>{" "}
-                    <span className="text-slate-200">{row.stageTitle}</span>
-                    {" → "}
-                    <span className="font-semibold tabular-nums" style={{ color: valueColor }}>
+                  <li
+                    key={row.groupKey}
+                    className="flex items-baseline justify-between gap-3"
+                    title={row.stageFull}
+                  >
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2 text-slate-200">
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-black/20"
+                        style={{ backgroundColor: dot }}
+                        aria-hidden
+                      />
+                      <span className="stage-title min-w-0 leading-snug">{row.stageTitle}</span>
+                    </span>
+                    <span
+                      className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
+                      style={deviationListValueStyle(d)}
+                    >
                       {formatDeviationDays(d)}
                     </span>
                   </li>
@@ -330,9 +380,9 @@ export function GPRTmcDependencyChart({
             </ul>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/80 text-slate-400 ring-1 ring-white/10">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
+            <div className="flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
                 <KpiMiniIconRuler />
               </span>
               <div className="min-w-0 flex-1">
@@ -342,13 +392,16 @@ export function GPRTmcDependencyChart({
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/80 text-slate-400 ring-1 ring-white/10">
+            <div className="flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
                 <KpiMiniIconChart />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Среднее отклонение</div>
-                <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
+                <div
+                  className="value mt-0.5 text-base font-bold tabular-nums"
+                  style={{ color: avgValueColor }}
+                >
                   {kpiStats.avgDev === null ? "—" : formatAvgDeviationDays(kpiStats.avgDev)}
                 </div>
                 <div className="text-[11px] text-slate-500">по проекту</div>
@@ -356,17 +409,21 @@ export function GPRTmcDependencyChart({
             </div>
 
             <div
-              className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left ${riskCardUi.card}`}
+              className={`flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-3 text-left ${riskCardUi.card}`}
             >
               <span
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/20 ring-1 ring-white/10 ${riskCardUi.iconWrap}`}
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riskCardUi.iconWrap}`}
               >
                 <KpiMiniIconAlert />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium uppercase tracking-wide opacity-75">Риск срыва</div>
-                <div className="mt-0.5 text-base font-bold leading-tight">{riskCardUi.value}</div>
-                <div className="text-[11px] opacity-85">{riskCardUi.sub}</div>
+                <div className={`text-[11px] font-medium uppercase tracking-wide ${riskCardUi.mutedClass}`}>
+                  Риск срыва
+                </div>
+                <div className={`mt-0.5 text-base font-bold leading-tight ${riskCardUi.valueClass}`}>
+                  {riskCardUi.value}
+                </div>
+                <div className={`text-[11px] ${riskCardUi.mutedClass}`}>{riskCardUi.sub}</div>
               </div>
             </div>
           </div>
