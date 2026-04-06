@@ -1992,37 +1992,52 @@ export function GPRAnalytics({
             </div>
             {planFactSummary ? (
               <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
-                <div className="flex flex-col gap-1">
-                  <span className="font-medium leading-snug text-slate-100">
-                    {planFactDataSource === "kvartaly"
-                      ? planFactKvartalyGranularity === "overview"
-                        ? "Отставание графика на сегодня (плановых дн.)"
-                        : planFactKvartalyGranularity === "aggregated"
+                {(() => {
+                  const avg = planFactSummary.avg;
+                  const firstLabel =
+                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview"
+                      ? "Отклонение от графика"
+                      : planFactDataSource === "kvartaly"
+                        ? planFactKvartalyGranularity === "aggregated"
                           ? "Среднее отклонение длительности по видимым процессам (факт − план)"
                           : "Среднее отклонение длительности по видимым работам (факт − план)"
-                      : "Среднее отклонение (факт − план)"}
-                  </span>
-                  <span className="font-semibold tabular-nums text-slate-100">
-                    {planFactSummary.avg > 0 ? "+" : ""}
-                    {planFactSummary.avg.toFixed(1)} дн.
-                  </span>
-                </div>
-                <div className="mt-2 flex flex-col gap-1">
-                  <span className="font-medium leading-snug text-slate-100">
-                    {planFactDataSource === "kvartaly"
-                      ? planFactKvartalyGranularity === "overview"
-                        ? "Критическое отставание графика (&gt;14 дн.)"
-                        : planFactKvartalyGranularity === "aggregated"
-                          ? "Процессов с отставанием по длительности (&gt;14 дн.)"
-                          : "Работ с отставанием по длительности (&gt;14 дн.)"
-                      : "Этапов с отставанием (&gt;14 дн.)"}
-                  </span>
-                  <span
-                    className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
-                  >
-                    {planFactSummary.severeLate}
-                  </span>
-                </div>
+                        : "Среднее отклонение (факт − план)";
+                  let primaryLine: string;
+                  let primaryColor: string;
+                  if (avg < 0) {
+                    primaryLine = `Опережение: ${Math.abs(avg).toFixed(1)} дн.`;
+                    primaryColor = COLORS.green;
+                  } else if (avg > 0) {
+                    primaryLine = `Отставание: ${avg.toFixed(1)} дн.`;
+                    primaryColor = COLORS.red;
+                  } else {
+                    primaryLine = "В срок";
+                    primaryColor = "#e2e8f0";
+                  }
+                  return (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium leading-snug text-slate-100">{firstLabel}</span>
+                        <span
+                          className="value text-sm font-semibold leading-snug tabular-nums"
+                          style={{ color: primaryColor }}
+                        >
+                          {primaryLine}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-col gap-1">
+                        <span className="font-medium leading-snug text-slate-100">
+                          {`Критические отклонения (>14 дн.)`}
+                        </span>
+                        <span
+                          className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
+                        >
+                          {planFactSummary.severeLate}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : null}
           </div>
