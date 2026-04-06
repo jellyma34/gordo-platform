@@ -14,6 +14,10 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)  # admin | manager | employee
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")  # active | blocked
+    blocked_reason: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_by_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     allowed_sections: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 

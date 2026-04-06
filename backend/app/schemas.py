@@ -25,6 +25,10 @@ class UserListItem(BaseModel):
     email: str
     full_name: Optional[str] = None
     role: Literal["admin", "manager", "employee"]
+    status: Literal["active", "blocked"] = "active"
+    blocked_reason: str | None = None
+    blocked_at: datetime | None = None
+    blocked_by_email: str | None = None
     allowed_sections: list[str]
 
 
@@ -32,6 +36,34 @@ class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     role: Literal["admin", "manager", "employee"]
     allowed_sections: list[str] = Field(default_factory=list)
+
+
+class BlockUserRequest(BaseModel):
+    reason: str | None = None
+
+
+class UserTaskDeviationItem(BaseModel):
+    task_id: int
+    code: str
+    name: str
+    status: Literal["green", "yellow", "red", "gray"]
+    deviation_days: int | None = None
+    completion: int
+
+
+class UserAnalyticsResponse(BaseModel):
+    total_tasks: int
+    active_tasks: int
+    completion_percent: float
+    avg_deviation_days: float | None = None
+    green: int
+    yellow: int
+    red: int
+    gray: int
+    performance_score: float | None = None
+    low_efficiency: bool
+    warning: str | None = None
+    tasks: list[UserTaskDeviationItem] = Field(default_factory=list)
 
 
 UserResponse = UserListItem

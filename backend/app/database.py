@@ -29,6 +29,34 @@ def ensure_users_full_name_column() -> None:
         conn.execute(text(ddl))
 
 
+def ensure_users_status_columns() -> None:
+    """Без Alembic: добавить колонки блокировки users.*, если их ещё нет."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("users"):
+            return
+        cols = {c["name"] for c in insp.get_columns("users")}
+    except Exception:
+        return
+
+    ddl: list[str] = []
+    if "status" not in cols:
+        ddl.append("ALTER TABLE users ADD COLUMN status VARCHAR(16)")
+    if "blocked_reason" not in cols:
+        ddl.append("ALTER TABLE users ADD COLUMN blocked_reason VARCHAR(1024)")
+    if "blocked_at" not in cols:
+        ddl.append("ALTER TABLE users ADD COLUMN blocked_at DATETIME")
+    if "blocked_by_email" not in cols:
+        ddl.append("ALTER TABLE users ADD COLUMN blocked_by_email VARCHAR(320)")
+    if not ddl:
+        return
+
+    with engine.begin() as conn:
+        for sql in ddl:
+            conn.execute(text(sql))
+        conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''"))
+
+
 def ensure_gpr_global_task_id_column() -> None:
     """Без Alembic: добавить колонку gpr_tasks.global_task_id, если её ещё нет."""
     try:

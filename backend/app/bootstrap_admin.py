@@ -30,6 +30,10 @@ def bootstrap_admin_if_needed() -> None:
         if user:
             user.password_hash = pwd_hash
             user.role = "admin"
+            user.status = "active"
+            user.blocked_reason = None
+            user.blocked_at = None
+            user.blocked_by_email = None
             user.allowed_sections = list(_BOOTSTRAP_SECTIONS)
         else:
             db.add(
@@ -37,6 +41,7 @@ def bootstrap_admin_if_needed() -> None:
                     email=email,
                     password_hash=pwd_hash,
                     role="admin",
+                    status="active",
                     allowed_sections=list(_BOOTSTRAP_SECTIONS),
                 )
             )

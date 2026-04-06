@@ -12,6 +12,7 @@ from app.database import (
     engine,
     ensure_gpr_global_task_id_column,
     ensure_gpr_related_tmc_ids_column,
+    ensure_users_status_columns,
     ensure_users_full_name_column,
 )
 from app.models import ProjectPart
@@ -34,6 +35,7 @@ def ensure_project_parts() -> None:
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_users_full_name_column()
+    ensure_users_status_columns()
     ensure_gpr_global_task_id_column()
     ensure_gpr_related_tmc_ids_column()
     ensure_project_parts()

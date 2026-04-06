@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
-import { firstConstructionPath, INVALID_LOGIN_MESSAGE, loginRequest } from "@/lib/auth";
+import { BLOCKED_LOGIN_MESSAGE, firstConstructionPath, INVALID_LOGIN_MESSAGE, loginRequest } from "@/lib/auth";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -44,6 +44,8 @@ function LoginForm() {
       const msg = e instanceof Error ? e.message : "";
       if (msg === INVALID_LOGIN_MESSAGE) {
         setError(INVALID_LOGIN_MESSAGE);
+      } else if (msg.startsWith(BLOCKED_LOGIN_MESSAGE)) {
+        setError(msg);
       } else {
         setError("Ошибка соединения с сервером");
       }

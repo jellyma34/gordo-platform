@@ -24,6 +24,8 @@ class LoginRequest(BaseModel):
 class LoginUserOut(BaseModel):
     email: str
     role: Literal["admin", "manager", "employee"]
+    status: Literal["active", "blocked"] = "active"
+    blocked_reason: str | None = None
     allowed_sections: list[str] = Field(default_factory=list)
 
 
@@ -52,6 +54,17 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
         logger.info("POST /auth/login 401: invalid password email=%s", email_norm)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
+    if user.status == "blocked":
+        logger.info("POST /auth/login 403: blocked user email=%s", email_norm)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "blocked_user",
+                "message": "Доступ ограничен. Обратитесь к администратору",
+                "reason": user.blocked_reason,
+            },
+        )
+
     role: Literal["admin", "manager", "employee"]
     if user.role in ("admin", "manager", "employee"):
         role = user.role
@@ -68,5 +81,11 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
 
     return LoginResponse(
         token=token,
-        user=LoginUserOut(email=user.email, role=role, allowed_sections=allowed),
+        user=LoginUserOut(
+            email=user.email,
+            role=role,
+            status="active",
+            blocked_reason=None,
+            allowed_sections=allowed,
+        ),
     )

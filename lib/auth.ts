@@ -1,8 +1,10 @@
 export type Role = "admin" | "manager" | "employee";
 export type ApiSection = "gpr" | "tenders" | "materials";
+export type UserStatus = "active" | "blocked";
 
 /** Сообщение при 401 от POST /auth/login (для UI). */
 export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
+export const BLOCKED_LOGIN_MESSAGE = "Доступ ограничен. Обратитесь к администратору";
 
 /**
  * Базовый URL API задаётся только через `NEXT_PUBLIC_API_URL`
@@ -74,6 +76,8 @@ const STORAGE_SECTIONS = "gordo_allowed_sections";
 export type AuthSnapshot = {
   token: string;
   role: Role;
+  status: UserStatus;
+  blockedReason?: string | null;
   allowedSections: ApiSection[];
 };
 
@@ -106,6 +110,8 @@ export function loadStoredAuth(): AuthSnapshot | null {
     return {
       token,
       role: roleRaw,
+      status: "active",
+      blockedReason: null,
       allowedSections: parseAllowedSections(sectionsRaw),
     };
   } catch {
@@ -176,6 +182,17 @@ export async function loginRequest(email: string, password: string): Promise<Aut
     if (res.status === 401) {
       throw new Error(INVALID_LOGIN_MESSAGE);
     }
+    if (res.status === 403) {
+      const err = (await res.json().catch(() => ({}))) as { detail?: unknown };
+      if (typeof err.detail === "object" && err.detail !== null) {
+        const d = err.detail as { code?: string; message?: string; reason?: string | null };
+        if (d.code === "blocked_user") {
+          const suffix = d.reason ? ` Причина: ${d.reason}` : "";
+          throw new Error(`${BLOCKED_LOGIN_MESSAGE}${suffix}`);
+        }
+      }
+      throw new Error(BLOCKED_LOGIN_MESSAGE);
+    }
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -183,7 +200,7 @@ export async function loginRequest(email: string, password: string): Promise<Aut
 
     const data = (await res.json()) as {
       token: string;
-      user: { email: string; role: Role; allowed_sections?: string[] };
+      user: { email: string; role: Role; status?: UserStatus; blocked_reason?: string | null; allowed_sections?: string[] };
     };
     const role = data.user.role;
     const allowedSections: ApiSection[] =
@@ -194,6 +211,8 @@ export async function loginRequest(email: string, password: string): Promise<Aut
     return {
       token: data.token,
       role,
+      status: data.user.status === "blocked" ? "blocked" : "active",
+      blockedReason: data.user.blocked_reason ?? null,
       allowedSections,
     };
   } catch (err) {
@@ -245,6 +264,10 @@ export type AdminUserRow = {
   email: string;
   full_name: string | null;
   role: Role;
+  status: UserStatus;
+  blocked_reason?: string | null;
+  blocked_at?: string | null;
+  blocked_by_email?: string | null;
   allowed_sections: ApiSection[];
 };
 
@@ -258,6 +281,10 @@ function parseUserRow(raw: {
   email: string;
   full_name?: string | null;
   role: string;
+  status?: string;
+  blocked_reason?: string | null;
+  blocked_at?: string | null;
+  blocked_by_email?: string | null;
   allowed_sections: string[];
 }): AdminUserRow {
   return {
@@ -265,6 +292,10 @@ function parseUserRow(raw: {
     email: raw.email,
     full_name: raw.full_name?.trim() ? raw.full_name.trim() : null,
     role: parseRole(raw.role),
+    status: raw.status === "blocked" ? "blocked" : "active",
+    blocked_reason: raw.blocked_reason ?? null,
+    blocked_at: raw.blocked_at ?? null,
+    blocked_by_email: raw.blocked_by_email ?? null,
     allowed_sections: raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s)),
   };
 }
@@ -284,6 +315,10 @@ export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
     email: string;
     full_name?: string | null;
     role: string;
+    status?: string;
+    blocked_reason?: string | null;
+    blocked_at?: string | null;
+    blocked_by_email?: string | null;
     allowed_sections: string[];
   }>;
   return data.map(parseUserRow);
@@ -310,9 +345,89 @@ export async function updateAdminUser(token: string, userId: number, body: Updat
     email: string;
     full_name?: string | null;
     role: string;
+    status?: string;
+    blocked_reason?: string | null;
+    blocked_at?: string | null;
+    blocked_by_email?: string | null;
     allowed_sections: string[];
   };
   return parseUserRow(raw);
+}
+
+export async function blockAdminUser(token: string, userId: number, reason?: string): Promise<AdminUserRow> {
+  const res = await fetch(api(`/admin/users/${userId}/block`), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ reason: reason?.trim() || null }),
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось заблокировать пользователя");
+  const raw = (await res.json()) as {
+    id: number;
+    email: string;
+    full_name?: string | null;
+    role: string;
+    status?: string;
+    blocked_reason?: string | null;
+    blocked_at?: string | null;
+    blocked_by_email?: string | null;
+    allowed_sections: string[];
+  };
+  return parseUserRow(raw);
+}
+
+export async function unblockAdminUser(token: string, userId: number): Promise<AdminUserRow> {
+  const res = await fetch(api(`/admin/users/${userId}/unblock`), {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось разблокировать пользователя");
+  const raw = (await res.json()) as {
+    id: number;
+    email: string;
+    full_name?: string | null;
+    role: string;
+    status?: string;
+    blocked_reason?: string | null;
+    blocked_at?: string | null;
+    blocked_by_email?: string | null;
+    allowed_sections: string[];
+  };
+  return parseUserRow(raw);
+}
+
+export type UserAnalyticsTask = {
+  task_id: number;
+  code: string;
+  name: string;
+  status: "green" | "yellow" | "red" | "gray";
+  deviation_days: number | null;
+  completion: number;
+};
+
+export type UserAnalytics = {
+  total_tasks: number;
+  active_tasks: number;
+  completion_percent: number;
+  avg_deviation_days: number | null;
+  green: number;
+  yellow: number;
+  red: number;
+  gray: number;
+  performance_score: number | null;
+  low_efficiency: boolean;
+  warning: string | null;
+  tasks: UserAnalyticsTask[];
+};
+
+export async function getAdminUserAnalytics(token: string, userId: number): Promise<UserAnalytics> {
+  const res = await fetch(api(`/admin/users/${userId}/analytics`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить аналитику пользователя");
+  return res.json() as Promise<UserAnalytics>;
 }
 
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {

@@ -7,12 +7,17 @@ import { useCallback, useEffect, useState } from "react";
 import {
   type AdminUserRow,
   type ApiSection,
+  blockAdminUser,
   createUserRequest,
   deleteAdminUser,
   generateClientPassword,
+  getAdminUserAnalytics,
   listAdminUsers,
   type Role,
   setAdminUserPassword,
+  type UserAnalytics,
+  type UserStatus,
+  unblockAdminUser,
   updateAdminUser,
 } from "@/lib/auth";
 
@@ -38,6 +43,10 @@ function roleLabelRu(role: Role): string {
   if (role === "admin") return "Администратор";
   if (role === "manager") return "Руководитель";
   return "Сотрудник";
+}
+
+function statusLabelRu(status: UserStatus): string {
+  return status === "blocked" ? "Заблокирован" : "Активен";
 }
 
 type ModalShellProps = {
@@ -161,6 +170,17 @@ export default function AdminUsersPage() {
   const [deleteUser, setDeleteUser] = useState<AdminUserRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [blockUser, setBlockUser] = useState<AdminUserRow | null>(null);
+  const [blockReason, setBlockReason] = useState("");
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const [unblockUser, setUnblockUser] = useState<AdminUserRow | null>(null);
+  const [unblockBusy, setUnblockBusy] = useState(false);
+  const [unblockError, setUnblockError] = useState<string | null>(null);
+  const [analyticsUser, setAnalyticsUser] = useState<AdminUserRow | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<UserAnalytics | null>(null);
 
   const loadUsers = useCallback(async () => {
     if (!token) return;
@@ -315,6 +335,53 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function onBlockConfirm() {
+    if (!token || !blockUser) return;
+    setBlockError(null);
+    setBlockBusy(true);
+    try {
+      await blockAdminUser(token, blockUser.id, blockReason);
+      setBlockUser(null);
+      setBlockReason("");
+      await loadUsers();
+    } catch (err) {
+      setBlockError(err instanceof Error ? err.message : "Ошибка");
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
+  async function onUnblockConfirm() {
+    if (!token || !unblockUser) return;
+    setUnblockError(null);
+    setUnblockBusy(true);
+    try {
+      await unblockAdminUser(token, unblockUser.id);
+      setUnblockUser(null);
+      await loadUsers();
+    } catch (err) {
+      setUnblockError(err instanceof Error ? err.message : "Ошибка");
+    } finally {
+      setUnblockBusy(false);
+    }
+  }
+
+  async function openAnalytics(user: AdminUserRow) {
+    if (!token) return;
+    setAnalyticsUser(user);
+    setAnalytics(null);
+    setAnalyticsError(null);
+    setAnalyticsLoading(true);
+    try {
+      const data = await getAdminUserAnalytics(token, user.id);
+      setAnalytics(data);
+    } catch (err) {
+      setAnalyticsError(err instanceof Error ? err.message : "Ошибка");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
   if (!hydrated || !token || !canAccessAdminPanel) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
@@ -362,12 +429,13 @@ export default function AdminUsersPage() {
         {listError ? <p className="text-sm text-red-600">{listError}</p> : null}
 
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
                 <th className="px-4 py-3 font-semibold text-slate-800">Email</th>
                 <th className="px-4 py-3 font-semibold text-slate-800">ФИО</th>
                 <th className="px-4 py-3 font-semibold text-slate-800">Роль</th>
+                <th className="px-4 py-3 font-semibold text-slate-800">Статус</th>
                 <th className="px-4 py-3 font-semibold text-slate-800">Доступные разделы</th>
                 <th className="px-4 py-3 font-semibold text-slate-800">Действия</th>
               </tr>
@@ -375,13 +443,13 @@ export default function AdminUsersPage() {
             <tbody>
               {listLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                     Загрузка…
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                     Пользователей пока нет
                   </td>
                 </tr>
@@ -393,6 +461,17 @@ export default function AdminUsersPage() {
                       {u.full_name ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-800">{roleLabelRu(u.role)}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: u.status === "blocked" ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)",
+                          color: u.status === "blocked" ? "#dc2626" : "#15803d",
+                        }}
+                      >
+                        {statusLabelRu(u.status)}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-slate-700">{sectionsCellRu(u.allowed_sections)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
@@ -402,6 +481,13 @@ export default function AdminUsersPage() {
                           className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
                           Редактировать
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openAnalytics(u)}
+                          className="rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50"
+                        >
+                          Аналитика
                         </button>
                         {!(managerOnly && u.role === "admin") ? (
                           <>
@@ -414,6 +500,29 @@ export default function AdminUsersPage() {
                               className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                             >
                               Сбросить пароль
+                            </button>
+                            <button
+                              type="button"
+                              disabled={u.status === "blocked"}
+                              onClick={() => {
+                                setBlockUser(u);
+                                setBlockReason("");
+                                setBlockError(null);
+                              }}
+                              className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Заблокировать
+                            </button>
+                            <button
+                              type="button"
+                              disabled={u.status === "active"}
+                              onClick={() => {
+                                setUnblockUser(u);
+                                setUnblockError(null);
+                              }}
+                              className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Разблокировать
                             </button>
                             <button
                               type="button"
@@ -692,6 +801,155 @@ export default function AdminUsersPage() {
             Будет удалена учётная запись <strong>{deleteUser.email}</strong>. Действие необратимо.
           </p>
           {deleteError ? <p className="mt-3 text-sm text-red-600">{deleteError}</p> : null}
+        </ModalShell>
+      ) : null}
+
+      {blockUser ? (
+        <ModalShell
+          title="Заблокировать пользователя?"
+          onClose={() => !blockBusy && setBlockUser(null)}
+          footer={
+            <>
+              <button
+                type="button"
+                disabled={blockBusy}
+                onClick={() => setBlockUser(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={blockBusy}
+                onClick={() => void onBlockConfirm()}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {blockBusy ? "Блокировка…" : "Заблокировать"}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-slate-700">
+            Пользователь <strong>{blockUser.email}</strong> не сможет войти в систему.
+          </p>
+          <label className="mt-3 block text-sm font-medium text-slate-700">Причина блокировки (опционально)</label>
+          <textarea
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            rows={3}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            placeholder="Например: систематические просрочки"
+          />
+          {blockError ? <p className="mt-3 text-sm text-red-600">{blockError}</p> : null}
+        </ModalShell>
+      ) : null}
+
+      {unblockUser ? (
+        <ModalShell
+          title="Разблокировать пользователя?"
+          onClose={() => !unblockBusy && setUnblockUser(null)}
+          footer={
+            <>
+              <button
+                type="button"
+                disabled={unblockBusy}
+                onClick={() => setUnblockUser(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={unblockBusy}
+                onClick={() => void onUnblockConfirm()}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {unblockBusy ? "Разблокировка…" : "Разблокировать"}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-slate-700">
+            Пользователь <strong>{unblockUser.email}</strong> снова получит доступ к системе.
+          </p>
+          {unblockError ? <p className="mt-3 text-sm text-red-600">{unblockError}</p> : null}
+        </ModalShell>
+      ) : null}
+
+      {analyticsUser ? (
+        <ModalShell
+          title={`Аналитика: ${analyticsUser.email}`}
+          onClose={() => setAnalyticsUser(null)}
+          footer={
+            <button
+              type="button"
+              onClick={() => setAnalyticsUser(null)}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Закрыть
+            </button>
+          }
+        >
+          {analyticsLoading ? (
+            <p className="text-sm text-slate-500">Загрузка аналитики…</p>
+          ) : analyticsError ? (
+            <p className="text-sm text-red-600">{analyticsError}</p>
+          ) : analytics ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <div className="text-slate-500">Задач всего</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{analytics.total_tasks}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <div className="text-slate-500">Активные</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{analytics.active_tasks}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <div className="text-slate-500">% выполнения</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{analytics.completion_percent}%</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">В срок: {analytics.green}</div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">Риск: {analytics.yellow}</div>
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3">Отставание: {analytics.red}</div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">Нет данных: {analytics.gray}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <div className="text-sm text-slate-700">
+                  Performance score:{" "}
+                  <strong>{analytics.performance_score === null ? "—" : analytics.performance_score.toFixed(3)}</strong>
+                </div>
+                <div className="mt-1 text-sm text-slate-700">
+                  Среднее отклонение:{" "}
+                  <strong>{analytics.avg_deviation_days === null ? "—" : `${analytics.avg_deviation_days} дн.`}</strong>
+                </div>
+                {analytics.low_efficiency ? (
+                  <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                    {analytics.warning ?? "Низкая эффективность"}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-medium text-slate-800">Список задач с отклонениями</div>
+                <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                  {analytics.tasks.map((t) => (
+                    <div key={t.task_id} className="rounded border border-slate-200 bg-white px-3 py-2 text-xs">
+                      <div className="font-medium text-slate-800">
+                        {t.code} — {t.name}
+                      </div>
+                      <div className="mt-1 text-slate-600">
+                        Отклонение: {t.deviation_days === null ? "—" : `${t.deviation_days > 0 ? "+" : ""}${t.deviation_days} дн.`}
+                        {" · "}Выполнение: {t.completion}%{" · "}Статус: {t.status}
+                      </div>
+                    </div>
+                  ))}
+                  {analytics.tasks.length === 0 ? <div className="text-slate-500">Нет задач</div> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </ModalShell>
       ) : null}
     </main>
