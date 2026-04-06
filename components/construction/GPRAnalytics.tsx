@@ -1160,11 +1160,18 @@ function stageAccentFromTotalDeviation(totalDeviation: number | null): string {
   return COLORS.red;
 }
 
-function accentFromFactEndVsTodayTraffic(t: FactEndVsTodayTraffic): string {
-  if (t === "gray") return "#64748b";
-  if (t === "green") return COLORS.green;
-  if (t === "yellow") return COLORS.yellow;
-  return COLORS.red;
+function aggregateProgressStatusFromDistribution(counts: {
+  green: number;
+  yellow: number;
+  red: number;
+  gray: number;
+}): { status: Traffic; label: "В срок" | "Риск" | "Отставание" | "Нет данных"; riskScore: number | null } {
+  const total = counts.green + counts.yellow + counts.red;
+  if (total === 0) return { status: "gray", label: "Нет данных", riskScore: null };
+  const riskScore = (counts.red * 1 + counts.yellow * 0.5) / total;
+  if (riskScore <= 0.2) return { status: "green", label: "В срок", riskScore };
+  if (riskScore <= 0.5) return { status: "yellow", label: "Риск", riskScore };
+  return { status: "red", label: "Отставание", riskScore };
 }
 
 function trafficStatusForTask(task: GPRTask): {
@@ -1744,8 +1751,19 @@ export function GPRAnalytics({
       scheduleLagForAggregate,
     ],
   );
-  const statusAgg: Traffic = planFactProjectScheduleTraffic;
-  const accentAgg = accentFromFactEndVsTodayTraffic(planFactProjectScheduleTraffic);
+  const aggregateProgressStatus = useMemo(
+    () => aggregateProgressStatusFromDistribution(traffic.counts),
+    [traffic.counts],
+  );
+  const statusAgg: Traffic = aggregateProgressStatus.status;
+  const accentAgg =
+    statusAgg === "green"
+      ? COLORS.green
+      : statusAgg === "yellow"
+        ? COLORS.yellow
+        : statusAgg === "red"
+          ? COLORS.red
+          : COLORS.gray;
   const aggPctDisplay =
     aggTotalPercent === null
       ? "—"
