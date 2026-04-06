@@ -15,7 +15,10 @@ _DEFAULT_ADMIN_PASSWORD = "1234"
 
 def bootstrap_admin_if_needed() -> None:
     """
-    Если пользователя с email нет — создать; если есть — обновить пароль.
+    Если пользователя с email нет — создать.
+    Если есть — НЕ изменять пароль/роль по умолчанию (безопасно для staging).
+    Принудительная синхронизация существующего admin возможна только через
+    BOOTSTRAP_ADMIN_SYNC_ON_START=true.
     Пароль хешируется через hash_password (как в admin-роутере и auth).
     На Railway можно задать BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD.
     """
@@ -28,13 +31,14 @@ def bootstrap_admin_if_needed() -> None:
         user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
 
         if user:
-            user.password_hash = pwd_hash
-            user.role = "admin"
-            user.status = "active"
-            user.blocked_reason = None
-            user.blocked_at = None
-            user.blocked_by_email = None
-            user.allowed_sections = list(_BOOTSTRAP_SECTIONS)
+            if settings.bootstrap_admin_sync_on_start:
+                user.password_hash = pwd_hash
+                user.role = "admin"
+                user.status = "active"
+                user.blocked_reason = None
+                user.blocked_at = None
+                user.blocked_by_email = None
+                user.allowed_sections = list(_BOOTSTRAP_SECTIONS)
         else:
             db.add(
                 User(

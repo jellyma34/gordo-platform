@@ -30,3 +30,19 @@ API: `http://127.0.0.1:${PORT}`
 ## CORS
 
 В `app/main.py` — **`CORSMiddleware`**. Проверка: **`GET /health`**, **`GET /test`**.
+
+## Environments (dev / staging)
+
+Рекомендуемые переменные окружения для backend:
+
+- `APP_ENV=dev|staging|production`
+- `DATABASE_URL=...` (отдельная БД для каждого окружения)
+- `BOOTSTRAP_ADMIN_EMAIL=...`
+- `BOOTSTRAP_ADMIN_PASSWORD=...`
+- `BOOTSTRAP_ADMIN_SYNC_ON_START=false`
+
+Важно:
+
+- По умолчанию приложение **не ресетит** существующего админа на старте.
+- Синхронизация пароля/роли админа на старте выполняется **только** при явном `BOOTSTRAP_ADMIN_SYNC_ON_START=true`.
+- Для тестового окружения (`staging`) оставляйте `BOOTSTRAP_ADMIN_SYNC_ON_START=false`.
