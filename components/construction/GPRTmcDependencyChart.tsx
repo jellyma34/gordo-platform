@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
@@ -17,6 +17,20 @@ import {
 import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
 import { buildGprTmcDependencySeries } from "@/lib/gprTmcDependency";
+import {
+  GPR_DEP_KPI_THRESHOLD_DAYS,
+  formatDeviationDays,
+  formatAvgDeviationDays,
+  stageDeviationDotColor,
+  deviationListValueStyle,
+  KpiMiniIconRuler,
+  KpiMiniIconChart,
+  KpiMiniIconAlert,
+  GprDepKpiAccordionCard,
+  type GprDepKpiExplainKey,
+  KPI_THRESHOLD_EXPLAIN,
+  buildAvgDeviationExplanation,
+} from "./gprDependencyKpiShared";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -25,20 +39,7 @@ const FACT_LINE = "#22c55e";
 const TMC_LINE = "#f97316";
 
 /** Допустимое |факт − план| по оси графика (п.п.) и порог по сроку (дн.). */
-const THRESHOLD_DAYS = 14;
-
-function formatDeviationDays(d: number | null): string {
-  if (d === null) return "—";
-  if (d === 0) return "0 дн.";
-  const sign = d > 0 ? "+" : "";
-  return `${sign}${d} дн.`;
-}
-
-function formatAvgDeviationDays(avg: number): string {
-  const r = Math.round(avg);
-  const sign = r > 0 ? "+" : "";
-  return `${sign}${r} дн.`;
-}
+const THRESHOLD_DAYS = GPR_DEP_KPI_THRESHOLD_DAYS;
 
 function tmcChartRiskLevel(series: { deviationDays: number | null }[]): "high" | "medium" | "low" {
   const days = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
@@ -46,78 +47,6 @@ function tmcChartRiskLevel(series: { deviationDays: number | null }[]): "high" |
   if (days.some((d) => d > THRESHOLD_DAYS)) return "high";
   if (days.every((d) => d <= 0)) return "low";
   return "medium";
-}
-
-/** Цвет маркера этапа в списке (референс: подготовка — красный, строительство — зелёный). */
-function stageDeviationDotColor(groupKey: string): string {
-  if (groupKey === "prep") return "#ef4444";
-  if (groupKey === "build") return "#22c55e";
-  if (groupKey === "network") return "#f59e0b";
-  return "#94a3b8";
-}
-
-/** Подсветка числа отклонения по знаку (красный / зелёный + лёгкое свечение). */
-function deviationListValueStyle(d: number | null): CSSProperties {
-  if (d === null) {
-    return { color: "#94a3b8", fontWeight: 700 };
-  }
-  if (d > 0) {
-    return {
-      color: "#ef4444",
-      fontWeight: 700,
-      textShadow: "0 0 8px rgba(239,68,68,0.35)",
-    };
-  }
-  return {
-    color: "#22c55e",
-    fontWeight: 700,
-    textShadow: "0 0 8px rgba(34,197,94,0.35)",
-  };
-}
-
-function KpiMiniIconRuler() {
-  return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-      <path strokeLinecap="round" d="M4 18h16M6 18V9M10 18v-5M14 18V7M18 18v-3" />
-    </svg>
-  );
-}
-
-function KpiMiniIconChart() {
-  return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 19h16M7 15l3-4 4 6 5-10" />
-    </svg>
-  );
-}
-
-function KpiMiniIconAlert() {
-  return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4M12 17h.01M10.3 4.2h3.4L21 18H3L10.3 4.2z" />
-    </svg>
-  );
-}
-
-type TmcKpiExplainKey = "threshold" | "avg" | "risk";
-
-const KPI_THRESHOLD_EXPLAIN =
-  "Порог 14 дней — это допустимое отклонение. Задачи с превышением считаются критическими.";
-
-function buildAvgDeviationExplanation(
-  rows: { deviationDays: number | null }[],
-  avgDev: number | null,
-): string {
-  const parts = rows
-    .map((r) => r.deviationDays)
-    .filter((d): d is number => d !== null)
-    .map((d) => `${d > 0 ? "+" : ""}${d} дн.`);
-  if (parts.length === 0) {
-    return "Рассчитывается как среднее арифметическое отклонений по сроку по этапам, когда появятся данные.";
-  }
-  const joined = parts.join(" и ");
-  const itog = avgDev === null ? "—" : formatAvgDeviationDays(avgDev);
-  return `Рассчитывается как среднее значение отклонений по этапам: (${joined}) → итог: ${itog}`;
 }
 
 function riskKpiExplanationText(risk: "high" | "medium" | "low"): string {
@@ -128,50 +57,6 @@ function riskKpiExplanationText(risk: "high" | "medium" | "low"): string {
     return "Критического отставания (>14 дн.) ни по одному этапу нет: в совокупности график в допустимых рамках.";
   }
   return "Есть умеренные отставания (до 14 дн.) без критического порога — риск средний, важно не допустить накопления задержек.";
-}
-
-function TmcKpiAccordionCard({
-  cardKey,
-  isOpen,
-  onToggle,
-  shellClassName,
-  iconSlot,
-  children,
-  explanation,
-}: {
-  cardKey: TmcKpiExplainKey;
-  isOpen: boolean;
-  onToggle: (k: TmcKpiExplainKey) => void;
-  shellClassName: string;
-  iconSlot: ReactNode;
-  children: ReactNode;
-  explanation: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-xl text-left transition hover:brightness-[1.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 ${shellClassName}`}
-      aria-expanded={isOpen}
-      onClick={() => onToggle(cardKey)}
-    >
-      <div className="flex flex-1 items-center gap-3 px-3 py-3">
-        {iconSlot}
-        <div className="min-w-0 flex-1">{children}</div>
-      </div>
-      <div
-        className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${
-          isOpen ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
-        }`}
-      >
-        <p
-          className="mt-2 border-t border-white/[0.06] px-3 pb-3 pt-2.5 text-[12px] leading-relaxed sm:text-[13px]"
-          style={{ color: "#A3B3C7" }}
-        >
-          {explanation}
-        </p>
-      </div>
-    </button>
-  );
 }
 
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
@@ -222,7 +107,6 @@ export function GPRTmcDependencyChart({
           sub: "требует внимания",
           card: "border border-[rgba(245,158,11,0.5)] bg-[rgba(245,158,11,0.08)]",
           valueClass: "text-[#f59e0b]",
-          mutedClass: "text-amber-900/55",
           iconWrap: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25",
         };
       case "low":
@@ -231,7 +115,6 @@ export function GPRTmcDependencyChart({
           sub: "в норме",
           card: "border border-slate-600/50 bg-slate-900/40",
           valueClass: "text-slate-100",
-          mutedClass: "text-slate-500",
           iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
         };
       default:
@@ -240,7 +123,6 @@ export function GPRTmcDependencyChart({
           sub: "наблюдение",
           card: "border border-slate-600/50 bg-slate-900/40",
           valueClass: "text-slate-100",
-          mutedClass: "text-slate-500",
           iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
         };
     }
@@ -253,8 +135,8 @@ export function GPRTmcDependencyChart({
     return "#e2e8f0";
   }, [kpiStats.avgDev]);
 
-  const [kpiExplain, setKpiExplain] = useState<TmcKpiExplainKey | null>(null);
-  const toggleKpiExplain = (k: TmcKpiExplainKey) => {
+  const [kpiExplain, setKpiExplain] = useState<GprDepKpiExplainKey | null>(null);
+  const toggleKpiExplain = (k: GprDepKpiExplainKey) => {
     setKpiExplain((prev) => (prev === k ? null : k));
   };
 
@@ -467,7 +349,7 @@ export function GPRTmcDependencyChart({
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
-            <TmcKpiAccordionCard
+            <GprDepKpiAccordionCard
               cardKey="threshold"
               isOpen={kpiExplain === "threshold"}
               onToggle={toggleKpiExplain}
@@ -481,12 +363,14 @@ export function GPRTmcDependencyChart({
             >
               <>
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Критический порог</div>
-                <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">{THRESHOLD_DAYS} дней</div>
+                <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
+                  {GPR_DEP_KPI_THRESHOLD_DAYS} дней
+                </div>
                 <div className="text-[11px] text-slate-500">задержка</div>
               </>
-            </TmcKpiAccordionCard>
+            </GprDepKpiAccordionCard>
 
-            <TmcKpiAccordionCard
+            <GprDepKpiAccordionCard
               cardKey="avg"
               isOpen={kpiExplain === "avg"}
               onToggle={toggleKpiExplain}
@@ -508,9 +392,9 @@ export function GPRTmcDependencyChart({
                 </div>
                 <div className="text-[11px] text-slate-500">по проекту</div>
               </>
-            </TmcKpiAccordionCard>
+            </GprDepKpiAccordionCard>
 
-            <TmcKpiAccordionCard
+            <GprDepKpiAccordionCard
               cardKey="risk"
               isOpen={kpiExplain === "risk"}
               onToggle={toggleKpiExplain}
@@ -525,15 +409,20 @@ export function GPRTmcDependencyChart({
               }
             >
               <>
-                <div className={`text-[11px] font-medium uppercase tracking-wide ${riskCardUi.mutedClass}`}>
+                <div
+                  className="text-[11px] font-medium uppercase tracking-wide"
+                  style={{ color: "#E6EDF3" }}
+                >
                   Риск срыва
                 </div>
                 <div className={`mt-0.5 text-base font-bold leading-tight ${riskCardUi.valueClass}`}>
                   {riskCardUi.value}
                 </div>
-                <div className={`text-[11px] ${riskCardUi.mutedClass}`}>{riskCardUi.sub}</div>
+                <div className="text-[11px]" style={{ color: "#A3B3C7" }}>
+                  {riskCardUi.sub}
+                </div>
               </>
-            </TmcKpiAccordionCard>
+            </GprDepKpiAccordionCard>
           </div>
         </div>
       </div>

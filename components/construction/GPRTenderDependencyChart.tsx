@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
@@ -15,9 +15,26 @@ import {
   type ScriptableContext,
   type ScriptableLineSegmentContext,
 } from "chart.js";
-import { getStatusByDeviation, type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
-import { buildGprTenderDependencySeries } from "@/lib/gprTmcDependency";
+import {
+  buildGprTenderDependencySeries,
+  type GprTenderDependencyPoint,
+} from "@/lib/gprTmcDependency";
+import {
+  GPR_DEP_KPI_THRESHOLD_DAYS,
+  formatDeviationDays,
+  formatAvgDeviationDays,
+  stageDeviationDotColor,
+  deviationListValueStyle,
+  KpiMiniIconRuler,
+  KpiMiniIconChart,
+  KpiMiniIconAlert,
+  GprDepKpiAccordionCard,
+  type GprDepKpiExplainKey,
+  KPI_THRESHOLD_EXPLAIN,
+  buildAvgDeviationExplanation,
+} from "./gprDependencyKpiShared";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -26,16 +43,31 @@ const FACT_LINE = "#22c55e";
 const TENDER_LINE = "#f59e0b";
 
 /** Допустимое |факт − план| по оси графика (п.п.) — как у графика ТМЦ. */
-const THRESHOLD_DAYS = 14;
+const THRESHOLD_DAYS = GPR_DEP_KPI_THRESHOLD_DAYS;
 
 /** Порог отставания готовности тендеров от факта ГПР (п.п.) для красной точки. */
 const TENDER_LAG_CRITICAL_PP = 15;
 
-function formatDeviationDays(d: number | null): string {
-  if (d === null) return "—";
-  if (d === 0) return "0 дн.";
-  const sign = d > 0 ? "+" : "";
-  return `${sign}${d} дн.`;
+function tenderChartRiskLevel(series: GprTenderDependencyPoint[]): "high" | "medium" | "low" {
+  const comparisons = series
+    .map((s) => ({ tr: s.tenderReadiness, fg: s.factGpr }))
+    .filter((x): x is { tr: number; fg: number } => x.tr !== null && x.fg !== null);
+  if (comparisons.length === 0) return "medium";
+  const lags = comparisons.filter(({ tr, fg }) => tr < fg);
+  if (lags.length > 0) return "high";
+  const allAhead = comparisons.every(({ tr, fg }) => tr > fg);
+  if (allAhead) return "low";
+  return "medium";
+}
+
+function tenderRiskKpiExplanationText(risk: "high" | "medium" | "low"): string {
+  if (risk === "high") {
+    return "По одному или нескольким этапам доля готовности тендеров ниже факта ГПР (%): тендеры отстают от хода работ — высокий риск замедления.";
+  }
+  if (risk === "low") {
+    return "По всем этапам с данными готовность тендеров выше факта ГПР — договорная база опережает ход работ по %.";
+  }
+  return "Готовность тендеров не отстаёт от факта ГПР по этапам с данными, но нет устойчивого опережения по всем точкам — риск оценивается как средний.";
 }
 
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
@@ -69,6 +101,60 @@ export function GPRTenderDependencyChart({
     () => series.map((s) => (s.tenderReadiness == null ? null : s.tenderReadiness)),
     [series],
   );
+
+  const kpiStats = useMemo(() => {
+    const days = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
+    const avgDev = days.length ? days.reduce((a, b) => a + b, 0) / days.length : null;
+    const risk = tenderChartRiskLevel(series);
+    return { avgDev, risk };
+  }, [series]);
+
+  const riskCardUi = useMemo(() => {
+    switch (kpiStats.risk) {
+      case "high":
+        return {
+          value: "Высокий",
+          sub: "требует внимания",
+          card: "border border-[rgba(245,158,11,0.5)] bg-[rgba(245,158,11,0.08)]",
+          valueClass: "text-[#f59e0b]",
+          iconWrap: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25",
+        };
+      case "low":
+        return {
+          value: "Низкий",
+          sub: "в норме",
+          card: "border border-slate-600/50 bg-slate-900/40",
+          valueClass: "text-slate-100",
+          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
+        };
+      default:
+        return {
+          value: "Средний",
+          sub: "наблюдение",
+          card: "border border-slate-600/50 bg-slate-900/40",
+          valueClass: "text-slate-100",
+          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
+        };
+    }
+  }, [kpiStats.risk]);
+
+  const avgValueColor = useMemo(() => {
+    if (kpiStats.avgDev === null) return "#e2e8f0";
+    if (kpiStats.avgDev < 0) return "#22c55e";
+    if (kpiStats.avgDev > 0) return "#ef4444";
+    return "#e2e8f0";
+  }, [kpiStats.avgDev]);
+
+  const [kpiExplain, setKpiExplain] = useState<GprDepKpiExplainKey | null>(null);
+  const toggleKpiExplain = (k: GprDepKpiExplainKey) => {
+    setKpiExplain((prev) => (prev === k ? null : k));
+  };
+
+  const avgExplainText = useMemo(
+    () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
+    [series, kpiStats.avgDev],
+  );
+  const riskExplainText = useMemo(() => tenderRiskKpiExplanationText(kpiStats.risk), [kpiStats.risk]);
 
   const chartData = useMemo(() => {
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
@@ -246,69 +332,131 @@ export function GPRTenderDependencyChart({
 
   return (
     <div className="mt-6 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-50">
-            Зависимость выполнения ГПР от тендеров
-          </h3>
-          <p className="mt-1 max-w-xl text-xs text-slate-400">
-            Если готовность тендеров ниже выполнения ГПР — есть риск замедления работ. Если тендеры отстают по
-            доле заключённых договоров, это потенциальная причина будущего отставания ГПР. Заливка между планом и
-            фактом — как на графике ТМЦ: зелёный при |факт − план| ≤ {THRESHOLD_DAYS} п.п., иначе красный. Точки
-            готовности тендеров — жёлтые при отставании от факта ГПР, красные при сильном отставании (&gt;
-            {TENDER_LAG_CRITICAL_PP} п.п.).
-          </p>
-        </div>
-        <p className="shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-100/95">
-          Отставание тендеров → риск ГПР
-        </p>
-      </div>
+      <h3 className="text-lg font-semibold text-slate-50">
+        Зависимость выполнения ГПР от тендеров
+      </h3>
 
       <div className="mt-4 h-[340px] w-full">
         <Chart type="line" data={chartData} options={options} />
       </div>
 
-      <div className="mt-5 border-t border-slate-700/60 pt-4">
-        <h4 className="text-sm font-semibold text-slate-200">Отклонения по этапам</h4>
-        <p className="mt-1 text-[11px] leading-snug text-slate-500">
-          По сроку окончания корневой работы этапа: «+» — отставание, «−» — опережение. Цвет: зелёный — опережение;
-          жёлтый — задержка до 14 дн.; красный — отставание свыше 14 дн.
-        </p>
-        <ul className="mt-3 flex flex-col gap-2">
-          {series.map((row) => {
-            const d = row.deviationDays;
-            const st = d === null ? null : getStatusByDeviation(d);
-            const dotColor =
-              st === null ? "#64748b" : st === "green" ? "#22c55e" : st === "yellow" ? "#f59e0b" : "#ef4444";
-            const textColor =
-              st === null ? "#94a3b8" : st === "green" ? "#86efac" : st === "yellow" ? "#fcd34d" : "#fca5a5";
+      <p className="mt-4 text-xs leading-relaxed text-slate-400">
+        Зелёная линия — факт ГПР, пунктир — готовность тендеров.
+        <br />
+        Отставание тендеров от графика ГПР указывает на риск замедления работ.
+      </p>
 
-            return (
-              <li
-                key={row.groupKey}
-                className="flex items-center justify-between gap-3 text-xs"
-                title={row.stageFull}
-              >
-                <span className="flex min-w-0 flex-1 items-center gap-2 text-slate-300">
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full ring-1 ring-white/10"
-                    style={{ backgroundColor: dotColor }}
-                    aria-hidden
-                  />
-                  <span className="stage-title min-w-0 flex-1 leading-snug" title={row.stageTitle}>
-                    {row.stageTitle}
-                  </span>
+      <div className="mt-5 border-t border-slate-700/60 pt-5">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-4">
+          <div className="w-full min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/35 p-4 lg:w-[45%] lg:max-w-[50%] lg:shrink-0">
+            <h4 className="text-sm font-semibold text-slate-200">Отклонения по этапам</h4>
+            <ul className="mt-3 space-y-2.5 text-xs leading-snug">
+              {series.map((row) => {
+                const d = row.deviationDays;
+                const dot = stageDeviationDotColor(row.groupKey);
+                return (
+                  <li
+                    key={row.groupKey}
+                    className="flex items-baseline justify-between gap-3"
+                    title={row.stageFull}
+                  >
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2 text-slate-200">
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-black/20"
+                        style={{ backgroundColor: dot }}
+                        aria-hidden
+                      />
+                      <span className="stage-title min-w-0 leading-snug">{row.stageTitle}</span>
+                    </span>
+                    <span
+                      className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
+                      style={deviationListValueStyle(d)}
+                    >
+                      {formatDeviationDays(d)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
+            <GprDepKpiAccordionCard
+              cardKey="threshold"
+              isOpen={kpiExplain === "threshold"}
+              onToggle={toggleKpiExplain}
+              shellClassName="border border-slate-600/50 bg-slate-900/40"
+              explanation={KPI_THRESHOLD_EXPLAIN}
+              iconSlot={
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
+                  <KpiMiniIconRuler />
                 </span>
-                <span
-                  className="shrink-0 tabular-nums text-[13px] font-semibold"
-                  style={{ color: textColor }}
+              }
+            >
+              <>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Критический порог</div>
+                <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
+                  {GPR_DEP_KPI_THRESHOLD_DAYS} дней
+                </div>
+                <div className="text-[11px] text-slate-500">задержка</div>
+              </>
+            </GprDepKpiAccordionCard>
+
+            <GprDepKpiAccordionCard
+              cardKey="avg"
+              isOpen={kpiExplain === "avg"}
+              onToggle={toggleKpiExplain}
+              shellClassName="border border-slate-600/50 bg-slate-900/40"
+              explanation={avgExplainText}
+              iconSlot={
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
+                  <KpiMiniIconChart />
+                </span>
+              }
+            >
+              <>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Среднее отклонение</div>
+                <div
+                  className="value mt-0.5 text-base font-bold tabular-nums"
+                  style={{ color: avgValueColor }}
                 >
-                  {formatDeviationDays(d)}
+                  {kpiStats.avgDev === null ? "—" : formatAvgDeviationDays(kpiStats.avgDev)}
+                </div>
+                <div className="text-[11px] text-slate-500">по проекту</div>
+              </>
+            </GprDepKpiAccordionCard>
+
+            <GprDepKpiAccordionCard
+              cardKey="risk"
+              isOpen={kpiExplain === "risk"}
+              onToggle={toggleKpiExplain}
+              shellClassName={riskCardUi.card}
+              explanation={riskExplainText}
+              iconSlot={
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riskCardUi.iconWrap}`}
+                >
+                  <KpiMiniIconAlert />
                 </span>
-              </li>
-            );
-          })}
-        </ul>
+              }
+            >
+              <>
+                <div
+                  className="text-[11px] font-medium uppercase tracking-wide"
+                  style={{ color: "#E6EDF3" }}
+                >
+                  Риск тендеров
+                </div>
+                <div className={`value mt-0.5 text-base font-bold leading-tight ${riskCardUi.valueClass}`}>
+                  {riskCardUi.value}
+                </div>
+                <div className="text-[11px]" style={{ color: "#A3B3C7" }}>
+                  {riskCardUi.sub}
+                </div>
+              </>
+            </GprDepKpiAccordionCard>
+          </div>
+        </div>
       </div>
     </div>
   );
