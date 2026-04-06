@@ -256,3 +256,73 @@ export function filterByPeriod<T extends { planStart: string; planEnd: string }>
 
   return data;
 }
+
+/** Ответ `GET /gpr/tasks` / `PUT|POST /gpr/tasks` (поля в snake_case, как в API). */
+export type GprTaskApiItem = {
+  id: number;
+  code: string;
+  global_task_id: string | null;
+  name: string;
+  level: number;
+  plan_start: string;
+  plan_end: string;
+  fact_start: string | null;
+  fact_end: string | null;
+  completion: number;
+  comment: string | null;
+  related_tmc_ids: string[];
+  part_id: number;
+  status?: string;
+  blocked_reasons?: string[];
+};
+
+export function gprTaskFromApiItem(row: GprTaskApiItem): GPRTask {
+  return {
+    id: String(row.id),
+    globalTaskId: row.global_task_id ?? row.code,
+    code: row.code,
+    name: row.name,
+    partId: row.part_id,
+    relatedTmcIds: row.related_tmc_ids ?? [],
+    planStart: row.plan_start,
+    planEnd: row.plan_end,
+    factStart: row.fact_start,
+    factEnd: row.fact_end,
+    completion: row.completion,
+    comment: row.comment ?? undefined,
+    level: row.level,
+  };
+}
+
+/** Тело `GprTaskCreate` / `GprTaskUpdate` для сохранения в backend. */
+export type GprTaskWritePayload = {
+  code: string;
+  global_task_id: string | null;
+  name: string;
+  level: number;
+  plan_start: string;
+  plan_end: string;
+  fact_start: string | null;
+  fact_end: string | null;
+  completion: number;
+  comment: string | null;
+  related_tmc_ids: string[];
+  part_id: number;
+};
+
+export function gprTaskToApiWritePayload(task: GPRTask): GprTaskWritePayload {
+  return {
+    code: task.code,
+    global_task_id: task.globalTaskId || task.code,
+    name: task.name,
+    level: task.level ?? 1,
+    plan_start: task.planStart,
+    plan_end: task.planEnd,
+    fact_start: task.factStart ?? null,
+    fact_end: task.factEnd ?? null,
+    completion: task.completion,
+    comment: task.comment ?? null,
+    related_tmc_ids: task.relatedTmcIds ?? [],
+    part_id: task.partId,
+  };
+}

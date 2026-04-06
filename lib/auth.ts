@@ -1,3 +1,5 @@
+import type { GprTaskApiItem, GprTaskWritePayload } from "./gprUtils";
+
 export type Role = "admin" | "manager" | "employee";
 export type ApiSection = "gpr" | "tenders" | "materials";
 export type UserStatus = "active" | "blocked";
@@ -545,6 +547,45 @@ export async function getRelatedDeviations(token: string, taskId: number): Promi
   });
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить связанные отклонения");
   return res.json() as Promise<RelatedDeviationRow[]>;
+}
+
+export async function listGprTasksApi(token: string, partId?: number): Promise<GprTaskApiItem[]> {
+  const q = partId != null ? `?part_id=${partId}` : "";
+  const res = await fetch(api(`/gpr/tasks${q}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить задачи ГПР");
+  return res.json() as Promise<GprTaskApiItem[]>;
+}
+
+export async function updateGprTaskApi(
+  token: string,
+  taskId: number,
+  body: GprTaskWritePayload,
+): Promise<GprTaskApiItem> {
+  const res = await fetch(api(`/gpr/tasks/${taskId}`), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось сохранить задачу ГПР");
+  return res.json() as Promise<GprTaskApiItem>;
+}
+
+export async function createGprTaskApi(token: string, body: GprTaskWritePayload): Promise<GprTaskApiItem> {
+  const res = await fetch(api(`/gpr/tasks`), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось создать задачу ГПР");
+  return res.json() as Promise<GprTaskApiItem>;
 }
 
 /** Случайный пароль на клиенте (до отправки на сервер; API пароль не возвращает). */

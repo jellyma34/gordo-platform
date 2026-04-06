@@ -117,6 +117,7 @@ def _create_gpr_version(db: Session, task: GprTask, created_by: str | None) -> N
             created_by=created_by,
         )
     )
+    db.flush()
 
 
 @router.get("/parts", response_model=list[ProjectPartItem])

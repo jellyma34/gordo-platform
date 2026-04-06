@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { GPRSection } from "@/components/construction/GPRSection";
@@ -10,10 +10,13 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { gprMockData } from "@/lib/gprMockData";
 import {
   canAccessConstructionSection,
+  createGprTaskApi,
+  listGprTasksApi,
   uiToApi,
+  updateGprTaskApi,
   type UiConstructionSection,
 } from "@/lib/auth";
-import type { GPRTask } from "@/lib/gprUtils";
+import { gprTaskFromApiItem, gprTaskToApiWritePayload, type GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -100,7 +103,7 @@ function ConstructionWorkspaceInner({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { role, hasFullConstructionAccess, allowedSections } = useAuth();
+  const { role, hasFullConstructionAccess, allowedSections, token, hydrated } = useAuth();
 
   const prefix = pathname.startsWith("/presentation") ? "/presentation" : "/edit";
   const sectionParam = searchParams.get("section");
@@ -114,11 +117,32 @@ function ConstructionWorkspaceInner({
     () => tasks.filter((task) => task.partId === activeGprPartId),
     [tasks, activeGprPartId],
   );
+
   const saveGprTasksForActivePart = (partTasks: GPRTask[]) => {
-    setTasks((prev) => [
-      ...prev.filter((task) => task.partId !== activeGprPartId),
-      ...partTasks.map((task) => ({ ...task, partId: activeGprPartId })),
-    ]);
+    const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
+    setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
+
+    if (!token || !hasFullConstructionAccess) return;
+
+    void (async () => {
+      try {
+        const synced: GPRTask[] = [];
+        for (const t of normalized) {
+          const idNum = Number(t.id);
+          const body = gprTaskToApiWritePayload(t);
+          if (Number.isFinite(idNum)) {
+            const row = await updateGprTaskApi(token, idNum, body);
+            synced.push(gprTaskFromApiItem(row));
+          } else {
+            const row = await createGprTaskApi(token, body);
+            synced.push(gprTaskFromApiItem(row));
+          }
+        }
+        setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
+      } catch {
+        /* ошибка уже через adminJsonError в fetch; локальное состояние сохранено */
+      }
+    })();
   };
 
   const allowedApi = useMemo(() => allowedSections, [allowedSections]);
@@ -130,6 +154,29 @@ function ConstructionWorkspaceInner({
     if (!isPresentation && !sectionParam) return "menu" as const;
     return resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi]);
+
+  const gprTasksFetchDoneRef = useRef(false);
+  useEffect(() => {
+    if (!token) gprTasksFetchDoneRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    if (!hydrated || !token || activeTab !== "gpr" || gprTasksFetchDoneRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listGprTasksApi(token);
+        if (cancelled) return;
+        gprTasksFetchDoneRef.current = true;
+        if (rows.length > 0) setTasks(rows.map(gprTaskFromApiItem));
+      } catch {
+        if (!cancelled) gprTasksFetchDoneRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, token, activeTab]);
 
   useEffect(() => {
     if (!isPresentation && !sectionParam) return;
