@@ -8,8 +8,14 @@ class Base(DeclarativeBase):
     pass
 
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+DATABASE_URL = (settings.database_url or "").strip()
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL is not set")
+if not DATABASE_URL.startswith("postgresql://"):
+    raise ValueError("DATABASE_URL must start with postgresql://")
+print(f"Connecting to DB: {DATABASE_URL[:20]}...")
+
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

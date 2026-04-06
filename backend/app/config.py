@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
 
-    database_url: str = "sqlite:///./gordo.db"
+    # Обязателен в окружении (Railway Variables), напр. postgresql://...
+    database_url: str = ""
 
     # Список origin через запятую (например https://app.up.railway.app).
     # "*" — все origin; в этом режиме allow_credentials в CORS будет False (требование браузера).
