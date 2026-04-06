@@ -89,6 +89,7 @@ const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: fals
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
 const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
 const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
+const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
 /** Короткий шифр для оси X: «2.05.01.2» → «2.05.01». */
@@ -290,6 +291,28 @@ const COLORS = {
   bg: "#0f172a",
   card: "#1e293b",
 } as const;
+
+function PlanFactProjectStatusLabel({ status }: { status: "green" | "yellow" | "red" }) {
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-1 text-right text-xs text-slate-300">
+      <span className="font-medium leading-snug text-slate-100">Статус проекта</span>
+      <span
+        className="inline-flex w-fit items-center rounded-full px-2 py-0.5 font-semibold"
+        style={{
+          backgroundColor:
+            status === "green"
+              ? "rgba(34,197,94,0.15)"
+              : status === "yellow"
+                ? "rgba(245,158,11,0.15)"
+                : "rgba(239,68,68,0.15)",
+          color: status === "green" ? COLORS.green : status === "yellow" ? COLORS.yellow : COLORS.red,
+        }}
+      >
+        {status === "green" ? "В срок" : status === "yellow" ? "Риск" : "Просрочка"}
+      </span>
+    </div>
+  );
+}
 
 /** Пояснение к «Риск проекта (%)» в donut «Распределение статусов». */
 const STATUS_DISTRIBUTION_RISK_EXPLANATION =
@@ -1410,10 +1433,10 @@ export function GPRAnalytics({
       };
     };
     return [
-      slice("green", "В срок", COLORS.green),
-      slice("yellow", "Риск", COLORS.yellow),
-      slice("red", "Отставание", COLORS.red),
-      slice("gray", "Нет данных", "#9ca3af"),
+      slice("green", "В срок", "url(#greenGrad)"),
+      slice("yellow", "Риск", "url(#yellowGrad)"),
+      slice("red", "Отставание", "url(#redGrad)"),
+      slice("gray", "Нет данных", "url(#grayGrad)"),
     ];
   }, [statusDistributionGroups]);
 
@@ -1880,68 +1903,53 @@ export function GPRAnalytics({
 
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-50">План vs Факт</h3>
-              <p className="mt-1 text-sm leading-snug text-[#E6EDF3]">
+          <div>
+            <div className="flex flex-col gap-2">
+              <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+                <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
+                <PlanFactProjectStatusLabel status={projectStatus} />
+              </div>
+              <p className="text-sm leading-snug text-[#E6EDF3]">
                 {planFactDataSource === "kvartaly"
                   ? `Сводка по проекту: план и факт во времени (${activePartLabel}).`
                   : `План и факт по длительности работ, дни (${activePartLabel}).`}
               </p>
-              {planFactSummary ? (
-                <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
-                  <span>
+            </div>
+            {planFactSummary ? (
+              <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
+                <div className="flex flex-col gap-1">
+                  <span className="font-medium leading-snug text-slate-100">
                     {planFactDataSource === "kvartaly"
                       ? planFactKvartalyGranularity === "overview"
-                        ? "Отставание графика на сегодня (плановых дн.): "
+                        ? "Отставание графика на сегодня (плановых дн.)"
                         : planFactKvartalyGranularity === "aggregated"
-                          ? "Среднее отклонение длительности по видимым процессам (факт − план): "
-                          : "Среднее отклонение длительности по видимым работам (факт − план): "
-                      : "Среднее отклонение (факт − план): "}
-                    <span className="font-semibold tabular-nums text-slate-100">
-                      {planFactSummary.avg > 0 ? "+" : ""}
-                      {planFactSummary.avg.toFixed(1)} дн.
-                    </span>
+                          ? "Среднее отклонение длительности по видимым процессам (факт − план)"
+                          : "Среднее отклонение длительности по видимым работам (факт − план)"
+                      : "Среднее отклонение (факт − план)"}
                   </span>
-                  <span>
-                    {planFactDataSource === "kvartaly"
-                      ? planFactKvartalyGranularity === "overview"
-                        ? "Критическое отставание графика (&gt;14 дн.): "
-                        : planFactKvartalyGranularity === "aggregated"
-                          ? "Процессов с отставанием по длительности (&gt;14 дн.): "
-                          : "Работ с отставанием по длительности (&gt;14 дн.): "
-                      : "Этапов с отставанием (&gt;14 дн.): "}
-                    <span
-                      className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
-                    >
-                      {planFactSummary.severeLate}
-                    </span>
+                  <span className="font-semibold tabular-nums text-slate-100">
+                    {planFactSummary.avg > 0 ? "+" : ""}
+                    {planFactSummary.avg.toFixed(1)} дн.
                   </span>
                 </div>
-              ) : null}
-            </div>
-            <div className="text-xs text-slate-300">
-              <span className="font-medium text-slate-100">Статус проекта:</span>{" "}
-              <span
-                className="ml-1 inline-flex items-center rounded-full px-2 py-0.5"
-                style={{
-                  backgroundColor:
-                    projectStatus === "green"
-                      ? "rgba(34,197,94,0.15)"
-                      : projectStatus === "yellow"
-                        ? "rgba(245,158,11,0.15)"
-                        : "rgba(239,68,68,0.15)",
-                  color:
-                    projectStatus === "green"
-                      ? COLORS.green
-                      : projectStatus === "yellow"
-                        ? COLORS.yellow
-                        : COLORS.red,
-                }}
-              >
-                {projectStatus === "green" ? "В срок" : projectStatus === "yellow" ? "Риск" : "Просрочка"}
-              </span>
-            </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  <span className="font-medium leading-snug text-slate-100">
+                    {planFactDataSource === "kvartaly"
+                      ? planFactKvartalyGranularity === "overview"
+                        ? "Критическое отставание графика (&gt;14 дн.)"
+                        : planFactKvartalyGranularity === "aggregated"
+                          ? "Процессов с отставанием по длительности (&gt;14 дн.)"
+                          : "Работ с отставанием по длительности (&gt;14 дн.)"
+                      : "Этапов с отставанием (&gt;14 дн.)"}
+                  </span>
+                  <span
+                    className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
+                  >
+                    {planFactSummary.severeLate}
+                  </span>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {planFactDataSource === "kvartaly" ? (
@@ -2265,26 +2273,51 @@ export function GPRAnalytics({
             title="Нажмите для детализации по задачам"
             className="flex h-full w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a]"
           >
-            <h3 className="text-lg font-semibold text-slate-50">Распределение статусов</h3>
-            <p className="mt-2 text-xs text-slate-300">
-              Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
-            </p>
+            <div className="flex flex-col gap-2">
+              <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
+                <h3 className="text-lg font-semibold leading-snug text-slate-50">Распределение статусов</h3>
+              </div>
+              <p className="text-xs leading-snug text-slate-300">
+                Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
+              </p>
+            </div>
             <div className="relative mt-4 h-[220px] w-full">
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                  <defs>
+                    <linearGradient id="greenGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#16a34a" />
+                      <stop offset="100%" stopColor="#22c55e" />
+                    </linearGradient>
+                    <linearGradient id="yellowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#d97706" />
+                      <stop offset="100%" stopColor="#f59e0b" />
+                    </linearGradient>
+                    <linearGradient id="redGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#dc2626" />
+                      <stop offset="100%" stopColor="#ef4444" />
+                    </linearGradient>
+                    <linearGradient id="grayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#6b7280" />
+                      <stop offset="100%" stopColor="#9ca3af" />
+                    </linearGradient>
+                  </defs>
                   <Tooltip content={StatusDistributionPieTooltip} />
                   <Pie
                     data={statusDonutData}
                     dataKey="value"
                     nameKey="name"
-                    fill="#9ca3af"
                     cx="50%"
                     cy="45%"
                     innerRadius={52}
                     outerRadius={78}
                     paddingAngle={2}
                     stroke="rgba(255,255,255,0.18)"
-                  />
+                  >
+                    {statusDonutData.map((entry) => (
+                      <Cell key={entry.status} fill={entry.fill} />
+                    ))}
+                  </Pie>
                 </PieChart>
               </ResponsiveContainer>
               {/*
