@@ -1,9 +1,5 @@
 import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
-import {
-  factColorForScheduleDelayToday,
-  scheduleDelayTodayDays,
-  statusLabelForScheduleDelayToday,
-} from "@/lib/gprScheduleDelayToday";
+import { factColorForFactEndVsToday, statusLabelForFactEndVsToday } from "@/lib/gprScheduleDelayToday";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -80,26 +76,24 @@ export function projectOverviewEndDelayDays(
   return Math.round((fe - pe) / MS_PER_DAY);
 }
 
+/** Цвет полосы «Факт проекта» по дате окончания факта относительно сегодня. */
 export function overviewFactBarColor(
-  planStartIso: string,
-  planEndIso: string,
+  _planStartIso: string,
+  _planEndIso: string,
   factStartIso: string | null | undefined,
   factEndIso: string | null | undefined,
 ): string {
-  return factColorForScheduleDelayToday(
-    scheduleDelayTodayDays(planStartIso, planEndIso, factStartIso, factEndIso),
-  );
+  return factColorForFactEndVsToday(factStartIso, factEndIso);
 }
 
+/** Подпись статуса по календарю (окончание факта vs сегодня). */
 export function overviewEndDeviationStatus(
-  planStartIso: string,
-  planEndIso: string,
+  _planStartIso: string,
+  _planEndIso: string,
   factStartIso: string | null | undefined,
   factEndIso: string | null | undefined,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
-  return statusLabelForScheduleDelayToday(
-    scheduleDelayTodayDays(planStartIso, planEndIso, factStartIso, factEndIso),
-  );
+  return statusLabelForFactEndVsToday(factStartIso, factEndIso);
 }
 
 export function buildOverviewGanttRows(

@@ -73,7 +73,14 @@ import {
   overviewEndDeviationStatus,
   projectOverviewEndDelayDays,
 } from "@/lib/gprProjectOverview";
-import { ganttFactColorForScheduleToday, scheduleDelayTodayDays } from "@/lib/gprScheduleDelayToday";
+import {
+  factColorForFactEndVsToday,
+  ganttFactColorForScheduleToday,
+  scheduleDelayTodayDays,
+  statusLabelForFactEndVsToday,
+  trafficLightFactEndVsToday,
+  type FactEndVsTodayTraffic,
+} from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 
@@ -292,10 +299,10 @@ const COLORS = {
   card: "#1e293b",
 } as const;
 
-function PlanFactProjectStatusLabel({ status }: { status: "green" | "yellow" | "red" }) {
+function PlanFactProjectStatusLabel({ status }: { status: FactEndVsTodayTraffic }) {
   return (
     <div className="flex shrink-0 flex-col items-end gap-1 text-right text-xs text-slate-300">
-      <span className="font-medium leading-snug text-slate-100">Статус проекта</span>
+      <span className="font-medium leading-snug text-slate-100">Статус на сегодня</span>
       <span
         className="inline-flex w-fit items-center rounded-full px-2 py-0.5 font-semibold"
         style={{
@@ -304,11 +311,26 @@ function PlanFactProjectStatusLabel({ status }: { status: "green" | "yellow" | "
               ? "rgba(34,197,94,0.15)"
               : status === "yellow"
                 ? "rgba(245,158,11,0.15)"
-                : "rgba(239,68,68,0.15)",
-          color: status === "green" ? COLORS.green : status === "yellow" ? COLORS.yellow : COLORS.red,
+                : status === "gray"
+                  ? "rgba(148,163,184,0.12)"
+                  : "rgba(239,68,68,0.15)",
+          color:
+            status === "green"
+              ? COLORS.green
+              : status === "yellow"
+                ? COLORS.yellow
+                : status === "gray"
+                  ? "#94a3b8"
+                  : COLORS.red,
         }}
       >
-        {status === "green" ? "В срок" : status === "yellow" ? "Риск" : "Просрочка"}
+        {status === "green"
+          ? "В срок"
+          : status === "yellow"
+            ? "Риск"
+            : status === "gray"
+              ? "Нет данных"
+              : "Отставание"}
       </span>
     </div>
   );
@@ -1138,6 +1160,13 @@ function stageAccentFromTotalDeviation(totalDeviation: number | null): string {
   return COLORS.red;
 }
 
+function accentFromFactEndVsTodayTraffic(t: FactEndVsTodayTraffic): string {
+  if (t === "gray") return "#64748b";
+  if (t === "green") return COLORS.green;
+  if (t === "yellow") return COLORS.yellow;
+  return COLORS.red;
+}
+
 function trafficStatusForTask(task: GPRTask): {
   status: Traffic;
   planDays: number | null;
@@ -1259,8 +1288,12 @@ export function GPRAnalytics({
     () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
     [kvartalyAllFlat],
   );
-  const projectStatus = getStatusByDeviation(metrics.avgDeviation);
   const todayIso = new Date().toISOString().slice(0, 10);
+  const planFactProjectScheduleTraffic = useMemo((): FactEndVsTodayTraffic => {
+    const b = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
+    if (!b?.factEnd?.trim()) return "gray";
+    return trafficLightFactEndVsToday(b.factStart, b.factEnd, new Date(`${todayIso}T12:00:00`));
+  }, [tasksForActivePart, todayIso]);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
@@ -1711,11 +1744,8 @@ export function GPRAnalytics({
       scheduleLagForAggregate,
     ],
   );
-  const deviationUiAgg =
-    aggTotalDeviation === null ? null : getStatusByDeviation(aggTotalDeviation);
-  const statusAgg: Traffic =
-    aggTotalDeviation === null ? "gray" : (deviationUiAgg as Traffic);
-  const accentAgg = stageAccentFromTotalDeviation(aggTotalDeviation);
+  const statusAgg: Traffic = planFactProjectScheduleTraffic;
+  const accentAgg = accentFromFactEndVsTodayTraffic(planFactProjectScheduleTraffic);
   const aggPctDisplay =
     aggTotalPercent === null
       ? "—"
@@ -1982,7 +2012,7 @@ export function GPRAnalytics({
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
                 <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
-                <PlanFactProjectStatusLabel status={projectStatus} />
+                <PlanFactProjectStatusLabel status={planFactProjectScheduleTraffic} />
               </div>
               <p className="text-sm leading-snug text-[#E6EDF3]">
                 {planFactDataSource === "kvartaly"
@@ -1994,40 +2024,69 @@ export function GPRAnalytics({
               <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
                 {(() => {
                   const avg = planFactSummary.avg;
-                  const firstLabel =
+                  const calBounds = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
+                  const calStatus = statusLabelForFactEndVsToday(calBounds?.factStart, calBounds?.factEnd);
+                  const calColor =
+                    calStatus === "нет данных"
+                      ? "#94a3b8"
+                      : calStatus === "отставание"
+                        ? COLORS.red
+                        : calStatus === "риск"
+                          ? COLORS.yellow
+                          : COLORS.green;
+                  const calLine =
+                    calStatus === "нет данных"
+                      ? "Нет даты окончания факта по проекту"
+                      : `${calStatus.charAt(0).toUpperCase()}${calStatus.slice(1)} — окончание факта ${calBounds?.factEnd ? fmt(calBounds.factEnd) : "—"}`;
+
+                  const durationLabel =
                     planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview"
                       ? "Отклонение от графика"
                       : planFactDataSource === "kvartaly"
                         ? planFactKvartalyGranularity === "aggregated"
                           ? "Среднее отклонение длительности по видимым процессам (факт − план)"
                           : "Среднее отклонение длительности по видимым работам (факт − план)"
-                        : "Среднее отклонение (факт − план)";
-                  let primaryLine: string;
-                  let primaryColor: string;
+                        : "Среднее отклонение длительности (факт − план)";
+                  let durationValueLine: string;
+                  let durationColor: string;
                   if (avg < 0) {
-                    primaryLine = `Опережение: ${Math.abs(avg).toFixed(1)} дн.`;
-                    primaryColor = COLORS.green;
+                    durationValueLine = `Факт короче плана на ${Math.abs(avg).toFixed(1)} дн.`;
+                    durationColor = COLORS.green;
                   } else if (avg > 0) {
-                    primaryLine = `Отставание: ${avg.toFixed(1)} дн.`;
-                    primaryColor = COLORS.red;
+                    durationValueLine = `Факт дольше плана на ${avg.toFixed(1)} дн.`;
+                    durationColor = COLORS.red;
                   } else {
-                    primaryLine = "В срок";
-                    primaryColor = "#e2e8f0";
+                    durationValueLine = "Длительности совпадают";
+                    durationColor = "#e2e8f0";
                   }
                   return (
                     <>
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">{firstLabel}</span>
+                        <span className="font-medium leading-snug text-slate-100">
+                          Календарь: дата окончания факта vs сегодня
+                        </span>
                         <span
                           className="value text-sm font-semibold leading-snug tabular-nums"
-                          style={{ color: primaryColor }}
+                          style={{ color: calColor }}
                         >
-                          {primaryLine}
+                          {calLine}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-col gap-1">
+                        <span className="font-medium leading-snug text-slate-100">{durationLabel}</span>
+                        <span className="text-[11px] leading-snug text-slate-500">
+                          Сравнение длительностей по договору/графику, не путать с календарным статусом выше.
+                        </span>
+                        <span
+                          className="value text-sm font-semibold leading-snug tabular-nums"
+                          style={{ color: durationColor }}
+                        >
+                          {durationValueLine}
                         </span>
                       </div>
                       <div className="mt-2 flex flex-col gap-1">
                         <span className="font-medium leading-snug text-slate-100">
-                          {`Критические отклонения (>14 дн.)`}
+                          {`Критические отклонения по длительности (>14 дн.)`}
                         </span>
                         <span
                           className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
@@ -2207,15 +2266,19 @@ export function GPRAnalytics({
                 const factPointColor = (i: number) => {
                   const row = planFactChartRows[i];
                   if (!row) return "#94a3b8";
-                  return row.fact <= row.plan ? "#22c55e" : "#ef4444";
+                  return factColorForFactEndVsToday(row.task.factStart, row.task.factEnd);
                 };
+
+                const aggLegend = aggregateWorksToProjectPlanFactBounds(planFactChartRows.map((r) => r.task));
+                const factLineLegendMarker = aggLegend
+                  ? factColorForFactEndVsToday(aggLegend.factStart, aggLegend.factEnd)
+                  : "#94a3b8";
 
                 const PLAN_LINE = "rgba(148, 163, 184, 0.6)";
                 const PLAN_POINT = "rgba(148, 163, 184, 0.45)";
                 const PLAN_POINT_BORDER = "rgba(148, 163, 184, 0.35)";
 
                 const planLineLegendMarker = "#94a3b8";
-                const factLineLegendMarker = "#22c55e";
 
                 return (
                   <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
@@ -2250,7 +2313,7 @@ export function GPRAnalytics({
                             borderColor: (ctx: { p1DataIndex: number }) =>
                               factPointColor(ctx.p1DataIndex),
                           },
-                          borderColor: "#22c55e",
+                          borderColor: factLineLegendMarker,
                           backgroundColor: "transparent",
                           pointRadius: 5,
                           pointHoverRadius: 7,
