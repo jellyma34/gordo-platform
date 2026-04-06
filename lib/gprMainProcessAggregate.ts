@@ -4,6 +4,11 @@ import {
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
+import {
+  ganttFactColorForScheduleToday,
+  scheduleDelayTodayDays,
+  statusLabelForScheduleDelayToday,
+} from "@/lib/gprScheduleDelayToday";
 
 /** Фиксированный перечень процессов укрупнённого режима по структуре ГПР (без корня 2.05 — только 2.04 и подпроцессы 2.05.xx). */
 export const AGGREGATED_GPR_BUCKET_IDS = [
@@ -191,20 +196,15 @@ export function aggregatedMainProcessDelayDays(task: GPRTask): number | null {
 export function aggregatedMainProcessStatus(
   task: GPRTask,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
-  const delay = aggregatedMainProcessDelayDays(task);
-  if (delay === null) return "нет данных";
-  if (delay <= 0) return "в срок";
-  if (delay <= 14) return "риск";
-  return "отставание";
+  if (!isAggregatedMainProcessTask(task)) return "нет данных";
+  return statusLabelForScheduleDelayToday(
+    scheduleDelayTodayDays(task.planStart, task.planEnd, task.factStart, task.factEnd),
+  );
 }
 
 export function factBarColorForAggregatedMainProcess(task: GPRTask): string | null {
   if (!isAggregatedMainProcessTask(task)) return null;
-  const delay = aggregatedMainProcessDelayDays(task);
-  if (delay === null) return "rgba(148, 163, 184, 0.5)";
-  if (delay <= 0) return "#22c55e";
-  if (delay <= 14) return "#f59e0b";
-  return "#ef4444";
+  return ganttFactColorForScheduleToday(task);
 }
 
 /** Порядок строк на оси Y для укрупнённого режима (по перечню ГПР, не по дате начала). */

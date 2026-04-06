@@ -48,14 +48,11 @@ import {
 } from "@/lib/tenderData";
 import {
   clampSerialRange,
-  computeQuarterlyActiveWorkCounts,
   computeQuarterlyAggregatesFromTasks,
-  computeQuarterlyLoadRatioPercent,
   distinctYearsFromBuckets,
   filterKvartalyTasksForGantt,
   formatQuarterDisplayLabel,
   getGanttXWindow,
-  quarterOverloadThreshold,
   serialDayFromOrigin,
   toKvartalyGanttFilter,
   type QuarterlyAggregateBucket,
@@ -64,7 +61,6 @@ import {
   aggregateToMainProcesses,
   aggregatedMainProcessDelayDays,
   aggregatedMainProcessStatus,
-  factBarColorForAggregatedMainProcess,
   isAggregatedMainProcessTask,
   sortAggregatedMainProcessRows,
 } from "@/lib/gprMainProcessAggregate";
@@ -74,9 +70,9 @@ import {
   isOverviewFactGanttTask,
   isOverviewPlanGanttTask,
   overviewEndDeviationStatus,
-  overviewFactBarColor,
   projectOverviewEndDelayDays,
 } from "@/lib/gprProjectOverview";
+import { ganttFactColorForScheduleToday, scheduleDelayTodayDays } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 
@@ -526,7 +522,6 @@ type KvartalyGanttModel = {
   candidates: GPRTask[];
   window: { origin: Date; maxSerial: number } | null;
   ganttRows: GPRTask[];
-  timelineCaption: string | null;
   planFactSummary: { avg: number; severeLate: number } | null;
 };
 
@@ -570,46 +565,19 @@ function useKvartalyGanttModel(
     return sortGanttTasks(vis);
   }, [enabled, ganttWindow, candidates, granularity]);
 
-  const timelineCaption = useMemo((): string | null => {
-    if (!enabled) return null;
-    const quarterCounts = computeQuarterlyActiveWorkCounts(tasks);
-    if (quarterCounts.size === 0) return null;
-    const overloadAt = quarterOverloadThreshold(quarterCounts.values());
-    const quarterLoadPct = computeQuarterlyLoadRatioPercent(tasks);
-    const entries = [...quarterCounts.entries()];
-    let peak: [string, number] | null = null;
-    for (const e of entries) {
-      if (!peak || e[1] > peak[1]) peak = e;
-    }
-    const gaps = entries
-      .filter(([, c]) => c === 0)
-      .map(([k]) => formatQuarterDisplayLabel(k))
-      .slice(0, 5);
-    const parts: string[] = [];
-    if (peak && peak[1] > 0) {
-      const load = quarterLoadPct.get(peak[0]);
-      const loadBit =
-        load != null
-          ? ` Доля календаря под плановыми работами (Σ дней пересечений / дней квартала): ~${load}%.`
-          : "";
-      parts.push(
-        `Пик параллельных работ по плану: ${formatQuarterDisplayLabel(peak[0])} (${peak[1]} работ). Порог «много»: ≥${overloadAt}.${loadBit}`,
-      );
-    }
-    if (gaps.length > 0) {
-      parts.push(`Кварталы без плановых работ (провал): ${gaps.join(", ")}.`);
-    }
-    return parts.join(" ");
-  }, [enabled, tasks]);
-
   const planFactSummary = useMemo((): { avg: number; severeLate: number } | null => {
     if (!enabled) return null;
     if (granularity === "overview") {
       const agg = aggregateWorksToProjectPlanFactBounds(candidates);
       if (!agg) return null;
-      const endDelay = projectOverviewEndDelayDays(agg.planEnd, agg.factEnd);
-      if (endDelay === null) return null;
-      return { avg: endDelay, severeLate: endDelay > 14 ? 1 : 0 };
+      const delayToday = scheduleDelayTodayDays(
+        agg.planStart,
+        agg.planEnd,
+        agg.factStart,
+        agg.factEnd,
+      );
+      if (delayToday === null) return null;
+      return { avg: delayToday, severeLate: delayToday > 14 ? 1 : 0 };
     }
     const rows = ganttRows.filter((t) => {
       if (!t.factStart || !t.factEnd) return false;
@@ -632,7 +600,6 @@ function useKvartalyGanttModel(
     candidates,
     window: ganttWindow,
     ganttRows,
-    timelineCaption,
     planFactSummary,
   };
 }
@@ -699,19 +666,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
         return r ? ([r[0], r[1]] as [number, number]) : null;
       });
 
-  const factBg = overviewMode
-    ? [
-        "rgba(148, 163, 184, 0.5)",
-        overviewFactBarColor(rows[1]!.planEnd, rows[1]!.factEnd),
-      ]
-    : rows.map((t) => {
-        const aggColor = factBarColorForAggregatedMainProcess(t);
-        if (aggColor !== null) return aggColor;
-        const plan = daysInclusive(t.planStart, t.planEnd);
-        const fact = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
-        if (plan === null || fact === null) return "rgba(148, 163, 184, 0.5)";
-        return fact <= plan ? "#22c55e" : "#ef4444";
-      });
+  const factBg = rows.map((t) => ganttFactColorForScheduleToday(t));
 
   const legendFactColor = pickGanttFactLegendColor(factBg, factBars);
 
@@ -764,11 +719,16 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
           },
           legend: {
             position: "bottom",
+            align: "center",
             labels: {
-              color: "#cbd5e1",
-              boxWidth: 12,
+              color: "#E6EDF3",
+              boxWidth: 14,
+              boxHeight: 14,
+              padding: 18,
+              font: { size: 13, weight: "500" },
               generateLabels(chart: ChartType): LegendItem[] {
                 const barChart = chart as InstanceType<typeof ChartJS>;
+                const legendTextColor = "#E6EDF3";
                 return [
                   {
                     text: "План",
@@ -778,6 +738,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                     pointStyle: "rect" as const,
                     hidden: !barChart.isDatasetVisible(0),
                     datasetIndex: 0,
+                    fontColor: legendTextColor,
                   },
                   {
                     text: "Факт",
@@ -787,6 +748,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                     pointStyle: "rect" as const,
                     hidden: !barChart.isDatasetVisible(1),
                     datasetIndex: 1,
+                    fontColor: legendTextColor,
                   },
                 ];
               },
@@ -840,16 +802,45 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 } else if (isOverviewFactGanttTask(task)) {
                   if (planD !== null) lines.push(`Длительность плана (проект): ${planD} дн.`);
                   if (factD !== null) lines.push(`Длительность факта (проект): ${factD} дн.`);
+                  const schedDel = scheduleDelayTodayDays(
+                    task.planStart,
+                    task.planEnd,
+                    task.factStart,
+                    task.factEnd,
+                  );
+                  if (schedDel !== null) {
+                    lines.push(
+                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
+                    );
+                  }
                   const endDel = projectOverviewEndDelayDays(task.planEnd, task.factEnd);
                   if (endDel !== null) {
                     lines.push(
                       `Отклонение окончания (факт − план): ${endDel > 0 ? "+" : ""}${endDel} дн.`,
                     );
                   }
-                  lines.push(`Статус: ${overviewEndDeviationStatus(task.planEnd, task.factEnd)}`);
+                  lines.push(
+                    `Статус: ${overviewEndDeviationStatus(
+                      task.planStart,
+                      task.planEnd,
+                      task.factStart,
+                      task.factEnd,
+                    )}`,
+                  );
                 } else if (isAggregatedMainProcessTask(task)) {
                   if (planD !== null) lines.push(`Длительность (план): ${planD} дн.`);
                   if (factD !== null) lines.push(`Длительность (факт): ${factD} дн.`);
+                  const schedDel = scheduleDelayTodayDays(
+                    task.planStart,
+                    task.planEnd,
+                    task.factStart,
+                    task.factEnd,
+                  );
+                  if (schedDel !== null) {
+                    lines.push(
+                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
+                    );
+                  }
                   const delay = aggregatedMainProcessDelayDays(task);
                   if (delay !== null) {
                     lines.push(
@@ -860,6 +851,17 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 } else {
                   if (planD !== null && factD !== null) {
                     lines.push(`Длительность: план ${planD} дн., факт ${factD} дн.`);
+                  }
+                  const schedDel = scheduleDelayTodayDays(
+                    task.planStart,
+                    task.planEnd,
+                    task.factStart,
+                    task.factEnd,
+                  );
+                  if (schedDel !== null) {
+                    lines.push(
+                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
+                    );
                   }
                   const dev = calculateDeviation(task);
                   if (dev !== null) {
@@ -895,10 +897,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
               },
             },
             title: {
-              display: true,
-              text: "Календарь",
-              color: "#cbd5e1",
-              font: { size: 11, weight: "bold" },
+              display: false,
             },
           },
           y: {
@@ -907,7 +906,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
             border: { display: false },
             ticks: {
               color: "#94a3b8",
-              font: { size: 9 },
+              font: { size: 10 },
               autoSkip: false,
             },
           },
@@ -1275,9 +1274,6 @@ export function GPRAnalytics({
   const kvartalyActiveModel =
     activePartId === PROJECT_PART_KEY_TO_ID.parking ? mPark : mRes;
 
-  const kvartalyTimelineHeaderCaption =
-    planFactDataSource === "kvartaly" ? kvartalyActiveModel.timelineCaption : null;
-
   const timelineYearsAvailable = useMemo(
     () => distinctYearsFromBuckets(quarterlyBucketsAll),
     [quarterlyBucketsAll],
@@ -1438,6 +1434,41 @@ export function GPRAnalytics({
       slice("gray", "Нет данных", "#9ca3af"),
     ];
   }, [statusDistributionGroups]);
+
+  /** Риск проекта (%) по долям в срок / риск / отставание; «Нет данных» не входит в total. */
+  const statusDistributionProjectRisk = useMemo(() => {
+    const green = traffic.counts.green;
+    const yellow = traffic.counts.yellow;
+    const red = traffic.counts.red;
+    const total = green + yellow + red;
+    if (total === 0) {
+      return {
+        mainText: "—",
+        mainColor: "#cbd5e1",
+        textGlow: "0 0 10px rgba(148, 163, 184, 0.22)",
+      };
+    }
+    const riskScore = Math.round(((yellow * 0.5 + red * 1.0) / total) * 100);
+    if (riskScore <= 20) {
+      return {
+        mainText: `${riskScore}%`,
+        mainColor: COLORS.green,
+        textGlow: "0 0 10px rgba(34, 197, 94, 0.28)",
+      };
+    }
+    if (riskScore <= 50) {
+      return {
+        mainText: `${riskScore}%`,
+        mainColor: "#f59e0b",
+        textGlow: "0 0 10px rgba(245, 158, 11, 0.35)",
+      };
+    }
+    return {
+      mainText: `${riskScore}%`,
+      mainColor: COLORS.red,
+      textGlow: "0 0 10px rgba(239, 68, 68, 0.3)",
+    };
+  }, [traffic.counts.green, traffic.counts.yellow, traffic.counts.red]);
 
   const tasksWithoutFactForStatusDistribution = useMemo(
     () => tasksForActivePart.some((t) => !t.factEnd),
@@ -1902,72 +1933,18 @@ export function GPRAnalytics({
         <div className="lg:col-span-2 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-lg font-semibold text-slate-50">
+              <h3 className="text-lg font-semibold text-slate-50">План vs Факт</h3>
+              <p className="mt-1 text-sm leading-snug text-[#E6EDF3]">
                 {planFactDataSource === "kvartaly"
-                  ? "План vs Факт (распределение во времени)"
-                  : "План vs Факт (длительность, дни)"}
-              </h3>
-              <p className="mt-1 text-xs font-medium text-sky-200/90">
-                Часть проекта: {activePartLabel}
-                {planFactDataSource === "kvartaly" ? (
-                  <span className="text-sky-200/75"> — таймлайн и чипы периода только для этого объекта.</span>
-                ) : null}
-              </p>
-              {planFactDataSource === "kvartaly" ? (
-                <p className="mt-1 text-[11px] text-emerald-200/90">
-                  Данные: kvartaly_gpr_quarterly.json. Интервалы план/факт и пересечения с периодами — как в
-                  lib/gprQuarterlyTimeline (без ручного пересчёта).
-                </p>
-              ) : null}
-              <p className="mt-2 text-xs text-slate-300">
-                {planFactDataSource === "kvartaly" ? (
-                  <>
-                    По оси X — календарное время (дни от начала выбранного окна). По Y —{" "}
-                    {planFactKvartalyGranularity === "overview" ? (
-                      <>
-                        сводка по объекту: две строки на оси Y — «План» и «Факт»; границы — MIN/MAX по всем работам
-                        периода; отклонение окончания — факт − план по датам.
-                      </>
-                    ) : planFactKvartalyGranularity === "aggregated" ? (
-                      <>
-                        фиксированные процессы ГПР: 2.04 и 2.05.01–2.05.12, 2.05.99 (без корня 2.05); для жилого дома —
-                        только 2.04* и 2.05.*, без 2.06/2.07; план и факт — MIN/MAX по всем дочерним строкам в каждом
-                        процессе.
-                      </>
-                    ) : (
-                      <>отдельные работы из поквартального файла.</>
-                    )}{" "}
-                    Полупрозрачная полоса — план, рядом яркая — факт.{" "}
-                    {planFactKvartalyGranularity === "overview" ? (
-                      <>
-                        Цвет факта по отклонению окончания (факт − план): ≤0 дн. — в срок, 1–14 дн. — риск, &gt;14 —
-                        отставание; без факта — серый.
-                      </>
-                    ) : planFactKvartalyGranularity === "aggregated" ? (
-                      <>
-                        Цвет факта по отклонению длительности (факт − план): ≤0 — в срок, 1–14 дн. — риск, &gt;14 —
-                        отставание; без факта — серый.
-                      </>
-                    ) : (
-                      <>
-                        Зелёный факт, если длительность факта ≤ плана; иначе красный.
-                      </>
-                    )}{" "}
-                  </>
-                ) : (
-                  <>
-                    Длительность в днях: полупрозрачный серый план (фон), поверх — факт толще и ярче (зелёный ≤
-                    плана, красный &gt; плана). Ось X — шифр этапа; этапы сгруппированы по корню кода (2.04, 2.05…);
-                    детали — в подсказке.
-                  </>
-                )}
+                  ? `Сводка по проекту: план и факт во времени (${activePartLabel}).`
+                  : `План и факт по длительности работ, дни (${activePartLabel}).`}
               </p>
               {planFactSummary ? (
                 <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
                   <span>
                     {planFactDataSource === "kvartaly"
                       ? planFactKvartalyGranularity === "overview"
-                        ? "Отклонение окончания проекта (факт − план по датам): "
+                        ? "Отставание графика на сегодня (плановых дн.): "
                         : planFactKvartalyGranularity === "aggregated"
                           ? "Среднее отклонение длительности по видимым процессам (факт − план): "
                           : "Среднее отклонение длительности по видимым работам (факт − план): "
@@ -1980,7 +1957,7 @@ export function GPRAnalytics({
                   <span>
                     {planFactDataSource === "kvartaly"
                       ? planFactKvartalyGranularity === "overview"
-                        ? "Критическое отставание по окончанию (&gt;14 дн.): "
+                        ? "Критическое отставание графика (&gt;14 дн.): "
                         : planFactKvartalyGranularity === "aggregated"
                           ? "Процессов с отставанием по длительности (&gt;14 дн.): "
                           : "Работ с отставанием по длительности (&gt;14 дн.): "
@@ -1992,11 +1969,6 @@ export function GPRAnalytics({
                     </span>
                   </span>
                 </div>
-              ) : null}
-              {planFactDataSource === "kvartaly" && kvartalyTimelineHeaderCaption ? (
-                <p className="mt-2 border-t border-slate-600/40 pt-3 text-[11px] leading-relaxed text-slate-400">
-                  {kvartalyTimelineHeaderCaption}
-                </p>
               ) : null}
             </div>
             <div className="text-xs text-slate-300">
@@ -2250,7 +2222,43 @@ export function GPRAnalytics({
                       plugins: {
                         legend: {
                           position: "bottom",
-                          labels: { color: "#cbd5e1", boxWidth: 12 },
+                          align: "center",
+                          labels: {
+                            color: "#E6EDF3",
+                            boxWidth: 14,
+                            boxHeight: 14,
+                            padding: 18,
+                            font: { size: 13, weight: "500" },
+                            generateLabels(chart: ChartType): LegendItem[] {
+                              const c = chart as InstanceType<typeof ChartJS>;
+                              const legendTextColor = "#E6EDF3";
+                              const planLegendFill = "rgba(148, 163, 184, 0.42)";
+                              const planLegendStroke = "rgba(148, 163, 184, 0.55)";
+                              const factLegendColor = "#22c55e";
+                              return [
+                                {
+                                  text: "План",
+                                  fillStyle: planLegendFill,
+                                  strokeStyle: planLegendStroke,
+                                  lineWidth: 1,
+                                  pointStyle: "rect" as const,
+                                  hidden: !c.isDatasetVisible(0),
+                                  datasetIndex: 0,
+                                  fontColor: legendTextColor,
+                                },
+                                {
+                                  text: "Факт",
+                                  fillStyle: factLegendColor,
+                                  strokeStyle: factLegendColor,
+                                  lineWidth: 1,
+                                  pointStyle: "rect" as const,
+                                  hidden: !c.isDatasetVisible(1),
+                                  datasetIndex: 1,
+                                  fontColor: legendTextColor,
+                                },
+                              ];
+                            },
+                          },
                         },
                         tooltip: {
                           enabled: true,
@@ -2336,7 +2344,7 @@ export function GPRAnalytics({
             <p className="mt-2 text-xs text-slate-300">
               Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
             </p>
-            <div className="mt-4 h-[220px] w-full">
+            <div className="relative mt-4 h-[220px] w-full">
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
                   <Tooltip content={StatusDistributionPieTooltip} />
@@ -2347,13 +2355,85 @@ export function GPRAnalytics({
                     fill="#9ca3af"
                     cx="50%"
                     cy="45%"
-                    innerRadius={44}
+                    innerRadius={52}
                     outerRadius={78}
                     paddingAngle={2}
                     stroke="rgba(255,255,255,0.18)"
                   />
                 </PieChart>
               </ResponsiveContainer>
+              {/*
+                Recharts 3: центр KPI — HTML поверх графика (Label+center в v3 не работает в Pie).
+                Позиция = Pie margin 10 и cy 45% от внутренней высоты.
+              */}
+              <div
+                className="pointer-events-none absolute left-1/2 flex flex-col items-center justify-center text-center"
+                style={{
+                  top: "calc(10px + (100% - 20px) * 0.45)",
+                  transform: "translate(-50%, -50%)",
+                }}
+              >
+                <div
+                  aria-hidden
+                  className="absolute left-1/2 top-1/2 aspect-square rounded-full"
+                  style={{
+                    width: "min(100px, 26%)",
+                    minWidth: 76,
+                    maxWidth: 104,
+                    transform: "translate(-50%, -50%)",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    boxShadow: "0 0 32px rgba(255,255,255,0.06)",
+                  }}
+                />
+                {/*
+                  Единый SVG-якорь (как <text x y textAnchor middle dominantBaseline middle>):
+                  центр между строками — маленький dy у процента (-6), затем dy 18 у подписи.
+                */}
+                <svg
+                  className="relative z-[1] font-sans"
+                  width={120}
+                  height={72}
+                  viewBox="0 0 120 72"
+                  overflow="visible"
+                  aria-hidden
+                >
+                  <text
+                    x={60}
+                    y={36}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    style={{
+                      fontFamily:
+                        "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+                    }}
+                  >
+                    <tspan
+                      x={60}
+                      dy={-6}
+                      fontSize={32}
+                      fontWeight={700}
+                      style={{
+                        fill: statusDistributionProjectRisk.mainColor,
+                        fontVariantNumeric: "tabular-nums",
+                        textShadow: statusDistributionProjectRisk.textGlow,
+                      }}
+                    >
+                      {statusDistributionProjectRisk.mainText}
+                    </tspan>
+                    <tspan
+                      x={60}
+                      dy={18}
+                      fontSize={12}
+                      fontWeight={500}
+                      style={{ fill: "#A3B3C7" }}
+                    >
+                      Риск проекта
+                    </tspan>
+                  </text>
+                </svg>
+              </div>
             </div>
             <div className="mt-4 space-y-2 text-xs text-slate-300">
               <div className="flex items-center justify-between">

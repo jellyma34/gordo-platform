@@ -1,4 +1,9 @@
 import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
+import {
+  factColorForScheduleDelayToday,
+  scheduleDelayTodayDays,
+  statusLabelForScheduleDelayToday,
+} from "@/lib/gprScheduleDelayToday";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -75,23 +80,26 @@ export function projectOverviewEndDelayDays(
   return Math.round((fe - pe) / MS_PER_DAY);
 }
 
-export function overviewFactBarColor(planEndIso: string, factEndIso: string | null | undefined): string {
-  const delay = projectOverviewEndDelayDays(planEndIso, factEndIso);
-  if (delay === null) return "rgba(148, 163, 184, 0.5)";
-  if (delay <= 0) return "#22c55e";
-  if (delay <= 14) return "#f59e0b";
-  return "#ef4444";
+export function overviewFactBarColor(
+  planStartIso: string,
+  planEndIso: string,
+  factStartIso: string | null | undefined,
+  factEndIso: string | null | undefined,
+): string {
+  return factColorForScheduleDelayToday(
+    scheduleDelayTodayDays(planStartIso, planEndIso, factStartIso, factEndIso),
+  );
 }
 
 export function overviewEndDeviationStatus(
+  planStartIso: string,
   planEndIso: string,
+  factStartIso: string | null | undefined,
   factEndIso: string | null | undefined,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
-  const delay = projectOverviewEndDelayDays(planEndIso, factEndIso);
-  if (delay === null) return "нет данных";
-  if (delay <= 0) return "в срок";
-  if (delay <= 14) return "риск";
-  return "отставание";
+  return statusLabelForScheduleDelayToday(
+    scheduleDelayTodayDays(planStartIso, planEndIso, factStartIso, factEndIso),
+  );
 }
 
 export function buildOverviewGanttRows(
