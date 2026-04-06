@@ -299,20 +299,69 @@ export function TendersPresentation({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {(
           [
-            { label: "Всего тендеров", value: distribution.total, sub: "в части проекта", color: "#94a3b8" },
-            { label: "Проведены", value: distribution.conducted, sub: "договор заключен", color: COLORS.green },
-            { label: "В процессе", value: distribution.inProgress, sub: "до даты договора", color: COLORS.yellow },
-            { label: "Просрочены", value: distribution.overdue, sub: "план < сегодня, факта нет", color: COLORS.red },
+            {
+              label: "Всего тендеров",
+              value: distribution.total,
+              sub: "в части проекта",
+              accent: "#94a3b8",
+              subColor: "#94a3b8",
+              bg: "linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03))",
+              borderColor: "rgba(148,163,184,0.2)",
+              glow: "rgba(148,163,184,0.15)",
+            },
+            {
+              label: "Проведены",
+              value: distribution.conducted,
+              sub: "договор заключен",
+              accent: COLORS.green,
+              subColor: COLORS.green,
+              bg: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.05))",
+              borderColor: "rgba(34,197,94,0.4)",
+              glow: "rgba(34,197,94,0.15)",
+            },
+            {
+              label: "В процессе",
+              value: distribution.inProgress,
+              sub: "до даты договора",
+              accent: COLORS.yellow,
+              subColor: COLORS.yellow,
+              bg: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(59,130,246,0.05))",
+              borderColor: "rgba(245,158,11,0.4)",
+              glow: "rgba(245,158,11,0.15)",
+            },
+            {
+              label: "Просрочены",
+              value: distribution.overdue,
+              sub: "план < сегодня, факта нет",
+              accent: COLORS.red,
+              subColor: COLORS.red,
+              bg: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(59,130,246,0.05))",
+              borderColor: "rgba(239,68,68,0.4)",
+              glow: "rgba(239,68,68,0.15)",
+            },
           ] as const
         ).map((card) => (
           <div
             key={card.label}
-            className="rounded-[20px] border border-white/10 bg-white/5 p-5 text-left backdrop-blur-[12px]"
-            style={{ borderLeft: `6px solid ${card.color}`, boxShadow: `0 10px 30px ${card.color}22` }}
+            className="rounded-[20px] border p-5 text-left backdrop-blur-[12px] transition-all duration-200 hover:brightness-110"
+            style={{
+              background: card.bg,
+              borderColor: card.borderColor,
+              borderLeft: `4px solid ${card.accent}`,
+              boxShadow: `0 0 20px ${card.glow}`,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = `0 0 26px ${card.glow}, 0 0 36px ${card.glow}`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = `0 0 20px ${card.glow}`;
+            }}
           >
-            <div className="text-xs text-slate-300">{card.label}</div>
+            <div className="text-xs text-slate-200">{card.label}</div>
             <div className="mt-2 text-3xl font-bold tabular-nums text-white">{card.value}</div>
-            <div className="mt-1 text-xs text-slate-400">{card.sub}</div>
+            <div className="mt-1 text-xs font-medium" style={{ color: card.subColor }}>
+              {card.sub}
+            </div>
           </div>
         ))}
       </div>
