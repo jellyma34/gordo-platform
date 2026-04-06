@@ -156,7 +156,6 @@ export function GPRSection({
           <GPRTable
             ref={tableRef}
             tasks={tasks}
-            mode={mode}
             onSaveTasks={onSaveTasks}
             activePartId={activePartId}
             hideEditToolbar
@@ -195,14 +194,6 @@ export function GPRSection({
         activePartId={activePartId}
         planFactDataSource="kvartaly"
       />
-      <div className="mt-8">
-        <GPRTable
-          tasks={tasks}
-          mode={mode}
-          onSaveTasks={onSaveTasks}
-          activePartId={activePartId}
-        />
-      </div>
     </section>
   );
 }

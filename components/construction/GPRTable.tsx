@@ -40,21 +40,10 @@ function flattenTasks(tasks: GPRTask[]): FlatTask[] {
   });
 }
 
-function formatShortDate(isoDate: string) {
-  const date = new Date(`${isoDate}T00:00:00`);
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" }).format(date);
-}
-
 function collectExpandableIds(tasks: GPRTask[]): string[] {
   return tasks
     .filter((task) => tasks.some((candidate) => candidate.code.startsWith(`${task.code}.`)))
     .map((task) => task.id);
-}
-
-function formatRange(start?: string | null, end?: string | null) {
-  if (!start && !end) return "—";
-  if (start && end) return `${start} - ${end}`;
-  return start ?? end ?? "—";
 }
 
 const COLORS = {
@@ -265,7 +254,6 @@ export type GPRTableHandle = {
 
 type GPRTableProps = {
   tasks: GPRTask[];
-  mode: "edit" | "presentation";
   onSaveTasks: (tasks: GPRTask[]) => void;
   /** Часть проекта: ТМЦ и блокировки считаются только по ней. */
   activePartId: number;
@@ -276,7 +264,7 @@ type GPRTableProps = {
 };
 
 export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTable(
-  { tasks, mode, onSaveTasks, activePartId, hideEditToolbar = false, embedded = false },
+  { tasks, onSaveTasks, activePartId, hideEditToolbar = false, embedded = false },
   ref,
 ) {
   const pathname = usePathname();
@@ -299,7 +287,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDraftTasks(cloneTasks(tasks));
   }, [tasks]);
 
-  const sourceTasks = mode === "edit" ? draftTasks : tasks;
+  const sourceTasks = draftTasks;
   const blockedReasonsByTaskId = useMemo(() => {
     const todayMs = new Date(`${todayIso}T00:00:00`).getTime();
     const tmcById = new Map(
@@ -390,14 +378,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDraftTasks(cloneTasks(tasks));
   }, [tasks]);
 
-  useImperativeHandle(
-    ref,
-    () =>
-      mode === "edit"
-        ? { save: saveDraft, cancel: cancelDraft }
-        : { save: () => {}, cancel: () => {} },
-    [mode, saveDraft, cancelDraft],
-  );
+  useImperativeHandle(ref, () => ({ save: saveDraft, cancel: cancelDraft }), [saveDraft, cancelDraft]);
 
   const addSubtask = (parent: FlatTask) => {
     const nextIndex = nextChildIndex(allRows, parent.code);
@@ -469,107 +450,6 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       setPendingFocusId(null);
     }
   }, [pendingFocusId, visibleRows.length]);
-
-  if (mode === "presentation") {
-    const rows = allRows.filter((t) => t.level === 1);
-
-    const statusSummary = rows.reduce(
-      (acc, task) => {
-        const s = getStatus(task);
-        if (s === "green") acc.green += 1;
-        else if (s === "yellow") acc.yellow += 1;
-        else if (s === "red") acc.red += 1;
-        return acc;
-      },
-      { green: 0, yellow: 0, red: 0 },
-    );
-
-    return (
-      <div className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-[#111827] to-[#0b1223] p-6 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 px-4 py-3">
-            <span
-              className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
-              style={{ backgroundColor: `${COLORS.green}22`, color: COLORS.green }}
-            >
-              В срок
-            </span>
-            <div className="mt-2 text-2xl font-bold tabular-nums text-slate-50">{statusSummary.green}</div>
-          </div>
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 px-4 py-3">
-            <span
-              className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
-              style={{ backgroundColor: `${COLORS.yellow}22`, color: COLORS.yellow }}
-            >
-              Риск
-            </span>
-            <div className="mt-2 text-2xl font-bold tabular-nums text-slate-50">{statusSummary.yellow}</div>
-          </div>
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 px-4 py-3">
-            <span
-              className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
-              style={{ backgroundColor: `${COLORS.red}22`, color: COLORS.red }}
-            >
-              Отставание
-            </span>
-            <div className="mt-2 text-2xl font-bold tabular-nums text-slate-50">{statusSummary.red}</div>
-          </div>
-        </div>
-
-        <h3 className="mt-6 text-sm font-semibold text-slate-300">Ключевые этапы</h3>
-        <ul className="mt-3 space-y-2">
-          {rows.map((task) => {
-            const status = getStatus(task);
-            const deviation = calculateDeviation(task);
-            const deviationText =
-              deviation === null || deviation === undefined
-                ? "—"
-                : deviation > 0
-                  ? `+${deviation} дн.`
-                  : `${deviation} дн.`;
-            const accent =
-              status === "red"
-                ? { borderLeft: `4px solid ${COLORS.red}`, boxShadow: "0 0 14px rgba(239,68,68,0.18)" as const }
-                : undefined;
-
-            return (
-              <li
-                key={task.id}
-                className="flex flex-col gap-3 rounded-xl border border-slate-700/50 bg-slate-900/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                style={accent}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-slate-100">{task.name}</div>
-                  <div className="mt-1 text-xs text-slate-400">
-                    <span className="font-mono tabular-nums text-slate-500">{task.code}</span>
-                    <span className="mx-1.5 text-slate-600">·</span>
-                    план {formatShortDate(task.planStart)} — {formatShortDate(task.planEnd)}
-                    <span className="mx-1.5 text-slate-600">·</span>
-                    факт {formatRange(task.factStart, task.factEnd)}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 sm:shrink-0 sm:justify-end">
-                  <span className="text-sm tabular-nums text-slate-200">{task.completion}%</span>
-                  <span
-                    className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
-                    style={statusPillStyle(status)}
-                  >
-                    {getStatusLabel(status)}
-                  </span>
-                  <span
-                    className="text-xs font-semibold tabular-nums"
-                    style={{ color: deviationHex(deviation) }}
-                  >
-                    {deviationText}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    );
-  }
 
   const panelClass = embedded
     ? "space-y-4"
