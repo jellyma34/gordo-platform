@@ -6,6 +6,8 @@ export type GPRTask = {
   code: string;
   name: string;
   partId: number;
+  /** Часть проекта в терминах API / визуализации (`residential` — жилой дом, `parking` — автостоянка). */
+  projectPartKey?: ProjectPartKey;
   relatedTmcIds?: string[];
   planStart: string;
   planEnd: string;
@@ -14,6 +16,8 @@ export type GPRTask = {
   completion: number;
   comment?: string;
   level?: number;
+  /** Квартал из `kvartaly_gpr_quarterly.json` (для подписи оси при совпадении шифров). */
+  kvartalyQuarter?: string;
 };
 
 export type ProjectPart = {
@@ -132,15 +136,8 @@ export function getProjectStats(tasks: GPRTask[]) {
   return { total, completed, overdue, avgDeviation, statusCounts };
 }
 
-/** Фильтр периода для диаграмм по месяцу начала плана (`planStart`). */
+/** Фильтр периода для диаграмм: пересечение планового интервала [planStart, planEnd] с календарным периодом. */
 export type PlanFactPeriodFilterType = "all" | "month" | "quarter";
-
-const QUARTER_MONTHS: Record<number, readonly number[]> = {
-  1: [1, 2, 3],
-  2: [4, 5, 6],
-  3: [7, 8, 9],
-  4: [10, 11, 12],
-};
 
 /** Календарный месяц (1–12) по дате начала плана или `null`, если дата невалидна. */
 export function planStartCalendarMonth(planStart: string | null | undefined): number | null {
@@ -151,10 +148,86 @@ export function planStartCalendarMonth(planStart: string | null | undefined): nu
 }
 
 /**
- * Универсальная фильтрация по периоду: весь набор, один месяц или квартал (по `planStart`).
- * `value` — месяц 1–12 или квартал 1–4 (при `filterType` month / quarter).
+ * Пересечение планового интервала задачи с календарным отрезком [periodStart, periodEnd] (границы включительно по дням).
  */
-export function filterByPeriod<T extends { planStart: string }>(
+export function isTaskInPeriod(
+  task: { planStart: string; planEnd: string },
+  periodStart: Date,
+  periodEnd: Date,
+): boolean {
+  const start = parseDate(task.planStart);
+  const end = parseDate(task.planEnd);
+  if (!start || !end) return false;
+  return start.getTime() <= periodEnd.getTime() && end.getTime() >= periodStart.getTime();
+}
+
+/** Верхний уровень шифра для группировки: «2.05.01.2» → «2.05». */
+export function planRootStageCode(code: string): string {
+  const parts = code.trim().split(".").filter(Boolean);
+  if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
+  return parts[0] ?? code.trim();
+}
+
+function quarterPeriodBounds(
+  year: number,
+  quarter: number,
+): { periodStart: Date; periodEnd: Date } {
+  switch (quarter) {
+    case 1:
+      return { periodStart: new Date(year, 0, 1), periodEnd: new Date(year, 3, 0) };
+    case 2:
+      return { periodStart: new Date(year, 3, 1), periodEnd: new Date(year, 6, 0) };
+    case 3:
+      return { periodStart: new Date(year, 6, 1), periodEnd: new Date(year, 9, 0) };
+    case 4:
+      return { periodStart: new Date(year, 9, 1), periodEnd: new Date(year, 12, 0) };
+    default:
+      return { periodStart: new Date(year, 0, 1), periodEnd: new Date(year, 0, 1) };
+  }
+}
+
+/** Задача пересекает календарный месяц (1–12) хотя бы в одном году, охваченном планом. */
+export function taskOverlapsCalendarMonth(
+  task: { planStart: string; planEnd: string },
+  month: number,
+): boolean {
+  if (month < 1 || month > 12) return false;
+  const ts = parseDate(task.planStart);
+  const te = parseDate(task.planEnd);
+  if (!ts || !te) return false;
+  const y0 = ts.getFullYear();
+  const y1 = te.getFullYear();
+  for (let y = y0; y <= y1; y++) {
+    const periodStart = new Date(y, month - 1, 1);
+    const periodEnd = new Date(y, month, 0);
+    if (isTaskInPeriod(task, periodStart, periodEnd)) return true;
+  }
+  return false;
+}
+
+/** Задача пересекает календарный квартал хотя бы в одном году плана (Q1: 01.01–31.03 и т.д.). */
+export function taskOverlapsCalendarQuarter(
+  task: { planStart: string; planEnd: string },
+  quarter: number,
+): boolean {
+  if (quarter < 1 || quarter > 4) return false;
+  const ts = parseDate(task.planStart);
+  const te = parseDate(task.planEnd);
+  if (!ts || !te) return false;
+  const y0 = ts.getFullYear();
+  const y1 = te.getFullYear();
+  for (let y = y0; y <= y1; y++) {
+    const { periodStart, periodEnd } = quarterPeriodBounds(y, quarter);
+    if (isTaskInPeriod(task, periodStart, periodEnd)) return true;
+  }
+  return false;
+}
+
+/**
+ * Фильтрация по пересечению планового интервала с месяцем или кварталом.
+ * `value` — месяц 1–12 или квартал 1–4.
+ */
+export function filterByPeriod<T extends { planStart: string; planEnd: string }>(
   data: T[],
   filterType: PlanFactPeriodFilterType,
   value?: number,
@@ -163,16 +236,12 @@ export function filterByPeriod<T extends { planStart: string }>(
 
   if (filterType === "month") {
     if (value == null || value < 1 || value > 12) return data;
-    return data.filter((item) => planStartCalendarMonth(item.planStart) === value);
+    return data.filter((item) => taskOverlapsCalendarMonth(item, value));
   }
 
   if (filterType === "quarter") {
     if (value == null || value < 1 || value > 4) return data;
-    const months = QUARTER_MONTHS[value];
-    return data.filter((item) => {
-      const m = planStartCalendarMonth(item.planStart);
-      return m != null && months.includes(m);
-    });
+    return data.filter((item) => taskOverlapsCalendarQuarter(item, value));
   }
 
   return data;

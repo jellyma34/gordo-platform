@@ -189,7 +189,12 @@ export function GPRSection({
         <SummaryStats statusSummary={statusSummary} />
       ) : null}
 
-      <GPRAnalytics tasks={tasks} mode="view" activePartId={activePartId} />
+      <GPRAnalytics
+        tasks={tasks}
+        mode="view"
+        activePartId={activePartId}
+        planFactDataSource="kvartaly"
+      />
       <div className="mt-8">
         <GPRTable
           tasks={tasks}

@@ -1,3 +1,5 @@
+"use client";
+
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -5,6 +7,7 @@ import dynamic from "next/dynamic";
 
 import {
   partIdToProjectPartKey,
+  PROJECT_PART_KEY_TO_ID,
   PROJECT_PARTS,
   type GPRTask,
   type ProjectPartKey,
@@ -15,9 +18,11 @@ import {
   flattenTasks,
   getProjectStats,
   getStatusByDeviation,
+  planRootStageCode,
   type PlanFactPeriodFilterType,
 } from "@/lib/gprUtils";
 import {
+  BarController,
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
@@ -27,6 +32,7 @@ import {
   Tooltip as ChartTooltip,
   Legend as ChartLegend,
 } from "chart.js";
+import type { Plugin } from "chart.js";
 import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
@@ -38,9 +44,40 @@ import {
   getGprStageFromTenderCode,
   mergeTenderSnapshotWithSeed,
   readTenderSnapshotFromStorage,
-  tenderStageHasContractRisk,
   type Tender,
 } from "@/lib/tenderData";
+import {
+  clampSerialRange,
+  computeQuarterlyActiveWorkCounts,
+  computeQuarterlyAggregatesFromTasks,
+  computeQuarterlyLoadRatioPercent,
+  distinctYearsFromBuckets,
+  filterKvartalyTasksForGantt,
+  formatQuarterDisplayLabel,
+  getGanttXWindow,
+  getTimelineQuarterPeriodBounds,
+  quarterOverloadThreshold,
+  toKvartalyGanttFilter,
+  type QuarterlyAggregateBucket,
+} from "@/lib/gprQuarterlyTimeline";
+import {
+  aggregateToMainProcesses,
+  aggregatedMainProcessDelayDays,
+  aggregatedMainProcessStatus,
+  factBarColorForAggregatedMainProcess,
+  isAggregatedMainProcessTask,
+  sortAggregatedMainProcessRows,
+} from "@/lib/gprMainProcessAggregate";
+import {
+  aggregateWorksToProjectPlanFactBounds,
+  buildOverviewGanttRows,
+  isOverviewFactGanttTask,
+  isOverviewPlanGanttTask,
+  overviewEndDeviationStatus,
+  overviewFactBarColor,
+  projectOverviewEndDelayDays,
+} from "@/lib/gprProjectOverview";
+import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 
 const ResponsiveContainer = dynamic(
@@ -57,7 +94,66 @@ const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr
 const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
+/** Короткий шифр для оси X: «2.05.01.2» → «2.05.01». */
+function shortGprCodeForAxis(code: string): string {
+  const parts = code.trim().split(".").filter(Boolean);
+  if (parts.length <= 3) return code.trim();
+  return parts.slice(0, 3).join(".");
+}
+
+type PlanFactDurationRow = {
+  task: GPRTask;
+  plan: number;
+  fact: number;
+  /** Факт − план по длительности (дни). */
+  durationDev: number;
+  /** Короткая подпись по оси X (шифр этапа). */
+  xLabel: string;
+};
+
+type GprQuarterBandsPluginOpts = {
+  origin: Date;
+  maxSerial: number;
+  counts: Map<string, number>;
+  overloadAt: number;
+};
+
+const gprQuarterBandsPlugin: Plugin<"bar"> = {
+  id: "gprQuarterBands",
+  beforeDatasetsDraw(chart) {
+    const opts = (chart.options.plugins as { gprQuarterBands?: GprQuarterBandsPluginOpts } | undefined)
+      ?.gprQuarterBands;
+    if (!opts?.counts || !chart.scales.x) return;
+    const xScale = chart.scales.x;
+    const { ctx, chartArea } = chart;
+    const ox = opts.origin.getTime();
+    for (const [key, count] of opts.counts) {
+      const b = getTimelineQuarterPeriodBounds(key);
+      if (!b) continue;
+      let s0 = (b.periodStart.getTime() - ox) / MS_PER_DAY_CHART;
+      let s1 = (b.periodEnd.getTime() - ox) / MS_PER_DAY_CHART;
+      if (s1 < 0 || s0 > opts.maxSerial) continue;
+      s0 = Math.max(0, s0);
+      s1 = Math.min(opts.maxSerial, s1);
+      const x1 = xScale.getPixelForValue(s0);
+      const x2 = xScale.getPixelForValue(s1);
+      const left = Math.min(x1, x2);
+      const w = Math.abs(x2 - x1);
+      if (w < 0.5) continue;
+      let fill: string;
+      if (count === 0) fill = "rgba(239,68,68,0.11)";
+      else if (count >= opts.overloadAt) fill = "rgba(245,158,11,0.14)";
+      else fill = "rgba(30,41,59,0.42)";
+      ctx.save();
+      ctx.fillStyle = fill;
+      ctx.fillRect(left, chartArea.top, w, chartArea.bottom - chartArea.top);
+      ctx.restore();
+    }
+  },
+};
+
 ChartJS.register(
+  BarController,
   CategoryScale,
   LinearScale,
   BarElement,
@@ -65,9 +161,11 @@ ChartJS.register(
   LineElement,
   ChartTooltip,
   ChartLegend,
+  gprQuarterBandsPlugin,
 );
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
+const MS_PER_DAY_CHART = 1000 * 60 * 60 * 24;
 
 const fmt = (value: string | number | null | undefined) => {
   if (value === null || value === undefined || value === "") return "—";
@@ -91,6 +189,35 @@ const daysInclusive = (startIso: string | null | undefined, endIso: string | nul
   if (!Number.isFinite(diff) || diff <= 0) return null;
   return diff;
 };
+
+function addDaysFromOrigin(origin: Date, serialDays: number): Date {
+  return new Date(origin.getTime() + serialDays * MS_PER_DAY_CHART);
+}
+
+function truncateAxisLabel(s: string, maxLen: number): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function rowVisibleInGanttWindow(task: GPRTask, origin: Date, maxSerial: number): boolean {
+  const p = clampSerialRange(task.planStart, task.planEnd, origin, maxSerial);
+  if (p) return true;
+  if (task.factStart && task.factEnd) {
+    const f = clampSerialRange(task.factStart, task.factEnd, origin, maxSerial);
+    if (f) return true;
+  }
+  return false;
+}
+
+function sortGanttTasks(tasks: GPRTask[]): GPRTask[] {
+  return [...tasks].sort((a, b) => {
+    const sa = new Date(`${a.planStart}T00:00:00`).getTime();
+    const sb = new Date(`${b.planStart}T00:00:00`).getTime();
+    if (sa !== sb) return sa - sb;
+    return a.code.localeCompare(b.code, undefined, { numeric: true });
+  });
+}
 
 const COLORS = {
   green: "#22c55e",
@@ -315,11 +442,405 @@ function StatusDistributionPieTooltip({
   );
 }
 
-/** Состояние фильтра диаграммы «План vs Факт»: `value` — месяц 1–12 или квартал 1–4. */
+/**
+ * Фильтр «План vs Факт»:
+ * - для источника `tasks`: месяц / обобщённый квартал Q1–Q4;
+ * - для `kvartaly`: календарный год или конкретный квартал `YYYY-Qn` на временной шкале.
+ */
 type PlanFactChartFilter =
   | { filterType: "all" }
   | { filterType: "month"; value: number }
-  | { filterType: "quarter"; value: number };
+  | { filterType: "quarter"; value: number }
+  | { filterType: "year"; value: number }
+  | { filterType: "timelineQuarter"; key: string };
+
+type PlanFactKvartalyGranularity = "overview" | "aggregated" | "detailed";
+
+type KvartalyGanttModel = {
+  candidates: GPRTask[];
+  window: { origin: Date; maxSerial: number } | null;
+  quarterCounts: Map<string, number>;
+  overloadAt: number;
+  quarterLoadPct: Map<string, number>;
+  ganttRows: GPRTask[];
+  timelineCaption: string | null;
+  planFactSummary: { avg: number; severeLate: number } | null;
+};
+
+function useKvartalyGanttModel(
+  tasks: GPRTask[],
+  planFactFilter: PlanFactChartFilter,
+  enabled: boolean,
+  granularity: PlanFactKvartalyGranularity,
+): KvartalyGanttModel {
+  const kvartalyPlanFactFilter = useMemo(
+    () => toKvartalyGanttFilter(planFactFilter),
+    [planFactFilter],
+  );
+
+  const candidates = useMemo(() => {
+    if (!enabled) return [];
+    return filterKvartalyTasksForGantt(tasks, kvartalyPlanFactFilter);
+  }, [enabled, tasks, kvartalyPlanFactFilter]);
+
+  const ganttWindow = useMemo(() => {
+    if (!enabled) return null;
+    return getGanttXWindow(candidates, kvartalyPlanFactFilter);
+  }, [enabled, candidates, kvartalyPlanFactFilter]);
+
+  const quarterCounts = useMemo(() => {
+    if (!enabled) return new Map<string, number>();
+    return computeQuarterlyActiveWorkCounts(tasks);
+  }, [enabled, tasks]);
+
+  const overloadAt = useMemo(
+    () => quarterOverloadThreshold(quarterCounts.values()),
+    [quarterCounts],
+  );
+
+  const quarterLoadPct = useMemo(() => {
+    if (!enabled) return new Map<string, number>();
+    return computeQuarterlyLoadRatioPercent(tasks);
+  }, [enabled, tasks]);
+
+  const ganttRows = useMemo(() => {
+    if (!enabled || !ganttWindow) return [];
+    const { origin, maxSerial } = ganttWindow;
+    const vis = candidates.filter((t) => rowVisibleInGanttWindow(t, origin, maxSerial));
+
+    if (granularity === "overview") {
+      const agg = aggregateWorksToProjectPlanFactBounds(candidates);
+      if (!agg || candidates.length === 0) return [];
+      const partId = candidates[0]!.partId;
+      const pk = candidates[0]!.projectPartKey ?? partIdToProjectPartKey(partId);
+      return buildOverviewGanttRows(agg, partId, pk);
+    }
+
+    if (vis.length > 0 && vis.every(isAggregatedMainProcessTask)) {
+      return sortAggregatedMainProcessRows(vis);
+    }
+    return sortGanttTasks(vis);
+  }, [enabled, ganttWindow, candidates, granularity]);
+
+  const timelineCaption = useMemo((): string | null => {
+    if (!enabled || quarterCounts.size === 0) return null;
+    const entries = [...quarterCounts.entries()];
+    let peak: [string, number] | null = null;
+    for (const e of entries) {
+      if (!peak || e[1] > peak[1]) peak = e;
+    }
+    const gaps = entries
+      .filter(([, c]) => c === 0)
+      .map(([k]) => formatQuarterDisplayLabel(k))
+      .slice(0, 5);
+    const parts: string[] = [];
+    if (peak && peak[1] > 0) {
+      const load = quarterLoadPct.get(peak[0]);
+      const loadBit =
+        load != null
+          ? ` Доля календаря под плановыми работами (Σ дней пересечений / дней квартала): ~${load}%.`
+          : "";
+      parts.push(
+        `Пик параллельных работ по плану: ${formatQuarterDisplayLabel(peak[0])} (${peak[1]} работ). Порог «много»: ≥${overloadAt}.${loadBit}`,
+      );
+    }
+    if (gaps.length > 0) {
+      parts.push(`Кварталы без плановых работ (провал): ${gaps.join(", ")}.`);
+    }
+    return parts.join(" ");
+  }, [enabled, quarterCounts, overloadAt, quarterLoadPct]);
+
+  const planFactSummary = useMemo((): { avg: number; severeLate: number } | null => {
+    if (!enabled) return null;
+    if (granularity === "overview") {
+      const agg = aggregateWorksToProjectPlanFactBounds(candidates);
+      if (!agg) return null;
+      const endDelay = projectOverviewEndDelayDays(agg.planEnd, agg.factEnd);
+      if (endDelay === null) return null;
+      return { avg: endDelay, severeLate: endDelay > 14 ? 1 : 0 };
+    }
+    const rows = ganttRows.filter((t) => {
+      if (!t.factStart || !t.factEnd) return false;
+      const plan = daysInclusive(t.planStart, t.planEnd);
+      const fact = daysInclusive(t.factStart, t.factEnd);
+      return plan !== null && fact !== null && plan > 0 && fact > 0;
+    });
+    if (rows.length === 0) return null;
+    const durationDevs = rows.map((t) => {
+      const plan = daysInclusive(t.planStart, t.planEnd) ?? 0;
+      const fact = daysInclusive(t.factStart, t.factEnd) ?? 0;
+      return fact - plan;
+    });
+    const avg = durationDevs.reduce((s, d) => s + d, 0) / durationDevs.length;
+    const severeLate = durationDevs.filter((d) => d > 14).length;
+    return { avg, severeLate };
+  }, [enabled, granularity, candidates, ganttRows]);
+
+  return {
+    candidates,
+    window: ganttWindow,
+    quarterCounts,
+    overloadAt,
+    quarterLoadPct,
+    ganttRows,
+    timelineCaption,
+    planFactSummary,
+  };
+}
+
+function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
+  const { window: gw, candidates, ganttRows, quarterCounts, overloadAt } = model;
+
+  if (!gw) {
+    return (
+      <div className="flex min-h-[220px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+        Нет данных для временной шкалы (нет корректных дат в источнике для этого объекта).
+      </div>
+    );
+  }
+  if (candidates.length === 0) {
+    return (
+      <div className="flex min-h-[220px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+        Нет работ, пересекающих выбранный период (по плану).
+      </div>
+    );
+  }
+  if (ganttRows.length === 0) {
+    return (
+      <div className="flex min-h-[220px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+        В текущем окне нет отрезков план/факт — сузьте или смените фильтр.
+      </div>
+    );
+  }
+
+  const { origin, maxSerial } = gw;
+  const rows = ganttRows;
+  const overviewMode =
+    rows.length === 2 &&
+    isOverviewPlanGanttTask(rows[0]!) &&
+    isOverviewFactGanttTask(rows[1]!);
+
+  const labels = overviewMode
+    ? rows.map((t) => truncateAxisLabel(t.name.trim(), 42))
+    : rows.map((t) =>
+        truncateAxisLabel(`${shortGprCodeForAxis(t.code)} — ${t.name.trim()}`, 58),
+      );
+
+  const planBars: ([number, number] | null)[] = overviewMode
+    ? (() => {
+        const t0 = rows[0]!;
+        const r = clampSerialRange(t0.planStart, t0.planEnd, origin, maxSerial);
+        return [r ? ([r[0], r[1]] as [number, number]) : null, null];
+      })()
+    : rows.map((t) => {
+        const r = clampSerialRange(t.planStart, t.planEnd, origin, maxSerial);
+        return r ? ([r[0], r[1]] as [number, number]) : null;
+      });
+
+  const factBars: ([number, number] | null)[] = overviewMode
+    ? (() => {
+        const t1 = rows[1]!;
+        if (!t1.factStart?.trim() || !t1.factEnd?.trim()) return [null, null];
+        const r = clampSerialRange(t1.factStart, t1.factEnd, origin, maxSerial);
+        return [null, r ? ([r[0], r[1]] as [number, number]) : null];
+      })()
+    : rows.map((t) => {
+        if (!t.factStart || !t.factEnd) return null;
+        const r = clampSerialRange(t.factStart, t.factEnd, origin, maxSerial);
+        return r ? ([r[0], r[1]] as [number, number]) : null;
+      });
+
+  const factBg = overviewMode
+    ? [
+        "rgba(148, 163, 184, 0.5)",
+        overviewFactBarColor(rows[1]!.planEnd, rows[1]!.factEnd),
+      ]
+    : rows.map((t) => {
+        const aggColor = factBarColorForAggregatedMainProcess(t);
+        if (aggColor !== null) return aggColor;
+        const plan = daysInclusive(t.planStart, t.planEnd);
+        const fact = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
+        if (plan === null || fact === null) return "rgba(148, 163, 184, 0.5)";
+        return fact <= plan ? "#22c55e" : "#ef4444";
+      });
+
+  return (
+    <Chart
+      type="bar"
+      data={{
+        labels,
+        datasets: [
+          {
+            label: "План",
+            data: planBars,
+            order: 1,
+            backgroundColor: "rgba(148, 163, 184, 0.42)",
+            borderColor: "rgba(148, 163, 184, 0.55)",
+            borderWidth: 1,
+            borderSkipped: false,
+            barThickness: 12,
+            maxBarThickness: 14,
+          },
+          {
+            label: "Факт",
+            data: factBars,
+            order: 2,
+            backgroundColor: factBg,
+            borderColor: factBg.map((c) => c),
+            borderWidth: 1,
+            borderSkipped: false,
+            barThickness: 12,
+            maxBarThickness: 14,
+          },
+        ],
+      } as any}
+      options={{
+        indexAxis: "y" as const,
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 8, right: 12, left: 4, bottom: 8 } },
+        interaction: { mode: "nearest", axis: "y", intersect: false },
+        datasets: {
+          bar: {
+            categoryPercentage: 0.82,
+            barPercentage: 0.9,
+          },
+        },
+        plugins: {
+          gprQuarterBands: {
+            origin,
+            maxSerial,
+            counts: quarterCounts,
+            overloadAt,
+          },
+          legend: {
+            position: "bottom",
+            labels: { color: "#cbd5e1", boxWidth: 12 },
+          },
+          tooltip: {
+            enabled: true,
+            backgroundColor: "rgba(15,23,42,0.94)",
+            borderColor: "rgba(148,163,184,0.35)",
+            borderWidth: 1,
+            titleColor: "#f8fafc",
+            bodyColor: "#e2e8f0",
+            padding: 10,
+            callbacks: {
+              title: (tooltipItems: { dataIndex?: number }[]) => {
+                const idx = tooltipItems[0]?.dataIndex;
+                if (typeof idx !== "number") return "";
+                const task = rows[idx];
+                if (!task) return "";
+                if (overviewMode) return `${task.name.trim()} проекта`;
+                return `${task.code} — ${task.name.trim()}`;
+              },
+              label: (ctx: {
+                datasetIndex?: number;
+                dataIndex?: number;
+                parsed: { _custom?: unknown; x?: number | null };
+              }) => {
+                const idx = ctx.dataIndex ?? 0;
+                const task = rows[idx];
+                if (!task) return "";
+                if (ctx.datasetIndex === 0) {
+                  return `План: ${fmt(task.planStart)} — ${fmt(task.planEnd)}`;
+                }
+                if (!task.factStart || !task.factEnd) return "Факт: нет данных";
+                return `Факт: ${fmt(task.factStart)} — ${fmt(task.factEnd)}`;
+              },
+              afterBody: (tooltipItems: { dataIndex?: number }[]) => {
+                const idx = tooltipItems[0]?.dataIndex;
+                if (typeof idx !== "number") return [];
+                const task = rows[idx];
+                if (!task) return [];
+                const planD = daysInclusive(task.planStart, task.planEnd);
+                const factD =
+                  task.factStart && task.factEnd
+                    ? daysInclusive(task.factStart, task.factEnd)
+                    : null;
+                const lines: string[] = [];
+                if (isOverviewPlanGanttTask(task)) {
+                  if (planD !== null) lines.push(`Длительность плана (проект): ${planD} дн.`);
+                  lines.push("Сводка по всем работам выбранного периода и объекта.");
+                } else if (isOverviewFactGanttTask(task)) {
+                  if (planD !== null) lines.push(`Длительность плана (проект): ${planD} дн.`);
+                  if (factD !== null) lines.push(`Длительность факта (проект): ${factD} дн.`);
+                  const endDel = projectOverviewEndDelayDays(task.planEnd, task.factEnd);
+                  if (endDel !== null) {
+                    lines.push(
+                      `Отклонение окончания (факт − план): ${endDel > 0 ? "+" : ""}${endDel} дн.`,
+                    );
+                  }
+                  lines.push(`Статус: ${overviewEndDeviationStatus(task.planEnd, task.factEnd)}`);
+                } else if (isAggregatedMainProcessTask(task)) {
+                  if (planD !== null) lines.push(`Длительность (план): ${planD} дн.`);
+                  if (factD !== null) lines.push(`Длительность (факт): ${factD} дн.`);
+                  const delay = aggregatedMainProcessDelayDays(task);
+                  if (delay !== null) {
+                    lines.push(
+                      `Отклонение длительности (факт − план): ${delay > 0 ? "+" : ""}${delay} дн.`,
+                    );
+                  }
+                  lines.push(`Статус: ${aggregatedMainProcessStatus(task)}`);
+                } else {
+                  if (planD !== null && factD !== null) {
+                    lines.push(`Длительность: план ${planD} дн., факт ${factD} дн.`);
+                  }
+                  const dev = calculateDeviation(task);
+                  if (dev !== null) {
+                    lines.push(`Отклонение по сроку окончания: ${dev > 0 ? "+" : ""}${dev} дн.`);
+                  }
+                }
+                const pk = task.projectPartKey ?? partIdToProjectPartKey(task.partId);
+                lines.push(`Объект: ${pk === "parking" ? "автостоянка" : "жилой дом"}`);
+                return lines;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            min: 0,
+            max: maxSerial,
+            grid: { color: "rgba(148,163,184,0.12)" },
+            border: { display: false },
+            ticks: {
+              color: "#94a3b8",
+              maxTicksLimit: 14,
+              font: { size: 10 },
+              callback: (tickValue: string | number) => {
+                const v = typeof tickValue === "number" ? tickValue : Number(tickValue);
+                if (!Number.isFinite(v)) return "";
+                return addDaysFromOrigin(origin, v).toLocaleDateString("ru-RU", {
+                  day: "numeric",
+                  month: "short",
+                  year: "2-digit",
+                });
+              },
+            },
+            title: {
+              display: true,
+              text: "Календарь",
+              color: "#cbd5e1",
+              font: { size: 11, weight: "bold" },
+            },
+          },
+          y: {
+            type: "category",
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: "#94a3b8",
+              font: { size: 9 },
+              autoSkip: false,
+            },
+          },
+        },
+      } as any}
+    />
+  );
+}
 
 const QUARTER_FILTER_BUTTONS: { value: number; label: string; range: string }[] = [
   { value: 1, label: "Q1", range: "Янв–Мар" },
@@ -346,9 +867,11 @@ const MONTH_FILTER_BUTTONS: { value: number; label: string }[] = [
 function periodFilterToArgs(f: PlanFactChartFilter): {
   filterType: PlanFactPeriodFilterType;
   value?: number;
-} {
+} | null {
   if (f.filterType === "all") return { filterType: "all" };
-  return { filterType: f.filterType, value: f.value };
+  if (f.filterType === "month") return { filterType: "month", value: f.value };
+  if (f.filterType === "quarter") return { filterType: "quarter", value: f.value };
+  return null;
 }
 
 function filterChipClass(active: boolean) {
@@ -511,11 +1034,14 @@ export function GPRAnalytics({
   tasks,
   mode,
   activePartId,
+  planFactDataSource = "tasks",
 }: {
   tasks: GPRTask[];
   mode: "edit" | "view";
   /** Часть проекта для графика «ГПР — ТМЦ» (только ТМЦ этой части). */
   activePartId: number;
+  /** Источник данных для «План vs Факт»: таблица ГПР или `kvartaly_gpr_quarterly.json`. */
+  planFactDataSource?: "tasks" | "kvartaly";
 }) {
   const pathname = usePathname();
   const isPresentationRoute = pathname.startsWith("/presentation");
@@ -566,10 +1092,25 @@ export function GPRAnalytics({
   const metrics = getProjectStats(tasksForActivePart);
   const projectCompletion = getProjectCompletion(tasksForActivePart);
   const flatTasks = flattenTasks(tasksForActivePart);
+  const kvartalyAllFlat = useMemo(
+    () =>
+      planFactDataSource === "kvartaly" ? flattenTasks(kvartalyRowsToGprTasksForAllParts()) : [],
+    [planFactDataSource],
+  );
+  const residentialKvartalyTasks = useMemo(
+    () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential),
+    [kvartalyAllFlat],
+  );
+  const parkingKvartalyTasks = useMemo(
+    () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
+    [kvartalyAllFlat],
+  );
   const projectStatus = getStatusByDeviation(metrics.avgDeviation);
   const todayIso = new Date().toISOString().slice(0, 10);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
+  const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
+    useState<PlanFactKvartalyGranularity>("overview");
   const [tenderRevision, setTenderRevision] = useState(0);
 
   useEffect(() => {
@@ -586,6 +1127,41 @@ export function GPRAnalytics({
     setPlanFactFilter({ filterType: "all" });
   }, [activePartId]);
 
+  useEffect(() => {
+    setPlanFactKvartalyGranularity("overview");
+  }, [activePartId]);
+
+  const residentialKvartalyForChart = useMemo(() => {
+    if (planFactDataSource !== "kvartaly") return [];
+    if (planFactKvartalyGranularity === "aggregated") {
+      return aggregateToMainProcesses(residentialKvartalyTasks);
+    }
+    return residentialKvartalyTasks;
+  }, [planFactDataSource, planFactKvartalyGranularity, residentialKvartalyTasks]);
+
+  const parkingKvartalyForChart = useMemo(() => {
+    if (planFactDataSource !== "kvartaly") return [];
+    if (planFactKvartalyGranularity === "aggregated") {
+      return aggregateToMainProcesses(parkingKvartalyTasks);
+    }
+    return parkingKvartalyTasks;
+  }, [planFactDataSource, planFactKvartalyGranularity, parkingKvartalyTasks]);
+
+  const planFactFlatTasks = useMemo(() => {
+    if (planFactDataSource === "kvartaly") {
+      return activePartId === PROJECT_PART_KEY_TO_ID.parking
+        ? parkingKvartalyForChart
+        : residentialKvartalyForChart;
+    }
+    return flattenTasks(tasksForActivePart);
+  }, [
+    planFactDataSource,
+    activePartId,
+    parkingKvartalyForChart,
+    residentialKvartalyForChart,
+    tasksForActivePart,
+  ]);
+
   const tendersForActivePart: Tender[] = useMemo(() => {
     void tenderRevision;
     const merged =
@@ -596,13 +1172,51 @@ export function GPRAnalytics({
   }, [activePartId, tenderRevision]);
 
   const planFactFilteredTasks = useMemo(() => {
-    const { filterType, value } = periodFilterToArgs(planFactFilter);
-    return filterByPeriod(flatTasks, filterType, value);
-  }, [flatTasks, planFactFilter]);
+    if (planFactDataSource === "kvartaly") return planFactFlatTasks;
+    const args = periodFilterToArgs(planFactFilter);
+    if (!args) return planFactFlatTasks;
+    return filterByPeriod(planFactFlatTasks, args.filterType, args.value);
+  }, [planFactDataSource, planFactFlatTasks, planFactFilter]);
 
-  /** Задачи с полными интервалами план/факт, с учётом фильтра по месяцу начала плана. */
-  const chartData = useMemo(() => {
-    return planFactFilteredTasks
+  const quarterlyBucketsAll = useMemo((): QuarterlyAggregateBucket[] => {
+    if (planFactDataSource !== "kvartaly") return [];
+    return computeQuarterlyAggregatesFromTasks(planFactFlatTasks);
+  }, [planFactDataSource, planFactFlatTasks]);
+
+  const kvartalyGanttEnabled = planFactDataSource === "kvartaly";
+  const mRes = useKvartalyGanttModel(
+    residentialKvartalyForChart,
+    planFactFilter,
+    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.residential,
+    planFactKvartalyGranularity,
+  );
+  const mPark = useKvartalyGanttModel(
+    parkingKvartalyForChart,
+    planFactFilter,
+    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.parking,
+    planFactKvartalyGranularity,
+  );
+
+  const kvartalyActiveModel =
+    activePartId === PROJECT_PART_KEY_TO_ID.parking ? mPark : mRes;
+
+  const kvartalyTimelineHeaderCaption =
+    planFactDataSource === "kvartaly" ? kvartalyActiveModel.timelineCaption : null;
+
+  const timelineYearsAvailable = useMemo(
+    () => distinctYearsFromBuckets(quarterlyBucketsAll),
+    [quarterlyBucketsAll],
+  );
+
+  /** Задачи с полными интервалами план/факт — режим `tasks` (ось X — работы). */
+  const planFactChartRows = useMemo((): PlanFactDurationRow[] => {
+    if (planFactDataSource === "kvartaly") return [];
+    const codeUses = new Map<string, number>();
+    for (const task of planFactFilteredTasks) {
+      const c = task.code.trim();
+      codeUses.set(c, (codeUses.get(c) ?? 0) + 1);
+    }
+    const rows = planFactFilteredTasks
       .map((task) => {
         const plan = daysInclusive(task.planStart, task.planEnd);
         const fact =
@@ -610,10 +1224,40 @@ export function GPRAnalytics({
         if (plan === null || fact === null) return null;
         if (!Number.isFinite(plan) || !Number.isFinite(fact)) return null;
         if (plan <= 0 || fact <= 0) return null;
-        return { name: task.code, plan, fact };
+        const durationDev = fact - plan;
+        const short = shortGprCodeForAxis(task.code);
+        const dupCode = (codeUses.get(task.code.trim()) ?? 0) > 1;
+        const xLabel =
+          dupCode && task.kvartalyQuarter ? `${short} (${task.kvartalyQuarter})` : short;
+        return {
+          task,
+          plan,
+          fact,
+          durationDev,
+          xLabel,
+        };
       })
-      .filter(Boolean) as Array<{ name: string; plan: number; fact: number }>;
-  }, [planFactFilteredTasks]);
+      .filter((r): r is PlanFactDurationRow => r != null);
+    rows.sort((a, b) => {
+      const byStage = planRootStageCode(a.task.code).localeCompare(planRootStageCode(b.task.code), undefined, {
+        numeric: true,
+      });
+      if (byStage !== 0) return byStage;
+      return a.task.code.localeCompare(b.task.code, undefined, { numeric: true });
+    });
+    return rows;
+  }, [planFactDataSource, planFactFilteredTasks]);
+
+  const planFactSummary = useMemo(() => {
+    if (planFactDataSource === "kvartaly") {
+      return kvartalyActiveModel.planFactSummary;
+    }
+    if (planFactChartRows.length === 0) return null;
+    const avg =
+      planFactChartRows.reduce((s, r) => s + r.durationDev, 0) / planFactChartRows.length;
+    const severeLate = planFactChartRows.filter((r) => r.durationDev > 14).length;
+    return { avg, severeLate };
+  }, [planFactDataSource, kvartalyActiveModel.planFactSummary, planFactChartRows]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
@@ -1184,18 +1828,103 @@ export function GPRAnalytics({
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold text-slate-50">
-                План vs Факт (длительность, дни)
+                {planFactDataSource === "kvartaly"
+                  ? "План vs Факт (распределение во времени)"
+                  : "План vs Факт (длительность, дни)"}
               </h3>
               <p className="mt-1 text-xs font-medium text-sky-200/90">
                 Часть проекта: {activePartLabel}
+                {planFactDataSource === "kvartaly" ? (
+                  <span className="text-sky-200/75"> — таймлайн и чипы периода только для этого объекта.</span>
+                ) : null}
               </p>
+              {planFactDataSource === "kvartaly" ? (
+                <p className="mt-1 text-[11px] text-emerald-200/90">
+                  Данные: kvartaly_gpr_quarterly.json. Интервалы план/факт и пересечения с периодами — как в
+                  lib/gprQuarterlyTimeline (без ручного пересчёта).
+                </p>
+              ) : null}
               <p className="mt-2 text-xs text-slate-300">
-                План — {COLORS.gray}. Факт — зелёный, если ≤ плана; красный, если &gt; плана. Отбор по месяцу
-                начала плана (<span className="font-mono text-slate-200">planStart</span>): все данные, квартал
-                или месяц. На диаграмме только задачи этой части проекта. Значок ⚠ у кода задачи: по корню кода (
-                <span className="font-mono text-slate-200">2.xx</span> из шифра) есть риск или отставание по
-                тендерам — см. подсказку при наведении.
+                {planFactDataSource === "kvartaly" ? (
+                  <>
+                    По оси X — календарное время (дни от начала выбранного окна). По Y —{" "}
+                    {planFactKvartalyGranularity === "overview" ? (
+                      <>
+                        сводка по объекту: две строки на оси Y — «План» и «Факт»; границы — MIN/MAX по всем работам
+                        периода; отклонение окончания — факт − план по датам.
+                      </>
+                    ) : planFactKvartalyGranularity === "aggregated" ? (
+                      <>
+                        фиксированные процессы ГПР: 2.04 и 2.05.01–2.05.12, 2.05.99 (без корня 2.05); для жилого дома —
+                        только 2.04* и 2.05.*, без 2.06/2.07; план и факт — MIN/MAX по всем дочерним строкам в каждом
+                        процессе.
+                      </>
+                    ) : (
+                      <>отдельные работы из поквартального файла.</>
+                    )}{" "}
+                    Полупрозрачная полоса — план, рядом яркая — факт.{" "}
+                    {planFactKvartalyGranularity === "overview" ? (
+                      <>
+                        Цвет факта по отклонению окончания (факт − план): ≤0 дн. — в срок, 1–14 дн. — риск, &gt;14 —
+                        отставание; без факта — серый.
+                      </>
+                    ) : planFactKvartalyGranularity === "aggregated" ? (
+                      <>
+                        Цвет факта по отклонению длительности (факт − план): ≤0 — в срок, 1–14 дн. — риск, &gt;14 —
+                        отставание; без факта — серый.
+                      </>
+                    ) : (
+                      <>
+                        Зелёный факт, если длительность факта ≤ плана; иначе красный.
+                      </>
+                    )}{" "}
+                    Фон по кварталам: тёмный — обычная загрузка, янтарный — много параллельных работ по плану,
+                    красноватый — в квартале нет плановых работ (провал).
+                  </>
+                ) : (
+                  <>
+                    Длительность в днях: полупрозрачный серый план (фон), поверх — факт толще и ярче (зелёный ≤
+                    плана, красный &gt; плана). Ось X — шифр этапа; этапы сгруппированы по корню кода (2.04, 2.05…);
+                    детали — в подсказке.
+                  </>
+                )}
               </p>
+              {planFactSummary ? (
+                <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
+                  <span>
+                    {planFactDataSource === "kvartaly"
+                      ? planFactKvartalyGranularity === "overview"
+                        ? "Отклонение окончания проекта (факт − план по датам): "
+                        : planFactKvartalyGranularity === "aggregated"
+                          ? "Среднее отклонение длительности по видимым процессам (факт − план): "
+                          : "Среднее отклонение длительности по видимым работам (факт − план): "
+                      : "Среднее отклонение (факт − план): "}
+                    <span className="font-semibold tabular-nums text-slate-100">
+                      {planFactSummary.avg > 0 ? "+" : ""}
+                      {planFactSummary.avg.toFixed(1)} дн.
+                    </span>
+                  </span>
+                  <span>
+                    {planFactDataSource === "kvartaly"
+                      ? planFactKvartalyGranularity === "overview"
+                        ? "Критическое отставание по окончанию (&gt;14 дн.): "
+                        : planFactKvartalyGranularity === "aggregated"
+                          ? "Процессов с отставанием по длительности (&gt;14 дн.): "
+                          : "Работ с отставанием по длительности (&gt;14 дн.): "
+                      : "Этапов с отставанием (&gt;14 дн.): "}
+                    <span
+                      className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
+                    >
+                      {planFactSummary.severeLate}
+                    </span>
+                  </span>
+                </div>
+              ) : null}
+              {planFactDataSource === "kvartaly" && kvartalyTimelineHeaderCaption ? (
+                <p className="mt-2 border-t border-slate-600/40 pt-3 text-[11px] leading-relaxed text-slate-400">
+                  {kvartalyTimelineHeaderCaption}
+                </p>
+              ) : null}
             </div>
             <div className="text-xs text-slate-300">
               <span className="font-medium text-slate-100">Статус проекта:</span>{" "}
@@ -1221,6 +1950,33 @@ export function GPRAnalytics({
             </div>
           </div>
 
+          {planFactDataSource === "kvartaly" ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+              <button
+                type="button"
+                className={filterChipClass(planFactKvartalyGranularity === "overview")}
+                onClick={() => setPlanFactKvartalyGranularity("overview")}
+              >
+                Обобщенно
+              </button>
+              <button
+                type="button"
+                className={filterChipClass(planFactKvartalyGranularity === "aggregated")}
+                onClick={() => setPlanFactKvartalyGranularity("aggregated")}
+              >
+                Укрупнённо
+              </button>
+              <button
+                type="button"
+                className={filterChipClass(planFactKvartalyGranularity === "detailed")}
+                onClick={() => setPlanFactKvartalyGranularity("detailed")}
+              >
+                Детально
+              </button>
+            </div>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Период</span>
             <button
@@ -1230,194 +1986,263 @@ export function GPRAnalytics({
             >
               Все
             </button>
-            {QUARTER_FILTER_BUTTONS.map((q) => {
-              const active = planFactFilter.filterType === "quarter" && planFactFilter.value === q.value;
-              return (
-                <button
-                  key={q.label}
-                  type="button"
-                  title={q.range}
-                  className={filterChipClass(active)}
-                  onClick={() => setPlanFactFilter({ filterType: "quarter", value: q.value })}
-                >
-                  {q.label}{" "}
-                  <span className="text-[10px] font-normal text-slate-400">({q.range})</span>
-                </button>
-              );
-            })}
-            {MONTH_FILTER_BUTTONS.map((m) => {
-              const active = planFactFilter.filterType === "month" && planFactFilter.value === m.value;
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  className={filterChipClass(active)}
-                  onClick={() => setPlanFactFilter({ filterType: "month", value: m.value })}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
+            {planFactDataSource === "kvartaly" ? (
+              <>
+                {timelineYearsAvailable.map((y) => {
+                  const active = planFactFilter.filterType === "year" && planFactFilter.value === y;
+                  return (
+                    <button
+                      key={y}
+                      type="button"
+                      className={filterChipClass(active)}
+                      onClick={() => setPlanFactFilter({ filterType: "year", value: y })}
+                    >
+                      {y}
+                    </button>
+                  );
+                })}
+                {quarterlyBucketsAll.map((b) => {
+                  const active =
+                    planFactFilter.filterType === "timelineQuarter" && planFactFilter.key === b.quarter_key;
+                  return (
+                    <button
+                      key={b.quarter_key}
+                      type="button"
+                      title={b.quarter_key}
+                      className={filterChipClass(active)}
+                      onClick={() => setPlanFactFilter({ filterType: "timelineQuarter", key: b.quarter_key })}
+                    >
+                      {b.quarter_label}
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                {QUARTER_FILTER_BUTTONS.map((q) => {
+                  const active = planFactFilter.filterType === "quarter" && planFactFilter.value === q.value;
+                  return (
+                    <button
+                      key={q.label}
+                      type="button"
+                      title={q.range}
+                      className={filterChipClass(active)}
+                      onClick={() => setPlanFactFilter({ filterType: "quarter", value: q.value })}
+                    >
+                      {q.label}{" "}
+                      <span className="text-[10px] font-normal text-slate-400">({q.range})</span>
+                    </button>
+                  );
+                })}
+                {MONTH_FILTER_BUTTONS.map((m) => {
+                  const active = planFactFilter.filterType === "month" && planFactFilter.value === m.value;
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      className={filterChipClass(active)}
+                      onClick={() => setPlanFactFilter({ filterType: "month", value: m.value })}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </div>
 
-          <div className="mt-4 h-[320px] w-full">
-            {chartData.length === 0 ? (
+          {planFactDataSource === "kvartaly" && planFactFilter.filterType === "year" ? (
+            <p className="mt-3 text-xs font-medium text-slate-400">
+              Окно: {planFactFilter.value} год. Показаны работы, чей план пересекается с годом; полосы обрезаны по
+              границам года.
+            </p>
+          ) : null}
+          {planFactDataSource === "kvartaly" && planFactFilter.filterType === "timelineQuarter" ? (
+            <p className="mt-3 text-xs font-medium text-slate-400">
+              Окно: квартал {formatQuarterDisplayLabel(planFactFilter.key)}. Работы с планом, пересекающим квартал.
+            </p>
+          ) : null}
+          {planFactDataSource === "tasks" && planFactFilter.filterType !== "all" ? (
+            <p className="mt-3 text-xs font-medium text-slate-400">
+              Показаны работы, пересекающие выбранный период
+            </p>
+          ) : null}
+
+          <div
+            className={`mt-4 w-full ${planFactDataSource === "kvartaly" ? "" : "h-[320px]"}`}
+          >
+            {planFactDataSource === "kvartaly" ? (
+              kvartalyAllFlat.length === 0 ? (
+                <div className="flex min-h-[280px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+                  Нет строк в kvartaly_gpr_quarterly.json с корректными плановыми датами.
+                </div>
+              ) : planFactFlatTasks.length === 0 ? (
+                <div className="flex min-h-[280px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+                  Нет данных поквартального файла для выбранного объекта («{activePartLabel}»).
+                </div>
+              ) : (
+                <div
+                  key={`kvartaly-gantt-${planFactKvartalyGranularity}-${activePartId}-${[...kvartalyActiveModel.ganttRows].map((r) => r.id).sort().join(":")}`}
+                  className="w-full"
+                  style={{
+                    minHeight: planFactKvartalyGranularity === "overview" ? 220 : 280,
+                    height: Math.min(
+                      1200,
+                      Math.max(
+                        planFactKvartalyGranularity === "overview" ? 220 : 280,
+                        kvartalyActiveModel.ganttRows.length * 24 + 140,
+                      ),
+                    ),
+                  }}
+                >
+                  <KvartalyGanttChartPanel model={kvartalyActiveModel} />
+                </div>
+              )
+            ) : planFactChartRows.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
                 {planFactFilter.filterType === "all"
                   ? "Нет задач с парами дат план/факт для расчёта длительности (дни)."
-                  : "Нет задач с план/факт в выбранном периоде (по дате начала плана)."}
+                  : "Нет работ с план/факт, у которых плановый интервал пересекается с выбранным периодом."}
               </div>
             ) : (
               (() => {
-                const labels = chartData.map((d) => {
-                  const stage = getGprStageFromTenderCode(d.name);
-                  const warn = stage ? tenderStageHasContractRisk(tendersForActivePart, stage) : false;
-                  return warn ? `${d.name} ⚠` : d.name;
-                });
-                const planArr = chartData.map((d) => d.plan);
-                const factArr = chartData.map((d) => d.fact);
-                const deviationFloating = planArr.map((p, i) => {
-                  const f = factArr[i]!;
-                  return [Math.min(p, f), Math.max(p, f)] as [number, number];
-                });
+                const labels = planFactChartRows.map((r) => r.xLabel);
+                const planArr = planFactChartRows.map((r) => r.plan);
+                const factArr = planFactChartRows.map((r) => r.fact);
+                const maxVal = Math.max(...planFactChartRows.flatMap((r) => [r.plan, r.fact]), 1);
+                const yMax = Math.max(60, Math.ceil(maxVal / 20) * 20);
+
+                const factPointColor = (i: number) => {
+                  const row = planFactChartRows[i];
+                  if (!row) return "#94a3b8";
+                  return row.fact <= row.plan ? "#22c55e" : "#ef4444";
+                };
+
+                const PLAN_LINE = "rgba(148, 163, 184, 0.6)";
+                const PLAN_POINT = "rgba(148, 163, 184, 0.45)";
+                const PLAN_POINT_BORDER = "rgba(148, 163, 184, 0.35)";
 
                 return (
-              <Chart
-                type="bar"
-                data={{
-                  labels,
-                  datasets: [
-                    {
-                      // вертикальные зоны МЕЖДУ линиями (floating bars)
-                      type: "bar" as const,
-                      label: "",
-                      data: deviationFloating,
-                      borderWidth: 0,
-                      barThickness: 16,
-                      order: 1,
-                      backgroundColor: (ctx: any) => {
-                        const i = ctx.dataIndex as number;
-                        const plan = planArr[i];
-                        const fact = factArr[i];
-                        if (typeof plan !== "number" || typeof fact !== "number") return "rgba(148,163,184,0.10)";
-                        const diff = fact - plan;
-                        return diff <= 0 ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
+                  <Chart
+                    type="line"
+                    data={{
+                      labels,
+                      datasets: [
+                        {
+                          label: "План",
+                          data: planArr,
+                          order: 0,
+                          borderColor: PLAN_LINE,
+                          backgroundColor: "transparent",
+                          borderWidth: 2,
+                          tension: 0,
+                          pointRadius: 2,
+                          pointHoverRadius: 4,
+                          pointBackgroundColor: PLAN_POINT,
+                          pointBorderColor: PLAN_POINT_BORDER,
+                          pointBorderWidth: 1,
+                          fill: false,
+                        },
+                        {
+                          label: "Факт",
+                          data: factArr,
+                          order: 1,
+                          borderWidth: 3,
+                          tension: 0,
+                          segment: {
+                            borderColor: (ctx: { p1DataIndex: number }) =>
+                              factPointColor(ctx.p1DataIndex),
+                          },
+                          borderColor: "#22c55e",
+                          backgroundColor: "transparent",
+                          pointRadius: 5,
+                          pointHoverRadius: 7,
+                          pointBackgroundColor: (ctx: { dataIndex?: number }) =>
+                            factPointColor(ctx.dataIndex ?? 0),
+                          pointBorderColor: "rgba(255,255,255,0.5)",
+                          pointBorderWidth: 1,
+                          fill: false,
+                        },
+                      ],
+                    } as any}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      layout: { padding: { top: 10, right: 10, left: 4, bottom: 4 } },
+                      interaction: { mode: "index", intersect: false },
+                      elements: {
+                        line: { borderJoinStyle: "round" as const },
+                        point: { hoverBorderWidth: 2 },
                       },
-                    },
-                    {
-                      type: "line" as const,
-                      label: "План",
-                      data: planArr,
-                      borderColor: "#94a3b8",
-                      backgroundColor: "#94a3b8",
-                      borderWidth: 2,
-                      opacity: 0.5,
-                      tension: 0.4,
-                      pointRadius: 3,
-                      pointHoverRadius: 4,
-                      pointBackgroundColor: "#94a3b8",
-                      pointBorderColor: "#94a3b8",
-                      order: 1,
-                    },
-                    {
-                      type: "line" as const,
-                      label: "Факт",
-                      data: factArr,
-                      borderWidth: 3,
-                      tension: 0.4,
-                      pointRadius: 4,
-                      pointHoverRadius: 5,
-                      segment: {
-                        borderColor: (ctx: any) => {
-                          const i = ctx.p1DataIndex as number;
-                          const plan = planArr[i];
-                          const fact = factArr[i];
-                          if (typeof plan !== "number" || typeof fact !== "number") return "#cbd5e1";
-                          return fact <= plan ? "#22c55e" : "#ef4444";
+                      plugins: {
+                        legend: {
+                          position: "bottom",
+                          labels: { color: "#cbd5e1", boxWidth: 12 },
+                        },
+                        tooltip: {
+                          enabled: true,
+                          backgroundColor: "rgba(15,23,42,0.94)",
+                          borderColor: "rgba(148,163,184,0.35)",
+                          borderWidth: 1,
+                          titleColor: "#f8fafc",
+                          bodyColor: "#e2e8f0",
+                          padding: 10,
+                          callbacks: {
+                            title: (tooltipItems: { dataIndex?: number }[]) => {
+                              const idx = tooltipItems[0]?.dataIndex;
+                              if (typeof idx !== "number") return "";
+                              const row = planFactChartRows[idx];
+                              return row ? row.task.name.trim() : "";
+                            },
+                            label: (ctx: { datasetIndex?: number; parsed: { y?: number | null } }) => {
+                              const y = ctx.parsed.y;
+                              if (y == null || typeof y !== "number") return "";
+                              if (ctx.datasetIndex === 0) return `План: ${y} дн.`;
+                              if (ctx.datasetIndex === 1) return `Факт: ${y} дн.`;
+                              return "";
+                            },
+                            afterBody: (tooltipItems: { dataIndex?: number }[]) => {
+                              const idx = tooltipItems[0]?.dataIndex;
+                              if (typeof idx !== "number") return [];
+                              const row = planFactChartRows[idx];
+                              if (!row) return [];
+                              const dev = row.durationDev;
+                              return [`Отклонение: ${dev > 0 ? "+" : ""}${dev} дн.`];
+                            },
+                          },
                         },
                       },
-                      borderColor: "#22c55e",
-                      pointBackgroundColor: (ctx: any) => {
-                        const i = ctx.dataIndex as number;
-                        const plan = planArr[i];
-                        const fact = factArr[i];
-                        if (typeof plan !== "number" || typeof fact !== "number") return "#94a3b8";
-                        return fact <= plan ? "#22c55e" : "#ef4444";
-                      },
-                      pointBorderColor: "rgba(255,255,255,0.25)",
-                      order: 2,
-                    },
-                  ],
-                } as any}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  layout: { padding: 10 },
-                  plugins: {
-                    legend: {
-                      position: "bottom",
-                      labels: {
-                        color: "#cbd5f5",
-                        filter: (item: any) => item.datasetIndex !== 0,
-                      },
-                    },
-                    tooltip: {
-                      enabled: true,
-                      backgroundColor: "rgba(15,23,42,0.92)",
-                      borderColor: "rgba(148,163,184,0.35)",
-                      borderWidth: 1,
-                      titleColor: "#e2e8f0",
-                      bodyColor: "#e2e8f0",
-                      callbacks: {
-                        afterBody: (tooltipItems: { dataIndex?: number }[]) => {
-                          const ti = tooltipItems[0];
-                          const idx = ti?.dataIndex;
-                          if (typeof idx !== "number") return [];
-                          const row = chartData[idx];
-                          if (!row) return [];
-                          const stage = getGprStageFromTenderCode(row.name);
-                          if (!stage) return [];
-                          const insight = buildTenderStageInsight(tendersForActivePart, stage);
-                          if (insight.delayed === 0 && insight.risk === 0) return [];
-                          const lines: string[] = [
-                            "",
-                            "──────────",
-                            `Тендеры (этап ${insight.stage})`,
-                          ];
-                          if (insight.delayed > 0) {
-                            lines.push("Причина: задержка тендеров");
-                            lines.push(`Кол-во: ${insight.delayed}`);
-                            if (
-                              insight.maxPositiveDeviation != null &&
-                              insight.maxPositiveDeviation > 14
-                            ) {
-                              lines.push(`Макс отклонение: +${insight.maxPositiveDeviation} дн.`);
-                            }
-                          }
-                          if (insight.risk > 0) {
-                            lines.push(`Риск (1–14 дн.): ${insight.risk}`);
-                          }
-                          if (insight.examples.length > 0) {
-                            lines.push("Примеры:");
-                            insight.examples.forEach((ex) => lines.push(` • ${ex}`));
-                          }
-                          return lines;
+                      scales: {
+                        x: {
+                          grid: { display: false },
+                          ticks: {
+                            color: "#94a3b8",
+                            maxRotation: 0,
+                            minRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 12,
+                            font: { size: 10 },
+                          },
+                        },
+                        y: {
+                          min: 0,
+                          max: yMax,
+                          grid: { color: "rgba(148,163,184,0.14)" },
+                          border: { display: false },
+                          title: {
+                            display: true,
+                            text: "Длительность, дни",
+                            color: "#cbd5e1",
+                            font: { size: 12, weight: "bold" },
+                          },
+                          ticks: {
+                            color: "#94a3b8",
+                            stepSize: 20,
+                          },
                         },
                       },
-                    },
-                  },
-                  scales: {
-                    x: {
-                      grid: { color: "rgba(148,163,184,0.18)" },
-                      ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true },
-                    },
-                    y: {
-                      grid: { color: "rgba(148,163,184,0.18)" },
-                      ticks: { color: "#94a3b8" },
-                    },
-                  },
-                }}
-              />
+                    } as any}
+                  />
                 );
               })()
             )}
