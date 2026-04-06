@@ -25,6 +25,14 @@ import { getRelatedDeviations, type RelatedDeviation } from "@/lib/gprRelatedDev
 import type { GprWorkCatalogItem } from "@/lib/gprWorkCatalog";
 import { getTmcData } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
+import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  getEntityVersion,
+  listEntityVersions,
+  rollbackEntityVersion,
+  type EntityVersionDetail,
+  type EntityVersionListItem,
+} from "@/lib/auth";
 
 type FlatTask = GPRTask & { level: number; parentId?: string };
 
@@ -267,6 +275,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   { tasks, onSaveTasks, activePartId, hideEditToolbar = false, embedded = false },
   ref,
 ) {
+  const { token } = useAuth();
   const pathname = usePathname();
   const constructionBasePath = pathname.startsWith("/presentation")
     ? "/presentation/construction"
@@ -282,6 +291,12 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   );
   const [workTypeOpenId, setWorkTypeOpenId] = useState<string | null>(null);
   const [extraWorkCatalog, setExtraWorkCatalog] = useState<GprWorkCatalogItem[]>([]);
+  const [historyTask, setHistoryTask] = useState<FlatTask | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<EntityVersionListItem[]>([]);
+  const [historySelected, setHistorySelected] = useState<EntityVersionDetail | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [rollbackBusy, setRollbackBusy] = useState(false);
 
   useEffect(() => {
     setDraftTasks(cloneTasks(tasks));
@@ -457,6 +472,88 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const stickyHeaderBg = embedded
     ? "bg-white/95 supports-[backdrop-filter]:bg-white/90"
     : "bg-[#f8fafc]/95 supports-[backdrop-filter]:bg-[#f8fafc]/90";
+
+  const openHistory = async (task: FlatTask) => {
+    if (!token) return;
+    const entityId = Number(task.id);
+    if (!Number.isFinite(entityId)) {
+      setHistoryTask(task);
+      setHistoryVersions([]);
+      setHistorySelected(null);
+      setHistoryError("История доступна для записей, сохранённых в backend.");
+      return;
+    }
+    setHistoryTask(task);
+    setHistoryLoading(true);
+    setHistoryError(null);
+    setHistorySelected(null);
+    try {
+      const versions = await listEntityVersions(token, entityId);
+      setHistoryVersions(versions);
+      if (versions.length > 0) {
+        const detail = await getEntityVersion(token, entityId, versions[0]!.id);
+        setHistorySelected(detail);
+      }
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Не удалось загрузить историю");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadVersion = async (versionId: number) => {
+    if (!token || !historyTask) return;
+    const entityId = Number(historyTask.id);
+    if (!Number.isFinite(entityId)) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const detail = await getEntityVersion(token, entityId, versionId);
+      setHistorySelected(detail);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Не удалось загрузить версию");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const runRollback = async () => {
+    if (!token || !historyTask || !historySelected) return;
+    const entityId = Number(historyTask.id);
+    if (!Number.isFinite(entityId)) return;
+    const ok = window.confirm("Откатить текущую запись к выбранной версии?");
+    if (!ok) return;
+    setRollbackBusy(true);
+    setHistoryError(null);
+    try {
+      await rollbackEntityVersion(token, entityId, historySelected.id);
+      const versions = await listEntityVersions(token, entityId);
+      setHistoryVersions(versions);
+      if (versions.length > 0) {
+        const detail = await getEntityVersion(token, entityId, versions[0]!.id);
+        setHistorySelected(detail);
+      }
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Не удалось выполнить откат");
+    } finally {
+      setRollbackBusy(false);
+    }
+  };
+
+  const compareFields: Array<{ key: keyof GPRTask | "related_tmc_ids"; label: string; current: unknown }> =
+    historyTask
+      ? [
+          { key: "name", label: "Название", current: historyTask.name },
+          { key: "code", label: "Шифр", current: historyTask.code },
+          { key: "planStart", label: "План старт", current: historyTask.planStart },
+          { key: "planEnd", label: "План финиш", current: historyTask.planEnd },
+          { key: "factStart", label: "Факт старт", current: historyTask.factStart },
+          { key: "factEnd", label: "Факт финиш", current: historyTask.factEnd },
+          { key: "completion", label: "% выполнения", current: historyTask.completion },
+          { key: "comment", label: "Комментарий", current: historyTask.comment },
+          { key: "related_tmc_ids", label: "Связанные ТМЦ", current: historyTask.relatedTmcIds ?? [] },
+        ]
+      : [];
 
   return (
     <div className="space-y-4">
@@ -693,6 +790,14 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                       >
                         🗑
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => void openHistory(task)}
+                        className="rounded-lg border border-sky-300 bg-white px-2 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50"
+                        title="История изменений"
+                      >
+                        История
+                      </button>
                     </div>
                   </div>
 
@@ -710,6 +815,115 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
           </div>
         </div>
       </section>
+      {historyTask ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">История изменений</h3>
+                <p className="text-xs text-slate-500">
+                  {historyTask.code} — {historyTask.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryTask(null);
+                  setHistoryVersions([]);
+                  setHistorySelected(null);
+                  setHistoryError(null);
+                }}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              >
+                ×
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-medium text-slate-800">Версии</div>
+                {historyLoading && historyVersions.length === 0 ? (
+                  <div className="text-sm text-slate-500">Загрузка…</div>
+                ) : historyVersions.length === 0 ? (
+                  <div className="text-sm text-slate-500">Нет сохранённых версий</div>
+                ) : (
+                  historyVersions.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => void loadVersion(v.id)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
+                        historySelected?.id === v.id
+                          ? "border-sky-300 bg-sky-50 text-sky-800"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="font-semibold">v{v.version_number}</div>
+                      <div>{new Date(v.created_at).toLocaleString("ru-RU")}</div>
+                      <div className="text-slate-500">{v.created_by ?? "—"}</div>
+                    </button>
+                  ))
+                )}
+                <button
+                  type="button"
+                  disabled={!historySelected || rollbackBusy}
+                  onClick={() => void runRollback()}
+                  className="mt-2 w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {rollbackBusy ? "Откат…" : "Откатить к выбранной версии"}
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="mb-2 text-sm font-medium text-slate-800">Сравнение (текущая vs выбранная)</div>
+                {historyError ? <p className="mb-2 text-sm text-red-600">{historyError}</p> : null}
+                <div className="grid grid-cols-1 gap-2">
+                  {compareFields.map((f) => {
+                    const leftVal = f.current == null ? "—" : Array.isArray(f.current) ? f.current.join(", ") : String(f.current);
+                    const src = historySelected?.data ?? {};
+                    const rawKey =
+                      f.key === "planStart"
+                        ? "plan_start"
+                        : f.key === "planEnd"
+                          ? "plan_end"
+                          : f.key === "factStart"
+                            ? "fact_start"
+                            : f.key === "factEnd"
+                              ? "fact_end"
+                              : f.key === "related_tmc_ids"
+                                ? "related_tmc_ids"
+                                : (f.key as string);
+                    const rightRaw =
+                      src && typeof src === "object" && rawKey in src
+                        ? (src as Record<string, unknown>)[rawKey]
+                        : null;
+                    const rightVal =
+                      rightRaw == null ? "—" : Array.isArray(rightRaw) ? rightRaw.join(", ") : String(rightRaw);
+                    const diff = leftVal !== rightVal;
+                    return (
+                      <div
+                        key={String(f.key)}
+                        className={`grid grid-cols-1 gap-2 rounded-lg border p-2 md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)] ${
+                          diff ? "border-amber-300 bg-amber-50/50" : "border-slate-200 bg-slate-50/50"
+                        }`}
+                      >
+                        <div className="text-xs font-semibold text-slate-700">{f.label}</div>
+                        <div className="text-xs text-slate-800">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Текущая</div>
+                          <div>{leftVal}</div>
+                        </div>
+                        <div className="text-xs text-slate-800">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Выбранная</div>
+                          <div>{rightVal}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 });

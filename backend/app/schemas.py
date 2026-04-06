@@ -139,6 +139,27 @@ class RelatedDeviationItem(BaseModel):
     link: str
 
 
+class GprDataVersionListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    entity_id: int
+    version_number: int
+    created_at: datetime
+    created_by: str | None = None
+
+
+class GprDataVersionDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    entity_id: int
+    data: Any | None
+    version_number: int
+    created_at: datetime
+    created_by: str | None = None
+
+
 class TmcItem(BaseModel):
     """Позиция ТМЦ с привязкой к части проекта (как на фронте)."""
 

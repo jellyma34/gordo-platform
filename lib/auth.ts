@@ -430,6 +430,55 @@ export async function getAdminUserAnalytics(token: string, userId: number): Prom
   return res.json() as Promise<UserAnalytics>;
 }
 
+export type EntityVersionListItem = {
+  id: number;
+  entity_id: number;
+  version_number: number;
+  created_at: string;
+  created_by: string | null;
+};
+
+export type EntityVersionDetail = {
+  id: number;
+  entity_id: number;
+  data: Record<string, unknown> | null;
+  version_number: number;
+  created_at: string;
+  created_by: string | null;
+};
+
+export async function listEntityVersions(token: string, entityId: number): Promise<EntityVersionListItem[]> {
+  const res = await fetch(api(`/entity/${entityId}/versions`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю версий");
+  return res.json() as Promise<EntityVersionListItem[]>;
+}
+
+export async function getEntityVersion(
+  token: string,
+  entityId: number,
+  versionId: number,
+): Promise<EntityVersionDetail> {
+  const res = await fetch(api(`/entity/${entityId}/versions/${versionId}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить версию");
+  return res.json() as Promise<EntityVersionDetail>;
+}
+
+export async function rollbackEntityVersion(
+  token: string,
+  entityId: number,
+  versionId: number,
+): Promise<void> {
+  const res = await fetch(api(`/entity/${entityId}/rollback/${versionId}`), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось откатить версию");
+}
+
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {
   const res = await fetch(api(`/admin/users/${userId}/password`), {
     method: "PUT",

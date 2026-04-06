@@ -71,3 +71,18 @@ class GprRelatedDeviation(Base):
     deviation_days: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     link: Mapped[str] = mapped_column(String(255), nullable=False, default="/")
+
+
+class GprDataVersion(Base):
+    __tablename__ = "gpr_data_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    entity_id: Mapped[int] = mapped_column(ForeignKey("gpr_tasks.id"), nullable=False, index=True)
+    data: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_by: Mapped[str | None] = mapped_column(String(320), nullable=True)

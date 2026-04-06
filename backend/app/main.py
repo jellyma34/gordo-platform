@@ -16,7 +16,7 @@ from app.database import (
     ensure_users_full_name_column,
 )
 from app.models import ProjectPart
-from app.routers import admin, auth as auth_router, debug, gpr, sections, tmc
+from app.routers import admin, auth as auth_router, debug, entity_versions, gpr, sections, tmc
 
 
 def ensure_project_parts() -> None:
@@ -99,4 +99,5 @@ app.include_router(admin.router)
 app.include_router(debug.router)
 app.include_router(sections.router)
 app.include_router(gpr.router)
+app.include_router(entity_versions.router)
 
