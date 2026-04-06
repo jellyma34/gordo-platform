@@ -476,6 +476,81 @@ function StatusDistributionTaskChunk({
 type Traffic = "green" | "yellow" | "red" | "gray";
 type GroupKey = "prep" | "build" | "network" | "improve";
 
+/** Иконки этапов (inline SVG — цвет через `currentColor` у родителя). */
+function StageDeviationStageIcon({ groupKey, className = "" }: { groupKey: GroupKey; className?: string }) {
+  const cls = `h-6 w-6 shrink-0 block ${className}`.trim();
+  if (groupKey === "prep") {
+    return (
+      <svg
+        className={cls}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M12 2v7M8 9h8M14 9l6-5M12 9v4M9 18h6v4H9z" />
+        <path d="M5 22h14" />
+        <path d="M11 13h2" />
+      </svg>
+    );
+  }
+  if (groupKey === "build") {
+    return (
+      <svg
+        className={cls}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M3 21h18" />
+        <path d="M5 21V11l7-5 7 5v10" />
+        <path d="M9 21v-8h6v8" />
+        <path d="M9 13h6" />
+      </svg>
+    );
+  }
+  if (groupKey === "network") {
+    return (
+      <svg
+        className={cls}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <circle cx="5" cy="19" r="2" />
+        <circle cx="19" cy="5" r="2" />
+        <path d="M6.5 17.5 17.5 6.5M15 19h3M6 5H3" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      className={cls}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3C8 7 6 10 6 13a6 6 0 0 0 12 0c0-3-2-6-6-10z" />
+      <path d="M12 13v8M8 21h8" />
+    </svg>
+  );
+}
+
 type TrafficRow = {
   task: GPRTask;
   status: Traffic;
@@ -2634,48 +2709,86 @@ export function GPRAnalytics({
 
           return (
             <div className="mt-4 space-y-4">
-              {groupCards.length === 0 ? (
-                <div className="rounded-xl border border-slate-700/50 bg-slate-900/20 py-10 text-center text-sm text-slate-400">
-                  Нет подзадач (уровень &gt; 1) по этапам выбранной части проекта — карточки не показываются.
-                </div>
-              ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {groupCards.map((g) => {
-                  const activeCard = activeGroup === g.key;
-                  const stageCardTone: "green" | "red" | "gray" =
-                    g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
-                  return (
-                    <button
-                      key={g.key}
-                      type="button"
-                      onClick={() => toggleGroup(g.key)}
-                      aria-pressed={activeCard}
-                      data-stage-deviation-card={stageCardTone}
-                      className={`w-full rounded-xl p-4 text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] ${
-                        activeCard ? "scale-[1.02]" : ""
-                      }`}
-                    >
-                      <div
-                        className="stage-title min-h-[2.75rem] text-sm font-semibold leading-snug text-slate-100"
-                        title={g.label}
+              {groupCards.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {groupCards.map((g) => {
+                    const activeCard = activeGroup === g.key;
+                    const stageCardTone: "green" | "red" | "gray" =
+                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
+                    const avgColor =
+                      g.withDevCount === 0 || g.avg === 0
+                        ? "#e2e8f0"
+                        : g.avg > 0
+                          ? COLORS.red
+                          : COLORS.green;
+                    const avgText =
+                      g.withDevCount === 0
+                        ? "—"
+                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} дн.`;
+                    const iconIsLate = g.withDevCount > 0 && g.avg > 0;
+                    const iconShellClass = iconIsLate
+                      ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
+                      : "text-[#22c55e] bg-[rgba(34,197,94,0.12)] shadow-[0_0_20px_rgba(34,197,94,0.25)]";
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        onClick={() => toggleGroup(g.key)}
+                        aria-pressed={activeCard}
+                        data-stage-deviation-card={stageCardTone}
+                        className={`relative w-full rounded-2xl pt-4 pb-5 pl-[72px] pr-5 text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] ${
+                          activeCard ? "scale-[1.02]" : ""
+                        }`}
                       >
-                        {g.label}
-                      </div>
-                      <div className="mt-2 text-xs text-slate-300">
-                        Среднее:{" "}
-                        <span className="font-semibold tabular-nums">
-                          {g.avg > 0 ? "+" : ""}
-                          {g.avg.toFixed(1)} дн
+                        <span
+                          className={`absolute left-4 top-4 z-10 flex h-12 w-12 items-center justify-center rounded-full ring-1 ring-white/25 ${iconShellClass}`}
+                          aria-hidden
+                        >
+                          <StageDeviationStageIcon groupKey={g.key} />
                         </span>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-300">
-                        Критично: <span className="font-semibold tabular-nums">{g.critical}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              )}
+                        <div className="relative min-w-0">
+                          <div
+                            className="stage-title text-sm font-semibold leading-snug text-slate-100"
+                            title={g.label}
+                          >
+                            {g.label}
+                          </div>
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-0">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                Среднее отклонение
+                              </div>
+                              <div
+                                className="value mt-1 text-2xl font-bold leading-tight tabular-nums"
+                                style={{ color: avgColor }}
+                              >
+                                {avgText}
+                              </div>
+                            </div>
+                            <div
+                              className="hidden w-px shrink-0 bg-white/10 sm:mx-5 sm:block sm:self-stretch"
+                              aria-hidden
+                            />
+                            <div className="h-px w-full bg-white/10 sm:hidden" aria-hidden />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                Критические отклонения
+                              </div>
+                              <div className="mt-1 text-xl font-semibold tabular-nums text-slate-200">
+                                {g.critical}
+                                <span className="text-base font-normal text-slate-500">
+                                  {" "}
+                                  / {g.withDevCount}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
 
               {active ? (
                 <div className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4">
