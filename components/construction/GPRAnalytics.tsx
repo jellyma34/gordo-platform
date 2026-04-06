@@ -1618,14 +1618,6 @@ export function GPRAnalytics({
   const statusAgg: Traffic =
     aggTotalDeviation === null ? "gray" : (deviationUiAgg as Traffic);
   const accentAgg = stageAccentFromTotalDeviation(aggTotalDeviation);
-  const glowAgg =
-    statusAgg === "green"
-      ? "0 0 20px rgba(34,197,94,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-      : statusAgg === "yellow"
-        ? "0 0 20px rgba(245,158,11,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-        : statusAgg === "red"
-          ? "0 0 20px rgba(239,68,68,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-          : "0 0 20px rgba(100,116,139,0.3), 0 10px 30px rgba(0,0,0,0.3)";
   const aggPctDisplay =
     aggTotalPercent === null
       ? "—"
@@ -1736,40 +1728,23 @@ export function GPRAnalytics({
                 : status === "red"
                   ? COLORS.red
                   : "#64748b";
-          const glow =
-            status === "green"
-              ? "0 0 20px rgba(34,197,94,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-              : status === "yellow"
-                ? "0 0 20px rgba(245,158,11,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-                : status === "red"
-                  ? "0 0 20px rgba(239,68,68,0.3), 0 10px 30px rgba(0,0,0,0.3)"
-                  : "0 0 20px rgba(100,116,139,0.3), 0 10px 30px rgba(0,0,0,0.3)";
-
           return (
             <div
               key={task.id}
-              className={`top-card card relative w-full overflow-hidden rounded-[20px] border border-white/10 bg-white/5 p-6 backdrop-blur-[12px] ${
-                status === "green"
-                  ? "status-green"
-                  : status === "yellow"
-                    ? "status-yellow"
-                    : status === "red"
-                      ? "status-red"
-                      : "status-gray"
-              } border-l-[6px]`}
-              style={{ borderLeftColor: accent, boxShadow: glow }}
+              data-traffic-card={status}
+              className="top-card card relative w-full overflow-hidden p-6"
             >
               <div>
-                <div className="text-base font-semibold text-slate-200">{task.name}</div>
+                <div className="text-base font-semibold text-[#E6EDF3]">{task.name}</div>
                 <div className="mt-3 flex items-end justify-between gap-4">
                   <div>
-                    <div className="text-sm text-slate-300">% выполнения</div>
-                    <div className="mt-1 text-[34px] font-bold text-white tabular-nums leading-none">
+                    <div className="text-sm text-[#E6EDF3]/85">% выполнения</div>
+                    <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
                       {task.completion}%
                     </div>
                   </div>
-                  <div className="text-right text-sm text-slate-300">
-                    <div className="text-xs text-slate-400">Отклонение</div>
+                  <div className="text-right text-sm text-[#E6EDF3]/85">
+                    <div className="text-xs text-[#E6EDF3]/70">Отклонение</div>
                     <div
                       className="mt-1 text-lg font-semibold tabular-nums"
                       style={{
@@ -1812,23 +1787,15 @@ export function GPRAnalytics({
           aria-expanded={aggregatePopoverOpen}
           aria-haspopup="dialog"
           title="Нажмите для пояснения расчёта"
-          className={`top-card card relative w-full overflow-hidden rounded-[20px] border border-white/10 bg-white/5 p-6 text-left backdrop-blur-[12px] transition-colors hover:bg-white/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-            statusAgg === "green"
-              ? "status-green"
-              : statusAgg === "yellow"
-                ? "status-yellow"
-                : statusAgg === "red"
-                  ? "status-red"
-                  : "status-gray"
-          } cursor-pointer border-l-[6px]`}
-          style={{ borderLeftColor: accentAgg, boxShadow: glowAgg }}
+          data-traffic-card={statusAgg}
+          className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <div>
-            <div className="text-base font-semibold text-slate-200">
+            <div className="text-base font-semibold text-[#E6EDF3]">
               {PART_SHORT_TITLE[activeProjectPart]}
             </div>
-            <div className="mt-1 text-xs font-medium text-slate-400">Общий прогресс</div>
-            <div className="mt-3 text-[34px] font-bold text-white tabular-nums leading-none">
+            <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
+            <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
               {aggPctDisplay}
             </div>
             <div className="mt-4">
@@ -2536,49 +2503,40 @@ export function GPRAnalytics({
               )
               .slice(0, 12)
               .map(({ task, status, planDays, factDays, deviationDays }: TrafficRow) => {
-                const bar =
-                  status === "green"
-                    ? COLORS.green
-                    : status === "yellow"
-                      ? COLORS.yellow
-                      : status === "red"
-                        ? COLORS.red
-                        : COLORS.gray;
                 return (
                   <div
                     key={task.id}
-                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-3"
+                    data-traffic-card={status}
+                    className="flex items-center justify-between gap-4 overflow-hidden p-3"
                   >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="h-10 w-1.5 rounded-full" style={{ backgroundColor: bar }} />
-                      <div className="min-w-0">
-                        <div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-50">
-                          {task.code} — {task.name}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-300">
-                          План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
-                          {" • "}
-                          Откл.:{" "}
-                          <span
-                            style={{
-                              color:
-                                status === "red"
-                                  ? COLORS.red
-                                  : status === "yellow"
-                                    ? COLORS.yellow
-                                    : status === "green"
-                                      ? COLORS.green
-                                      : COLORS.gray,
-                            }}
-                          >
-                            {deviationDays === null ? "—" : deviationDays > 0 ? `+${deviationDays}` : deviationDays}
-                          </span>
-                          {" • "}
-                          Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
-                        </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-[#E6EDF3]">
+                        {task.code} — {task.name}
+                      </div>
+                      <div className="mt-1 text-xs text-[#E6EDF3]/80">
+                        План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
+                        {" • "}
+                        Откл.:{" "}
+                        <span
+                          className="font-semibold tabular-nums"
+                          style={{
+                            color:
+                              status === "red"
+                                ? COLORS.red
+                                : status === "yellow"
+                                  ? COLORS.yellow
+                                  : status === "green"
+                                    ? COLORS.green
+                                    : COLORS.gray,
+                          }}
+                        >
+                          {deviationDays === null ? "—" : deviationDays > 0 ? `+${deviationDays}` : deviationDays}
+                        </span>
+                        {" • "}
+                        Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right text-xs text-slate-300">
+                    <div className="shrink-0 text-right text-xs text-[#E6EDF3]/85">
                       {status === "gray"
                         ? "нет данных"
                         : status === "green"
