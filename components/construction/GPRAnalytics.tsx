@@ -32,9 +32,10 @@ import {
   Tooltip as ChartTooltip,
   Legend as ChartLegend,
 } from "chart.js";
-import type { Chart as ChartType, LegendItem, Plugin } from "chart.js";
+import type { Plugin } from "chart.js";
 import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
+import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
 import { gprStageDisplayTitle, gprStageGroupKeysForProjectPart } from "@/lib/gprTmcDependency";
 import type { TMCItem } from "@/lib/tmcData";
@@ -289,6 +290,10 @@ const COLORS = {
   bg: "#0f172a",
   card: "#1e293b",
 } as const;
+
+/** Пояснение к «Риск проекта (%)» в donut «Распределение статусов». */
+const STATUS_DISTRIBUTION_RISK_EXPLANATION =
+  "Процент риска рассчитывается на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический.";
 
 /** Корневые этапы для агрегата и порядка карточек по части проекта. */
 const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
@@ -669,11 +674,14 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
   const factBg = rows.map((t) => ganttFactColorForScheduleToday(t));
 
   const legendFactColor = pickGanttFactLegendColor(factBg, factBars);
+  const planLegendMarker = "#94a3b8";
 
   return (
-    <Chart
-      type="bar"
-      data={{
+    <div className="flex h-full min-h-[200px] w-full min-w-0 flex-col">
+      <div className="min-h-0 min-w-0 flex-1">
+        <Chart
+          type="bar"
+          data={{
         labels,
         datasets: [
           {
@@ -699,12 +707,12 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
             maxBarThickness: 14,
           },
         ],
-      } as any}
-      options={{
+          } as any}
+          options={{
         indexAxis: "y" as const,
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 22, right: 12, left: 4, bottom: 8 } },
+        layout: { padding: { top: 22, right: 12, left: 4, bottom: 4 } },
         interaction: { mode: "nearest", axis: "y", intersect: false },
         datasets: {
           bar: {
@@ -718,41 +726,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
             maxSerial,
           },
           legend: {
-            position: "bottom",
-            align: "center",
-            labels: {
-              color: "#E6EDF3",
-              boxWidth: 14,
-              boxHeight: 14,
-              padding: 18,
-              font: { size: 13, weight: "500" },
-              generateLabels(chart: ChartType): LegendItem[] {
-                const barChart = chart as InstanceType<typeof ChartJS>;
-                const legendTextColor = "#E6EDF3";
-                return [
-                  {
-                    text: "План",
-                    fillStyle: "rgba(148, 163, 184, 0.42)",
-                    strokeStyle: "rgba(148, 163, 184, 0.55)",
-                    lineWidth: 1,
-                    pointStyle: "rect" as const,
-                    hidden: !barChart.isDatasetVisible(0),
-                    datasetIndex: 0,
-                    fontColor: legendTextColor,
-                  },
-                  {
-                    text: "Факт",
-                    fillStyle: legendFactColor,
-                    strokeStyle: legendFactColor,
-                    lineWidth: 1,
-                    pointStyle: "rect" as const,
-                    hidden: !barChart.isDatasetVisible(1),
-                    datasetIndex: 1,
-                    fontColor: legendTextColor,
-                  },
-                ];
-              },
-            },
+            display: false,
           },
           tooltip: {
             enabled: true,
@@ -912,7 +886,15 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
           },
         },
       } as any}
-    />
+        />
+      </div>
+      <div className="w-full shrink-0 pt-2">
+        <AnalyticsLegendList>
+          <AnalyticsLegendItem markerColor={planLegendMarker} label="План" />
+          <AnalyticsLegendItem markerColor={legendFactColor} label="Факт" />
+        </AnalyticsLegendList>
+      </div>
+    </div>
   );
 }
 
@@ -2167,8 +2149,13 @@ export function GPRAnalytics({
                 const PLAN_POINT = "rgba(148, 163, 184, 0.45)";
                 const PLAN_POINT_BORDER = "rgba(148, 163, 184, 0.35)";
 
+                const planLineLegendMarker = "#94a3b8";
+                const factLineLegendMarker = "#22c55e";
+
                 return (
-                  <Chart
+                  <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
+                    <div className="min-h-0 min-w-0 flex-1">
+                      <Chart
                     type="line"
                     data={{
                       labels,
@@ -2221,44 +2208,7 @@ export function GPRAnalytics({
                       },
                       plugins: {
                         legend: {
-                          position: "bottom",
-                          align: "center",
-                          labels: {
-                            color: "#E6EDF3",
-                            boxWidth: 14,
-                            boxHeight: 14,
-                            padding: 18,
-                            font: { size: 13, weight: "500" },
-                            generateLabels(chart: ChartType): LegendItem[] {
-                              const c = chart as InstanceType<typeof ChartJS>;
-                              const legendTextColor = "#E6EDF3";
-                              const planLegendFill = "rgba(148, 163, 184, 0.42)";
-                              const planLegendStroke = "rgba(148, 163, 184, 0.55)";
-                              const factLegendColor = "#22c55e";
-                              return [
-                                {
-                                  text: "План",
-                                  fillStyle: planLegendFill,
-                                  strokeStyle: planLegendStroke,
-                                  lineWidth: 1,
-                                  pointStyle: "rect" as const,
-                                  hidden: !c.isDatasetVisible(0),
-                                  datasetIndex: 0,
-                                  fontColor: legendTextColor,
-                                },
-                                {
-                                  text: "Факт",
-                                  fillStyle: factLegendColor,
-                                  strokeStyle: factLegendColor,
-                                  lineWidth: 1,
-                                  pointStyle: "rect" as const,
-                                  hidden: !c.isDatasetVisible(1),
-                                  datasetIndex: 1,
-                                  fontColor: legendTextColor,
-                                },
-                              ];
-                            },
-                          },
+                          display: false,
                         },
                         tooltip: {
                           enabled: true,
@@ -2323,7 +2273,15 @@ export function GPRAnalytics({
                         },
                       },
                     } as any}
-                  />
+                      />
+                    </div>
+                    <div className="w-full shrink-0 pt-2">
+                      <AnalyticsLegendList>
+                        <AnalyticsLegendItem markerColor={planLineLegendMarker} label="План" />
+                        <AnalyticsLegendItem markerColor={factLineLegendMarker} label="Факт" />
+                      </AnalyticsLegendList>
+                    </div>
+                  </div>
                 );
               })()
             )}
@@ -2392,12 +2350,13 @@ export function GPRAnalytics({
                   центр между строками — маленький dy у процента (-6), затем dy 18 у подписи.
                 */}
                 <svg
-                  className="relative z-[1] font-sans"
+                  className="relative z-[1] cursor-help font-sans pointer-events-auto"
                   width={120}
                   height={72}
                   viewBox="0 0 120 72"
                   overflow="visible"
-                  aria-hidden
+                  role="img"
+                  aria-label={STATUS_DISTRIBUTION_RISK_EXPLANATION}
                 >
                   <text
                     x={60}
@@ -2409,6 +2368,7 @@ export function GPRAnalytics({
                         "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
                     }}
                   >
+                    <title>{STATUS_DISTRIBUTION_RISK_EXPLANATION}</title>
                     <tspan
                       x={60}
                       dy={-6}
@@ -2435,35 +2395,30 @@ export function GPRAnalytics({
                 </svg>
               </div>
             </div>
-            <div className="mt-4 space-y-2 text-xs text-slate-300">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.green }} />
-                  В срок
-                </span>
-                <span className="tabular-nums text-slate-50">{traffic.counts.green}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.yellow }} />
-                  Риск
-                </span>
-                <span className="tabular-nums text-slate-50">{traffic.counts.yellow}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.red }} />
-                  Отставание
-                </span>
-                <span className="tabular-nums text-slate-50">{traffic.counts.red}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.gray }} />
-                  Нет данных
-                </span>
-                <span className="tabular-nums text-slate-50">{traffic.counts.gray}</span>
-              </div>
+            <p className="mt-2 text-[11px] leading-snug text-slate-400">{STATUS_DISTRIBUTION_RISK_EXPLANATION}</p>
+            <div className="mt-4 w-full">
+              <AnalyticsLegendList>
+                <AnalyticsLegendItem
+                  markerColor={COLORS.green}
+                  label="В срок"
+                  value={traffic.counts.green}
+                />
+                <AnalyticsLegendItem
+                  markerColor={COLORS.yellow}
+                  label="Риск"
+                  value={traffic.counts.yellow}
+                />
+                <AnalyticsLegendItem
+                  markerColor={COLORS.red}
+                  label="Отставание"
+                  value={traffic.counts.red}
+                />
+                <AnalyticsLegendItem
+                  markerColor={COLORS.gray}
+                  label="Нет данных"
+                  value={traffic.counts.gray}
+                />
+              </AnalyticsLegendList>
             </div>
           </button>
           {aggregatePortalMounted &&
