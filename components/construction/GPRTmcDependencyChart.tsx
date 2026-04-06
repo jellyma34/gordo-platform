@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
@@ -99,6 +99,81 @@ function KpiMiniIconAlert() {
   );
 }
 
+type TmcKpiExplainKey = "threshold" | "avg" | "risk";
+
+const KPI_THRESHOLD_EXPLAIN =
+  "Порог 14 дней — это допустимое отклонение. Задачи с превышением считаются критическими.";
+
+function buildAvgDeviationExplanation(
+  rows: { deviationDays: number | null }[],
+  avgDev: number | null,
+): string {
+  const parts = rows
+    .map((r) => r.deviationDays)
+    .filter((d): d is number => d !== null)
+    .map((d) => `${d > 0 ? "+" : ""}${d} дн.`);
+  if (parts.length === 0) {
+    return "Рассчитывается как среднее арифметическое отклонений по сроку по этапам, когда появятся данные.";
+  }
+  const joined = parts.join(" и ");
+  const itog = avgDev === null ? "—" : formatAvgDeviationDays(avgDev);
+  return `Рассчитывается как среднее значение отклонений по этапам: (${joined}) → итог: ${itog}`;
+}
+
+function riskKpiExplanationText(risk: "high" | "medium" | "low"): string {
+  if (risk === "high") {
+    return "Риск считается высоким, так как есть этап с отставанием более 14 дней. Даже при общем опережении это создает риск по срокам.";
+  }
+  if (risk === "low") {
+    return "Критического отставания (>14 дн.) ни по одному этапу нет: в совокупности график в допустимых рамках.";
+  }
+  return "Есть умеренные отставания (до 14 дн.) без критического порога — риск средний, важно не допустить накопления задержек.";
+}
+
+function TmcKpiAccordionCard({
+  cardKey,
+  isOpen,
+  onToggle,
+  shellClassName,
+  iconSlot,
+  children,
+  explanation,
+}: {
+  cardKey: TmcKpiExplainKey;
+  isOpen: boolean;
+  onToggle: (k: TmcKpiExplainKey) => void;
+  shellClassName: string;
+  iconSlot: ReactNode;
+  children: ReactNode;
+  explanation: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-xl text-left transition hover:brightness-[1.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 ${shellClassName}`}
+      aria-expanded={isOpen}
+      onClick={() => onToggle(cardKey)}
+    >
+      <div className="flex flex-1 items-center gap-3 px-3 py-3">
+        {iconSlot}
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+      <div
+        className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${
+          isOpen ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
+        }`}
+      >
+        <p
+          className="mt-2 border-t border-white/[0.06] px-3 pb-3 pt-2.5 text-[12px] leading-relaxed sm:text-[13px]"
+          style={{ color: "#A3B3C7" }}
+        >
+          {explanation}
+        </p>
+      </div>
+    </button>
+  );
+}
+
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
 export function GPRTmcDependencyChart({
@@ -177,6 +252,17 @@ export function GPRTmcDependencyChart({
     if (kpiStats.avgDev > 0) return "#ef4444";
     return "#e2e8f0";
   }, [kpiStats.avgDev]);
+
+  const [kpiExplain, setKpiExplain] = useState<TmcKpiExplainKey | null>(null);
+  const toggleKpiExplain = (k: TmcKpiExplainKey) => {
+    setKpiExplain((prev) => (prev === k ? null : k));
+  };
+
+  const avgExplainText = useMemo(
+    () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
+    [series, kpiStats.avgDev],
+  );
+  const riskExplainText = useMemo(() => riskKpiExplanationText(kpiStats.risk), [kpiStats.risk]);
 
   const chartData = useMemo(() => {
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
@@ -381,22 +467,38 @@ export function GPRTmcDependencyChart({
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
-            <div className="flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
-                <KpiMiniIconRuler />
-              </span>
-              <div className="min-w-0 flex-1">
+            <TmcKpiAccordionCard
+              cardKey="threshold"
+              isOpen={kpiExplain === "threshold"}
+              onToggle={toggleKpiExplain}
+              shellClassName="border border-slate-600/50 bg-slate-900/40"
+              explanation={KPI_THRESHOLD_EXPLAIN}
+              iconSlot={
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
+                  <KpiMiniIconRuler />
+                </span>
+              }
+            >
+              <>
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Критический порог</div>
                 <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">{THRESHOLD_DAYS} дней</div>
                 <div className="text-[11px] text-slate-500">задержка</div>
-              </div>
-            </div>
+              </>
+            </TmcKpiAccordionCard>
 
-            <div className="flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-600/50 bg-slate-900/40 px-3 py-3 text-left">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
-                <KpiMiniIconChart />
-              </span>
-              <div className="min-w-0 flex-1">
+            <TmcKpiAccordionCard
+              cardKey="avg"
+              isOpen={kpiExplain === "avg"}
+              onToggle={toggleKpiExplain}
+              shellClassName="border border-slate-600/50 bg-slate-900/40"
+              explanation={avgExplainText}
+              iconSlot={
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
+                  <KpiMiniIconChart />
+                </span>
+              }
+            >
+              <>
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Среднее отклонение</div>
                 <div
                   className="value mt-0.5 text-base font-bold tabular-nums"
@@ -405,18 +507,24 @@ export function GPRTmcDependencyChart({
                   {kpiStats.avgDev === null ? "—" : formatAvgDeviationDays(kpiStats.avgDev)}
                 </div>
                 <div className="text-[11px] text-slate-500">по проекту</div>
-              </div>
-            </div>
+              </>
+            </TmcKpiAccordionCard>
 
-            <div
-              className={`flex min-h-0 min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-3 text-left ${riskCardUi.card}`}
+            <TmcKpiAccordionCard
+              cardKey="risk"
+              isOpen={kpiExplain === "risk"}
+              onToggle={toggleKpiExplain}
+              shellClassName={riskCardUi.card}
+              explanation={riskExplainText}
+              iconSlot={
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riskCardUi.iconWrap}`}
+                >
+                  <KpiMiniIconAlert />
+                </span>
+              }
             >
-              <span
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riskCardUi.iconWrap}`}
-              >
-                <KpiMiniIconAlert />
-              </span>
-              <div className="min-w-0 flex-1">
+              <>
                 <div className={`text-[11px] font-medium uppercase tracking-wide ${riskCardUi.mutedClass}`}>
                   Риск срыва
                 </div>
@@ -424,8 +532,8 @@ export function GPRTmcDependencyChart({
                   {riskCardUi.value}
                 </div>
                 <div className={`text-[11px] ${riskCardUi.mutedClass}`}>{riskCardUi.sub}</div>
-              </div>
-            </div>
+              </>
+            </TmcKpiAccordionCard>
           </div>
         </div>
       </div>
