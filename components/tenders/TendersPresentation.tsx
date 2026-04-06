@@ -2,20 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import {
-  buildTenderStageInsight,
-  compareGprStageCodes,
-  contractDeviationDays,
-  getGprStageFromTenderCode,
-  mergeTenderSnapshotWithSeed,
-  readTenderSnapshotFromStorage,
-  TENDER_STAGE_CHART_LABEL,
-  tenderTrafficFromContract,
-  tenderTrafficLabel,
-  type Tender,
-  type TenderTraffic,
-} from "@/lib/tenderData";
-import { PROJECT_PARTS } from "@/lib/gprUtils";
+import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
+import { PROJECT_PARTS, partIdToProjectPartKey } from "@/lib/gprUtils";
+import { gprMockData } from "@/lib/gprMockData";
+import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
+import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
+import { buildGprTenderDependencySeries } from "@/lib/gprTmcDependency";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), {
   ssr: false,
@@ -24,14 +16,12 @@ const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr
 const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
 const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
+const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
+const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
 const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
 const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
 const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
+const ReferenceLine = dynamic(() => import("recharts").then((m) => m.ReferenceLine), { ssr: false });
 
 const COLORS = {
   green: "#22c55e",
@@ -39,57 +29,49 @@ const COLORS = {
   red: "#ef4444",
   gray: "#6b7280",
   card: "#1e293b",
+  plan: "#94a3b8",
 } as const;
 
-type DrillKey = "total" | "green" | "yellow" | "red";
+const RISK_WINDOW_DAYS = 14;
+const DAY_MS = 1000 * 60 * 60 * 24;
 
-type TenderGprInfluenceRow = {
-  stage: string;
-  label: string;
-  onTime: number;
-  risk: number;
-  delayed: number;
-  examples: string[];
-};
+type FactVsTodayTraffic = "green" | "yellow" | "red" | "gray";
 
-function TenderGprInfluenceTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: ReadonlyArray<{ payload?: TenderGprInfluenceRow }>;
-}) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
-  return (
-    <div
-      className="max-w-xs rounded-lg border border-slate-500/50 bg-[#1e293b] p-3 text-xs shadow-xl"
-      style={{ maxWidth: "min(20rem, calc(100vw - 2rem))" }}
-    >
-      <div className="font-semibold text-slate-100">Этап {row.stage}</div>
-      <div className="mt-2 space-y-1 text-slate-300">
-        <div>
-          <span style={{ color: COLORS.red }}>Отставание:</span> {row.delayed}
-        </div>
-        <div>
-          <span style={{ color: COLORS.yellow }}>Риск:</span> {row.risk}
-        </div>
-        <div>
-          <span style={{ color: COLORS.green }}>В срок:</span> {row.onTime}
-        </div>
-      </div>
-      {row.examples.length > 0 ? (
-        <ul className="mt-2 max-h-36 list-none space-y-1 overflow-y-auto break-words text-[11px] leading-snug text-slate-400">
-          {row.examples.map((ex, i) => (
-            <li key={i}>
-              <span className="text-slate-500">•</span> {ex}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
+function parseIsoDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(`${value}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function daysDiff(a: Date, b: Date): number {
+  return Math.round((a.getTime() - b.getTime()) / DAY_MS);
+}
+
+function trafficFactVsToday(lastFactDate: Date | null, today: Date): FactVsTodayTraffic {
+  if (!lastFactDate) return "gray";
+  if (lastFactDate.getTime() < today.getTime()) return "red";
+  const diff = daysDiff(lastFactDate, today);
+  if (Math.abs(diff) <= RISK_WINDOW_DAYS) return "yellow";
+  return "green";
+}
+
+function trafficLabel(status: FactVsTodayTraffic): string {
+  if (status === "green") return "В срок / опережение";
+  if (status === "yellow") return "Риск";
+  if (status === "red") return "Отставание";
+  return "Нет данных";
+}
+
+function monthLabel(d: Date): string {
+  return d.toLocaleDateString("ru-RU", { month: "short", year: "2-digit" });
+}
+
+function monthStart(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 12, 0, 0);
+}
+
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1, 12, 0, 0);
 }
 
 function loadTendersForPart(partId: number): Tender[] {
@@ -112,8 +94,6 @@ export function TendersPresentation({
   onChangePart: (partId: number) => void;
 }) {
   const [tick, setTick] = useState(0);
-  const [dynamicsMode, setDynamicsMode] = useState<"month" | "quarter">("month");
-  const [activeDrill, setActiveDrill] = useState<DrillKey | null>(null);
 
   useEffect(() => {
     const bump = () => setTick((x) => x + 1);
@@ -121,129 +101,167 @@ export function TendersPresentation({
     return () => window.removeEventListener("gordo-tenders-saved", bump);
   }, []);
 
-  const enriched = useMemo(() => {
+  const tenders = useMemo(() => {
     void tick;
-    return loadTendersForPart(activePartId).map((t) => {
-      const traffic = tenderTrafficFromContract(t);
-      const deviation = contractDeviationDays(t);
-      return { ...t, traffic, deviation };
-    });
+    return loadTendersForPart(activePartId);
   }, [activePartId, tick]);
 
-  const totals = useMemo(() => {
-    const total = enriched.length;
-    const green = enriched.filter((t) => t.traffic === "green").length;
-    const yellow = enriched.filter((t) => t.traffic === "yellow").length;
-    const red = enriched.filter((t) => t.traffic === "red").length;
-    const gray = enriched.filter((t) => t.traffic === "gray").length;
-    const costSum = enriched.reduce((s, t) => s + (t.cost ?? 0), 0);
-    return { total, green, yellow, red, gray, costSum };
-  }, [enriched]);
+  const today = useMemo(() => new Date(), []);
+  const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);
+  const activeProjectPart = useMemo(() => partIdToProjectPartKey(activePartId), [activePartId]);
+  const gprTasksForPart = useMemo(() => gprMockData.filter((t) => t.partId === activePartId), [activePartId]);
 
-  const pieData = useMemo(
-    () => [
-      { name: "В срок", value: totals.green, fill: COLORS.green },
-      { name: "Риск", value: totals.yellow, fill: COLORS.yellow },
-      { name: "Отставание", value: totals.red, fill: COLORS.red },
-      { name: "Нет договора", value: totals.gray, fill: COLORS.gray },
-    ],
-    [totals.green, totals.yellow, totals.red, totals.gray],
+  const contractPlanDates = useMemo(
+    () => tenders.map((t) => parseIsoDate(t.planContractDate)).filter((d): d is Date => d !== null),
+    [tenders],
+  );
+  const contractFactDates = useMemo(
+    () =>
+      tenders
+        .map((t) => parseIsoDate(t.factContractDate))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime()),
+    [tenders],
   );
 
-  const contractsDynamics = useMemo(() => {
-    const concluded = enriched.filter((t) => t.factContractDate);
-    const bucket = new Map<string, number>();
-    for (const t of concluded) {
-      const d = t.factContractDate!;
-      const y = Number(d.slice(0, 4));
-      const m = Number(d.slice(5, 7));
-      if (!y || !m) continue;
-      let key: string;
-      if (dynamicsMode === "month") {
-        key = d.slice(0, 7);
+  const lastFactDate = contractFactDates.length > 0 ? contractFactDates[contractFactDates.length - 1] : null;
+  const factStatus = trafficFactVsToday(lastFactDate, today);
+  const factStatusColor = COLORS[factStatus];
+
+  const planVsFactSeries = useMemo(() => {
+    if (tenders.length === 0 || contractPlanDates.length === 0) return [] as Array<Record<string, number | string | null>>;
+    const timelineStart =
+      contractPlanDates.length > 0
+        ? contractPlanDates.reduce((m, d) => (d.getTime() < m.getTime() ? d : m))
+        : today;
+    const timelineEndCandidates = [...contractPlanDates, ...contractFactDates, today];
+    const timelineEnd = timelineEndCandidates.reduce((m, d) => (d.getTime() > m.getTime() ? d : m));
+
+    const total = tenders.length;
+    const points: Array<Record<string, number | string | null>> = [];
+    let cursor = monthStart(timelineStart);
+    const end = monthStart(timelineEnd);
+    while (cursor.getTime() <= end.getTime()) {
+      const x = cursor.getTime();
+      const plannedCount = contractPlanDates.filter((d) => d.getTime() <= x).length;
+      const factCount = contractFactDates.filter((d) => d.getTime() <= x).length;
+      points.push({
+        iso: cursor.toISOString().slice(0, 10),
+        label: monthLabel(cursor),
+        planPct: Math.round((plannedCount / total) * 1000) / 10,
+        factPct: x <= today.getTime() ? Math.round((factCount / total) * 1000) / 10 : null,
+      });
+      cursor = addMonths(cursor, 1);
+    }
+    return points;
+  }, [tenders, contractPlanDates, contractFactDates, today]);
+
+  const distribution = useMemo(() => {
+    let conducted = 0;
+    let inProgress = 0;
+    let overdue = 0;
+    let noData = 0;
+    for (const t of tenders) {
+      const plan = parseIsoDate(t.planContractDate);
+      const fact = parseIsoDate(t.factContractDate);
+      if (fact) {
+        conducted += 1;
+      } else if (!plan) {
+        noData += 1;
+      } else if (plan.getTime() < today.getTime()) {
+        overdue += 1;
       } else {
-        const q = Math.floor((m - 1) / 3) + 1;
-        key = `${y}-Q${q}`;
+        inProgress += 1;
       }
-      bucket.set(key, (bucket.get(key) ?? 0) + 1);
     }
-    const keys = Array.from(bucket.keys()).sort();
-    return keys.map((name) => ({ name, count: bucket.get(name) ?? 0 }));
-  }, [enriched, dynamicsMode]);
+    const total = tenders.length;
+    const riskScore = total > 0 ? (overdue * 1 + inProgress * 0.5) / total : 0;
+    const riskPct = Math.round(riskScore * 100);
+    return { conducted, inProgress, overdue, noData, total, riskPct };
+  }, [tenders, today]);
 
-  const gprStagesFromTenderCodes = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of enriched) {
-      const k = getGprStageFromTenderCode(t.code);
-      if (k) s.add(k);
-    }
-    return Array.from(s).sort(compareGprStageCodes);
-  }, [enriched]);
+  const donutData = useMemo(
+    () => [
+      { key: "conducted", name: "Проведены", value: distribution.conducted, fill: "url(#tenGreenGrad)" },
+      { key: "inProgress", name: "В процессе", value: distribution.inProgress, fill: "url(#tenYellowGrad)" },
+      { key: "overdue", name: "Просрочены", value: distribution.overdue, fill: "url(#tenRedGrad)" },
+      { key: "noData", name: "Нет данных", value: distribution.noData, fill: "url(#tenGrayGrad)" },
+    ],
+    [distribution],
+  );
 
-  const tenderGprInfluenceData = useMemo((): TenderGprInfluenceRow[] => {
-    const base = enriched as unknown as Tender[];
-    return gprStagesFromTenderCodes.map((stage) => {
-      const stageRows = enriched.filter((t) => getGprStageFromTenderCode(t.code) === stage);
-      let onTime = 0;
-      let risk = 0;
-      let delayed = 0;
-      for (const t of stageRows) {
-        const tr = tenderTrafficFromContract(t);
-        if (tr === "green") onTime += 1;
-        else if (tr === "yellow") risk += 1;
-        else if (tr === "red") delayed += 1;
+  const dependencySeries = useMemo(
+    () => buildGprTenderDependencySeries(gprTasksForPart, tenders, todayIso, activeProjectPart),
+    [gprTasksForPart, tenders, todayIso, activeProjectPart],
+  );
+
+  const dependencyInsights = useMemo(() => {
+    const lagRows = dependencySeries
+      .map((r) => ({ stage: r.stageShort, lag: (r.factGpr ?? 0) - (r.tenderReadiness ?? 0) }))
+      .filter((r) => r.lag > 0)
+      .sort((a, b) => b.lag - a.lag);
+    const totalLag = lagRows.reduce((s, r) => s + r.lag, 0);
+    const worst = lagRows[0];
+    return {
+      laggingStages: lagRows.length,
+      totalLag: Math.round(totalLag),
+      worstStage: worst ? `${worst.stage} (${Math.round(worst.lag)} п.п.)` : "нет",
+    };
+  }, [dependencySeries]);
+
+  const tenderForecast = useMemo(() => {
+    if (tenders.length === 0 || contractPlanDates.length === 0) return null;
+    const total = tenders.length;
+    const projectEnd = contractPlanDates.reduce((m, d) => (d.getTime() > m.getTime() ? d : m));
+    const historyStart = contractPlanDates.reduce((m, d) => (d.getTime() < m.getTime() ? d : m));
+    const factNowCount = contractFactDates.filter((d) => d.getTime() <= today.getTime()).length;
+    const factNowPct = Math.round((factNowCount / total) * 1000) / 10;
+
+    const windowStart = new Date(today.getTime() - 90 * DAY_MS);
+    const recentCount = contractFactDates.filter(
+      (d) => d.getTime() >= windowStart.getTime() && d.getTime() <= today.getTime(),
+    ).length;
+    const elapsedDays = Math.max(1, Math.round((today.getTime() - historyStart.getTime()) / DAY_MS));
+    const baseRate = factNowCount / elapsedDays;
+    const recentRate = recentCount / 90;
+    const ratePerDay = Math.max(baseRate, recentRate);
+
+    const rows: Array<Record<string, number | string | null>> = [];
+    let cursor = monthStart(historyStart);
+    const end = monthStart(projectEnd);
+    while (cursor.getTime() <= end.getTime()) {
+      const t = cursor.getTime();
+      const planCount = contractPlanDates.filter((d) => d.getTime() <= t).length;
+      const factCount = contractFactDates.filter((d) => d.getTime() <= t).length;
+      const planPct = Math.round((planCount / total) * 1000) / 10;
+      const factPct = t <= today.getTime() ? Math.round((factCount / total) * 1000) / 10 : null;
+      let forecastPct: number | null = null;
+      if (t >= today.getTime()) {
+        const futureDays = Math.max(0, Math.round((t - today.getTime()) / DAY_MS));
+        const projected = Math.min(total, factNowCount + ratePerDay * futureDays);
+        forecastPct = Math.round((projected / total) * 1000) / 10;
       }
-      const insight = buildTenderStageInsight(base, stage);
-      return {
-        stage,
-        label: TENDER_STAGE_CHART_LABEL[stage] ?? `Этап ${stage}`,
-        onTime,
-        risk,
-        delayed,
-        examples: insight.examples,
-      };
-    });
-  }, [enriched, gprStagesFromTenderCodes]);
-
-  const tenderAvgDeviationByStage = useMemo(() => {
-    return gprStagesFromTenderCodes
-      .map((stage) => {
-        const devs = enriched
-          .filter((t) => getGprStageFromTenderCode(t.code) === stage)
-          .map((t) => contractDeviationDays(t))
-          .filter((d): d is number => d !== null);
-        if (devs.length === 0) return null;
-        const avg = devs.reduce((a, b) => a + b, 0) / devs.length;
-        return {
-          stage,
-          label: TENDER_STAGE_CHART_LABEL[stage] ?? `Этап ${stage}`,
-          avgDays: Math.round(avg * 10) / 10,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null);
-  }, [enriched, gprStagesFromTenderCodes]);
-
-  const costByStage = useMemo(() => {
-    const sums = new Map<string, number>();
-    for (const t of enriched) {
-      const st = getGprStageFromTenderCode(t.code);
-      if (!st) continue;
-      sums.set(st, (sums.get(st) ?? 0) + (t.cost ?? 0));
+      rows.push({
+        iso: cursor.toISOString().slice(0, 10),
+        label: monthLabel(cursor),
+        planPct,
+        factPct,
+        forecastPct,
+      });
+      cursor = addMonths(cursor, 1);
     }
-    return gprStagesFromTenderCodes
-      .filter((k) => sums.has(k))
-      .map((k) => ({
-        name: TENDER_STAGE_CHART_LABEL[k] ?? `Этап ${k}`,
-        cost: sums.get(k) ?? 0,
-        costMln: (sums.get(k) ?? 0) / 1_000_000,
-      }));
-  }, [enriched, gprStagesFromTenderCodes]);
 
-  const drillRows = useMemo(() => {
-    if (!activeDrill) return [] as typeof enriched;
-    if (activeDrill === "total") return enriched;
-    return enriched.filter((t) => t.traffic === activeDrill);
-  }, [activeDrill, enriched]);
+    const lastForecast = rows[rows.length - 1]?.forecastPct;
+    const endForecast = typeof lastForecast === "number" ? lastForecast : factNowPct;
+    const riskLevel = endForecast >= 95 ? "green" : endForecast >= 80 ? "yellow" : "red";
+    return {
+      rows,
+      projectEndIso: projectEnd.toISOString().slice(0, 10),
+      factNowPct,
+      endForecast,
+      riskLevel: riskLevel as "green" | "yellow" | "red",
+    };
+  }, [tenders, contractPlanDates, contractFactDates, today]);
 
   const partTabs = (
     <div className="mb-4 flex flex-wrap gap-2">
@@ -273,289 +291,290 @@ export function TendersPresentation({
         <div>
           <h2 className="text-xl font-semibold text-slate-50">Закупка услуг (тендеры)</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Аналитика по датам заключения договоров и этапам ГПР. Данные синхронизируются с таблицей после «Сохранить» в
-            режиме редактирования.
+            Визуально единая аналитика с ГПР: те же паттерны UI, но отдельная логика метрик по тендерному циклу.
           </p>
         </div>
-        <div className="group relative">
-          <button
-            type="button"
-            className="rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
-          >
-            Почему есть отставание?
-          </button>
-          <div className="pointer-events-none invisible absolute right-0 top-full z-20 mt-2 w-72 rounded-lg border border-slate-600 bg-[#0f172a] p-3 text-left text-xs text-slate-200 shadow-xl group-hover:visible group-hover:pointer-events-auto">
-            <div className="font-semibold text-slate-50">Возможные причины</div>
-            <ul className="mt-2 list-disc space-y-1.5 pl-4 break-words text-slate-300">
-              <li>задержка тендерной процедуры или согласований;</li>
-              <li>не выбран подрядчик / переторжка;</li>
-              <li>нет ТМЦ или не готов проект — блокирует подписание договора;</li>
-              <li>изменение объёма работ или условий контракта.</li>
-            </ul>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Отклонение в таблице: факт даты договора минус план. Пороги: в срок — ≤0 дн., риск — 1…14 дн., отставание —
-              &gt;14 дн.
-            </p>
-          </div>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {(
           [
-            { key: "total" as const, label: "Всего тендеров", value: totals.total, sub: "в реестре части", color: "#94a3b8" },
-            { key: "green" as const, label: "В срок", value: totals.green, sub: "договор в плане или раньше", color: COLORS.green },
-            { key: "yellow" as const, label: "Риск", value: totals.yellow, sub: "задержка 1…14 дн.", color: COLORS.yellow },
-            { key: "red" as const, label: "Отставание", value: totals.red, sub: ">14 дн. к плану договора", color: COLORS.red },
+            { label: "Всего тендеров", value: distribution.total, sub: "в части проекта", color: "#94a3b8" },
+            { label: "Проведены", value: distribution.conducted, sub: "договор заключен", color: COLORS.green },
+            { label: "В процессе", value: distribution.inProgress, sub: "до даты договора", color: COLORS.yellow },
+            { label: "Просрочены", value: distribution.overdue, sub: "план < сегодня, факта нет", color: COLORS.red },
           ] as const
-        ).map((card) => {
-          const active = activeDrill === card.key;
-          return (
-            <button
-              key={card.key}
-              type="button"
-              onClick={() => setActiveDrill((p) => (p === card.key ? null : card.key))}
-              className={`text-left rounded-[20px] border border-white/10 bg-white/5 p-5 backdrop-blur-[12px] transition-all ${
-                active ? "scale-[1.02]" : ""
-              }`}
-              style={{
-                borderLeft: `6px solid ${card.color}`,
-                boxShadow: active ? `0 0 24px ${card.color}44` : "0 10px 30px rgba(0,0,0,0.3)",
-              }}
-            >
-              <div className="text-xs text-slate-300">{card.label}</div>
-              <div className="mt-2 text-3xl font-bold text-white tabular-nums">{card.value}</div>
-              <div className="mt-1 text-xs text-slate-400">{card.sub}</div>
-            </button>
-          );
-        })}
-        <div
-          className="text-left rounded-[20px] border border-white/10 bg-white/5 p-5 backdrop-blur-[12px]"
-          style={{ borderLeft: "6px solid #38bdf8" }}
-        >
-          <div className="text-xs text-slate-300">Общая стоимость</div>
-          <div className="mt-2 text-3xl font-bold text-white tabular-nums">
-            {(totals.costSum / 1_000_000).toFixed(1)} млн
+        ).map((card) => (
+          <div
+            key={card.label}
+            className="rounded-[20px] border border-white/10 bg-white/5 p-5 text-left backdrop-blur-[12px]"
+            style={{ borderLeft: `6px solid ${card.color}`, boxShadow: `0 10px 30px ${card.color}22` }}
+          >
+            <div className="text-xs text-slate-300">{card.label}</div>
+            <div className="mt-2 text-3xl font-bold tabular-nums text-white">{card.value}</div>
+            <div className="mt-1 text-xs text-slate-400">{card.sub}</div>
           </div>
-          <div className="mt-1 text-xs text-slate-400">Σ плановых оценок по части</div>
-        </div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm lg:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-lg font-semibold text-slate-50">Динамика заключённых договоров</h3>
-            <div className="flex gap-1 rounded-lg border border-slate-600 p-0.5">
-              <button
-                type="button"
-                onClick={() => setDynamicsMode("month")}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  dynamicsMode === "month" ? "bg-slate-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Месяцы
-              </button>
-              <button
-                type="button"
-                onClick={() => setDynamicsMode("quarter")}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  dynamicsMode === "quarter" ? "bg-slate-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Кварталы
-              </button>
-            </div>
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+          <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+            <h3 className="text-lg font-semibold leading-snug text-slate-50">План vs Факт (тендеры)</h3>
+            <span className="text-sm font-semibold" style={{ color: factStatusColor }}>
+              {trafficLabel(factStatus)}
+            </span>
           </div>
-          <p className="mt-1 text-xs text-slate-400">По фактической дате договора (только заключённые).</p>
-          <div className="mt-4 h-[300px] w-full">
+          <p className="mt-1 text-sm leading-snug text-[#E6EDF3]">X: время, Y: доля завершенных тендеров, %.</p>
+          <div className="mt-4 h-[320px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={contractsDynamics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="rgba(148,163,184,0.18)" />
-                <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fill: "#94a3b8" }} />
+              <LineChart data={planVsFactSeries} margin={{ top: 10, right: 10, left: 2, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(148,163,184,0.14)" />
+                <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                <YAxis
+                  min={0}
+                  max={100}
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tickFormatter={(v) => `${v}%`}
+                />
                 <Tooltip
                   contentStyle={{
                     background: COLORS.card,
                     border: "1px solid rgba(148,163,184,0.35)",
                     color: "#e2e8f0",
                   }}
-                  formatter={(value) => [`${value ?? "—"} дог.`, "Количество"]}
+                  formatter={(value: unknown, name: unknown) => [
+                    value == null ? "—" : `${value}%`,
+                    String(name ?? "") === "planPct" ? "План тендеров" : "Факт тендеров",
+                  ]}
                 />
-                <Bar dataKey="count" fill="#38bdf8" radius={[4, 4, 0, 0]} name="Договоров" />
-              </BarChart>
+                <Line
+                  type="monotone"
+                  dataKey="planPct"
+                  stroke={COLORS.plan}
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: COLORS.plan }}
+                  name="planPct"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="factPct"
+                  stroke={factStatusColor}
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: factStatusColor }}
+                  name="factPct"
+                  connectNulls={false}
+                />
+                <ReferenceLine
+                  x={todayIso.slice(0, 7)}
+                  stroke="rgba(148,163,184,0.45)"
+                  strokeDasharray="4 4"
+                />
+              </LineChart>
             </ResponsiveContainer>
+          </div>
+          <div className="mt-3 border-t border-slate-700/40 pt-3">
+            <AnalyticsLegendList>
+              <AnalyticsLegendItem markerColor={COLORS.plan} label="План тендеров" />
+              <AnalyticsLegendItem markerColor={factStatusColor} label="Факт тендеров" />
+            </AnalyticsLegendList>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-50">Статусы тендеров</h3>
-          <p className="mt-1 text-xs text-slate-400">По отклонению даты договора от плана.</p>
-          <div className="mt-4 h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+        <div className="flex h-full w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+          <h3 className="text-lg font-semibold leading-snug text-slate-50">Распределение статусов</h3>
+          <p className="mt-1 text-xs leading-snug text-slate-300">
+            Проведены / в процессе / просрочены / нет данных.
+          </p>
+          <div className="relative mt-4 h-[220px] w-full">
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                <defs>
+                  <linearGradient id="tenGreenGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#16a34a" />
+                    <stop offset="100%" stopColor="#22c55e" />
+                  </linearGradient>
+                  <linearGradient id="tenYellowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#d97706" />
+                    <stop offset="100%" stopColor="#f59e0b" />
+                  </linearGradient>
+                  <linearGradient id="tenRedGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#dc2626" />
+                    <stop offset="100%" stopColor="#ef4444" />
+                  </linearGradient>
+                  <linearGradient id="tenGrayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#6b7280" />
+                    <stop offset="100%" stopColor="#9ca3af" />
+                  </linearGradient>
+                </defs>
                 <Pie
-                  data={pieData}
+                  data={donutData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="50%"
-                  innerRadius={48}
-                  outerRadius={88}
+                  cy="45%"
+                  innerRadius={52}
+                  outerRadius={78}
                   paddingAngle={2}
+                  stroke="rgba(255,255,255,0.18)"
                 >
-                  {pieData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
+                  {donutData.map((entry) => (
+                    <Cell key={entry.key} fill={entry.fill} />
                   ))}
                 </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div
+              className="pointer-events-none absolute left-1/2 flex flex-col items-center justify-center text-center"
+              style={{ top: "calc(10px + (100% - 20px) * 0.45)", transform: "translate(-50%, -50%)" }}
+            >
+              <div
+                aria-hidden
+                className="absolute left-1/2 top-1/2 aspect-square rounded-full"
+                style={{
+                  width: "min(100px, 26%)",
+                  minWidth: 76,
+                  maxWidth: 104,
+                  transform: "translate(-50%, -50%)",
+                  backgroundColor: "rgba(255,255,255,0.04)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  boxShadow: "0 0 32px rgba(255,255,255,0.06)",
+                }}
+              />
+              <div className="relative z-[1]">
+                <div
+                  className="text-[30px] font-bold tabular-nums"
+                  style={{
+                    color: distribution.riskPct >= 60 ? COLORS.red : distribution.riskPct >= 35 ? COLORS.yellow : COLORS.green,
+                    textShadow: "0 0 16px rgba(148,163,184,0.35)",
+                  }}
+                >
+                  {distribution.riskPct}%
+                </div>
+                <div className="text-xs text-slate-400">Риск</div>
+              </div>
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] leading-snug text-slate-400">
+            Risk = (просроченные * 1 + в процессе * 0.5) / всего.
+          </p>
+          <div className="mt-4">
+            <AnalyticsLegendList>
+              <AnalyticsLegendItem markerColor={COLORS.green} label="Проведены" value={distribution.conducted} />
+              <AnalyticsLegendItem markerColor={COLORS.yellow} label="В процессе" value={distribution.inProgress} />
+              <AnalyticsLegendItem markerColor={COLORS.red} label="Просрочены" value={distribution.overdue} />
+              <AnalyticsLegendItem markerColor={COLORS.gray} label="Нет данных" value={distribution.noData} />
+            </AnalyticsLegendList>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-50">Зависимость (тендеры → ГПР)</h3>
+        <p className="mt-1 text-xs text-slate-400">
+          План ГПР, факт ГПР и пунктир готовности тендеров в едином формате, как в связке ТМЦ → ГПР.
+        </p>
+        <GPRTenderDependencyChart
+          tasks={gprTasksForPart}
+          tenders={tenders}
+          activeProjectPart={activeProjectPart}
+        />
+        <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-4 text-xs text-slate-300">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Выводы</div>
+          <div className="mt-2 space-y-1.5">
+            <div>Отставание по тендерам: {dependencyInsights.laggingStages} этап(ов).</div>
+            <div>Суммарный разрыв готовности: {dependencyInsights.totalLag} п.п.</div>
+            <div>Наибольшее влияние на ГПР: {dependencyInsights.worstStage}.</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-50">Прогноз (тендерная готовность)</h3>
+        <p className="mt-1 text-xs text-slate-400">
+          Факт до сегодня, прогноз до конца проекта на основе текущего темпа заключения договоров.
+        </p>
+        <div className="mt-4 h-[340px] w-full">
+          {tenderForecast == null ? (
+            <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 text-sm text-slate-500">
+              Недостаточно данных по плановым датам тендеров
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={tenderForecast.rows} margin={{ top: 10, right: 10, left: 2, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(148,163,184,0.14)" />
+                <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                <YAxis
+                  min={0}
+                  max={100}
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tickFormatter={(v) => `${v}%`}
+                />
                 <Tooltip
                   contentStyle={{
                     background: COLORS.card,
                     border: "1px solid rgba(148,163,184,0.35)",
                     color: "#e2e8f0",
                   }}
+                  formatter={(value: unknown, name: unknown) => {
+                    const key = String(name ?? "");
+                    const title =
+                      key === "planPct"
+                        ? "План тендеров"
+                        : key === "factPct"
+                          ? "Факт тендеров"
+                          : "Прогноз тендеров";
+                    return [value == null ? "—" : `${value}%`, title];
+                  }}
                 />
-                <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
-              </PieChart>
+                <Line
+                  type="monotone"
+                  dataKey="planPct"
+                  stroke={COLORS.plan}
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: COLORS.plan }}
+                  name="planPct"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="factPct"
+                  stroke={COLORS.green}
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: COLORS.green }}
+                  name="factPct"
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="forecastPct"
+                  stroke={COLORS[tenderForecast.riskLevel]}
+                  strokeWidth={3}
+                  strokeDasharray="6 5"
+                  dot={{ r: 4, fill: COLORS[tenderForecast.riskLevel] }}
+                  name="forecastPct"
+                  connectNulls={false}
+                />
+              </LineChart>
             </ResponsiveContainer>
-          </div>
+          )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-50">Влияние тендеров на ГПР</h3>
-          <p className="mt-1 text-xs text-slate-400">
-            Этапы из кода тендера (<span className="font-mono text-slate-300">2.xx</span> из шифра). Столбики — число
-            тендеров; без факта договора не входят в зелёный/жёлтый/красный ряд.
-          </p>
-          <div className="mt-4 h-[300px] w-full">
-            {tenderGprInfluenceData.length === 0 ? (
-              <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 text-sm text-slate-500">
-                Нет данных по этапам
+        {tenderForecast ? (
+          <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-4 text-xs text-slate-300">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Оценка риска</div>
+            <div className="mt-2 space-y-1.5">
+              <div>Факт на сегодня: {tenderForecast.factNowPct}%.</div>
+              <div>Прогноз к завершению проекта ({tenderForecast.projectEndIso}): {tenderForecast.endForecast}%.</div>
+              <div style={{ color: COLORS[tenderForecast.riskLevel] }}>
+                {tenderForecast.riskLevel === "green"
+                  ? "Зеленый: риск низкий."
+                  : tenderForecast.riskLevel === "yellow"
+                    ? "Желтый: умеренный риск."
+                    : "Красный: высокий риск."}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={tenderGprInfluenceData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                  <CartesianGrid stroke="rgba(148,163,184,0.18)" />
-                  <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} interval={0} angle={-12} height={56} textAnchor="end" />
-                  <YAxis allowDecimals={false} tick={{ fill: "#94a3b8" }} />
-                  <Tooltip content={<TenderGprInfluenceTooltip />} />
-                  <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 11 }} />
-                  <Bar dataKey="onTime" stackId="tg" fill={COLORS.green} name="В срок" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="risk" stackId="tg" fill={COLORS.yellow} name="Риск" />
-                  <Bar dataKey="delayed" stackId="tg" fill={COLORS.red} name="Отставание" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            </div>
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-50">Среднее отклонение договора по этапам</h3>
-          <p className="mt-1 text-xs text-slate-400">
-            Дни (факт − план договора), только по тендерам с подписанным договором; этап — из кода{" "}
-            <span className="font-mono text-slate-300">2.xx</span>.
-          </p>
-          <div className="mt-4 h-[300px] w-full">
-            {tenderAvgDeviationByStage.length === 0 ? (
-              <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 text-sm text-slate-500">
-                Нет фактических дат договоров для расчёта
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={tenderAvgDeviationByStage} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                  <CartesianGrid stroke="rgba(148,163,184,0.18)" />
-                  <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} interval={0} angle={-12} height={56} textAnchor="end" />
-                  <YAxis tick={{ fill: "#94a3b8" }} label={{ value: "дн.", angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: COLORS.card,
-                      border: "1px solid rgba(148,163,184,0.35)",
-                      color: "#e2e8f0",
-                    }}
-                    formatter={(value) => [`${value} дн.`, "Среднее отклонение"]}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="avgDays"
-                    stroke={COLORS.yellow}
-                    strokeWidth={2.5}
-                    dot={{ fill: COLORS.yellow, r: 4 }}
-                    name="Среднее, дн."
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-slate-50">Стоимость по этапам ГПР</h3>
-        <p className="mt-1 text-xs text-slate-400">
-          Сумма плановых оценок (руб.) по полю «Стоимость»; этап — корень кода тендера (
-          <span className="font-mono text-slate-300">2.xx</span>).
-        </p>
-        <div className="mt-4 h-[280px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={costByStage} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
-              <CartesianGrid stroke="rgba(148,163,184,0.18)" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "#94a3b8" }} tickFormatter={(v) => `${v}`} />
-              <YAxis type="category" dataKey="name" width={160} tick={{ fill: "#94a3b8", fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{
-                  background: COLORS.card,
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  color: "#e2e8f0",
-                }}
-                formatter={(value) => {
-                  const n = typeof value === "number" ? value : Number(value);
-                  const safe = Number.isFinite(n) ? n : 0;
-                  return [`${(safe / 1_000_000).toFixed(2)} млн ₽`, "Стоимость"];
-                }}
-              />
-              <Bar dataKey="cost" fill="#a78bfa" radius={[0, 4, 4, 0]} name="Стоимость" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-slate-50">Детализация</h3>
-        {!activeDrill ? (
-          <p className="mt-3 text-sm text-slate-300">
-            Нажмите одну из верхних карточек (кроме стоимости), чтобы показать список тендеров по статусу договора или весь реестр.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-2">
-            {drillRows.map((t) => {
-              const c = COLORS[t.traffic];
-              return (
-                <div
-                  key={t.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-900/25 p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="font-mono text-xs text-slate-500">{t.code}</div>
-                    <div className="text-sm font-semibold text-slate-100 break-words">{t.name}</div>
-                    <div className="mt-1 text-xs text-slate-400">
-                      Этап {t.stage} • План договора {t.planContractDate}
-                      {t.factContractDate ? ` • Факт ${t.factContractDate}` : ""}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right text-xs">
-                    <div className="font-semibold tabular-nums" style={{ color: c }}>
-                      {t.deviation === null ? "—" : t.deviation > 0 ? `+${t.deviation}` : t.deviation} дн
-                    </div>
-                    <div className="mt-1 rounded-full px-2 py-0.5 text-[11px] text-slate-900" style={{ backgroundColor: c }}>
-                      {tenderTrafficLabel(t.traffic)}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
