@@ -73,7 +73,25 @@ class GprRelatedDeviation(Base):
     link: Mapped[str] = mapped_column(String(255), nullable=False, default="/")
 
 
+class EntityHistory(Base):
+    """История изменений сущности ГПР: снимок до обновления."""
+
+    __tablename__ = "entity_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    entity_id: Mapped[int] = mapped_column(ForeignKey("gpr_tasks.id"), nullable=False, index=True)
+    data: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class GprDataVersion(Base):
+    """Устаревшая таблица версий; новые записи пишутся в ``entity_history``."""
+
     __tablename__ = "gpr_data_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

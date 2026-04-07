@@ -1,11 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const btnSecondary =
-  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50";
+  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50";
 const btnPrimary =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800";
+  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-90";
+const btnSuccess =
+  "inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700";
+const btnError =
+  "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-700";
 
 export function EditLayout({
   title,
@@ -18,12 +22,56 @@ export function EditLayout({
   title: string;
   subtitle?: string;
   children: ReactNode;
-  onSave?: () => void;
+  onSave?: () => void | Promise<void>;
   onCancel?: () => void;
   /** Показывать пару кнопок в шапке (если обе функции не переданы — блок действий скрыт) */
   showActions?: boolean;
 }) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const hasActions = showActions && (onSave != null || onCancel != null);
+
+  useEffect(() => {
+    return () => {
+      if (successResetRef.current) clearTimeout(successResetRef.current);
+    };
+  }, []);
+
+  const handleSave = async () => {
+    if (!onSave || isSaving) return;
+    if (successResetRef.current) {
+      clearTimeout(successResetRef.current);
+      successResetRef.current = null;
+    }
+    setIsSaving(true);
+    setSaveSuccess(false);
+    setSaveError(false);
+    try {
+      await Promise.resolve(onSave());
+      setSaveSuccess(true);
+      successResetRef.current = setTimeout(() => {
+        setSaveSuccess(false);
+        successResetRef.current = null;
+      }, 2500);
+    } catch {
+      setSaveError(true);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const saveLabel = saveError
+    ? "Ошибка"
+    : saveSuccess
+      ? "Сохранено ✓"
+      : isSaving
+        ? "Сохраняем..."
+        : "Сохранить";
+
+  const saveClassName = saveError ? btnError : saveSuccess ? btnSuccess : btnPrimary;
 
   return (
     <div className="edit-layout mx-auto w-full max-w-7xl">
@@ -36,13 +84,19 @@ export function EditLayout({
           {hasActions ? (
             <div className="actions flex shrink-0 flex-wrap gap-2">
               {onCancel ? (
-                <button type="button" onClick={onCancel} className={btnSecondary}>
+                <button type="button" onClick={onCancel} disabled={isSaving} className={btnSecondary}>
                   Отменить
                 </button>
               ) : null}
               {onSave ? (
-                <button type="button" onClick={onSave} className={btnPrimary}>
-                  Сохранить
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={isSaving}
+                  className={saveClassName}
+                  aria-busy={isSaving}
+                >
+                  {saveLabel}
                 </button>
               ) : null}
             </div>

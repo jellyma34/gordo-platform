@@ -437,7 +437,11 @@ export type EntityVersionListItem = {
   entity_id: number;
   version_number: number;
   created_at: string;
+  changed_by?: number;
   created_by: string | null;
+  changed_by_name?: string | null;
+  changed_by_role?: string;
+  change_type?: string | null;
 };
 
 export type EntityVersionDetail = {
@@ -446,7 +450,11 @@ export type EntityVersionDetail = {
   data: Record<string, unknown> | null;
   version_number: number;
   created_at: string;
+  changed_by?: number;
   created_by: string | null;
+  changed_by_name?: string | null;
+  changed_by_role?: string;
+  change_type?: string | null;
 };
 
 export async function listEntityVersions(token: string, entityId: number): Promise<EntityVersionListItem[]> {
@@ -479,6 +487,50 @@ export async function rollbackEntityVersion(
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось откатить версию");
+}
+
+/** Запись в таблице ``entity_history`` (новый API). */
+export type EntityHistoryListItem = {
+  id: number;
+  entity_id: number;
+  changed_by: number;
+  created_at: string;
+  changed_by_name?: string | null;
+  changed_by_role?: string;
+  change_type?: string | null;
+};
+
+export type EntityHistoryDetail = {
+  id: number;
+  entity_id: number;
+  data: Record<string, unknown> | null;
+  changed_by: number;
+  created_at: string;
+  changed_by_name?: string | null;
+  changed_by_role?: string;
+  change_type?: string | null;
+};
+
+/** Список истории по дате (от старых к новым): ``GET /entity/{id}/history``. */
+export async function listEntityHistory(token: string, entityId: number): Promise<EntityHistoryListItem[]> {
+  const res = await fetch(api(`/entity/${entityId}/history`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
+  return res.json() as Promise<EntityHistoryListItem[]>;
+}
+
+/** Снимок версии: ``GET /entity/{id}/history/{version_id}``. */
+export async function getEntityHistoryItem(
+  token: string,
+  entityId: number,
+  historyId: number,
+): Promise<EntityHistoryDetail> {
+  const res = await fetch(api(`/entity/${entityId}/history/${historyId}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось загрузить запись истории");
+  return res.json() as Promise<EntityHistoryDetail>;
 }
 
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {

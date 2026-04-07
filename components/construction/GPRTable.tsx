@@ -256,13 +256,13 @@ function cloneTasks(tasks: GPRTask[]): GPRTask[] {
 }
 
 export type GPRTableHandle = {
-  save: () => void;
+  save: () => Promise<void>;
   cancel: () => void;
 };
 
 type GPRTableProps = {
   tasks: GPRTask[];
-  onSaveTasks: (tasks: GPRTask[]) => void;
+  onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** Часть проекта: ТМЦ и блокировки считаются только по ней. */
   activePartId: number;
   /** Скрыть дублирующие кнопки (если шапка в EditLayout) */
@@ -385,8 +385,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDraftTasks((prev) => updateTaskNameAndCode(prev, id, nameValue, code));
   };
 
-  const saveDraft = useCallback(() => {
-    onSaveTasks(cloneTasks(draftTasks));
+  const saveDraft = useCallback(async () => {
+    await onSaveTasks(cloneTasks(draftTasks));
   }, [draftTasks, onSaveTasks]);
 
   const cancelDraft = useCallback(() => {
@@ -569,7 +569,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
             </button>
             <button
               type="button"
-              onClick={saveDraft}
+              onClick={() => void saveDraft()}
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
               Сохранить
@@ -846,22 +846,34 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                 ) : historyVersions.length === 0 ? (
                   <div className="text-sm text-slate-500">Нет сохранённых версий</div>
                 ) : (
-                  historyVersions.map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => void loadVersion(v.id)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
-                        historySelected?.id === v.id
-                          ? "border-sky-300 bg-sky-50 text-sky-800"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="font-semibold">v{v.version_number}</div>
-                      <div>{new Date(v.created_at).toLocaleString("ru-RU")}</div>
-                      <div className="text-slate-500">{v.created_by ?? "—"}</div>
-                    </button>
-                  ))
+                  historyVersions.map((v) => {
+                    const who =
+                      v.changed_by_name ??
+                      v.created_by ??
+                      (typeof v.changed_by === "number" ? `id ${v.changed_by}` : "—");
+                    const role = v.changed_by_role ?? "—";
+                    const kind = v.change_type?.trim();
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => void loadVersion(v.id)}
+                        className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
+                          historySelected?.id === v.id
+                            ? "border-sky-300 bg-sky-50 text-sky-800"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="font-semibold">v{v.version_number}</div>
+                        <div className="tabular-nums">{new Date(v.created_at).toLocaleString("ru-RU")}</div>
+                        <div className="mt-0.5 text-slate-800">{who}</div>
+                        <div className="text-slate-500">{role}</div>
+                        {kind ? (
+                          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">{kind}</div>
+                        ) : null}
+                      </button>
+                    );
+                  })
                 )}
                 <button
                   type="button"
@@ -875,6 +887,14 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
 
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <div className="mb-2 text-sm font-medium text-slate-800">Сравнение (текущая vs выбранная)</div>
+                {historySelected ? (
+                  <p className="mb-2 text-xs text-slate-500">
+                    Версия v{historySelected.version_number} ·{" "}
+                    {historySelected.changed_by_name ?? historySelected.created_by ?? "—"} ·{" "}
+                    {historySelected.changed_by_role ?? "—"}
+                    {historySelected.change_type ? ` · ${historySelected.change_type}` : null}
+                  </p>
+                ) : null}
                 {historyError ? <p className="mb-2 text-sm text-red-600">{historyError}</p> : null}
                 <div className="grid grid-cols-1 gap-2">
                   {compareFields.map((f) => {

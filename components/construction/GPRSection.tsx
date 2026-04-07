@@ -96,7 +96,7 @@ export function GPRSection({
 }: {
   tasks: GPRTask[];
   mode: "edit" | "presentation";
-  onSaveTasks: (tasks: GPRTask[]) => void;
+  onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   activePartId: number;
   onChangePart: (partId: number) => void;
 }) {
@@ -134,7 +134,9 @@ export function GPRSection({
         <EditLayout
           title="ГПР (график производства работ)"
           subtitle="Таблица задач: план, факт, контроль и иерархия работ"
-          onSave={() => tableRef.current?.save()}
+          onSave={async () => {
+            await tableRef.current?.save();
+          }}
           onCancel={() => tableRef.current?.cancel()}
         >
           <div className="mb-4 flex flex-wrap justify-center gap-2">

@@ -140,24 +140,53 @@ class RelatedDeviationItem(BaseModel):
 
 
 class GprDataVersionListItem(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     entity_id: int
     version_number: int
     created_at: datetime
+    changed_by: int
     created_by: str | None = None
+    changed_by_name: str | None = None
+    changed_by_role: str
+    change_type: str | None = "Редактирование"
 
 
 class GprDataVersionDetail(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     entity_id: int
     data: Any | None
     version_number: int
     created_at: datetime
+    changed_by: int
     created_by: str | None = None
+    changed_by_name: str | None = None
+    changed_by_role: str
+    change_type: str | None = "Редактирование"
+
+
+class EntityHistoryListItem(BaseModel):
+    """Элемент списка ``GET /entity/{id}/history``."""
+
+    id: int
+    entity_id: int
+    changed_by: int
+    created_at: datetime
+    changed_by_name: str | None = None
+    changed_by_role: str
+    change_type: str | None = "Редактирование"
+
+
+class EntityHistoryDetail(BaseModel):
+    """Снимок версии ``GET /entity/{id}/history/{version_id}``."""
+
+    id: int
+    entity_id: int
+    data: Any | None
+    changed_by: int
+    created_at: datetime
+    changed_by_name: str | None = None
+    changed_by_role: str
+    change_type: str | None = "Редактирование"
 
 
 class TmcItem(BaseModel):

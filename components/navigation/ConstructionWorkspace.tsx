@@ -123,31 +123,32 @@ function ConstructionWorkspaceInner({
     [tasks, activeGprPartId],
   );
 
-  const saveGprTasksForActivePart = (partTasks: GPRTask[]) => {
+  const saveGprTasksForActivePart = async (partTasks: GPRTask[]) => {
     const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
     setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
 
-    if (!canSyncGprToBackend || !token) return;
+    if (!canSyncGprToBackend || !token) {
+      return;
+    }
 
-    void (async () => {
-      try {
-        const synced: GPRTask[] = [];
-        for (const t of normalized) {
-          const idNum = Number(t.id);
-          const body = gprTaskToApiWritePayload(t);
-          if (Number.isFinite(idNum)) {
-            const row = await updateGprTaskApi(token, idNum, body);
-            synced.push(gprTaskFromApiItem(row));
-          } else {
-            const row = await createGprTaskApi(token, body);
-            synced.push(gprTaskFromApiItem(row));
-          }
+    try {
+      const synced: GPRTask[] = [];
+      for (const t of normalized) {
+        const idNum = Number(t.id);
+        const body = gprTaskToApiWritePayload(t);
+        if (Number.isFinite(idNum)) {
+          const row = await updateGprTaskApi(token, idNum, body);
+          synced.push(gprTaskFromApiItem(row));
+        } else {
+          const row = await createGprTaskApi(token, body);
+          synced.push(gprTaskFromApiItem(row));
         }
-        setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
-      } catch (e) {
-        console.error("[GPR] Сохранение в backend не удалось:", e);
       }
-    })();
+      setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
+    } catch (e) {
+      console.error("[GPR] Сохранение в backend не удалось:", e);
+      throw e;
+    }
   };
 
   const allowedApi = useMemo(() => allowedSections, [allowedSections]);

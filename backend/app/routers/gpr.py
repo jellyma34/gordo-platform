@@ -1,14 +1,16 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, require_admin_or_manager, require_gpr_write
-from app.models import GprDataVersion, GprRelatedDeviation, GprTask, ProjectPart, User
+from app.models import EntityHistory, GprRelatedDeviation, GprTask, ProjectPart, User
 from app.routers.tmc import tmc_row_for_part
 from app.schemas import (
+    EntityHistoryDetail,
+    EntityHistoryListItem,
     GprDataVersionDetail,
     GprDataVersionListItem,
     GprTaskCreate,
@@ -104,17 +106,41 @@ def _task_snapshot(task: GprTask) -> dict:
     }
 
 
-def _create_gpr_version(db: Session, task: GprTask, created_by: str | None) -> None:
-    last_ver = db.scalar(
-        select(func.max(GprDataVersion.version_number)).where(GprDataVersion.entity_id == task.id)
+def _history_rows_ordered_asc(db: Session, entity_id: int) -> list[EntityHistory]:
+    return list(
+        db.scalars(
+            select(EntityHistory)
+            .where(EntityHistory.entity_id == entity_id)
+            .order_by(EntityHistory.created_at.asc(), EntityHistory.id.asc())
+        ).all()
     )
-    next_ver = int(last_ver or 0) + 1
+
+
+def _version_number_by_history_id(rows_asc: list[EntityHistory]) -> dict[int, int]:
+    return {r.id: i + 1 for i, r in enumerate(rows_asc)}
+
+
+def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
+    """Имя для UI, email, подпись роли на русском."""
+    if u is None:
+        return None, None, "Неизвестно"
+    name = (u.full_name or "").strip() or None
+    display_name = name or u.email
+    role_ru = {
+        "admin": "Администратор",
+        "manager": "Руководитель",
+        "employee": "Сотрудник",
+    }.get(u.role, u.role)
+    return display_name, u.email, role_ru
+
+
+def _append_entity_history(db: Session, task: GprTask, changed_by_user_id: int) -> None:
+    """Снимок текущей строки до применения обновления."""
     db.add(
-        GprDataVersion(
+        EntityHistory(
             entity_id=task.id,
             data=_task_snapshot(task),
-            version_number=next_ver,
-            created_by=created_by,
+            changed_by=changed_by_user_id,
         )
     )
     db.flush()
@@ -182,18 +208,18 @@ def persist_gpr_task_update(
     db: Session,
     task_id: int,
     body: GprTaskUpdate,
-    actor_email: str | None,
+    actor: User,
 ) -> GprTaskItem:
-    """Обновление задачи в PostgreSQL: снимок версии → правки → commit + refresh."""
+    """Обновление задачи в PostgreSQL: снимок в entity_history → правки → commit + refresh."""
     task = db.get(GprTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
     part = db.get(ProjectPart, body.part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
-    print(f"[GPR] Saving task update: entity_id={task_id} user={actor_email!r}", flush=True)
+    print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
-    _create_gpr_version(db, task, actor_email)
+    _append_entity_history(db, task, actor.id)
     payload = body.model_dump()
     if not payload.get("global_task_id"):
         payload["global_task_id"] = task.global_task_id or payload["code"]
@@ -212,7 +238,7 @@ def update_gpr_task(
     actor: User = Depends(require_gpr_write),
     db: Session = Depends(get_db),
 ):
-    return persist_gpr_task_update(db, task_id, body, actor.email)
+    return persist_gpr_task_update(db, task_id, body, actor)
 
 
 @router.get("/tasks/{task_id}/related-deviations", response_model=list[RelatedDeviationItem])
@@ -233,6 +259,48 @@ def related_deviations(
     return [RelatedDeviationItem.model_validate(r) for r in rows]
 
 
+def list_entity_history(entity_id: int, db: Session) -> list[EntityHistoryListItem]:
+    """Список записей истории по дате создания (от старых к новым)."""
+    task = db.get(GprTask, entity_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
+    rows = _history_rows_ordered_asc(db, entity_id)
+    out: list[EntityHistoryListItem] = []
+    for r in rows:
+        u = db.get(User, r.changed_by)
+        display_name, _, role_ru = _user_history_display(u)
+        out.append(
+            EntityHistoryListItem(
+                id=r.id,
+                entity_id=r.entity_id,
+                changed_by=r.changed_by,
+                created_at=r.created_at,
+                changed_by_name=display_name,
+                changed_by_role=role_ru,
+                change_type="Редактирование",
+            )
+        )
+    return out
+
+
+def get_entity_history_item(entity_id: int, history_id: int, db: Session) -> EntityHistoryDetail:
+    row = db.get(EntityHistory, history_id)
+    if row is None or row.entity_id != entity_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    u = db.get(User, row.changed_by)
+    display_name, _, role_ru = _user_history_display(u)
+    return EntityHistoryDetail(
+        id=row.id,
+        entity_id=row.entity_id,
+        data=row.data,
+        changed_by=row.changed_by,
+        created_at=row.created_at,
+        changed_by_name=display_name,
+        changed_by_role=role_ru,
+        change_type="Редактирование",
+    )
+
+
 @router.get("/entity/{entity_id}/versions", response_model=list[GprDataVersionListItem])
 def list_entity_versions(
     entity_id: int,
@@ -242,12 +310,26 @@ def list_entity_versions(
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
-    rows = db.scalars(
-        select(GprDataVersion)
-        .where(GprDataVersion.entity_id == entity_id)
-        .order_by(GprDataVersion.version_number.desc())
-    ).all()
-    return [GprDataVersionListItem.model_validate(r) for r in rows]
+    rows_asc = _history_rows_ordered_asc(db, entity_id)
+    vn = _version_number_by_history_id(rows_asc)
+    out: list[GprDataVersionListItem] = []
+    for r in reversed(rows_asc):
+        u = db.get(User, r.changed_by)
+        display_name, email, role_ru = _user_history_display(u)
+        out.append(
+            GprDataVersionListItem(
+                id=r.id,
+                entity_id=r.entity_id,
+                version_number=vn[r.id],
+                created_at=r.created_at,
+                changed_by=r.changed_by,
+                created_by=email,
+                changed_by_name=display_name,
+                changed_by_role=role_ru,
+                change_type="Редактирование",
+            )
+        )
+    return out
 
 
 @router.get("/entity/{entity_id}/versions/{version_id}", response_model=GprDataVersionDetail)
@@ -257,10 +339,25 @@ def get_entity_version(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    row = db.get(GprDataVersion, version_id)
+    row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
-    return GprDataVersionDetail.model_validate(row)
+    rows_asc = _history_rows_ordered_asc(db, entity_id)
+    vn = _version_number_by_history_id(rows_asc)
+    u = db.get(User, row.changed_by)
+    display_name, email, role_ru = _user_history_display(u)
+    return GprDataVersionDetail(
+        id=row.id,
+        entity_id=row.entity_id,
+        data=row.data,
+        version_number=vn[row.id],
+        created_at=row.created_at,
+        changed_by=row.changed_by,
+        created_by=email,
+        changed_by_name=display_name,
+        changed_by_role=role_ru,
+        change_type="Редактирование",
+    )
 
 
 @router.post("/entity/{entity_id}/rollback/{version_id}", response_model=GprTaskItem)
@@ -273,12 +370,12 @@ def rollback_entity_version(
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
-    row = db.get(GprDataVersion, version_id)
+    row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
 
-    # Перед rollback сохраняем текущий снимок как новую версию.
-    _create_gpr_version(db, task, actor.email)
+    # Перед rollback сохраняем текущий снимок как новую запись истории.
+    _append_entity_history(db, task, actor.id)
 
     snapshot = row.data if isinstance(row.data, dict) else {}
     task.code = str(snapshot.get("code", task.code))
