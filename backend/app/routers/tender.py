@@ -50,3 +50,14 @@ def update_tender(
     db.refresh(t)
     return t
 
+
+@router.patch("/{tender_id}", response_model=TenderItem)
+def patch_tender(
+    tender_id: int,
+    body: TenderUpdate,
+    actor: User = Depends(require_admin_or_manager),
+    db: Session = Depends(get_db),
+):
+    # PATCH как алиас PUT для клиента.
+    return update_tender(tender_id, body, actor, db)
+

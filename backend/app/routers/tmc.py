@@ -170,6 +170,17 @@ def update_tmc(
     return t
 
 
+@router.patch("/{tmc_id}", response_model=TmcDbItem)
+def patch_tmc(
+    tmc_id: int,
+    body: TmcUpdate,
+    actor: User = Depends(require_admin_or_manager),
+    db: Session = Depends(get_db),
+):
+    # PATCH как алиас PUT для клиента.
+    return update_tmc(tmc_id, body, actor, db)
+
+
 def tmc_row_for_part(part_id: int, tmc_id: str) -> dict[str, str | None] | None:
     """План/факт поставки для блокировки ГПР с учётом части проекта."""
     key: ProjectPartKey = "parking" if part_id == 2 else "residential"
