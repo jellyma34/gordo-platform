@@ -136,6 +136,7 @@ export function GPRSection({
           subtitle="Таблица задач: план, факт, контроль и иерархия работ"
           onSave={async () => {
             await tableRef.current?.save();
+            await tableRef.current?.refreshHistoryIfOpen();
           }}
           onCancel={() => tableRef.current?.cancel()}
         >

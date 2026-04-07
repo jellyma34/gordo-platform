@@ -108,6 +108,7 @@ def ensure_entity_history_table() -> None:
     CREATE TABLE IF NOT EXISTS entity_history (
         id SERIAL PRIMARY KEY,
         entity_id INTEGER NOT NULL REFERENCES gpr_tasks(id),
+        entity_type VARCHAR(32) NOT NULL DEFAULT 'stage',
         data JSONB NOT NULL,
         changed_by INTEGER NOT NULL REFERENCES users(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -119,6 +120,25 @@ def ensure_entity_history_table() -> None:
         conn.execute(text(ddl))
         conn.execute(text(idx_entity))
         conn.execute(text(idx_user))
+
+
+def ensure_entity_history_entity_type_column() -> None:
+    """Таблица уже есть — добавить колонку entity_type, если её не было."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("entity_history"):
+            return
+        cols = {c["name"] for c in insp.get_columns("entity_history")}
+        if "entity_type" in cols:
+            return
+    except Exception:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE entity_history ADD COLUMN entity_type VARCHAR(32) NOT NULL DEFAULT 'stage'"
+            )
+        )
 
 
 def get_db():

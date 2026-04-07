@@ -11,6 +11,7 @@ from app.database import (
     Base,
     SessionLocal,
     engine,
+    ensure_entity_history_entity_type_column,
     ensure_entity_history_table,
     ensure_gpr_global_task_id_column,
     ensure_gpr_related_tmc_ids_column,
@@ -41,6 +42,7 @@ async def lifespan(_: FastAPI):
     ensure_gpr_global_task_id_column()
     ensure_gpr_related_tmc_ids_column()
     ensure_entity_history_table()
+    ensure_entity_history_entity_type_column()
     ensure_project_parts()
     bootstrap_admin_if_needed()
     print("Backend started", flush=True)

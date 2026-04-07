@@ -169,6 +169,7 @@ class EntityHistoryListItem(BaseModel):
 
     id: int
     entity_id: int
+    entity_type: str = "stage"
     changed_by: int
     created_at: datetime
     changed_by_name: str | None = None
@@ -181,6 +182,7 @@ class EntityHistoryDetail(BaseModel):
 
     id: int
     entity_id: int
+    entity_type: str = "stage"
     data: Any | None
     changed_by: int
     created_at: datetime

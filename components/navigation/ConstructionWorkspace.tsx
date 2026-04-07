@@ -105,11 +105,6 @@ function ConstructionWorkspaceInner({
   const searchParams = useSearchParams();
   const { role, hasFullConstructionAccess, allowedSections, token, hydrated } = useAuth();
 
-  const canSyncGprToBackend =
-    Boolean(token) &&
-    role != null &&
-    canAccessConstructionSection(role, allowedSections, "gpr");
-
   const prefix = pathname.startsWith("/presentation") ? "/presentation" : "/edit";
   const sectionParam = searchParams.get("section");
 
@@ -127,7 +122,8 @@ function ConstructionWorkspaceInner({
     const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
     setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
 
-    if (!canSyncGprToBackend || !token) {
+    if (!token) {
+      console.warn("[GPR] Сохранение без токена: запрос к API не отправляется");
       return;
     }
 

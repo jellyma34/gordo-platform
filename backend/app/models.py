@@ -80,6 +80,8 @@ class EntityHistory(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     entity_id: Mapped[int] = mapped_column(ForeignKey("gpr_tasks.id"), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, default="stage")
+    """Тип сущности в продуктовых терминах (этап ГПР = ``stage``)."""
     data: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
     changed_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(

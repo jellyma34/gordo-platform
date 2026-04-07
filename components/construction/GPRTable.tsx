@@ -27,12 +27,13 @@ import { getTmcData } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
-  getEntityVersion,
-  listEntityVersions,
+  getEntityHistoryItem,
+  listEntityHistory,
   rollbackEntityVersion,
   type EntityVersionDetail,
   type EntityVersionListItem,
 } from "@/lib/auth";
+import { historyDetailToVersionDetail, historyRowsToVersionListItems } from "@/lib/gprHistoryMap";
 
 type FlatTask = GPRTask & { level: number; parentId?: string };
 
@@ -258,6 +259,8 @@ function cloneTasks(tasks: GPRTask[]): GPRTask[] {
 export type GPRTableHandle = {
   save: () => Promise<void>;
   cancel: () => void;
+  /** После успешного сохранения на backend — обновить список истории, если открыто окно. */
+  refreshHistoryIfOpen: () => Promise<void>;
 };
 
 type GPRTableProps = {
@@ -297,6 +300,11 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  const historySelectedIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    historySelectedIdRef.current = historySelected?.id ?? null;
+  }, [historySelected]);
 
   useEffect(() => {
     setDraftTasks(cloneTasks(tasks));
@@ -393,7 +401,39 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDraftTasks(cloneTasks(tasks));
   }, [tasks]);
 
-  useImperativeHandle(ref, () => ({ save: saveDraft, cancel: cancelDraft }), [saveDraft, cancelDraft]);
+  const refreshHistoryIfOpen = useCallback(async () => {
+    if (!token || !historyTask) return;
+    const entityId = Number(historyTask.id);
+    if (!Number.isFinite(entityId)) return;
+    try {
+      const rows = await listEntityHistory(token, entityId);
+      const versions = historyRowsToVersionListItems(rows);
+      setHistoryVersions(versions);
+      if (versions.length === 0) {
+        setHistorySelected(null);
+        return;
+      }
+      const sid = historySelectedIdRef.current;
+      const pick =
+        sid != null && versions.some((v) => v.id === sid)
+          ? versions.find((v) => v.id === sid)!
+          : versions[0]!;
+      const d = await getEntityHistoryItem(token, entityId, pick.id);
+      setHistorySelected(historyDetailToVersionDetail(d, pick.version_number));
+    } catch {
+      /* окно истории не должно ломать сохранение */
+    }
+  }, [token, historyTask]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: saveDraft,
+      cancel: cancelDraft,
+      refreshHistoryIfOpen,
+    }),
+    [saveDraft, cancelDraft, refreshHistoryIfOpen],
+  );
 
   const addSubtask = (parent: FlatTask) => {
     const nextIndex = nextChildIndex(allRows, parent.code);
@@ -488,11 +528,13 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryError(null);
     setHistorySelected(null);
     try {
-      const versions = await listEntityVersions(token, entityId);
+      const rows = await listEntityHistory(token, entityId);
+      const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
       if (versions.length > 0) {
-        const detail = await getEntityVersion(token, entityId, versions[0]!.id);
-        setHistorySelected(detail);
+        const first = versions[0]!;
+        const detail = await getEntityHistoryItem(token, entityId, first.id);
+        setHistorySelected(historyDetailToVersionDetail(detail, first.version_number));
       }
     } catch (e) {
       setHistoryError(e instanceof Error ? e.message : "Не удалось загрузить историю");
@@ -508,8 +550,11 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const detail = await getEntityVersion(token, entityId, versionId);
-      setHistorySelected(detail);
+      const detail = await getEntityHistoryItem(token, entityId, versionId);
+      const meta = historyVersions.find((v) => v.id === versionId);
+      setHistorySelected(
+        historyDetailToVersionDetail(detail, meta?.version_number ?? versionId),
+      );
     } catch (e) {
       setHistoryError(e instanceof Error ? e.message : "Не удалось загрузить версию");
     } finally {
@@ -527,11 +572,13 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryError(null);
     try {
       await rollbackEntityVersion(token, entityId, historySelected.id);
-      const versions = await listEntityVersions(token, entityId);
+      const rows = await listEntityHistory(token, entityId);
+      const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
       if (versions.length > 0) {
-        const detail = await getEntityVersion(token, entityId, versions[0]!.id);
-        setHistorySelected(detail);
+        const first = versions[0]!;
+        const detail = await getEntityHistoryItem(token, entityId, first.id);
+        setHistorySelected(historyDetailToVersionDetail(detail, first.version_number));
       }
     } catch (e) {
       setHistoryError(e instanceof Error ? e.message : "Не удалось выполнить откат");

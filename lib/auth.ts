@@ -493,6 +493,7 @@ export async function rollbackEntityVersion(
 export type EntityHistoryListItem = {
   id: number;
   entity_id: number;
+  entity_type?: string;
   changed_by: number;
   created_at: string;
   changed_by_name?: string | null;
@@ -503,6 +504,7 @@ export type EntityHistoryListItem = {
 export type EntityHistoryDetail = {
   id: number;
   entity_id: number;
+  entity_type?: string;
   data: Record<string, unknown> | null;
   changed_by: number;
   created_at: string;
@@ -615,6 +617,7 @@ export async function updateGprTaskApi(
   taskId: number,
   body: GprTaskWritePayload,
 ): Promise<GprTaskApiItem> {
+  console.log("SAVE REQUEST", taskId);
   const res = await fetch(api(`/gpr/tasks/${taskId}`), {
     method: "PUT",
     headers: {
@@ -628,6 +631,7 @@ export async function updateGprTaskApi(
 }
 
 export async function createGprTaskApi(token: string, body: GprTaskWritePayload): Promise<GprTaskApiItem> {
+  console.log("SAVE REQUEST", "create", body.code);
   const res = await fetch(api(`/gpr/tasks`), {
     method: "POST",
     headers: {
