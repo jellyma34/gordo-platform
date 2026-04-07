@@ -4,6 +4,7 @@ import "@/lib/chartSetup";
 import "./globals.css";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { LogApiUrl } from "@/components/dev/LogApiUrl";
 import { ModeBar } from "@/components/mode/ModeBar";
 import { ModeProvider } from "@/components/mode/ModeProvider";
 
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body>
         <ModeProvider>
           <AuthProvider>
+            <LogApiUrl />
             <AuthGate>
               <ModeBar />
               {children}
