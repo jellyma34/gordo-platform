@@ -22,6 +22,7 @@ import {
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
+import { filterTaskTree, useTaskFilter, type TaskStatusFilter } from "@/lib/filters/useTaskFilter";
 import { getRelatedDeviations, type RelatedDeviation } from "@/lib/gprRelatedDeviations";
 import type { GprWorkCatalogItem } from "@/lib/gprWorkCatalog";
 import { getTmcData } from "@/lib/tmcData";
@@ -305,7 +306,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [rollbackBusy, setRollbackBusy] = useState(false);
   const [deleteHistoryBusyId, setDeleteHistoryBusyId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "blocked" | "delay" | "ok">("all");
+  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
   const historySelectedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -376,16 +377,14 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     [blockedReasonsByTaskId],
   );
 
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return visibleRows.filter((task) => {
-      const bySearch =
-        !q || task.name.toLowerCase().includes(q) || task.code.toLowerCase().includes(q);
-      const st = rowStatus(task);
-      const byStatus = statusFilter === "all" ? true : st === statusFilter;
-      return bySearch && byStatus;
-    });
-  }, [visibleRows, search, statusFilter, rowStatus]);
+  const directMatches = useTaskFilter(allRows, search, statusFilter, rowStatus);
+  const directMatchIds = useMemo(() => new Set(directMatches.map((x) => x.id)), [directMatches]);
+  const hasActiveFilters = search.trim().length > 0 || statusFilter !== "all";
+  const filteredTreeRows = useMemo(
+    () => filterTaskTree(allRows, (item) => directMatchIds.has(item.id)),
+    [allRows, directMatchIds],
+  );
+  const rowsForRender = hasActiveFilters ? filteredTreeRows : visibleRows;
 
   const toggle = (id: string) => {
     setExpandedIds((prev) => {
@@ -729,7 +728,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
           </div>
 
           <div className="space-y-2">
-            {filteredRows.map((task) => {
+            {rowsForRender.map((task) => {
               const hasChildren = hasChildrenById.get(task.id) ?? false;
               const deviation = calculateDeviation(task);
               const deviationText =
