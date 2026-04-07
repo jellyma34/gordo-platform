@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_admin_or_manager, require_gpr_write
+from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
 from app.models import EntityHistory, GprRelatedDeviation, GprTask, ProjectPart, User
 from app.routers.tmc import tmc_row_for_part
 from app.schemas import (
@@ -447,6 +447,7 @@ def rollback_entity_version(
     row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    print("ROLLBACK", entity_id, "TO VERSION", version_id, flush=True)
 
     rows_asc = _history_rows_ordered_asc(db, entity_id)
     vn = _version_number_by_history_id(rows_asc)
@@ -464,3 +465,38 @@ def rollback_entity_version(
     db.commit()
     db.refresh(task)
     return _to_task_item(task)
+
+
+def delete_entity_history_version(entity_id: int, version_id: int, db: Session) -> None:
+    """Удаляет запись истории только для админа с защитой от критичных случаев."""
+    row = db.get(EntityHistory, version_id)
+    if row is None or row.entity_id != entity_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+
+    rows_asc = _history_rows_ordered_asc(db, entity_id)
+    if len(rows_asc) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить единственную версию истории",
+        )
+
+    last_id = rows_asc[-1].id
+    if row.id == last_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить активную (последнюю) версию истории",
+        )
+
+    print("DELETE HISTORY", version_id, flush=True)
+    db.delete(row)
+    db.commit()
+
+
+@router.delete("/entity/{entity_id}/history/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_entity_history_item(
+    entity_id: int,
+    version_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    delete_entity_history_version(entity_id, version_id, db)

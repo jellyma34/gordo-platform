@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_admin_or_manager, require_gpr_write
+from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
 from app.models import User
 from app.routers.gpr import (
+    delete_entity_history_version,
     get_entity_history_item,
     get_entity_version,
     list_entity_history,
@@ -71,6 +72,16 @@ def list_history_alias(
     db: Session = Depends(get_db),
 ):
     return list_entity_history(entity_id, db)
+
+
+@router.delete("/{entity_id}/history/{version_id}", status_code=204)
+def delete_history_item_alias(
+    entity_id: int,
+    version_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    delete_entity_history_version(entity_id, version_id, db)
 
 
 @router.get("/{entity_id}", response_model=GprTaskItem)
