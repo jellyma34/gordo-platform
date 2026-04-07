@@ -468,6 +468,8 @@ def rollback_entity_version(
     print("CURRENT SNAPSHOT:", current_snapshot, flush=True)
     print("RESTORE DATA:", restore_data, flush=True)
     _append_entity_history(db, current_snapshot, actor.id)
+    db.flush()
+    db.expire(task)
 
     # 3) Применяем выбранную версию к текущей задаче
     before_apply = copy.deepcopy(restore_data)
