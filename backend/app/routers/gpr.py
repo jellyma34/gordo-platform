@@ -136,20 +136,17 @@ def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
 
 
 def _apply_snapshot_to_task(task: GprTask, data: dict) -> None:
-    """Применяет снимок к задаче. Не изменяет объекты ``EntityHistory``."""
+    """Применяет снимок к задаче, history остаётся только для чтения."""
     if not isinstance(data, dict):
         return
     for field, value in data.items():
-        if field == "id" or field not in _GPR_TASK_SNAPSHOT_KEYS:
+        if field == "id":
             continue
-        if field == "related_tmc_ids":
-            setattr(task, field, list(value) if isinstance(value, list) else [])
-        elif field in ("level", "completion", "part_id"):
-            setattr(task, field, int(value))
-        elif field in ("fact_start", "fact_end", "comment"):
-            setattr(task, field, value)
-        else:
-            setattr(task, field, "" if value is None else str(value))
+        if field not in _GPR_TASK_SNAPSHOT_KEYS:
+            continue
+        if not hasattr(task, field):
+            continue
+        setattr(task, field, copy.deepcopy(value))
 
 
 def _history_rows_ordered_asc(db: Session, entity_id: int) -> list[EntityHistory]:
@@ -447,6 +444,7 @@ def rollback_entity_version(
     row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    print("ROLLBACK CALLED", entity_id, version_id, flush=True)
     print("ROLLBACK", entity_id, "TO VERSION", version_id, flush=True)
 
     rows_asc = _history_rows_ordered_asc(db, entity_id)
@@ -459,6 +457,8 @@ def rollback_entity_version(
     restore_data = _frozen_snapshot_from_history_row(row)
 
     db.refresh(task)
+    print("BEFORE:", _task_snapshot(task), flush=True)
+    print("APPLY:", restore_data, flush=True)
     _append_entity_history(db, task, actor.id)
     _apply_snapshot_to_task(task, restore_data)
 
@@ -467,7 +467,7 @@ def rollback_entity_version(
     return _to_task_item(task)
 
 
-def delete_entity_history_version(entity_id: int, version_id: int, db: Session) -> None:
+def delete_entity_history_version(entity_id: int, version_id: int, db: Session) -> dict[str, str]:
     """Удаляет запись истории только для админа с защитой от критичных случаев."""
     row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
@@ -490,13 +490,14 @@ def delete_entity_history_version(entity_id: int, version_id: int, db: Session) 
     print("DELETE HISTORY", version_id, flush=True)
     db.delete(row)
     db.commit()
+    return {"status": "deleted"}
 
 
-@router.delete("/entity/{entity_id}/history/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/entity/{entity_id}/history/{version_id}")
 def delete_entity_history_item(
     entity_id: int,
     version_id: int,
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    delete_entity_history_version(entity_id, version_id, db)
+    return delete_entity_history_version(entity_id, version_id, db)

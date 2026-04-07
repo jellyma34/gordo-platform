@@ -74,14 +74,14 @@ def list_history_alias(
     return list_entity_history(entity_id, db)
 
 
-@router.delete("/{entity_id}/history/{version_id}", status_code=204)
+@router.delete("/{entity_id}/history/{version_id}")
 def delete_history_item_alias(
     entity_id: int,
     version_id: int,
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    delete_entity_history_version(entity_id, version_id, db)
+    return delete_entity_history_version(entity_id, version_id, db)
 
 
 @router.get("/{entity_id}", response_model=GprTaskItem)
