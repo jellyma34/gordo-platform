@@ -108,6 +108,50 @@ def _task_snapshot(task: GprTask) -> dict:
     }
 
 
+# Поля снимка, допустимые для отката на GprTask (``id`` не меняем — это ключ строки задачи).
+_GPR_TASK_SNAPSHOT_KEYS = frozenset(
+    {
+        "code",
+        "global_task_id",
+        "name",
+        "level",
+        "plan_start",
+        "plan_end",
+        "fact_start",
+        "fact_end",
+        "completion",
+        "comment",
+        "related_tmc_ids",
+        "part_id",
+    }
+)
+
+
+def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
+    """Независимая копия ``row.data`` до любых flush; строка history только для чтения."""
+    raw = row.data
+    if not isinstance(raw, dict):
+        return {}
+    return json.loads(json.dumps(copy.deepcopy(raw), default=str))
+
+
+def _apply_snapshot_to_task(task: GprTask, data: dict) -> None:
+    """Применяет снимок к задаче. Не изменяет объекты ``EntityHistory``."""
+    if not isinstance(data, dict):
+        return
+    for field, value in data.items():
+        if field == "id" or field not in _GPR_TASK_SNAPSHOT_KEYS:
+            continue
+        if field == "related_tmc_ids":
+            setattr(task, field, list(value) if isinstance(value, list) else [])
+        elif field in ("level", "completion", "part_id"):
+            setattr(task, field, int(value))
+        elif field in ("fact_start", "fact_end", "comment"):
+            setattr(task, field, value)
+        else:
+            setattr(task, field, "" if value is None else str(value))
+
+
 def _history_rows_ordered_asc(db: Session, entity_id: int) -> list[EntityHistory]:
     return list(
         db.scalars(
@@ -391,6 +435,12 @@ def rollback_entity_version(
     actor: User = Depends(require_admin_or_manager),
     db: Session = Depends(get_db),
 ):
+    """Откат: текущее состояние → новая запись в history, затем задача = снимок выбранной версии.
+
+    ``version_id`` — ``id`` строки ``entity_history`` (не порядковый номер v1/v2).
+    Снимок целевой версии копируется до ``_append_entity_history``/flush, чтобы не перезаписать
+    выбранную версию текущими данными из-за общих ссылок на JSON в сессии.
+    """
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
@@ -398,24 +448,11 @@ def rollback_entity_version(
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
 
-    db.refresh(task)
-    # Снимок текущего состояния до отката, затем применение выбранной версии — один commit.
-    _append_entity_history(db, task, actor.id)
+    restore_data = _frozen_snapshot_from_history_row(row)
 
-    snapshot = copy.deepcopy(row.data) if isinstance(row.data, dict) else {}
-    task.code = str(snapshot.get("code", task.code))
-    task.global_task_id = str(snapshot.get("global_task_id", task.global_task_id))
-    task.name = str(snapshot.get("name", task.name))
-    task.level = int(snapshot.get("level", task.level))
-    task.plan_start = str(snapshot.get("plan_start", task.plan_start))
-    task.plan_end = str(snapshot.get("plan_end", task.plan_end))
-    task.fact_start = snapshot.get("fact_start")
-    task.fact_end = snapshot.get("fact_end")
-    task.completion = int(snapshot.get("completion", task.completion))
-    task.comment = snapshot.get("comment")
-    rel = snapshot.get("related_tmc_ids")
-    task.related_tmc_ids = rel if isinstance(rel, list) else []
-    task.part_id = int(snapshot.get("part_id", task.part_id))
+    db.refresh(task)
+    _append_entity_history(db, task, actor.id)
+    _apply_snapshot_to_task(task, restore_data)
 
     db.commit()
     db.refresh(task)
