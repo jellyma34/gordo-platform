@@ -1,4 +1,5 @@
 import copy
+import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -136,12 +137,17 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
 
 
 def _append_entity_history(db: Session, task: GprTask, changed_by_user_id: int) -> None:
-    """Снимок этапа (GprTask) до UPDATE: без ``__dict__`` ORM — только переносимые поля в JSON."""
+    """Пишет в ``entity_history`` состояние этапа **до** применения правок в этой же транзакции.
+
+    Снимок — только скаляры/списки из ORM, затем ``deepcopy`` и ``json`` round-trip, чтобы в колонку
+    JSON ушёл отдельный dict без общих ссылок на объекты сессии (иначе версии могли «схлопываться»).
+    """
     snapshot = copy.deepcopy(_task_snapshot(task))
+    data = json.loads(json.dumps(snapshot, default=str))
     row = EntityHistory(
         entity_id=task.id,
         entity_type="stage",
-        data=snapshot,
+        data=data,
         changed_by=changed_by_user_id,
     )
     db.add(row)
@@ -215,8 +221,8 @@ def persist_gpr_task_update(
 ) -> GprTaskItem:
     """Эндпоинт обновления этапа: ``PUT /gpr/tasks/{id}`` / ``PUT /entity/{id}``.
 
-    1) Читаем актуальную строку, пишем снимок в ``entity_history``, **commit**.
-    2) Заново загружаем задачу и применяем поля тела, **commit**.
+    Порядок: актуальная строка из БД → снимок (**старое** состояние) → строка в ``entity_history`` →
+    применение полей из тела → один ``commit`` (атомарно).
     """
     task = db.get(GprTask, task_id)
     if task is None:
@@ -227,20 +233,15 @@ def persist_gpr_task_update(
     db.refresh(task)
     print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
-    _append_entity_history(db, task, actor.id)
-    db.commit()
 
-    task = db.get(GprTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
-    part = db.get(ProjectPart, body.part_id)
-    if part is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
+    _append_entity_history(db, task, actor.id)
+
     payload = body.model_dump()
     if not payload.get("global_task_id"):
         payload["global_task_id"] = task.global_task_id or payload["code"]
     for key, value in payload.items():
         setattr(task, key, value)
+
     db.commit()
     db.refresh(task)
     print(f"[GPR] Committed task id={task.id} code={task.code!r}", flush=True)
@@ -397,15 +398,11 @@ def rollback_entity_version(
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
 
-    # Перед rollback сохраняем текущий снимок как новую запись истории и фиксируем в БД.
+    db.refresh(task)
+    # Снимок текущего состояния до отката, затем применение выбранной версии — один commit.
     _append_entity_history(db, task, actor.id)
-    db.commit()
 
-    task = db.get(GprTask, entity_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
-
-    snapshot = row.data if isinstance(row.data, dict) else {}
+    snapshot = copy.deepcopy(row.data) if isinstance(row.data, dict) else {}
     task.code = str(snapshot.get("code", task.code))
     task.global_task_id = str(snapshot.get("global_task_id", task.global_task_id))
     task.name = str(snapshot.get("name", task.name))
