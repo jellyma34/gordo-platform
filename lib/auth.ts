@@ -663,6 +663,11 @@ export async function getEntityGprTaskApi(token: string, entityId: number): Prom
   return res.json() as Promise<GprTaskApiItem>;
 }
 
+/** Алиас для UI rollback: получить актуальную сущность после операции. */
+export async function getTask(token: string, entityId: number): Promise<GprTaskApiItem> {
+  return getEntityGprTaskApi(token, entityId);
+}
+
 /** Случайный пароль на клиенте (до отправки на сервер; API пароль не возвращает). */
 export function generateClientPassword(): string {
   const bytes = new Uint8Array(16);

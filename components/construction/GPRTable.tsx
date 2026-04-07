@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 import {
   calculateDeviation,
   durationDays,
+  gprTaskFromApiItem,
   getStatus,
   getStatusByDeviation,
   getStatusLabel,
@@ -28,6 +29,7 @@ import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombob
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   deleteEntityHistoryVersion,
+  getTask,
   getEntityHistoryItem,
   listEntityHistory,
   rollbackEntityVersion,
@@ -595,6 +597,10 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryError(null);
     try {
       await rollbackEntityVersion(token, entityId, historySelected.id);
+      const updatedTaskApi = await getTask(token, entityId);
+      const updatedTask = gprTaskFromApiItem(updatedTaskApi);
+      setDraftTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? { ...updatedTask } : t)));
+      setHistoryTask((prev) => (prev && Number(prev.id) === entityId ? { ...prev, ...updatedTask } : prev));
       const rows = await listEntityHistory(token, entityId);
       const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
