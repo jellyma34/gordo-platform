@@ -91,7 +91,8 @@ def _to_task_item(task: GprTask) -> GprTaskItem:
 
 
 def _task_snapshot(task: GprTask) -> dict:
-    return {
+    return copy.deepcopy(
+        {
         "id": task.id,
         "code": task.code,
         "global_task_id": task.global_task_id,
@@ -105,7 +106,8 @@ def _task_snapshot(task: GprTask) -> dict:
         "comment": task.comment,
         "related_tmc_ids": [x for x in (task.related_tmc_ids or []) if isinstance(x, str)],
         "part_id": task.part_id,
-    }
+        }
+    )
 
 
 # Поля снимка, допустимые для отката на GprTask (``id`` не меняем — это ключ строки задачи).
@@ -457,7 +459,10 @@ def rollback_entity_version(
     restore_data = _frozen_snapshot_from_history_row(row)
 
     db.refresh(task)
-    print("BEFORE:", _task_snapshot(task), flush=True)
+    current_snapshot = _task_snapshot(task)
+    print("CURRENT SNAPSHOT:", current_snapshot, flush=True)
+    print("RESTORE DATA:", restore_data, flush=True)
+    print("BEFORE:", current_snapshot, flush=True)
     print("APPLY:", restore_data, flush=True)
     _append_entity_history(db, task, actor.id)
     _apply_snapshot_to_task(task, restore_data)
