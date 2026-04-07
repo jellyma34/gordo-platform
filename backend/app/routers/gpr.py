@@ -109,25 +109,6 @@ def _task_snapshot(task: GprTask) -> dict:
     )
 
 
-# Поля снимка, допустимые для отката на GprTask (``id`` не меняем — это ключ строки задачи).
-_GPR_TASK_SNAPSHOT_KEYS = frozenset(
-    {
-        "code",
-        "global_task_id",
-        "name",
-        "level",
-        "plan_start",
-        "plan_end",
-        "fact_start",
-        "fact_end",
-        "completion",
-        "comment",
-        "related_tmc_ids",
-        "part_id",
-    }
-)
-
-
 def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
     """Независимая копия ``row.data`` до любых flush; строка history только для чтения."""
     raw = row.data
@@ -136,18 +117,15 @@ def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
     return copy.deepcopy(raw)
 
 
-def _apply_snapshot_to_task(task: GprTask, data: dict) -> None:
-    """Применяет снимок к задаче, history остаётся только для чтения."""
-    if not isinstance(data, dict):
+def _apply_snapshot_to_task(task: GprTask, snapshot: dict) -> None:
+    """Копирует поля только из ``snapshot`` в ``task`` (одно направление). ``snapshot`` не меняем."""
+    if not isinstance(snapshot, dict):
         return
-    for field, value in data.items():
+    for field, value in snapshot.items():
         if field == "id":
             continue
-        if field not in _GPR_TASK_SNAPSHOT_KEYS:
-            continue
-        if not hasattr(task, field):
-            continue
-        setattr(task, field, copy.deepcopy(value))
+        if hasattr(task, field):
+            setattr(task, field, value)
 
 
 def _history_rows_ordered_asc(db: Session, entity_id: int) -> list[EntityHistory]:
