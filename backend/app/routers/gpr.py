@@ -408,11 +408,10 @@ def rollback_entity_version(
     actor: User = Depends(require_admin_or_manager),
     db: Session = Depends(get_db),
 ):
-    """Откат: текущее состояние → новая запись в history, затем задача = снимок выбранной версии.
+    """Откат: сначала к ``task`` применяется выбранный снимок, затем текущее состояние ``task``
+    (уже после отката) сохраняется новой строкой в ``entity_history``.
 
     ``version_id`` — ``id`` строки ``entity_history`` (не порядковый номер v1/v2).
-    Снимок целевой версии копируется до ``_append_entity_history``/flush, чтобы не перезаписать
-    выбранную версию текущими данными из-за общих ссылок на JSON в сессии.
     """
     task = db.get(GprTask, entity_id)
     if task is None:
@@ -430,26 +429,22 @@ def rollback_entity_version(
     current_version = len(rows_asc) + 1
     print("ROLLBACK FROM", current_version, "TO", selected_version, flush=True)
 
-    # Сохраняем текущее состояние ДО изменений как новую версию history
     db.refresh(task)
-    current_snapshot = copy.deepcopy(_task_snapshot(task))
-    print("CURRENT SNAPSHOT:", current_snapshot, flush=True)
-    _append_entity_history(db, current_snapshot, actor.id)
-    db.flush()
-    db.expire(task)
-
-    # Диагностика: меняется ли row.data в сессии; snapshot без общих ссылок с ORM
-    print("ROW BEFORE:", row.data, flush=True)
-    print("TASK BEFORE:", task.__dict__, flush=True)
     raw = row.data
     restore_data: dict
     if isinstance(raw, dict):
         restore_data = json.loads(json.dumps(raw, default=str))
     else:
         restore_data = {}
+
+    # Диагностика: меняется ли row.data в сессии
+    print("ROW BEFORE:", row.data, flush=True)
+    print("TASK BEFORE:", task.__dict__, flush=True)
     _apply_snapshot_to_task(task, restore_data)
     print("ROW AFTER:", row.data, flush=True)
     print("TASK AFTER:", task.__dict__, flush=True)
+
+    _append_entity_history(db, _task_snapshot(task), actor.id)
 
     db.commit()
     db.refresh(task)
