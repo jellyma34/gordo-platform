@@ -1,5 +1,4 @@
 import copy
-import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -134,7 +133,7 @@ def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
     raw = row.data
     if not isinstance(raw, dict):
         return {}
-    return json.loads(json.dumps(copy.deepcopy(raw), default=str))
+    return copy.deepcopy(raw)
 
 
 def _apply_snapshot_to_task(task: GprTask, data: dict) -> None:
@@ -185,7 +184,7 @@ def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int)
     На вход принимает уже изолированный ``snapshot`` (dict), а не ORM-объект, чтобы исключить
     любые побочные мутации состояния задачи после сохранения истории.
     """
-    data = json.loads(json.dumps(copy.deepcopy(snapshot), default=str))
+    data = copy.deepcopy(snapshot)
     entity_id_raw = data.get("id")
     try:
         entity_id = int(entity_id_raw)
@@ -471,7 +470,9 @@ def rollback_entity_version(
     _append_entity_history(db, current_snapshot, actor.id)
 
     # 3) Применяем выбранную версию к текущей задаче
+    before_apply = copy.deepcopy(restore_data)
     _apply_snapshot_to_task(task, restore_data)
+    print("MUTATION CHECK:", before_apply == restore_data, flush=True)
 
     db.commit()
     db.refresh(task)
