@@ -74,7 +74,7 @@ export function EditLayout({
   const saveClassName = saveError ? btnError : saveSuccess ? btnSuccess : btnPrimary;
 
   return (
-    <div className="edit-layout mx-auto w-full max-w-7xl">
+    <div className="edit-layout w-full">
       <div className="edit-content rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="edit-header flex flex-col gap-4 border-b border-slate-100 px-5 py-5 md:flex-row md:items-start md:justify-between md:px-6 md:py-6">
           <div className="min-w-0">

@@ -655,7 +655,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       : [];
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-4 px-6">
+    <div className="w-full space-y-4">
       <section className={panelClass}>
         {!hideEditToolbar ? (
           <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
