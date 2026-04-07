@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
 from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
@@ -441,6 +442,11 @@ def rollback_entity_version(
     print("ROW BEFORE:", row.data, flush=True)
     print("TASK BEFORE:", task.__dict__, flush=True)
     _apply_snapshot_to_task(task, restore_data)
+    # JSON-колонка: иначе SQLAlchemy может не отправить UPDATE при откате списка ТМЦ
+    flag_modified(task, "related_tmc_ids")
+    print("TASK IS_MODIFIED:", db.is_modified(task, include_collections=True), flush=True)
+    db.add(task)
+    db.flush()
     print("ROW AFTER:", row.data, flush=True)
     print("TASK AFTER:", task.__dict__, flush=True)
 
