@@ -94,6 +94,33 @@ def ensure_gpr_related_tmc_ids_column() -> None:
         conn.execute(text("ALTER TABLE gpr_tasks ADD COLUMN related_tmc_ids JSON"))
 
 
+def ensure_entity_history_table() -> None:
+    """Без Alembic: таблица истории изменений ГПР (снимок до UPDATE)."""
+    try:
+        insp = inspect(engine)
+        if insp.has_table("entity_history"):
+            return
+        if not insp.has_table("gpr_tasks") or not insp.has_table("users"):
+            return
+    except Exception:
+        return
+    ddl = """
+    CREATE TABLE IF NOT EXISTS entity_history (
+        id SERIAL PRIMARY KEY,
+        entity_id INTEGER NOT NULL REFERENCES gpr_tasks(id),
+        data JSONB NOT NULL,
+        changed_by INTEGER NOT NULL REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """
+    idx_entity = "CREATE INDEX IF NOT EXISTS ix_entity_history_entity_id ON entity_history (entity_id)"
+    idx_user = "CREATE INDEX IF NOT EXISTS ix_entity_history_changed_by ON entity_history (changed_by)"
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+        conn.execute(text(idx_entity))
+        conn.execute(text(idx_user))
+
+
 def get_db():
     db = SessionLocal()
     try:

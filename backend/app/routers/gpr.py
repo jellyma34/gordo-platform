@@ -1,3 +1,4 @@
+import copy
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -135,15 +136,19 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
 
 
 def _append_entity_history(db: Session, task: GprTask, changed_by_user_id: int) -> None:
-    """Снимок текущей строки до применения обновления."""
-    db.add(
-        EntityHistory(
-            entity_id=task.id,
-            data=_task_snapshot(task),
-            changed_by=changed_by_user_id,
-        )
+    """Снимок текущей строки из БД до применения UPDATE (глубокая копия в JSON)."""
+    snapshot = copy.deepcopy(_task_snapshot(task))
+    row = EntityHistory(
+        entity_id=task.id,
+        data=snapshot,
+        changed_by=changed_by_user_id,
     )
+    db.add(row)
     db.flush()
+    print(
+        f"[GPR] entity_history inserted id={row.id} entity_id={task.id} changed_by={changed_by_user_id}",
+        flush=True,
+    )
 
 
 @router.get("/parts", response_model=list[ProjectPartItem])
@@ -210,13 +215,15 @@ def persist_gpr_task_update(
     body: GprTaskUpdate,
     actor: User,
 ) -> GprTaskItem:
-    """Обновление задачи в PostgreSQL: снимок в entity_history → правки → commit + refresh."""
+    """UPDATE gpr_tasks: сначала INSERT в entity_history (снимок), затем правки и commit."""
     task = db.get(GprTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
     part = db.get(ProjectPart, body.part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
+    # Актуальное состояние из текущей транзакции/БД перед изменением полей ORM
+    db.refresh(task)
     print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
     _append_entity_history(db, task, actor.id)
