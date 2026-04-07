@@ -529,6 +529,22 @@ export async function getEntityHistoryItem(
   return res.json() as Promise<EntityHistoryDetail>;
 }
 
+/** Удаление записи истории (только администратор). ``DELETE /entity/{id}/history/{version_id}``. */
+export async function deleteEntityHistoryVersion(
+  token: string,
+  entityId: number,
+  historyId: number,
+): Promise<void> {
+  const res = await fetch(api(`/entity/${entityId}/history/${historyId}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await adminJsonError(res, "Не удалось удалить версию истории");
+  if (res.headers.get("content-type")?.includes("application/json")) {
+    await res.json().catch(() => undefined);
+  }
+}
+
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {
   const res = await fetch(api(`/admin/users/${userId}/password`), {
     method: "PUT",

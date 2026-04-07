@@ -27,6 +27,7 @@ import { getTmcData } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
+  deleteEntityHistoryVersion,
   getEntityHistoryItem,
   listEntityHistory,
   rollbackEntityVersion,
@@ -278,7 +279,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   { tasks, onSaveTasks, activePartId, hideEditToolbar = false, embedded = false },
   ref,
 ) {
-  const { token } = useAuth();
+  const { token, isAdmin } = useAuth();
   const pathname = usePathname();
   const constructionBasePath = pathname.startsWith("/presentation")
     ? "/presentation/construction"
@@ -300,6 +301,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  const [deleteHistoryBusyId, setDeleteHistoryBusyId] = useState<number | null>(null);
   const historySelectedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -559,6 +561,27 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       setHistoryError(e instanceof Error ? e.message : "Не удалось загрузить версию");
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleDeleteHistoryVersion = async (versionId: number) => {
+    if (!isAdmin || !token || !historyTask) return;
+    const entityId = Number(historyTask.id);
+    if (!Number.isFinite(entityId)) return;
+    const ok = window.confirm("Удалить эту версию из истории?");
+    if (!ok) return;
+    setDeleteHistoryBusyId(versionId);
+    setHistoryError(null);
+    try {
+      await deleteEntityHistoryVersion(token, entityId, versionId);
+      await refreshHistoryIfOpen();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Не удалось удалить версию";
+      console.error("deleteEntityHistoryVersion", e);
+      window.alert(msg);
+      setHistoryError(msg);
+    } finally {
+      setDeleteHistoryBusyId(null);
     }
   };
 
@@ -901,24 +924,40 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                     const role = v.changed_by_role ?? "—";
                     const kind = v.change_type?.trim();
                     return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => void loadVersion(v.id)}
-                        className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${
-                          historySelected?.id === v.id
-                            ? "border-sky-300 bg-sky-50 text-sky-800"
-                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        <div className="font-semibold">v{v.version_number}</div>
-                        <div className="tabular-nums">{new Date(v.created_at).toLocaleString("ru-RU")}</div>
-                        <div className="mt-0.5 text-slate-800">{who}</div>
-                        <div className="text-slate-500">{role}</div>
-                        {kind ? (
-                          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">{kind}</div>
+                      <div key={v.id} className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void loadVersion(v.id)}
+                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-left text-xs ${
+                            historySelected?.id === v.id
+                              ? "border-sky-300 bg-sky-50 text-sky-800"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="font-semibold">v{v.version_number}</div>
+                          <div className="tabular-nums">{new Date(v.created_at).toLocaleString("ru-RU")}</div>
+                          <div className="mt-0.5 text-slate-800">{who}</div>
+                          <div className="text-slate-500">{role}</div>
+                          {kind ? (
+                            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">{kind}</div>
+                          ) : null}
+                        </button>
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            title="Удалить версию из истории"
+                            disabled={deleteHistoryBusyId !== null}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void handleDeleteHistoryVersion(v.id);
+                            }}
+                            className="shrink-0 self-start rounded-lg border border-red-200 bg-white px-2 py-1.5 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {deleteHistoryBusyId === v.id ? "…" : "Удалить"}
+                          </button>
                         ) : null}
-                      </button>
+                      </div>
                     );
                   })
                 )}
