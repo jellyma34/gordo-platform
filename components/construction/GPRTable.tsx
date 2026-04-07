@@ -410,7 +410,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     const entityId = Number(historyTask.id);
     if (!Number.isFinite(entityId)) return;
     try {
-      const rows = await listEntityHistory(token, entityId);
+      const rows = await listEntityHistory(token, entityId, "gpr");
       const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
       if (versions.length === 0) {
@@ -422,7 +422,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
         sid != null && versions.some((v) => v.id === sid)
           ? versions.find((v) => v.id === sid)!
           : versions[0]!;
-      const d = await getEntityHistoryItem(token, entityId, pick.id);
+      const d = await getEntityHistoryItem(token, entityId, pick.id, "gpr");
       setHistorySelected(historyDetailToVersionDetail(d, pick.version_number));
     } catch {
       /* окно истории не должно ломать сохранение */
@@ -532,12 +532,12 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryError(null);
     setHistorySelected(null);
     try {
-      const rows = await listEntityHistory(token, entityId);
+      const rows = await listEntityHistory(token, entityId, "gpr");
       const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
       if (versions.length > 0) {
         const first = versions[0]!;
-        const detail = await getEntityHistoryItem(token, entityId, first.id);
+        const detail = await getEntityHistoryItem(token, entityId, first.id, "gpr");
         setHistorySelected(historyDetailToVersionDetail(detail, first.version_number));
       }
     } catch (e) {
@@ -554,7 +554,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const detail = await getEntityHistoryItem(token, entityId, versionId);
+      const detail = await getEntityHistoryItem(token, entityId, versionId, "gpr");
       const meta = historyVersions.find((v) => v.id === versionId);
       setHistorySelected(
         historyDetailToVersionDetail(detail, meta?.version_number ?? versionId),
@@ -575,7 +575,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDeleteHistoryBusyId(versionId);
     setHistoryError(null);
     try {
-      await deleteEntityHistoryVersion(token, entityId, versionId);
+      await deleteEntityHistoryVersion(token, entityId, versionId, "gpr");
       await refreshHistoryIfOpen();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Не удалось удалить версию";
@@ -596,17 +596,17 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setRollbackBusy(true);
     setHistoryError(null);
     try {
-      await rollbackEntityVersion(token, entityId, historySelected.id);
+      await rollbackEntityVersion(token, entityId, historySelected.id, "gpr");
       const updatedTaskApi = await getTask(token, entityId);
       const updatedTask = gprTaskFromApiItem(updatedTaskApi);
       setDraftTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? { ...updatedTask } : t)));
       setHistoryTask((prev) => (prev && Number(prev.id) === entityId ? { ...prev, ...updatedTask } : prev));
-      const rows = await listEntityHistory(token, entityId);
+      const rows = await listEntityHistory(token, entityId, "gpr");
       const versions = historyRowsToVersionListItems(rows);
       setHistoryVersions(versions);
       if (versions.length > 0) {
         const first = versions[0]!;
-        const detail = await getEntityHistoryItem(token, entityId, first.id);
+        const detail = await getEntityHistoryItem(token, entityId, first.id, "gpr");
         setHistorySelected(historyDetailToVersionDetail(detail, first.version_number));
       }
     } catch (e) {

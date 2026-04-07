@@ -131,6 +131,18 @@ def _history_rows_ordered_asc(db: Session, entity_id: int) -> list[EntityHistory
     )
 
 
+def _normalize_entity_type(raw: str | None) -> str:
+    v = (raw or "gpr").strip().lower()
+    return v if v in ("gpr", "tender", "tmc") else "gpr"
+
+
+def _entity_type_predicate(entity_type: str):
+    # Backward-compat: старые записи были со значением "stage" для ГПР
+    if entity_type == "gpr":
+        return EntityHistory.entity_type.in_(["gpr", "stage"])
+    return EntityHistory.entity_type == entity_type
+
+
 def _version_number_by_history_id(rows_asc: list[EntityHistory]) -> dict[int, int]:
     return {r.id: i + 1 for i, r in enumerate(rows_asc)}
 
@@ -149,7 +161,7 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
     return display_name, u.email, role_ru
 
 
-def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int) -> None:
+def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int, entity_type: str) -> None:
     """Пишет снимок в ``entity_history``.
 
     На вход принимает уже изолированный ``snapshot`` (dict), а не ORM-объект, чтобы исключить
@@ -163,7 +175,7 @@ def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный snapshot") from exc
     row = EntityHistory(
         entity_id=entity_id,
-        entity_type="stage",
+        entity_type=_normalize_entity_type(entity_type),
         data=data,
         changed_by=changed_by_user_id,
     )
@@ -251,7 +263,7 @@ def persist_gpr_task_update(
     print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
 
-    _append_entity_history(db, _task_snapshot(task), actor.id)
+    _append_entity_history(db, _task_snapshot(task), actor.id, "gpr")
 
     payload = body.model_dump()
     if not payload.get("global_task_id"):
@@ -293,7 +305,7 @@ def related_deviations(
     return [RelatedDeviationItem.model_validate(r) for r in rows]
 
 
-def list_entity_history(entity_id: int, db: Session) -> list[EntityHistoryListItem]:
+def list_entity_history(entity_id: int, entity_type: str, db: Session) -> list[EntityHistoryListItem]:
     """Список записей истории по дате создания (от старых к новым).
 
     Если задачи с таким ``entity_id`` нет — возвращаем пустой список (не 404), чтобы UI
@@ -303,7 +315,13 @@ def list_entity_history(entity_id: int, db: Session) -> list[EntityHistoryListIt
     task = db.get(GprTask, entity_id)
     if task is None:
         return []
-    rows = _history_rows_ordered_asc(db, entity_id)
+    rows = list(
+        db.scalars(
+            select(EntityHistory)
+            .where(EntityHistory.entity_id == entity_id, _entity_type_predicate(_normalize_entity_type(entity_type)))
+            .order_by(EntityHistory.created_at.asc(), EntityHistory.id.asc())
+        ).all()
+    )
     out: list[EntityHistoryListItem] = []
     for r in rows:
         u = db.get(User, r.changed_by)
@@ -323,9 +341,18 @@ def list_entity_history(entity_id: int, db: Session) -> list[EntityHistoryListIt
     return out
 
 
-def get_entity_history_item(entity_id: int, history_id: int, db: Session) -> EntityHistoryDetail:
+def get_entity_history_item(entity_id: int, history_id: int, entity_type: str, db: Session) -> EntityHistoryDetail:
     row = db.get(EntityHistory, history_id)
+    et = _normalize_entity_type(entity_type)
     if row is None or row.entity_id != entity_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    if et == "gpr":
+        if row.entity_type not in ("gpr", "stage"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    else:
+        if row.entity_type != et:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
     u = db.get(User, row.changed_by)
     display_name, _, role_ru = _user_history_display(u)
@@ -407,6 +434,7 @@ def rollback_entity_version(
     version_id: int,
     actor: User = Depends(require_admin_or_manager),
     db: Session = Depends(get_db),
+    entity_type: str = "gpr",
 ):
     """Атомарный rollback: apply выбранной версии -> flush task -> запись в history -> commit."""
     task = db.get(GprTask, entity_id)
@@ -415,7 +443,7 @@ def rollback_entity_version(
     row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
-    print("ROLLBACK TO VERSION:", version_id, flush=True)
+    print("ROLLBACK TO VERSION:", version_id, "TYPE:", entity_type, flush=True)
 
     db.refresh(task)
     if isinstance(row.data, dict):
@@ -429,18 +457,25 @@ def rollback_entity_version(
     db.flush()
 
     # Новая запись истории после применения rollback (состояние задачи после отката).
-    _append_entity_history(db, _task_snapshot(task), actor.id)
+    _append_entity_history(db, _task_snapshot(task), actor.id, entity_type)
 
     db.commit()
     db.refresh(task)
     return _to_task_item(task)
 
 
-def delete_entity_history_version(entity_id: int, version_id: int, db: Session) -> dict[str, str]:
+def delete_entity_history_version(entity_id: int, version_id: int, entity_type: str, db: Session) -> dict[str, str]:
     """Удаляет запись истории только для админа с защитой от критичных случаев."""
     row = db.get(EntityHistory, version_id)
+    et = _normalize_entity_type(entity_type)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    if et == "gpr":
+        if row.entity_type not in ("gpr", "stage"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
+    else:
+        if row.entity_type != et:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
 
     rows_asc = _history_rows_ordered_asc(db, entity_id)
     if len(rows_asc) <= 1:
@@ -469,4 +504,4 @@ def delete_entity_history_item(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return delete_entity_history_version(entity_id, version_id, db)
+    return delete_entity_history_version(entity_id, version_id, "gpr", db)

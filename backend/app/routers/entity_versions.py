@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -49,39 +51,43 @@ def get_version_alias(
 def rollback_version_alias(
     entity_id: int,
     version_id: int,
+    type: Literal["gpr", "tender", "tmc"] = Query("gpr"),
     actor: User = Depends(require_admin_or_manager),
     db: Session = Depends(get_db),
 ):
-    return rollback_entity_version(entity_id, version_id, actor, db)
+    return rollback_entity_version(entity_id, version_id, actor, db, type)
 
 
 @router.get("/{entity_id}/history/{history_id}", response_model=EntityHistoryDetail)
 def get_history_item_alias(
     entity_id: int,
     history_id: int,
+    type: Literal["gpr", "tender", "tmc"] = Query("gpr"),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return get_entity_history_item(entity_id, history_id, db)
+    return get_entity_history_item(entity_id, history_id, type, db)
 
 
 @router.get("/{entity_id}/history", response_model=list[EntityHistoryListItem])
 def list_history_alias(
     entity_id: int,
+    type: Literal["gpr", "tender", "tmc"] = Query("gpr"),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return list_entity_history(entity_id, db)
+    return list_entity_history(entity_id, type, db)
 
 
 @router.delete("/{entity_id}/history/{version_id}")
 def delete_history_item_alias(
     entity_id: int,
     version_id: int,
+    type: Literal["gpr", "tender", "tmc"] = Query("gpr"),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return delete_entity_history_version(entity_id, version_id, db)
+    return delete_entity_history_version(entity_id, version_id, type, db)
 
 
 @router.get("/{entity_id}", response_model=GprTaskItem)

@@ -475,8 +475,9 @@ export async function rollbackEntityVersion(
   token: string,
   entityId: number,
   versionId: number,
+  entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetch(api(`/entity/${entityId}/rollback/${versionId}`), {
+  const res = await fetch(api(`/entity/${entityId}/rollback/${versionId}?type=${entityType}`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -508,8 +509,12 @@ export type EntityHistoryDetail = {
 };
 
 /** Список истории по дате (от старых к новым): ``GET /entity/{id}/history``. */
-export async function listEntityHistory(token: string, entityId: number): Promise<EntityHistoryListItem[]> {
-  const res = await fetch(api(`/entity/${entityId}/history`), {
+export async function listEntityHistory(
+  token: string,
+  entityId: number,
+  entityType: "gpr" | "tender" | "tmc" = "gpr",
+): Promise<EntityHistoryListItem[]> {
+  const res = await fetch(api(`/entity/${entityId}/history?type=${entityType}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
@@ -521,8 +526,9 @@ export async function getEntityHistoryItem(
   token: string,
   entityId: number,
   historyId: number,
+  entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<EntityHistoryDetail> {
-  const res = await fetch(api(`/entity/${entityId}/history/${historyId}`), {
+  const res = await fetch(api(`/entity/${entityId}/history/${historyId}?type=${entityType}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить запись истории");
@@ -534,8 +540,9 @@ export async function deleteEntityHistoryVersion(
   token: string,
   entityId: number,
   historyId: number,
+  entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetch(api(`/entity/${entityId}/history/${historyId}`), {
+  const res = await fetch(api(`/entity/${entityId}/history/${historyId}?type=${entityType}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });

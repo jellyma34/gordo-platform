@@ -95,7 +95,7 @@ def ensure_gpr_related_tmc_ids_column() -> None:
 
 
 def ensure_entity_history_table() -> None:
-    """Без Alembic: таблица истории изменений ГПР (снимок до UPDATE)."""
+    """Без Alembic: универсальная таблица истории изменений (GPR/Tender/TMC)."""
     try:
         insp = inspect(engine)
         if insp.has_table("entity_history"):
@@ -104,11 +104,12 @@ def ensure_entity_history_table() -> None:
             return
     except Exception:
         return
+    # ВАЖНО: entity_id намеренно без FK, чтобы хранить историю разных сущностей в одной таблице.
     ddl = """
     CREATE TABLE IF NOT EXISTS entity_history (
         id SERIAL PRIMARY KEY,
-        entity_id INTEGER NOT NULL REFERENCES gpr_tasks(id),
-        entity_type VARCHAR(32) NOT NULL DEFAULT 'stage',
+        entity_id INTEGER NOT NULL,
+        entity_type VARCHAR(32) NOT NULL DEFAULT 'gpr',
         data JSONB NOT NULL,
         changed_by INTEGER NOT NULL REFERENCES users(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -136,9 +137,30 @@ def ensure_entity_history_entity_type_column() -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
-                "ALTER TABLE entity_history ADD COLUMN entity_type VARCHAR(32) NOT NULL DEFAULT 'stage'"
+                "ALTER TABLE entity_history ADD COLUMN entity_type VARCHAR(32) NOT NULL DEFAULT 'gpr'"
             )
         )
+
+
+def ensure_entity_history_entity_id_fk_dropped() -> None:
+    """Если таблица была создана со FK на gpr_tasks — убрать его, чтобы history стала универсальной."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("entity_history"):
+            return
+        fks = insp.get_foreign_keys("entity_history") or []
+    except Exception:
+        return
+    for fk in fks:
+        constrained = fk.get("constrained_columns") or []
+        referred = fk.get("referred_table")
+        name = fk.get("name")
+        if name and referred == "gpr_tasks" and "entity_id" in constrained:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE entity_history DROP CONSTRAINT "{name}"'))
+            except Exception:
+                pass
 
 
 def get_db():
