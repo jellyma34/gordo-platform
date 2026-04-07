@@ -655,7 +655,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       : [];
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[1400px] space-y-4 px-6">
       <section className={panelClass}>
         {!hideEditToolbar ? (
           <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
@@ -676,35 +676,15 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
           </div>
         ) : null}
 
-        <div className="relative">
-          <div
-            className={`sticky top-0 z-20 -mx-1 mb-2 hidden w-full rounded-xl border border-slate-200 px-3 py-2.5 shadow-sm backdrop-blur xl:grid ${stickyHeaderBg} ${XL_TASK_GRID_TEMPLATE}`}
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Задача
-            </div>
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              План
-            </div>
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Факт
-            </div>
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Контроль
-            </div>
-            <div className="text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Действия
-            </div>
-          </div>
-
-          <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+        <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по названию или шифру"
+              className="h-9 min-w-[260px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
+            />
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Поиск по названию или шифру"
-                className="h-9 min-w-[220px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-              />
               {[
                 { id: "all", label: "Все" },
                 { id: "blocked", label: "Заблокировано" },
@@ -724,6 +704,28 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                   {opt.label}
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="relative">
+          <div
+            className={`sticky top-0 z-20 mb-2 hidden w-full rounded-xl border border-slate-200 px-3 py-2.5 shadow-sm backdrop-blur xl:grid ${stickyHeaderBg} ${XL_TASK_GRID_TEMPLATE}`}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Задача
+            </div>
+            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              План
+            </div>
+            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Факт
+            </div>
+            <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Контроль
+            </div>
+            <div className="text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Действия
             </div>
           </div>
 
