@@ -8,9 +8,11 @@ export type UserStatus = "active" | "blocked";
 export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
 export const BLOCKED_LOGIN_MESSAGE = "Доступ ограничен. Обратитесь к администратору";
 
+/** Если `NEXT_PUBLIC_API_URL` не попал в сборку — ходим на dev backend (не на origin фронта). */
+const FALLBACK_PUBLIC_API_URL = "https://gordo-platform-dev.up.railway.app";
+
 /**
- * Базовый URL API задаётся через `NEXT_PUBLIC_API_URL`, встраивается в бандл на этапе **build**
- * (значение из Railway Variables на runtime в браузер само не подтянется без пересборки).
+ * Базовый URL API: `NEXT_PUBLIC_API_URL` на этапе build, иначе {@link FALLBACK_PUBLIC_API_URL}.
  */
 function normalizeApiBaseUrl(raw: string | undefined): string {
   const trimmed = (raw ?? "").trim();
@@ -35,24 +37,15 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
   }
 }
 
-/** Базовый URL API (без завершающего `/`). Пустая строка, если переменная не попала в сборку. */
-export const API_URL = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL || "");
+/** Базовый URL API (без завершающего `/`). Всегда абсолютный хост backend. */
+export const API_URL =
+  normalizeApiBaseUrl((process.env.NEXT_PUBLIC_API_URL ?? "").trim()) ||
+  normalizeApiBaseUrl(FALLBACK_PUBLIC_API_URL) ||
+  FALLBACK_PUBLIC_API_URL.replace(/\/+$/, "");
 
-let warnedMissingApiUrl = false;
-
-function warnMissingApiUrlOnce(): void {
-  if (warnedMissingApiUrl) return;
-  warnedMissingApiUrl = true;
-  console.warn("API URL не задан");
-}
-
-/** Полный URL эндпоинта. При пустом base — относительный путь (без throw). */
+/** Полный URL эндпоинта: всегда `${API_URL}${path}` (не относительные пути к фронту). */
 function api(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
-  if (!API_URL) {
-    warnMissingApiUrlOnce();
-    return p;
-  }
   return `${API_URL}${p}`;
 }
 
