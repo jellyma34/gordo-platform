@@ -26,6 +26,96 @@ from app.schemas import (
 router = APIRouter(prefix="/gpr", tags=["gpr"])
 
 
+def _part_kind_from_name(name: str | None) -> str | None:
+    n = (name or "").strip().lower()
+    if not n:
+        return None
+    if "жил" in n:
+        return "house"
+    if "автостоян" in n or "подзем" in n:
+        return "parking"
+    return None
+
+
+def _part_kind_from_code(code: str | None) -> str | None:
+    c = (code or "").strip()
+    if c.startswith("2.06") or c.startswith("2.07"):
+        return "parking"
+    if c.startswith("2.04") or c.startswith("2.05"):
+        return "house"
+    return None
+
+
+def _parts_by_kind(db: Session, kind: str) -> list[ProjectPart]:
+    parts = db.scalars(select(ProjectPart).order_by(ProjectPart.id)).all()
+    return [p for p in parts if _part_kind_from_name(p.name) == kind]
+
+
+def _kind_by_part_id(db: Session, part_id: int) -> str | None:
+    # API-совместимость: фронт использует стабильные id 1/2 как ключи секций.
+    if part_id == 1:
+        return "house"
+    if part_id == 2:
+        return "parking"
+    p = db.get(ProjectPart, part_id)
+    return _part_kind_from_name(p.name if p else None)
+
+
+def _kind_by_task(db: Session, task: GprTask) -> str | None:
+    # Код имеет приоритет: он стабилен и явно отражает секцию в ГПР.
+    by_code = _part_kind_from_code(task.code)
+    if by_code is not None:
+        return by_code
+    return _kind_by_part_id(db, task.part_id)
+
+
+def _canonical_storage_part_id(db: Session, part_id: int) -> int:
+    """Нормализует входной part_id к каноничному id в БД для house/parking."""
+    kind = _kind_by_part_id(db, part_id)
+    if kind is None:
+        return part_id
+    candidates = _parts_by_kind(db, kind)
+    if not candidates:
+        return part_id
+    if kind == "parking":
+        for p in candidates:
+            if "автостоян" in p.name.lower():
+                return p.id
+    if kind == "house":
+        for p in candidates:
+            if "жил" in p.name.lower():
+                return p.id
+    return candidates[0].id
+
+
+def _canonical_storage_part_id_for_task(db: Session, part_id: int, code: str | None) -> int:
+    # Если код явно указывает секцию, храним в каноничном id этой секции.
+    by_code = _part_kind_from_code(code)
+    if by_code is not None:
+        ids = _parts_by_kind(db, by_code)
+        if ids:
+            if by_code == "parking":
+                for p in ids:
+                    if "автостоян" in p.name.lower():
+                        return p.id
+            if by_code == "house":
+                for p in ids:
+                    if "жил" in p.name.lower():
+                        return p.id
+            return ids[0].id
+    return _canonical_storage_part_id(db, part_id)
+
+
+def _response_part_id(db: Session, part_id: int) -> int:
+    """Для UI отдаём стабильный ключ секции: 1=house, 2=parking."""
+    kind = _kind_by_part_id(db, part_id)
+    if kind == "house":
+        return 1
+    if kind == "parking":
+        return 2
+    return part_id
+
+
 def _parse_iso_day(value: str | None) -> date | None:
     if not value:
         return None
@@ -70,7 +160,7 @@ def _task_status_and_reasons(task: GprTask) -> tuple[str, list[str]]:
     return "on_time", []
 
 
-def _to_task_item(task: GprTask) -> GprTaskItem:
+def _to_task_item(task: GprTask, part_id: int | None = None) -> GprTaskItem:
     status_key, reasons = _task_status_and_reasons(task)
     return GprTaskItem(
         id=task.id,
@@ -85,7 +175,7 @@ def _to_task_item(task: GprTask) -> GprTaskItem:
         completion=task.completion,
         comment=task.comment,
         related_tmc_ids=[x for x in (task.related_tmc_ids or []) if isinstance(x, str)],
-        part_id=task.part_id,
+        part_id=part_id if part_id is not None else task.part_id,
         status=status_key,
         blocked_reasons=reasons,
     )
@@ -182,10 +272,14 @@ def list_gpr_tasks(
     db: Session = Depends(get_db),
 ):
     stmt = select(GprTask).order_by(GprTask.code)
-    if part_id is not None:
-        stmt = stmt.where(GprTask.part_id == part_id)
     rows = db.scalars(stmt).all()
-    return [_to_task_item(task) for task in rows]
+    if part_id is not None:
+        requested_kind = _kind_by_part_id(db, part_id)
+        if requested_kind is not None:
+            rows = [t for t in rows if _kind_by_task(db, t) == requested_kind]
+        else:
+            rows = [t for t in rows if t.part_id == part_id]
+    return [_to_task_item(task, 1 if _kind_by_task(db, task) == "house" else 2 if _kind_by_task(db, task) == "parking" else _response_part_id(db, task.part_id)) for task in rows]
 
 
 @router.post("/tasks", response_model=GprTaskItem, status_code=status.HTTP_201_CREATED)
@@ -194,10 +288,12 @@ def create_gpr_task(
     actor: User = Depends(require_gpr_write),
     db: Session = Depends(get_db),
 ):
-    part = db.get(ProjectPart, body.part_id)
+    canonical_part_id = _canonical_storage_part_id_for_task(db, body.part_id, body.code)
+    part = db.get(ProjectPart, canonical_part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
     payload = body.model_dump()
+    payload["part_id"] = canonical_part_id
     payload["global_task_id"] = payload.get("global_task_id") or body.code
     print(f"[GPR] Creating task: user={actor.email!r} payload={payload}", flush=True)
     task = GprTask(**payload)
@@ -205,7 +301,7 @@ def create_gpr_task(
     db.commit()
     db.refresh(task)
     print(f"[GPR] Created task id={task.id} code={task.code!r}", flush=True)
-    return _to_task_item(task)
+    return _to_task_item(task, _response_part_id(db, task.part_id))
 
 
 def read_gpr_task_item_or_404(entity_id: int, db: Session) -> GprTaskItem:
@@ -213,7 +309,7 @@ def read_gpr_task_item_or_404(entity_id: int, db: Session) -> GprTaskItem:
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
-    return _to_task_item(task)
+    return _to_task_item(task, _response_part_id(db, task.part_id))
 
 
 @router.get("/tasks/{task_id}", response_model=GprTaskItem)
@@ -239,7 +335,8 @@ def persist_gpr_task_update(
     task = db.get(GprTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
-    part = db.get(ProjectPart, body.part_id)
+    canonical_part_id = _canonical_storage_part_id_for_task(db, body.part_id, body.code)
+    part = db.get(ProjectPart, canonical_part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
     db.refresh(task)
@@ -249,6 +346,7 @@ def persist_gpr_task_update(
     _append_entity_history(db, _task_snapshot(task), actor.id, "gpr")
 
     payload = body.model_dump()
+    payload["part_id"] = canonical_part_id
     if not payload.get("global_task_id"):
         payload["global_task_id"] = task.global_task_id or payload["code"]
     for key, value in payload.items():
@@ -257,7 +355,7 @@ def persist_gpr_task_update(
     db.commit()
     db.refresh(task)
     print(f"[GPR] Committed task id={task.id} code={task.code!r}", flush=True)
-    return _to_task_item(task)
+    return _to_task_item(task, _response_part_id(db, task.part_id))
 
 
 @router.put("/tasks/{task_id}", response_model=GprTaskItem)
@@ -447,7 +545,7 @@ def rollback_entity_version(
 
     db.commit()
     db.refresh(task)
-    return _to_task_item(task)
+    return _to_task_item(task, _response_part_id(db, task.part_id))
 
 
 def delete_entity_history_version(entity_id: int, version_id: int, entity_type: str, db: Session) -> dict[str, str]:
