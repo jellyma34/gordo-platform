@@ -311,14 +311,17 @@ def list_entity_history(entity_id: int, entity_type: str, db: Session) -> list[E
     Если задачи с таким ``entity_id`` нет — возвращаем пустой список (не 404), чтобы UI
     не ломался при устаревшем id или рассинхроне клиента и БД.
     """
-    print("HISTORY REQUEST", entity_id, flush=True)
-    task = db.get(GprTask, entity_id)
-    if task is None:
-        return []
+    et = _normalize_entity_type(entity_type)
+    print("HISTORY REQUEST", entity_id, "TYPE", et, flush=True)
+    # Для gpr можно вернуть [] если сущности нет; для tender/tmc мы не проверяем gpr_tasks.
+    if et == "gpr":
+        task = db.get(GprTask, entity_id)
+        if task is None:
+            return []
     rows = list(
         db.scalars(
             select(EntityHistory)
-            .where(EntityHistory.entity_id == entity_id, _entity_type_predicate(_normalize_entity_type(entity_type)))
+            .where(EntityHistory.entity_id == entity_id, _entity_type_predicate(et))
             .order_by(EntityHistory.created_at.asc(), EntityHistory.id.asc())
         ).all()
     )

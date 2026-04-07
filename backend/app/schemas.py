@@ -202,3 +202,47 @@ class TmcItem(BaseModel):
     fact_cost: float | int | None = None
     plan_date: str
     fact_date: str | None = None
+
+
+class TenderBase(BaseModel):
+    part_id: int
+    code: str
+    name: str
+    stage: str
+    plan_start: str
+    fact_start: str | None = None
+    plan_contract_date: str
+    fact_contract_date: str | None = None
+    cost: int | None = None
+    contractor: str | None = None
+    status: str | None = None
+    comment: str | None = None
+
+
+class TenderUpdate(TenderBase):
+    pass
+
+
+class TenderItem(TenderBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+class TmcBase(BaseModel):
+    external_id: str
+    project_part: Literal["residential", "parking"]
+    name: str
+    gpr_stage: str
+    plan_cost: int
+    fact_cost: int | None = None
+    plan_date: str
+    fact_date: str | None = None
+
+
+class TmcUpdate(TmcBase):
+    pass
+
+
+class TmcDbItem(TmcBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int

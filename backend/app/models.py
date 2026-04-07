@@ -107,3 +107,35 @@ class GprDataVersion(Base):
         server_default=func.now(),
     )
     created_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+
+class Tender(Base):
+    __tablename__ = "tenders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    part_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    stage: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    plan_start: Mapped[str] = mapped_column(String(10), nullable=False)
+    fact_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    plan_contract_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    fact_contract_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    contractor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # planned|in_progress|completed|delayed
+    comment: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+
+class Tmc(Base):
+    __tablename__ = "tmc"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    external_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    project_part: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # residential|parking
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    gpr_stage: Mapped[str] = mapped_column(String(128), nullable=False)
+    plan_cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    fact_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    plan_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    fact_date: Mapped[str | None] = mapped_column(String(10), nullable=True)

@@ -1,12 +1,18 @@
-"""ТМЦ по частям проекта (синхрон с фронтом: residential / parking)."""
+"""ТМЦ по частям проекта (синхрон с фронтом: residential / parking).
+
+Поддерживает сохранение в БД и историю изменений через EntityHistory.
+"""
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
-from app.deps import assert_section_access, get_current_user
-from app.models import User
-from app.schemas import TmcItem
+from app.database import get_db
+from app.deps import assert_section_access, get_current_user, require_admin_or_manager
+from app.models import Tmc, User
+from app.routers.gpr import _append_entity_history
+from app.schemas import TmcDbItem, TmcItem, TmcUpdate
 
 router = APIRouter(prefix="/tmc", tags=["tmc"])
 
@@ -125,6 +131,43 @@ def list_tmc(
     if project_part is not None:
         rows = [r for r in rows if r["project_part"] == project_part]
     return [TmcItem.model_validate(r) for r in rows]
+
+
+def _tmc_snapshot(t: Tmc) -> dict:
+    return {
+        "id": t.id,
+        "external_id": t.external_id,
+        "project_part": t.project_part,
+        "name": t.name,
+        "gpr_stage": t.gpr_stage,
+        "plan_cost": t.plan_cost,
+        "fact_cost": t.fact_cost,
+        "plan_date": t.plan_date,
+        "fact_date": t.fact_date,
+    }
+
+
+@router.put("/{tmc_id}", response_model=TmcDbItem)
+def update_tmc(
+    tmc_id: int,
+    body: TmcUpdate,
+    actor: User = Depends(require_admin_or_manager),
+    db: Session = Depends(get_db),
+):
+    t = db.get(Tmc, tmc_id)
+    if t is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ТМЦ не найдено")
+
+    # ДО изменения — история
+    _append_entity_history(db, _tmc_snapshot(t), actor.id, "tmc")
+
+    payload = body.model_dump()
+    for k, v in payload.items():
+        setattr(t, k, v)
+
+    db.commit()
+    db.refresh(t)
+    return t
 
 
 def tmc_row_for_part(part_id: int, tmc_id: str) -> dict[str, str | None] | None:
