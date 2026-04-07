@@ -19,6 +19,7 @@ import {
   getStatus,
   getStatusByDeviation,
   getStatusLabel,
+  PROJECT_PARTS,
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
@@ -272,6 +273,7 @@ type GPRTableProps = {
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** Часть проекта: ТМЦ и блокировки считаются только по ней. */
   activePartId: number;
+  onChangePart?: (partId: number) => void;
   /** Скрыть дублирующие кнопки (если шапка в EditLayout) */
   hideEditToolbar?: boolean;
   /** Вложить в EditLayout: без внешней «карточки» */
@@ -279,7 +281,7 @@ type GPRTableProps = {
 };
 
 export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTable(
-  { tasks, onSaveTasks, activePartId, hideEditToolbar = false, embedded = false },
+  { tasks, onSaveTasks, activePartId, onChangePart, hideEditToolbar = false, embedded = false },
   ref,
 ) {
   const { token, isAdmin } = useAuth();
@@ -657,26 +659,45 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   return (
     <div className="w-full space-y-4">
       <section className={panelClass}>
-        {!hideEditToolbar ? (
-          <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={cancelDraft}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Отменить
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveDraft()}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Сохранить
-            </button>
-          </div>
-        ) : null}
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          {!hideEditToolbar ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelDraft}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Отменить
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveDraft()}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Сохранить
+              </button>
+            </div>
+          ) : null}
 
-        <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+          {onChangePart ? (
+            <div className="flex flex-wrap gap-2">
+              {PROJECT_PARTS.map((part) => (
+                <button
+                  key={part.id}
+                  type="button"
+                  onClick={() => onChangePart(part.id)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    activePartId === part.id
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {part.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <input
               value={search}

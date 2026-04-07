@@ -140,27 +140,12 @@ export function GPRSection({
           }}
           onCancel={() => tableRef.current?.cancel()}
         >
-          <div className="mb-4 flex flex-wrap justify-center gap-2">
-            {PROJECT_PARTS.map((part) => (
-              <button
-                key={part.id}
-                type="button"
-                onClick={() => onChangePart(part.id)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                  activePartId === part.id
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {part.name}
-              </button>
-            ))}
-          </div>
           <GPRTable
             ref={tableRef}
             tasks={tasks}
             onSaveTasks={onSaveTasks}
             activePartId={activePartId}
+            onChangePart={onChangePart}
             hideEditToolbar
             embedded
           />
