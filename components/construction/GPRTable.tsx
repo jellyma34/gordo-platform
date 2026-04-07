@@ -91,7 +91,7 @@ const INPUT_ROW =
   "h-8 w-full min-w-[130px] shrink-0 rounded-lg border border-slate-300 bg-white px-[10px] py-[6px] text-xs text-slate-900";
 
 const XL_TASK_GRID_TEMPLATE =
-  "grid-cols-1 gap-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,11rem)_minmax(0,11rem)_minmax(0,14rem)_auto] xl:gap-x-5 xl:items-start";
+  "grid-cols-1 gap-4 xl:grid-cols-[300px_200px_200px_200px_auto] xl:gap-x-16 xl:items-start";
 
 type ReasonRouteType = "material" | "tender" | "work";
 
