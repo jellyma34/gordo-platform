@@ -678,7 +678,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
 
         <div className="relative">
           <div
-            className={`sticky top-0 z-20 -mx-1 mb-2 hidden rounded-xl border border-slate-200 px-3 py-2.5 shadow-sm backdrop-blur xl:grid ${stickyHeaderBg} ${XL_TASK_GRID_TEMPLATE}`}
+            className={`sticky top-0 z-20 -mx-1 mb-2 hidden w-full rounded-xl border border-slate-200 px-3 py-2.5 shadow-sm backdrop-blur xl:grid ${stickyHeaderBg} ${XL_TASK_GRID_TEMPLATE}`}
           >
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Задача
@@ -752,15 +752,15 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               return (
                 <div
                   key={task.id}
-                  className={`group grid ${XL_TASK_GRID_TEMPLATE} rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md`}
+                  className={`group grid w-full ${XL_TASK_GRID_TEMPLATE} rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md`}
                 >
                   <div className="min-w-0" style={{ marginLeft: treePad }}>
-                    <div className="flex items-start gap-2">
+                    <div className="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-2">
                       {hasChildren ? (
                         <button
                           type="button"
                           onClick={() => toggle(task.id)}
-                          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm text-slate-600 transition hover:bg-slate-100"
+                          className="mt-0.5 h-8 w-8 shrink-0 rounded-lg text-sm text-slate-600 transition hover:bg-slate-100"
                           aria-label={
                             expandedIds.has(task.id)
                               ? "Свернуть дочерние задачи"
