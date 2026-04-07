@@ -5,7 +5,6 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
 from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
@@ -409,47 +408,27 @@ def rollback_entity_version(
     actor: User = Depends(require_admin_or_manager),
     db: Session = Depends(get_db),
 ):
-    """Откат: сначала к ``task`` применяется выбранный снимок, затем текущее состояние ``task``
-    (уже после отката) сохраняется новой строкой в ``entity_history``.
-
-    ``version_id`` — ``id`` строки ``entity_history`` (не порядковый номер v1/v2).
-    """
+    """Атомарный rollback: apply выбранной версии -> flush task -> запись в history -> commit."""
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
     row = db.get(EntityHistory, version_id)
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
-    print("ROLLBACK CALLED", entity_id, version_id, flush=True)
-    print("ROLLBACK", entity_id, "TO VERSION", version_id, flush=True)
-
-    rows_asc = _history_rows_ordered_asc(db, entity_id)
-    vn = _version_number_by_history_id(rows_asc)
-    selected_version = vn.get(row.id, 0)
-    # "Текущая" версия для лога — состояние задачи до отката (следующая после последнего snapshot).
-    current_version = len(rows_asc) + 1
-    print("ROLLBACK FROM", current_version, "TO", selected_version, flush=True)
+    print("ROLLBACK TO VERSION:", version_id, flush=True)
 
     db.refresh(task)
-    raw = row.data
-    restore_data: dict
-    if isinstance(raw, dict):
-        restore_data = json.loads(json.dumps(raw, default=str))
+    if isinstance(row.data, dict):
+        restore_data = json.loads(json.dumps(row.data, default=str))
     else:
         restore_data = {}
+    print("RESTORE DATA:", restore_data, flush=True)
 
-    # Диагностика: меняется ли row.data в сессии
-    print("ROW BEFORE:", row.data, flush=True)
-    print("TASK BEFORE:", task.__dict__, flush=True)
     _apply_snapshot_to_task(task, restore_data)
-    # JSON-колонка: иначе SQLAlchemy может не отправить UPDATE при откате списка ТМЦ
-    flag_modified(task, "related_tmc_ids")
-    print("TASK IS_MODIFIED:", db.is_modified(task, include_collections=True), flush=True)
     db.add(task)
     db.flush()
-    print("ROW AFTER:", row.data, flush=True)
-    print("TASK AFTER:", task.__dict__, flush=True)
 
+    # Новая запись истории после применения rollback (состояние задачи после отката).
     _append_entity_history(db, _task_snapshot(task), actor.id)
 
     db.commit()
