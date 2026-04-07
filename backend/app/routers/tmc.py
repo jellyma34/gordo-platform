@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import assert_section_access, get_current_user, require_admin_or_manager
 from app.models import Tmc, User
-from app.routers.gpr import _append_entity_history
+from app.services.history import append_entity_history
 from app.schemas import TmcDbItem, TmcItem, TmcUpdate
 
 router = APIRouter(prefix="/tmc", tags=["tmc"])
@@ -159,7 +159,7 @@ def update_tmc(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ТМЦ не найдено")
 
     # ДО изменения — история
-    _append_entity_history(db, _tmc_snapshot(t), actor.id, "tmc")
+    append_entity_history(db, _tmc_snapshot(t), actor.id, "tmc")
 
     payload = body.model_dump()
     for k, v in payload.items():

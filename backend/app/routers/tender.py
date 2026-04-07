@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import require_admin_or_manager
 from app.models import Tender, User
-from app.routers.gpr import _append_entity_history  # reuse universal history writer
+from app.services.history import append_entity_history
 from app.schemas import TenderItem, TenderUpdate
 
 router = APIRouter(prefix="/tender", tags=["tender"])
@@ -40,7 +40,7 @@ def update_tender(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Тендер не найден")
 
     # ДО изменения — история
-    _append_entity_history(db, _tender_snapshot(t), actor.id, "tender")
+    append_entity_history(db, _tender_snapshot(t), actor.id, "tender")
 
     payload = body.model_dump()
     for k, v in payload.items():

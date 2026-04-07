@@ -10,6 +10,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
 from app.models import EntityHistory, GprRelatedDeviation, GprTask, ProjectPart, User
 from app.routers.tmc import tmc_row_for_part
+from app.services.history import append_entity_history
 from app.schemas import (
     EntityHistoryDetail,
     EntityHistoryListItem,
@@ -162,26 +163,8 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
 
 
 def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int, entity_type: str) -> None:
-    """Пишет снимок в ``entity_history``.
-
-    На вход принимает уже изолированный ``snapshot`` (dict), а не ORM-объект, чтобы исключить
-    любые побочные мутации состояния задачи после сохранения истории.
-    """
-    data = copy.deepcopy(snapshot)
-    entity_id_raw = data.get("id")
-    try:
-        entity_id = int(entity_id_raw)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный snapshot") from exc
-    row = EntityHistory(
-        entity_id=entity_id,
-        entity_type=_normalize_entity_type(entity_type),
-        data=data,
-        changed_by=changed_by_user_id,
-    )
-    db.add(row)
-    db.flush()
-    print("HISTORY SAVED", entity_id, flush=True)
+    # Backward-compat wrapper: оставляем внутренние вызовы без переписывания всего файла.
+    append_entity_history(db, snapshot, changed_by_user_id, _normalize_entity_type(entity_type))
 
 
 @router.get("/parts", response_model=list[ProjectPartItem])
