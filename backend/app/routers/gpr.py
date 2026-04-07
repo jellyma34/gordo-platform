@@ -1,4 +1,5 @@
 import copy
+import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -107,14 +108,6 @@ def _task_snapshot(task: GprTask) -> dict:
         "part_id": task.part_id,
         }
     )
-
-
-def _frozen_snapshot_from_history_row(row: EntityHistory) -> dict:
-    """Независимая копия ``row.data`` до любых flush; строка history только для чтения."""
-    raw = row.data
-    if not isinstance(raw, dict):
-        return {}
-    return copy.deepcopy(raw)
 
 
 def _apply_snapshot_to_task(task: GprTask, snapshot: dict) -> None:
@@ -437,22 +430,26 @@ def rollback_entity_version(
     current_version = len(rows_asc) + 1
     print("ROLLBACK FROM", current_version, "TO", selected_version, flush=True)
 
-    # 1) Получаем snapshot выбранной версии (изолированный от ORM/history)
-    restore_data = copy.deepcopy(_frozen_snapshot_from_history_row(row))
-
-    # 2) Сохраняем текущее состояние ДО изменений как новую версию history
+    # Сохраняем текущее состояние ДО изменений как новую версию history
     db.refresh(task)
     current_snapshot = copy.deepcopy(_task_snapshot(task))
     print("CURRENT SNAPSHOT:", current_snapshot, flush=True)
-    print("RESTORE DATA:", restore_data, flush=True)
     _append_entity_history(db, current_snapshot, actor.id)
     db.flush()
     db.expire(task)
 
-    # 3) Применяем выбранную версию к текущей задаче
-    before_apply = copy.deepcopy(restore_data)
+    # Диагностика: меняется ли row.data в сессии; snapshot без общих ссылок с ORM
+    print("ROW BEFORE:", row.data, flush=True)
+    print("TASK BEFORE:", task.__dict__, flush=True)
+    raw = row.data
+    restore_data: dict
+    if isinstance(raw, dict):
+        restore_data = json.loads(json.dumps(raw, default=str))
+    else:
+        restore_data = {}
     _apply_snapshot_to_task(task, restore_data)
-    print("MUTATION CHECK:", before_apply == restore_data, flush=True)
+    print("ROW AFTER:", row.data, flush=True)
+    print("TASK AFTER:", task.__dict__, flush=True)
 
     db.commit()
     db.refresh(task)
