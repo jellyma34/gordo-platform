@@ -276,10 +276,15 @@ def related_deviations(
 
 
 def list_entity_history(entity_id: int, db: Session) -> list[EntityHistoryListItem]:
-    """Список записей истории по дате создания (от старых к новым)."""
+    """Список записей истории по дате создания (от старых к новым).
+
+    Если задачи с таким ``entity_id`` нет — возвращаем пустой список (не 404), чтобы UI
+    не ломался при устаревшем id или рассинхроне клиента и БД.
+    """
+    print("HISTORY REQUEST", entity_id, flush=True)
     task = db.get(GprTask, entity_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сущность не найдена")
+        return []
     rows = _history_rows_ordered_asc(db, entity_id)
     out: list[EntityHistoryListItem] = []
     for r in rows:
