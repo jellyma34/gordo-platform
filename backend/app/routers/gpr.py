@@ -179,23 +179,27 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
     return display_name, u.email, role_ru
 
 
-def _append_entity_history(db: Session, task: GprTask, changed_by_user_id: int) -> None:
-    """Пишет в ``entity_history`` состояние этапа **до** применения правок в этой же транзакции.
+def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int) -> None:
+    """Пишет снимок в ``entity_history``.
 
-    Снимок — только скаляры/списки из ORM, затем ``deepcopy`` и ``json`` round-trip, чтобы в колонку
-    JSON ушёл отдельный dict без общих ссылок на объекты сессии (иначе версии могли «схлопываться»).
+    На вход принимает уже изолированный ``snapshot`` (dict), а не ORM-объект, чтобы исключить
+    любые побочные мутации состояния задачи после сохранения истории.
     """
-    snapshot = copy.deepcopy(_task_snapshot(task))
-    data = json.loads(json.dumps(snapshot, default=str))
+    data = json.loads(json.dumps(copy.deepcopy(snapshot), default=str))
+    entity_id_raw = data.get("id")
+    try:
+        entity_id = int(entity_id_raw)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный snapshot") from exc
     row = EntityHistory(
-        entity_id=task.id,
+        entity_id=entity_id,
         entity_type="stage",
         data=data,
         changed_by=changed_by_user_id,
     )
     db.add(row)
     db.flush()
-    print("HISTORY SAVED", task.id, flush=True)
+    print("HISTORY SAVED", entity_id, flush=True)
 
 
 @router.get("/parts", response_model=list[ProjectPartItem])
@@ -277,7 +281,7 @@ def persist_gpr_task_update(
     print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
 
-    _append_entity_history(db, task, actor.id)
+    _append_entity_history(db, _task_snapshot(task), actor.id)
 
     payload = body.model_dump()
     if not payload.get("global_task_id"):
@@ -456,15 +460,17 @@ def rollback_entity_version(
     current_version = len(rows_asc) + 1
     print("ROLLBACK FROM", current_version, "TO", selected_version, flush=True)
 
-    restore_data = _frozen_snapshot_from_history_row(row)
+    # 1) Получаем snapshot выбранной версии (изолированный от ORM/history)
+    restore_data = copy.deepcopy(_frozen_snapshot_from_history_row(row))
 
+    # 2) Сохраняем текущее состояние ДО изменений как новую версию history
     db.refresh(task)
-    current_snapshot = _task_snapshot(task)
+    current_snapshot = copy.deepcopy(_task_snapshot(task))
     print("CURRENT SNAPSHOT:", current_snapshot, flush=True)
     print("RESTORE DATA:", restore_data, flush=True)
-    print("BEFORE:", current_snapshot, flush=True)
-    print("APPLY:", restore_data, flush=True)
-    _append_entity_history(db, task, actor.id)
+    _append_entity_history(db, current_snapshot, actor.id)
+
+    # 3) Применяем выбранную версию к текущей задаче
     _apply_snapshot_to_task(task, restore_data)
 
     db.commit()
