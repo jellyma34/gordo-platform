@@ -448,6 +448,13 @@ def rollback_entity_version(
     if row is None or row.entity_id != entity_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Версия не найдена")
 
+    rows_asc = _history_rows_ordered_asc(db, entity_id)
+    vn = _version_number_by_history_id(rows_asc)
+    selected_version = vn.get(row.id, 0)
+    # "Текущая" версия для лога — состояние задачи до отката (следующая после последнего snapshot).
+    current_version = len(rows_asc) + 1
+    print("ROLLBACK FROM", current_version, "TO", selected_version, flush=True)
+
     restore_data = _frozen_snapshot_from_history_row(row)
 
     db.refresh(task)
