@@ -304,6 +304,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
   const [deleteHistoryBusyId, setDeleteHistoryBusyId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "blocked" | "delay" | "ok">("all");
   const historySelectedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -362,6 +364,28 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       return true;
     });
   }, [allRows, expandedIds, rowById]);
+
+  const rowStatus = useCallback(
+    (task: FlatTask): "blocked" | "delay" | "ok" => {
+      const blockedReasons = blockedReasonsByTaskId.get(task.id) ?? [];
+      if (blockedReasons.length > 0) return "blocked";
+      const d = calculateDeviation(task);
+      if (d != null && d > 0) return "delay";
+      return "ok";
+    },
+    [blockedReasonsByTaskId],
+  );
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return visibleRows.filter((task) => {
+      const bySearch =
+        !q || task.name.toLowerCase().includes(q) || task.code.toLowerCase().includes(q);
+      const st = rowStatus(task);
+      const byStatus = statusFilter === "all" ? true : st === statusFilter;
+      return bySearch && byStatus;
+    });
+  }, [visibleRows, search, statusFilter, rowStatus]);
 
   const toggle = (id: string) => {
     setExpandedIds((prev) => {
@@ -674,8 +698,38 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
             </div>
           </div>
 
+          <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Поиск по названию или шифру"
+                className="h-9 min-w-[220px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
+              />
+              {[
+                { id: "all", label: "Все" },
+                { id: "blocked", label: "Заблокировано" },
+                { id: "delay", label: "Отставание" },
+                { id: "ok", label: "В срок" },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setStatusFilter(opt.id as "all" | "blocked" | "delay" | "ok")}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                    statusFilter === opt.id
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-2">
-            {visibleRows.map((task) => {
+            {filteredRows.map((task) => {
               const hasChildren = hasChildrenById.get(task.id) ?? false;
               const deviation = calculateDeviation(task);
               const deviationText =
