@@ -752,12 +752,10 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               return (
                 <div
                   key={task.id}
-                  className={`group grid ${XL_TASK_GRID_TEMPLATE} rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${
-                    status === "blocked" ? "border-red-300 bg-red-50/30" : "border-slate-200"
-                  }`}
+                  className={`group grid ${XL_TASK_GRID_TEMPLATE} rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md`}
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-start gap-2" style={{ paddingLeft: treePad }}>
+                  <div className="min-w-0" style={{ marginLeft: treePad }}>
+                    <div className="flex items-start gap-2">
                       {hasChildren ? (
                         <button
                           type="button"
