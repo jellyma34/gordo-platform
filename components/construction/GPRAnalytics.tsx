@@ -2023,11 +2023,6 @@ export function GPRAnalytics({
                 <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
                 <PlanFactProjectStatusLabel status={planFactProjectScheduleTraffic} />
               </div>
-              <p className="text-sm leading-snug text-[#E6EDF3]">
-                {planFactDataSource === "kvartaly"
-                  ? `Сводка по проекту: план и факт во времени (${activePartLabel}).`
-                  : `План и факт по длительности работ, дни (${activePartLabel}).`}
-              </p>
             </div>
             {planFactSummary ? (
               <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
