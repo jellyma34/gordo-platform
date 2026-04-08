@@ -74,11 +74,10 @@ import {
   projectOverviewEndDelayDays,
 } from "@/lib/gprProjectOverview";
 import {
-  factColorForFactEndVsToday,
+  factColorForPlanFactEnd,
   ganttFactColorForScheduleToday,
-  scheduleDelayTodayDays,
-  statusLabelForFactEndVsToday,
-  trafficLightFactEndVsToday,
+  statusLabelForPlanFactEnd,
+  trafficLightPlanVsFactEnd,
   type FactEndVsTodayTraffic,
 } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
@@ -695,14 +694,9 @@ function useKvartalyGanttModel(
     if (granularity === "overview") {
       const agg = aggregateWorksToProjectPlanFactBounds(candidates);
       if (!agg) return null;
-      const delayToday = scheduleDelayTodayDays(
-        agg.planStart,
-        agg.planEnd,
-        agg.factStart,
-        agg.factEnd,
-      );
-      if (delayToday === null) return null;
-      return { avg: delayToday, severeLate: delayToday > 14 ? 1 : 0 };
+      const endDel = projectOverviewEndDelayDays(agg.planEnd, agg.factEnd);
+      if (endDel === null) return null;
+      return { avg: endDel, severeLate: endDel > 14 ? 1 : 0 };
     }
     const rows = ganttRows.filter((t) => {
       if (!t.factStart || !t.factEnd) return false;
@@ -896,17 +890,6 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 } else if (isOverviewFactGanttTask(task)) {
                   if (planD !== null) lines.push(`Длительность плана (проект): ${planD} дн.`);
                   if (factD !== null) lines.push(`Длительность факта (проект): ${factD} дн.`);
-                  const schedDel = scheduleDelayTodayDays(
-                    task.planStart,
-                    task.planEnd,
-                    task.factStart,
-                    task.factEnd,
-                  );
-                  if (schedDel !== null) {
-                    lines.push(
-                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
-                    );
-                  }
                   const endDel = projectOverviewEndDelayDays(task.planEnd, task.factEnd);
                   if (endDel !== null) {
                     lines.push(
@@ -924,17 +907,6 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 } else if (isAggregatedMainProcessTask(task)) {
                   if (planD !== null) lines.push(`Длительность (план): ${planD} дн.`);
                   if (factD !== null) lines.push(`Длительность (факт): ${factD} дн.`);
-                  const schedDel = scheduleDelayTodayDays(
-                    task.planStart,
-                    task.planEnd,
-                    task.factStart,
-                    task.factEnd,
-                  );
-                  if (schedDel !== null) {
-                    lines.push(
-                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
-                    );
-                  }
                   const delay = aggregatedMainProcessDelayDays(task);
                   if (delay !== null) {
                     lines.push(
@@ -945,17 +917,6 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 } else {
                   if (planD !== null && factD !== null) {
                     lines.push(`Длительность: план ${planD} дн., факт ${factD} дн.`);
-                  }
-                  const schedDel = scheduleDelayTodayDays(
-                    task.planStart,
-                    task.planEnd,
-                    task.factStart,
-                    task.factEnd,
-                  );
-                  if (schedDel !== null) {
-                    lines.push(
-                      `Отставание графика на сегодня: ${schedDel > 0 ? "+" : ""}${schedDel} дн.`,
-                    );
                   }
                   const dev = calculateDeviation(task);
                   if (dev !== null) {
@@ -1298,9 +1259,8 @@ export function GPRAnalytics({
   const todayIso = new Date().toISOString().slice(0, 10);
   const planFactProjectScheduleTraffic = useMemo((): FactEndVsTodayTraffic => {
     const b = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-    if (!b?.factEnd?.trim()) return "gray";
-    return trafficLightFactEndVsToday(b.factStart, b.factEnd, new Date(`${todayIso}T12:00:00`));
-  }, [tasksForActivePart, todayIso]);
+    return trafficLightPlanVsFactEnd(b?.planEnd, b?.factEnd);
+  }, [tasksForActivePart]);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
@@ -2043,7 +2003,7 @@ export function GPRAnalytics({
                 {(() => {
                   const avg = planFactSummary.avg;
                   const calBounds = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-                  const calStatus = statusLabelForFactEndVsToday(calBounds?.factStart, calBounds?.factEnd);
+                  const calStatus = statusLabelForPlanFactEnd(calBounds?.planEnd, calBounds?.factEnd);
                   const calColor =
                     calStatus === "нет данных"
                       ? "#94a3b8"
@@ -2052,36 +2012,55 @@ export function GPRAnalytics({
                         : calStatus === "риск"
                           ? COLORS.yellow
                           : COLORS.green;
+                  const endDel =
+                    calBounds?.planEnd && calBounds?.factEnd
+                      ? projectOverviewEndDelayDays(calBounds.planEnd, calBounds.factEnd)
+                      : null;
                   const calLine =
                     calStatus === "нет данных"
-                      ? "Нет даты окончания факта по проекту"
-                      : `${calStatus.charAt(0).toUpperCase()}${calStatus.slice(1)} — окончание факта ${calBounds?.factEnd ? fmt(calBounds.factEnd) : "—"}`;
+                      ? "Нет данных по окончанию факта относительно плана"
+                      : `${calStatus.charAt(0).toUpperCase()}${calStatus.slice(1)} — факт ${calBounds?.factEnd ? fmt(calBounds.factEnd) : "—"} vs план ${calBounds?.planEnd ? fmt(calBounds.planEnd) : "—"}${
+                          endDel !== null ? ` (${endDel > 0 ? "+" : ""}${endDel} дн.)` : ""
+                        }`;
 
                   const durationLabel =
                     planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview"
-                      ? "Отклонение от графика"
+                      ? "Отклонение окончания проекта (факт − план)"
                       : planFactDataSource === "kvartaly"
                         ? planFactKvartalyGranularity === "aggregated"
                           ? "Среднее отклонение длительности по видимым процессам (факт − план)"
                           : "Среднее отклонение длительности по видимым работам (факт − план)"
                         : "Среднее отклонение длительности (факт − план)";
+                  const isKvOverviewEndSlip =
+                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview";
                   let durationValueLine: string;
-                  let durationColor: string;
-                  if (avg < 0) {
+                  if (isKvOverviewEndSlip) {
+                    if (avg < 0) {
+                      durationValueLine = `Окончание факта раньше плана на ${Math.abs(avg).toFixed(1)} дн.`;
+                    } else if (avg > 0) {
+                      durationValueLine = `Окончание факта позже плана на ${avg.toFixed(1)} дн.`;
+                    } else {
+                      durationValueLine = "Окончание по плану";
+                    }
+                  } else if (avg < 0) {
                     durationValueLine = `Факт короче плана на ${Math.abs(avg).toFixed(1)} дн.`;
-                    durationColor = COLORS.green;
                   } else if (avg > 0) {
                     durationValueLine = `Факт дольше плана на ${avg.toFixed(1)} дн.`;
-                    durationColor = COLORS.red;
                   } else {
                     durationValueLine = "Длительности совпадают";
-                    durationColor = "#e2e8f0";
                   }
+                  const durationTone = getStatusByDeviation(Math.round(avg));
+                  const durationColor =
+                    durationTone === "green"
+                      ? COLORS.green
+                      : durationTone === "yellow"
+                        ? COLORS.yellow
+                        : COLORS.red;
                   return (
                     <>
                       <div className="flex flex-col gap-1">
                         <span className="font-medium leading-snug text-slate-100">
-                          Календарь: дата окончания факта vs сегодня
+                          Статус по сроку окончания (факт − план)
                         </span>
                         <span
                           className="value text-sm font-semibold leading-snug tabular-nums"
@@ -2093,7 +2072,9 @@ export function GPRAnalytics({
                       <div className="mt-3 flex flex-col gap-1">
                         <span className="font-medium leading-snug text-slate-100">{durationLabel}</span>
                         <span className="text-[11px] leading-snug text-slate-500">
-                          Сравнение длительностей по договору/графику, не путать с календарным статусом выше.
+                          {isKvOverviewEndSlip
+                            ? "Сводка по проекту: отклонение даты окончания; цвет по порогам ≤0 / 1–14 / >14 дн."
+                            : "Отклонение длительностей работ (факт − план); цвет по тем же порогам ≤0 / 1–14 / >14 дн."}
                         </span>
                         <span
                           className="value text-sm font-semibold leading-snug tabular-nums"
@@ -2104,7 +2085,7 @@ export function GPRAnalytics({
                       </div>
                       <div className="mt-2 flex flex-col gap-1">
                         <span className="font-medium leading-snug text-slate-100">
-                          {`Критические отклонения по длительности (>14 дн.)`}
+                          {`Критические отклонения (>14 дн.)`}
                         </span>
                         <span
                           className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
@@ -2284,12 +2265,12 @@ export function GPRAnalytics({
                 const factPointColor = (i: number) => {
                   const row = planFactChartRows[i];
                   if (!row) return "#94a3b8";
-                  return factColorForFactEndVsToday(row.task.factStart, row.task.factEnd);
+                  return factColorForPlanFactEnd(row.task.planEnd, row.task.factEnd);
                 };
 
                 const aggLegend = aggregateWorksToProjectPlanFactBounds(planFactChartRows.map((r) => r.task));
                 const factLineLegendMarker = aggLegend
-                  ? factColorForFactEndVsToday(aggLegend.factStart, aggLegend.factEnd)
+                  ? factColorForPlanFactEnd(aggLegend.planEnd, aggLegend.factEnd)
                   : "#94a3b8";
 
                 const PLAN_LINE = "rgba(148, 163, 184, 0.6)";

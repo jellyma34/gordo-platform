@@ -1,7 +1,5 @@
-import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
-import { factColorForFactEndVsToday, statusLabelForFactEndVsToday } from "@/lib/gprScheduleDelayToday";
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
+import { planFactEndDeviationDays, type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { factColorForPlanFactEnd, statusLabelForPlanFactEnd } from "@/lib/gprScheduleDelayToday";
 
 function parseIsoDay(iso: string): number {
   const ms = new Date(`${iso.trim()}T00:00:00`).getTime();
@@ -64,36 +62,33 @@ export function aggregateWorksToProjectPlanFactBounds(
   return { planStart, planEnd, factStart, factEnd };
 }
 
-/** Отклонение по сроку окончания: fact_end − plan_end (календарные дни). */
+/** См. {@link planFactEndDeviationDays}: с фактом — факт − план, без факта — сегодня − план. */
 export function projectOverviewEndDelayDays(
   planEndIso: string,
   factEndIso: string | null | undefined,
+  asOf: Date = new Date(),
 ): number | null {
-  if (!factEndIso?.trim()) return null;
-  const pe = parseIsoDay(planEndIso);
-  const fe = parseIsoDay(factEndIso);
-  if (Number.isNaN(pe) || Number.isNaN(fe)) return null;
-  return Math.round((fe - pe) / MS_PER_DAY);
+  return planFactEndDeviationDays(planEndIso, factEndIso, asOf);
 }
 
-/** Цвет полосы «Факт проекта» по дате окончания факта относительно сегодня. */
+/** Цвет полосы «Факт проекта» по отклонению окончания (факт − план). */
 export function overviewFactBarColor(
   _planStartIso: string,
-  _planEndIso: string,
-  factStartIso: string | null | undefined,
+  planEndIso: string,
+  _factStartIso: string | null | undefined,
   factEndIso: string | null | undefined,
 ): string {
-  return factColorForFactEndVsToday(factStartIso, factEndIso);
+  return factColorForPlanFactEnd(planEndIso, factEndIso);
 }
 
-/** Подпись статуса по календарю (окончание факта vs сегодня). */
+/** Подпись статуса по отклонению окончания (факт − план). */
 export function overviewEndDeviationStatus(
   _planStartIso: string,
-  _planEndIso: string,
-  factStartIso: string | null | undefined,
+  planEndIso: string,
+  _factStartIso: string | null | undefined,
   factEndIso: string | null | undefined,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
-  return statusLabelForFactEndVsToday(factStartIso, factEndIso);
+  return statusLabelForPlanFactEnd(planEndIso, factEndIso);
 }
 
 export function buildOverviewGanttRows(

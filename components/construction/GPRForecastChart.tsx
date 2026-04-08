@@ -357,10 +357,9 @@ export function GPRForecastChart({
     <div className="mt-6 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
       <div>
         <h3 className="text-lg font-semibold text-slate-50">Прогноз выполнения ГПР</h3>
-        <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-400">
-          Прогноз на основе текущих данных ТМЦ и тендеров.
-          <br />
-          Пунктир — ожидаемое выполнение по тем же датам, что и план, с учётом текущего отставания от плана.
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">
+          Прогноз формируется на основе текущего факта выполнения, отклонения от планового графика, а также
+          статусов тендеров и ТМЦ. Текущее отставание переносится на будущие этапы.
         </p>
       </div>
 

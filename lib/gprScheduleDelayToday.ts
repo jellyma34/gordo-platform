@@ -1,10 +1,8 @@
 import type { GPRTask } from "@/lib/gprUtils";
-import { toDate } from "@/lib/gprUtils";
+import { planFactEndDeviationDays, toDate } from "@/lib/gprUtils";
+import { getProjectStatus } from "@/utils/status";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-/** Окно «риска» по календарю: окончание факта в ближайшие N дней от сегодня (включительно). */
-export const FACT_END_RISK_WINDOW_DAYS = 14;
 
 function startOfLocalDayMs(ms: number): number {
   const d = new Date(ms);
@@ -23,7 +21,7 @@ function inclusiveCalendarDays(startMs: number, endMs: number): number {
  * Отставание графика на сегодня (в плановых днях длительности):
  * (доля пройденного плана − доля пройденного факта) × длительность плана.
  * Положительное — факт отстаёт от линейного ожидания плана на текущую дату.
- * @deprecated Для цвета полосы «Факт» на Ганте используйте {@link factColorForFactEndVsToday}.
+ * @deprecated Для цвета полосы «Факт» на Ганте используйте {@link factColorForPlanFactEnd}.
  */
 export function scheduleDelayTodayDays(
   planStartIso: string,
@@ -75,54 +73,86 @@ export function scheduleDelayTodayDays(
 
 export type FactEndVsTodayTraffic = "gray" | "red" | "yellow" | "green";
 
-/**
- * Статус по календарю: дата окончания факта относительно сегодня.
- * — Нет факта → серый
- * — factEnd &lt; сегодня → отставание (красный): факт по датам не дошёл до текущего дня
- * — factEnd ≥ сегодня и до сегодня+14 дней включительно → риск (жёлтый)
- * — Иначе → в срок (зелёный)
- */
-export function trafficLightFactEndVsToday(
-  factStartIso: string | null | undefined,
-  factEndIso: string | null | undefined,
-  now: Date = new Date(),
-): FactEndVsTodayTraffic {
-  if (!factStartIso?.trim() || !factEndIso?.trim()) return "gray";
-  const fe = toDate(factEndIso);
-  if (!fe) return "gray";
-  const td = startOfLocalDayMs(now.getTime());
-  const feDay = startOfLocalDayMs(fe.getTime());
-  if (feDay < td) return "red";
-  const diffDays = Math.round((feDay - td) / MS_PER_DAY);
-  if (diffDays >= 0 && diffDays <= FACT_END_RISK_WINDOW_DAYS) return "yellow";
-  return "green";
+function trafficLightFromPlanFactDeviation(deviationDays: number | null): FactEndVsTodayTraffic {
+  if (deviationDays === null) return "gray";
+  const s = getProjectStatus(deviationDays);
+  if (s === "success") return "green";
+  if (s === "warning") return "yellow";
+  return "red";
 }
 
-export function factColorForFactEndVsToday(
-  factStartIso: string | null | undefined,
+/**
+ * Светофор по отклонению окончания: fact_end − plan_end (дни).
+ * Пороги: ≤0 в срок, 1…14 риск, &gt;14 отставание. Без дат факта/плана — серый.
+ */
+export function trafficLightPlanVsFactEnd(
+  planEndIso: string | null | undefined,
   factEndIso: string | null | undefined,
-  now?: Date,
+): FactEndVsTodayTraffic {
+  return trafficLightFromPlanFactDeviation(planFactEndDeviationDays(planEndIso, factEndIso));
+}
+
+export function factColorForPlanFactEnd(
+  planEndIso: string | null | undefined,
+  factEndIso: string | null | undefined,
 ): string {
-  const t = trafficLightFactEndVsToday(factStartIso, factEndIso, now);
+  const t = trafficLightPlanVsFactEnd(planEndIso, factEndIso);
   if (t === "gray") return "rgba(148, 163, 184, 0.5)";
   if (t === "red") return "#ef4444";
   if (t === "yellow") return "#f59e0b";
   return "#22c55e";
 }
 
-export function statusLabelForFactEndVsToday(
-  factStartIso: string | null | undefined,
+export function statusLabelForPlanFactEnd(
+  planEndIso: string | null | undefined,
   factEndIso: string | null | undefined,
-  now?: Date,
 ): "нет данных" | "отставание" | "риск" | "в срок" {
-  const t = trafficLightFactEndVsToday(factStartIso, factEndIso, now);
+  const t = trafficLightPlanVsFactEnd(planEndIso, factEndIso);
   if (t === "gray") return "нет данных";
   if (t === "red") return "отставание";
   if (t === "yellow") return "риск";
   return "в срок";
 }
 
-/** @deprecated Используйте {@link factColorForFactEndVsToday}. */
+/**
+ * @deprecated Сравнение окончания факта с «сегодня» для статуса ГПР не используется; см. {@link trafficLightPlanVsFactEnd}.
+ */
+export function trafficLightFactEndVsToday(
+  factStartIso: string | null | undefined,
+  factEndIso: string | null | undefined,
+  now: Date = new Date(),
+): FactEndVsTodayTraffic {
+  void factStartIso;
+  void factEndIso;
+  void now;
+  return "gray";
+}
+
+/** @deprecated Используйте {@link factColorForPlanFactEnd} с planEnd и factEnd. */
+export function factColorForFactEndVsToday(
+  factStartIso: string | null | undefined,
+  factEndIso: string | null | undefined,
+  now?: Date,
+): string {
+  void factStartIso;
+  void now;
+  if (!factEndIso?.trim()) return "rgba(148, 163, 184, 0.5)";
+  return "rgba(148, 163, 184, 0.5)";
+}
+
+/** @deprecated Используйте {@link statusLabelForPlanFactEnd}. */
+export function statusLabelForFactEndVsToday(
+  factStartIso: string | null | undefined,
+  factEndIso: string | null | undefined,
+  now?: Date,
+): "нет данных" | "отставание" | "риск" | "в срок" {
+  void factStartIso;
+  void now;
+  if (!factEndIso?.trim()) return "нет данных";
+  return "нет данных";
+}
+
+/** @deprecated Используйте {@link factColorForPlanFactEnd}. */
 export function factColorForScheduleDelayToday(delay: number | null): string {
   if (delay === null) return "rgba(148, 163, 184, 0.5)";
   if (delay <= 0) return "#22c55e";
@@ -130,7 +160,7 @@ export function factColorForScheduleDelayToday(delay: number | null): string {
   return "#ef4444";
 }
 
-/** @deprecated Используйте {@link statusLabelForFactEndVsToday}. */
+/** @deprecated Используйте {@link statusLabelForPlanFactEnd}. */
 export function statusLabelForScheduleDelayToday(
   delay: number | null,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
@@ -140,10 +170,10 @@ export function statusLabelForScheduleDelayToday(
   return "отставание";
 }
 
-/** Цвет полосы факта на Ганте: по дате окончания факта относительно сегодня. */
+/** Цвет полосы «Факт» на Ганте: по отклонению fact_end − plan_end. */
 export function ganttFactColorForScheduleToday(
-  task: Pick<GPRTask, "factStart" | "factEnd">,
-  now?: Date,
+  task: Pick<GPRTask, "planEnd" | "factEnd" | "factStart">,
+  _now?: Date,
 ): string {
-  return factColorForFactEndVsToday(task.factStart, task.factEnd, now);
+  return factColorForPlanFactEnd(task.planEnd, task.factEnd);
 }

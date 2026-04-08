@@ -51,6 +51,10 @@ export type GPRStatus = "green" | "yellow" | "red" | "gray" | "blocked";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+function startOfLocalDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
 export function toDate(value: string | null | undefined): Date | null {
   if (value == null) return null;
   const trimmed = String(value).trim();
@@ -80,13 +84,26 @@ export function durationDays(start: string, end: string) {
   return n + 1;
 }
 
-export function calculateDeviation(task: GPRTask): number | null {
-  const planEnd = parseDate(task.planEnd);
-  if (!planEnd) return null;
-  const factEnd = parseDate(task.factEnd);
-  const actual = factEnd ?? new Date();
-  const diffMs = actual.getTime() - planEnd.getTime();
-  return Math.round(diffMs / MS_PER_DAY);
+/**
+ * Отклонение по сроку окончания (календарные дни, локальная полуночь):
+ * — есть fact_end → fact_end − plan_end;
+ * — нет fact_end → today − plan_end (незавершённые работы).
+ */
+export function planFactEndDeviationDays(
+  planEnd: string | null | undefined,
+  factEnd: string | null | undefined,
+  asOf: Date = new Date(),
+): number | null {
+  const pe = parseDate(planEnd ?? undefined);
+  if (!pe) return null;
+  const fe = parseDate(factEnd ?? undefined);
+  const planDay = startOfLocalDay(pe);
+  const endDay = fe ? startOfLocalDay(fe) : startOfLocalDay(asOf);
+  return Math.round((endDay - planDay) / MS_PER_DAY);
+}
+
+export function calculateDeviation(task: GPRTask, asOf: Date = new Date()): number | null {
+  return planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
 }
 
 export function getStatus(task: GPRTask): GPRStatus {
@@ -120,7 +137,7 @@ export function flattenTasks(tasks: GPRTask[]): GPRTask[] {
 export function getProjectStats(tasks: GPRTask[]) {
   const all = flattenTasks(tasks);
   const deviations = all
-    .map(calculateDeviation)
+    .map((task) => calculateDeviation(task))
     .filter((value): value is number => value !== null && value !== undefined);
   const total = all.length;
   const completed = all.filter((task) => task.completion >= 100).length;

@@ -1,14 +1,12 @@
 import { GPR_DATA } from "@/lib/gprData";
 import {
+  calculateDeviation,
   durationDays,
+  getStatusByDeviation,
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
-import {
-  ganttFactColorForScheduleToday,
-  scheduleDelayTodayDays,
-  statusLabelForScheduleDelayToday,
-} from "@/lib/gprScheduleDelayToday";
+import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 
 /** Фиксированный перечень процессов укрупнённого режима по структуре ГПР (без корня 2.05 — только 2.04 и подпроцессы 2.05.xx). */
 export const AGGREGATED_GPR_BUCKET_IDS = [
@@ -197,9 +195,10 @@ export function aggregatedMainProcessStatus(
   task: GPRTask,
 ): "нет данных" | "в срок" | "риск" | "отставание" {
   if (!isAggregatedMainProcessTask(task)) return "нет данных";
-  return statusLabelForScheduleDelayToday(
-    scheduleDelayTodayDays(task.planStart, task.planEnd, task.factStart, task.factEnd),
-  );
+  const d = calculateDeviation(task);
+  if (d === null) return "нет данных";
+  const st = getStatusByDeviation(d);
+  return st === "green" ? "в срок" : st === "yellow" ? "риск" : "отставание";
 }
 
 export function factBarColorForAggregatedMainProcess(task: GPRTask): string | null {
