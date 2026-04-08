@@ -103,6 +103,15 @@ export function planFactEndDeviationDays(
 }
 
 export function calculateDeviation(task: GPRTask, asOf: Date = new Date()): number | null {
+  const hasAnyFact = Boolean(task.factStart?.trim() || task.factEnd?.trim());
+  if (!hasAnyFact) {
+    const ps = parseDate(task.planStart);
+    if (!ps) return null;
+    const todayDay = startOfLocalDay(asOf);
+    const planStartDay = startOfLocalDay(ps);
+    if (todayDay < planStartDay) return null;
+    return Math.round((todayDay - planStartDay) / MS_PER_DAY);
+  }
   return planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
 }
 

@@ -252,11 +252,6 @@ def _user_history_display(u: User | None) -> tuple[str | None, str | None, str]:
     return display_name, u.email, role_ru
 
 
-def _append_entity_history(db: Session, snapshot: dict, changed_by_user_id: int, entity_type: str) -> None:
-    # Backward-compat wrapper: оставляем внутренние вызовы без переписывания всего файла.
-    append_entity_history(db, snapshot, changed_by_user_id, _normalize_entity_type(entity_type))
-
-
 @router.get("/parts", response_model=list[ProjectPartItem])
 def list_project_parts(
     _: User = Depends(get_current_user),
@@ -343,7 +338,7 @@ def persist_gpr_task_update(
     print(f"[GPR] Saving task update: entity_id={task_id} user_id={actor.id} email={actor.email!r}", flush=True)
     print(f"[GPR] Data: {body.model_dump()}", flush=True)
 
-    _append_entity_history(db, _task_snapshot(task), actor.id, "gpr")
+    append_entity_history(db, _task_snapshot(task), actor.id, "gpr")
 
     payload = body.model_dump()
     payload["part_id"] = canonical_part_id
@@ -541,7 +536,7 @@ def rollback_entity_version(
     db.flush()
 
     # Новая запись истории после применения rollback (состояние задачи после отката).
-    _append_entity_history(db, _task_snapshot(task), actor.id, entity_type)
+    append_entity_history(db, _task_snapshot(task), actor.id, _normalize_entity_type(entity_type))
 
     db.commit()
     db.refresh(task)

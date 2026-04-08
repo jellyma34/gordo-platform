@@ -1,5 +1,5 @@
 import type { GPRTask } from "@/lib/gprUtils";
-import { planFactEndDeviationDays, toDate } from "@/lib/gprUtils";
+import { calculateDeviation, planFactEndDeviationDays, toDate } from "@/lib/gprUtils";
 import { getProjectStatus } from "@/utils/status";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -170,10 +170,29 @@ export function statusLabelForScheduleDelayToday(
   return "отставание";
 }
 
-/** Цвет полосы «Факт» на Ганте: по отклонению fact_end − plan_end. */
+/** Цвет полосы «Факт» на Ганте: по актуальной логике статуса задачи. */
 export function ganttFactColorForScheduleToday(
-  task: Pick<GPRTask, "planEnd" | "factEnd" | "factStart">,
-  _now?: Date,
+  task: Pick<GPRTask, "planStart" | "planEnd" | "factStart" | "factEnd">,
+  now: Date = new Date(),
 ): string {
-  return factColorForPlanFactEnd(task.planEnd, task.factEnd);
+  const deviation = calculateDeviation(
+    {
+      id: "0",
+      globalTaskId: "0",
+      code: "0",
+      name: "tmp",
+      partId: 1,
+      planStart: task.planStart,
+      planEnd: task.planEnd,
+      factStart: task.factStart,
+      factEnd: task.factEnd,
+      completion: 0,
+    },
+    now,
+  );
+  const t = trafficLightFromPlanFactDeviation(deviation);
+  if (t === "gray") return "rgba(148, 163, 184, 0.5)";
+  if (t === "red") return "#ef4444";
+  if (t === "yellow") return "#f59e0b";
+  return "#22c55e";
 }

@@ -227,6 +227,14 @@ const daysInclusive = (startIso: string | null | undefined, endIso: string | nul
   return diff;
 };
 
+const delayFromPlanStartIfNotStarted = (planStartIso: string | null | undefined, asOf: Date = new Date()) => {
+  const startMs = isoMs(planStartIso);
+  if (startMs === null) return null;
+  const todayMs = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate()).getTime();
+  if (todayMs < startMs) return null;
+  return Math.round((todayMs - startMs) / MS_PER_DAY_CHART);
+};
+
 function addDaysFromOrigin(origin: Date, serialDays: number): Date {
   return new Date(origin.getTime() + serialDays * MS_PER_DAY_CHART);
 }
@@ -870,7 +878,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                 if (ctx.datasetIndex === 0) {
                   return `План: ${fmt(task.planStart)} — ${fmt(task.planEnd)}`;
                 }
-                if (!task.factStart || !task.factEnd) return "Факт: нет данных";
+                if (!task.factStart || !task.factEnd) return "Факт: не начато";
                 return `Факт: ${fmt(task.factStart)} — ${fmt(task.factEnd)}`;
               },
               afterBody: (tooltipItems: { dataIndex?: number }[]) => {
@@ -918,9 +926,19 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                   if (planD !== null && factD !== null) {
                     lines.push(`Длительность: план ${planD} дн., факт ${factD} дн.`);
                   }
+                  if (!task.factStart && !task.factEnd) {
+                    const startDelay = delayFromPlanStartIfNotStarted(task.planStart);
+                    if (startDelay !== null) {
+                      lines.push(`Отставание: ${startDelay} дней от плановой даты начала`);
+                    }
+                  }
                   const dev = calculateDeviation(task);
                   if (dev !== null) {
-                    lines.push(`Отклонение по сроку окончания: ${dev > 0 ? "+" : ""}${dev} дн.`);
+                    if (!task.factStart && !task.factEnd) {
+                      lines.push(`Отклонение от плановой даты старта: +${dev} дн.`);
+                    } else {
+                      lines.push(`Отклонение по сроку окончания: ${dev > 0 ? "+" : ""}${dev} дн.`);
+                    }
                   }
                 }
                 const pk = task.projectPartKey ?? partIdToProjectPartKey(task.partId);
