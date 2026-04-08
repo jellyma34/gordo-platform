@@ -354,7 +354,7 @@ export function GPRForecastChart({
       : "";
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+    <div className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
       <div>
         <h3 className="text-lg font-semibold text-slate-50">Прогноз выполнения ГПР</h3>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">
@@ -363,7 +363,7 @@ export function GPRForecastChart({
         </p>
       </div>
 
-      <div ref={chartWrapRef} className="relative mt-4 h-[340px] w-full">
+      <div ref={chartWrapRef} className="relative mt-4 h-[260px] w-full min-w-0 sm:h-[320px] md:h-[340px]">
         {!model || model.planSeries.length === 0 ? (
           <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 text-sm text-slate-500">
             Недостаточно данных ГПР для временной диаграммы

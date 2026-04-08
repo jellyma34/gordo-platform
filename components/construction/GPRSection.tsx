@@ -17,7 +17,7 @@ type StatusSummary = {
 
 function SummaryStats({ statusSummary }: { statusSummary: StatusSummary }) {
   return (
-    <div className="mt-4 mb-6 mx-auto w-full max-w-[1400px] grid grid-cols-2 gap-4 md:grid-cols-5">
+    <div className="mx-auto mb-6 mt-4 grid w-full min-w-0 max-w-[1400px] grid-cols-2 gap-4 sm:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] md:grid-cols-5">
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4">
         <div className="flex items-center justify-between">
           <div className="text-xs font-medium text-slate-300">% выполнения</div>
@@ -130,7 +130,7 @@ export function GPRSection({
 
   if (mode === "edit") {
     return (
-      <section className="w-full">
+      <section className="w-full min-w-0 overflow-x-clip">
         <EditLayout
           title="ГПР (график производства работ)"
           subtitle="Таблица задач: план, факт, контроль и иерархия работ"
@@ -155,7 +155,7 @@ export function GPRSection({
   }
 
   return (
-    <section className="mx-auto w-full max-w-[1400px] space-y-6 rounded-2xl bg-[#0f172a] p-4 md:p-6">
+    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip rounded-2xl bg-[#0f172a] p-3 sm:p-4 md:p-6">
       <div className="flex flex-wrap justify-center gap-2">
         {PROJECT_PARTS.map((part) => (
           <button

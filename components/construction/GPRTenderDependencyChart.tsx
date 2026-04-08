@@ -331,12 +331,12 @@ export function GPRTenderDependencyChart({
   );
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+    <div className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
       <h3 className="text-lg font-semibold text-slate-50">
         Зависимость выполнения ГПР от тендеров
       </h3>
 
-      <div className="mt-4 h-[340px] w-full">
+      <div className="mt-4 h-[260px] w-full min-w-0 sm:h-[300px] md:h-[340px]">
         <Chart type="line" data={chartData} options={options} />
       </div>
 
@@ -347,8 +347,8 @@ export function GPRTenderDependencyChart({
       </p>
 
       <div className="mt-5 border-t border-slate-700/60 pt-5">
-        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-4">
-          <div className="w-full min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/35 p-4 lg:w-[45%] lg:max-w-[50%] lg:shrink-0">
+        <div className="flex min-w-0 flex-col flex-wrap gap-4 lg:flex-row lg:items-stretch lg:gap-4">
+          <div className="w-full min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/35 p-4 lg:w-[min(100%,45%)] lg:max-w-full lg:shrink-0 xl:max-w-[50%]">
             <h4 className="text-sm font-semibold text-slate-200">Отклонения по этапам</h4>
             <ul className="mt-3 space-y-2.5 text-xs leading-snug">
               {series.map((row) => {

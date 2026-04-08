@@ -31,7 +31,7 @@ export default function ConstructionPage() {
   };
 
   return (
-    <section className="mx-auto w-full max-w-[1400px] space-y-6 p-4 md:p-6">
+    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip px-3 py-4 sm:px-4 md:p-6">
       <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button

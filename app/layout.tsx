@@ -19,8 +19,8 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="ru">
-      <body>
+    <html lang="ru" className="min-w-0">
+      <body className="min-w-0 antialiased">
         <ModeProvider>
           <AuthProvider>
             <LogApiUrl />

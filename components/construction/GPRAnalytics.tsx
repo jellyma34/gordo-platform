@@ -1786,7 +1786,7 @@ export function GPRAnalytics({
 
   if (mode === "edit") {
     return (
-      <section className="space-y-4">
+      <section className="min-w-0 space-y-4 overflow-x-clip">
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
             <div className="rounded bg-slate-50 p-3">
@@ -1815,7 +1815,7 @@ export function GPRAnalytics({
   }
 
   return (
-    <section className="space-y-6">
+    <section className="min-w-0 space-y-6 overflow-x-clip">
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
           const deviation = calculateDeviation(task);
@@ -1984,8 +1984,8 @@ export function GPRAnalytics({
           )}
       </div>
 
-      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+      <div className="grid grid-cols-1 items-stretch gap-4 min-w-0 lg:grid-cols-3">
+        <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6 lg:col-span-2">
           <div>
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
@@ -2219,7 +2219,7 @@ export function GPRAnalytics({
           ) : null}
 
           <div
-            className={`mt-4 w-full ${planFactDataSource === "kvartaly" ? "" : "h-[320px]"}`}
+            className={`mt-4 w-full min-w-0 overflow-hidden ${planFactDataSource === "kvartaly" ? "" : "h-[240px] sm:h-[300px] md:h-[320px]"}`}
           >
             {planFactDataSource === "kvartaly" ? (
               kvartalyAllFlat.length === 0 ? (
@@ -2233,7 +2233,7 @@ export function GPRAnalytics({
               ) : (
                 <div
                   key={`kvartaly-gantt-${planFactKvartalyGranularity}-${activePartId}-${[...kvartalyActiveModel.ganttRows].map((r) => r.id).sort().join(":")}`}
-                  className="w-full"
+                  className="w-full min-w-0 max-h-[min(85vh,1200px)] overflow-y-auto overflow-x-hidden"
                   style={{
                     minHeight: planFactKvartalyGranularity === "overview" ? 220 : 280,
                     height: Math.min(
@@ -2423,7 +2423,7 @@ export function GPRAnalytics({
             aria-expanded={statusDistributionPopoverOpen}
             aria-haspopup="dialog"
             title="Нажмите для детализации по задачам"
-            className="flex h-full w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a]"
+            className="flex h-full min-w-0 w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a] sm:p-6"
           >
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
@@ -2674,7 +2674,7 @@ export function GPRAnalytics({
       </div>
 
       {!isPresentationRoute && (
-        <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+        <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
           <h3 className="text-lg font-semibold text-slate-50">Этапы / задачи</h3>
           <p className="mt-2 text-xs text-slate-300">
             Слева — статус (светофор). Серый — нет фактических дат.
@@ -2916,7 +2916,7 @@ export function GPRAnalytics({
                               {r.task.name}
                             </div>
                             <div className="col-span-12 md:col-span-7">
-                              <div className="relative h-7 w-full max-w-[800px] overflow-visible px-6">
+                              <div className="relative h-7 w-full max-w-full overflow-visible px-2 sm:px-6">
                                 <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-white/10" />
                                 <div className="absolute left-1/2 top-1/2 h-4 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded bg-white/30" />
                                 <div

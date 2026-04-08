@@ -657,7 +657,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       : [];
 
   return (
-    <div className="w-full space-y-4">
+    <div className="w-full min-w-0 space-y-4 overflow-x-clip">
       <section className={panelClass}>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           {!hideEditToolbar ? (
@@ -698,14 +698,14 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Поиск по названию или шифру"
-              className="h-9 min-w-[260px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
+              className="h-9 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-w-[12rem]"
             />
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               {[
                 { id: "all", label: "Все" },
                 { id: "blocked", label: "Заблокировано" },

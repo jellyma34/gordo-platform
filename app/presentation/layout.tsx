@@ -5,10 +5,10 @@ import { UserMenu } from "@/components/auth/UserMenu";
 
 export default function PresentationLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-[#020617] to-[#0f172a]">
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-gradient-to-b from-[#020617] to-[#0f172a]">
       <header className="sticky top-0 z-40 border-b border-slate-700/60 bg-[#020617]/70 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-3 px-6 py-3">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
             <Link
               href="/presentation"
               className="text-sm font-semibold tracking-tight text-slate-100 hover:text-white"
@@ -50,7 +50,7 @@ export default function PresentationLayout({ children }: { children: ReactNode }
         </div>
       </header>
 
-      <main className="w-full px-6 py-6">{children}</main>
+      <main className="w-full min-w-0 px-3 py-4 sm:px-6 sm:py-6">{children}</main>
     </div>
   );
 }

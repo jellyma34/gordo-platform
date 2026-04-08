@@ -29,7 +29,7 @@ export function ModeBar() {
 
   return (
     <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 p-3">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 py-3 sm:gap-3">
         <div className="text-sm text-slate-700">
           Режим: <span className="font-semibold text-slate-900">{modeLabel(mode)}</span>
         </div>

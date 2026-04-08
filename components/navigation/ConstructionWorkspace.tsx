@@ -198,7 +198,7 @@ function ConstructionWorkspaceInner({
 
   if (!hasFullConstructionAccess && allowedApi.length === 0) {
     return (
-      <section className="mx-auto w-full max-w-[1400px] p-4 md:p-6">
+      <section className="mx-auto w-full min-w-0 max-w-[1400px] px-3 py-4 sm:px-4 md:p-6">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
           У вас нет доступа ни к одному разделу строительства. Обратитесь к администратору.
         </div>
@@ -240,8 +240,8 @@ function ConstructionWorkspaceInner({
 
   if (isPresentation) {
     return (
-      <section className="w-full">
-        <div className="mx-auto w-full max-w-[1400px] space-y-6">
+      <section className="w-full min-w-0 overflow-x-clip">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 px-3 sm:px-4 md:px-6">
           <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-3 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-slate-300">
@@ -272,7 +272,7 @@ function ConstructionWorkspaceInner({
   }
 
   return (
-    <section className="mx-auto min-h-[60vh] w-full max-w-[1400px] space-y-6 bg-slate-50 p-4 md:p-6">
+    <section className="mx-auto min-h-[60vh] w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip bg-slate-50 px-3 py-4 sm:px-4 md:p-6">
       <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
@@ -283,12 +283,14 @@ function ConstructionWorkspaceInner({
             ← К блокам
           </button>
 
-          <div className="text-sm text-slate-600">
-            <span className="font-medium text-slate-900">{modeLabel}</span>
-            <span className="mx-2 text-slate-400">→</span>
-            <span className="font-medium text-slate-900">Строительство</span>
-            <span className="mx-2 text-slate-400">→</span>
-            <span className="text-slate-700">{sectionLabel(activeTab)}</span>
+          <div className="min-w-0 max-w-full text-sm text-slate-600">
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 break-words">
+              <span className="font-medium text-slate-900">{modeLabel}</span>
+              <span className="text-slate-400">→</span>
+              <span className="font-medium text-slate-900">Строительство</span>
+              <span className="text-slate-400">→</span>
+              <span className="text-slate-700">{sectionLabel(activeTab)}</span>
+            </span>
           </div>
 
           {tabBar}
@@ -301,7 +303,7 @@ function ConstructionWorkspaceInner({
             <h1 className="text-2xl font-semibold text-slate-900">Строительство</h1>
             <p className="mt-2 text-sm text-slate-600">Выберите раздел для работы.</p>
           </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
             {showSection("gpr") && (
               <button
                 type="button"

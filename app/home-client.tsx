@@ -19,7 +19,7 @@ export default function HomePageClient() {
   }, [hydrated, role, allowedSections, router]);
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+    <main className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip px-3 py-4 sm:px-4 md:p-6">
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Выбор режима работы</h1>
         <p className="mt-2 text-sm text-slate-600">
