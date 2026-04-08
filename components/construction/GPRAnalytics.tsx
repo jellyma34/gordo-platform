@@ -239,6 +239,12 @@ function addDaysFromOrigin(origin: Date, serialDays: number): Date {
   return new Date(origin.getTime() + serialDays * MS_PER_DAY_CHART);
 }
 
+function localTodayDate(): Date {
+  const iso = localTodayIso();
+  const [yy, mm, dd] = iso.split("-").map((s) => Number(s));
+  return new Date(yy, (mm ?? 1) - 1, dd ?? 1);
+}
+
 function truncateAxisLabel(s: string, maxLen: number): string {
   const t = s.trim().replace(/\s+/g, " ");
   if (t.length <= maxLen) return t;
@@ -788,9 +794,16 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
         return [null, r ? ([r[0], r[1]] as [number, number]) : null];
       })()
     : rows.map((t) => {
-        if (!t.factStart || !t.factEnd) return null;
-        const r = clampSerialRange(t.factStart, t.factEnd, origin, maxSerial);
-        return r ? ([r[0], r[1]] as [number, number]) : null;
+        if (t.factStart?.trim() && t.factEnd?.trim()) {
+          const r = clampSerialRange(t.factStart, t.factEnd, origin, maxSerial);
+          return r ? ([r[0], r[1]] as [number, number]) : null;
+        }
+        // Нет факта: если срок старта уже наступил, рисуем "полосу отставания" plan_start -> today.
+        const today = localTodayDate();
+        const planStart = new Date(`${t.planStart}T00:00:00`);
+        if (Number.isNaN(planStart.getTime()) || today < planStart) return null;
+        const lag = clampSerialRange(t.planStart, localTodayIso(), origin, maxSerial);
+        return lag ? ([lag[0], lag[1]] as [number, number]) : null;
       });
 
   const factBg = rows.map((t) => ganttFactColorForScheduleToday(t));
@@ -2118,105 +2131,92 @@ export function GPRAnalytics({
             ) : null}
           </div>
 
-          {planFactDataSource === "kvartaly" ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
-              <button
-                type="button"
-                className={filterChipClass(planFactKvartalyGranularity === "overview")}
-                onClick={() => setPlanFactKvartalyGranularity("overview")}
-              >
-                Обобщенно
-              </button>
-              <button
-                type="button"
-                className={filterChipClass(planFactKvartalyGranularity === "aggregated")}
-                onClick={() => setPlanFactKvartalyGranularity("aggregated")}
-              >
-                Укрупнённо
-              </button>
-              <button
-                type="button"
-                className={filterChipClass(planFactKvartalyGranularity === "detailed")}
-                onClick={() => setPlanFactKvartalyGranularity("detailed")}
-              >
-                Детально
-              </button>
-            </div>
-          ) : null}
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Период</span>
-            <button
-              type="button"
-              className={filterChipClass(planFactFilter.filterType === "all")}
-              onClick={() => setPlanFactFilter({ filterType: "all" })}
-            >
-              Все
-            </button>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
             {planFactDataSource === "kvartaly" ? (
-              <>
-                {timelineYearsAvailable.map((y) => {
-                  const active = planFactFilter.filterType === "year" && planFactFilter.value === y;
-                  return (
-                    <button
-                      key={y}
-                      type="button"
-                      className={filterChipClass(active)}
-                      onClick={() => setPlanFactFilter({ filterType: "year", value: y })}
-                    >
-                      {y}
-                    </button>
-                  );
-                })}
-                {quarterlyBucketsAll.map((b) => {
-                  const active =
-                    planFactFilter.filterType === "timelineQuarter" && planFactFilter.key === b.quarter_key;
-                  return (
-                    <button
-                      key={b.quarter_key}
-                      type="button"
-                      title={b.quarter_key}
-                      className={filterChipClass(active)}
-                      onClick={() => setPlanFactFilter({ filterType: "timelineQuarter", key: b.quarter_key })}
-                    >
-                      {b.quarter_label}
-                    </button>
-                  );
-                })}
-              </>
-            ) : (
-              <>
-                {QUARTER_FILTER_BUTTONS.map((q) => {
-                  const active = planFactFilter.filterType === "quarter" && planFactFilter.value === q.value;
-                  return (
-                    <button
-                      key={q.label}
-                      type="button"
-                      title={q.range}
-                      className={filterChipClass(active)}
-                      onClick={() => setPlanFactFilter({ filterType: "quarter", value: q.value })}
-                    >
-                      {q.label}{" "}
-                      <span className="text-[10px] font-normal text-slate-400">({q.range})</span>
-                    </button>
-                  );
-                })}
-                {MONTH_FILTER_BUTTONS.map((m) => {
-                  const active = planFactFilter.filterType === "month" && planFactFilter.value === m.value;
-                  return (
-                    <button
-                      key={m.value}
-                      type="button"
-                      className={filterChipClass(active)}
-                      onClick={() => setPlanFactFilter({ filterType: "month", value: m.value })}
-                    >
-                      {m.label}
-                    </button>
-                  );
-                })}
-              </>
-            )}
+              <label className="flex min-w-[170px] flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+                <select
+                  value={planFactKvartalyGranularity}
+                  onChange={(e) => setPlanFactKvartalyGranularity(e.target.value as PlanFactKvartalyGranularity)}
+                  className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+                >
+                  <option value="overview">Обобщенно</option>
+                  <option value="aggregated">Укрупнённо</option>
+                  <option value="detailed">Детально</option>
+                </select>
+              </label>
+            ) : null}
+
+            <label className="flex min-w-[230px] flex-1 flex-col gap-1 sm:flex-none">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Период</span>
+              <select
+                value={
+                  planFactFilter.filterType === "all"
+                    ? "all"
+                    : planFactFilter.filterType === "year"
+                      ? `year:${planFactFilter.value}`
+                      : planFactFilter.filterType === "timelineQuarter"
+                        ? `timelineQuarter:${planFactFilter.key}`
+                        : planFactFilter.filterType === "quarter"
+                          ? `quarter:${planFactFilter.value}`
+                          : `month:${planFactFilter.value}`
+                }
+                onChange={(e) => {
+                  const selected = e.target.value;
+                  if (selected === "all") {
+                    setPlanFactFilter({ filterType: "all" });
+                    return;
+                  }
+                  const [kind, raw] = selected.split(":", 2);
+                  if (kind === "year") {
+                    const y = Number(raw);
+                    if (Number.isFinite(y)) setPlanFactFilter({ filterType: "year", value: y });
+                    return;
+                  }
+                  if (kind === "timelineQuarter" && raw) {
+                    setPlanFactFilter({ filterType: "timelineQuarter", key: raw });
+                    return;
+                  }
+                  if (kind === "quarter") {
+                    const q = Number(raw);
+                    if (Number.isFinite(q)) setPlanFactFilter({ filterType: "quarter", value: q });
+                    return;
+                  }
+                  if (kind === "month") {
+                    const m = Number(raw);
+                    if (Number.isFinite(m)) setPlanFactFilter({ filterType: "month", value: m });
+                  }
+                }}
+                className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+              >
+                <option value="all">Все</option>
+                {planFactDataSource === "kvartaly"
+                  ? [
+                      ...timelineYearsAvailable.map((y) => (
+                        <option key={`year-${y}`} value={`year:${y}`}>
+                          {y}
+                        </option>
+                      )),
+                      ...quarterlyBucketsAll.map((b) => (
+                        <option key={`tq-${b.quarter_key}`} value={`timelineQuarter:${b.quarter_key}`}>
+                          {b.quarter_label}
+                        </option>
+                      )),
+                    ]
+                  : [
+                      ...QUARTER_FILTER_BUTTONS.map((q) => (
+                        <option key={`q-${q.value}`} value={`quarter:${q.value}`}>
+                          {q.label} ({q.range})
+                        </option>
+                      )),
+                      ...MONTH_FILTER_BUTTONS.map((m) => (
+                        <option key={`m-${m.value}`} value={`month:${m.value}`}>
+                          {m.label}
+                        </option>
+                      )),
+                    ]}
+              </select>
+            </label>
           </div>
 
           {planFactDataSource === "kvartaly" && planFactFilter.filterType === "year" ? (
