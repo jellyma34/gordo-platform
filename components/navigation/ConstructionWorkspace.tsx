@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { GPRSection } from "@/components/construction/GPRSection";
@@ -147,6 +147,12 @@ function ConstructionWorkspaceInner({
     }
   };
 
+  const reloadGprTasksFromApi = useCallback(async () => {
+    if (!token) return;
+    const rows = await listGprTasksApi(token);
+    setTasks(rows.map(gprTaskFromApiItem));
+  }, [token]);
+
   const allowedApi = useMemo(() => allowedSections, [allowedSections]);
 
   const showSection = (ui: UiConstructionSection) =>
@@ -255,7 +261,9 @@ function ConstructionWorkspaceInner({
             <GPRSection
               mode={mode}
               tasks={gprTasksForActivePart}
+              allGprTasks={tasks}
               onSaveTasks={saveGprTasksForActivePart}
+              onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
               onChangePart={setActiveGprPartId}
             />
@@ -355,7 +363,9 @@ function ConstructionWorkspaceInner({
             <GPRSection
               mode={mode}
               tasks={gprTasksForActivePart}
+              allGprTasks={tasks}
               onSaveTasks={saveGprTasksForActivePart}
+              onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
               onChangePart={setActiveGprPartId}
             />

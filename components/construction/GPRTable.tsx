@@ -16,6 +16,7 @@ import {
   calculateDeviation,
   durationDays,
   gprTaskFromApiItem,
+  gprTaskToApiWritePayload,
   getStatus,
   getStatusByDeviation,
   getStatusLabel,
@@ -30,6 +31,7 @@ import { getTmcData } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
+  createGprTaskApi,
   deleteEntityHistoryVersion,
   getTask,
   getEntityHistoryItem,
@@ -236,6 +238,12 @@ function branchEndIndex(tasks: GPRTask[], fromCode: string, fromIndex: number) {
   return idx;
 }
 
+/** Уровень вложенности по шифру (как на backend / в flattenTasks). */
+function levelFromGprCode(code: string): number {
+  const n = code.trim().split(".").filter(Boolean).length;
+  return Math.max(1, n - 1);
+}
+
 function insertChild(tasks: GPRTask[], parentId: string, child: GPRTask): GPRTask[] {
   const parentIndex = tasks.findIndex((t) => t.id === parentId);
   if (parentIndex < 0) return tasks;
@@ -270,7 +278,11 @@ export type GPRTableHandle = {
 
 type GPRTableProps = {
   tasks: GPRTask[];
+  /** Все задачи (все части проекта) — для выбора родителя в модалке создания. */
+  allTasks: GPRTask[];
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
+  /** После успешного POST создания — обновить список с API. */
+  onReloadGprTasks?: () => Promise<void>;
   /** Часть проекта: ТМЦ и блокировки считаются только по ней. */
   activePartId: number;
   onChangePart?: (partId: number) => void;
@@ -281,7 +293,16 @@ type GPRTableProps = {
 };
 
 export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTable(
-  { tasks, onSaveTasks, activePartId, onChangePart, hideEditToolbar = false, embedded = false },
+  {
+    tasks,
+    allTasks,
+    onSaveTasks,
+    onReloadGprTasks,
+    activePartId,
+    onChangePart,
+    hideEditToolbar = false,
+    embedded = false,
+  },
   ref,
 ) {
   const { token, isAdmin } = useAuth();
@@ -309,6 +330,15 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [deleteHistoryBusyId, setDeleteHistoryBusyId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createCode, setCreateCode] = useState("");
+  const [createParentId, setCreateParentId] = useState("");
+  const [createPartId, setCreatePartId] = useState(activePartId);
+  const [createPlanStart, setCreatePlanStart] = useState("");
+  const [createPlanEnd, setCreatePlanEnd] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const historySelectedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -318,6 +348,78 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   useEffect(() => {
     setDraftTasks(cloneTasks(tasks));
   }, [tasks]);
+
+  const createModalParentCandidates = useMemo(() => {
+    return [...allTasks]
+      .filter((t) => t.partId === createPartId)
+      .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }, [allTasks, createPartId]);
+
+  const openCreateTaskModal = () => {
+    setCreateError(null);
+    setCreateName("");
+    setCreateCode("");
+    setCreateParentId("");
+    setCreatePartId(activePartId);
+    setCreatePlanStart("");
+    setCreatePlanEnd("");
+    setCreateModalOpen(true);
+  };
+
+  const applyCreateParent = (parentId: string, partId: number) => {
+    setCreateParentId(parentId);
+    if (!parentId) return;
+    const p = allTasks.find((t) => t.id === parentId);
+    if (!p) return;
+    const siblings = allTasks.filter((t) => t.partId === partId);
+    const next = nextChildIndex(siblings, p.code);
+    setCreateCode(`${p.code}.${next}`);
+  };
+
+  const submitCreateTask = async () => {
+    setCreateError(null);
+    if (!token) {
+      setCreateError("Войдите в систему, чтобы создавать задачи.");
+      return;
+    }
+    const code = createCode.trim();
+    const name = createName.trim();
+    if (!code || !name || !createPlanStart.trim() || !createPlanEnd.trim()) {
+      setCreateError("Укажите название, шифр, план начала и план окончания.");
+      return;
+    }
+    const level = levelFromGprCode(code);
+    const synthetic: GPRTask = {
+      id: "0",
+      globalTaskId: code,
+      code,
+      name,
+      partId: createPartId,
+      planStart: createPlanStart.trim(),
+      planEnd: createPlanEnd.trim(),
+      factStart: null,
+      factEnd: null,
+      completion: 0,
+      level,
+      relatedTmcIds: [],
+    };
+    const body = gprTaskToApiWritePayload(synthetic);
+    setCreateBusy(true);
+    try {
+      await createGprTaskApi(token, body);
+      await onReloadGprTasks?.();
+      setCreateModalOpen(false);
+      setCreateName("");
+      setCreateCode("");
+      setCreateParentId("");
+      setCreatePlanStart("");
+      setCreatePlanEnd("");
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Не удалось создать задачу");
+    } finally {
+      setCreateBusy(false);
+    }
+  };
 
   const sourceTasks = draftTasks;
   const blockedReasonsByTaskId = useMemo(() => {
@@ -699,12 +801,23 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
           ) : null}
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск по названию или шифру"
-              className="h-9 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-w-[12rem]"
-            />
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+              {token ? (
+                <button
+                  type="button"
+                  onClick={openCreateTaskModal}
+                  className="h-9 shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  + Добавить задачу
+                </button>
+              ) : null}
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Поиск по названию или шифру"
+                className="h-9 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 sm:min-w-[12rem]"
+              />
+            </div>
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               {[
                 { id: "all", label: "Все" },
@@ -1106,6 +1219,112 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                   })}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {createModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900">Добавить задачу</h3>
+            <p className="mt-1 text-xs text-slate-600">
+              Задача сохраняется на сервере. Шифр и уровень должны соответствовать иерархии (как у существующих
+              работ).
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="md:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-slate-600">Название</span>
+                <input
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="Наименование работы"
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                />
+              </label>
+              <label className="md:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-slate-600">Шифр (code)</span>
+                <input
+                  value={createCode}
+                  onChange={(e) => setCreateCode(e.target.value)}
+                  placeholder="Например 2.05.01.3"
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 font-mono text-sm text-slate-900"
+                />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">Раздел</span>
+                <select
+                  value={createPartId}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setCreatePartId(v);
+                    setCreateParentId("");
+                    setCreateCode("");
+                  }}
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                >
+                  {PROJECT_PARTS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="md:col-span-1">
+                <span className="mb-1 block text-xs font-medium text-slate-600">Родительский этап</span>
+                <select
+                  value={createParentId}
+                  onChange={(e) => applyCreateParent(e.target.value, createPartId)}
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                >
+                  <option value="">Без родителя (шифр задаётся вручную)</option>
+                  {createModalParentCandidates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.code} — {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">План начала</span>
+                <input
+                  type="date"
+                  value={createPlanStart}
+                  onChange={(e) => setCreatePlanStart(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">План окончания</span>
+                <input
+                  type="date"
+                  value={createPlanEnd}
+                  onChange={(e) => setCreatePlanEnd(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                />
+              </label>
+            </div>
+            {createError ? <p className="mt-3 text-sm text-red-600">{createError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={createBusy}
+                onClick={() => {
+                  setCreateModalOpen(false);
+                  setCreateError(null);
+                }}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={createBusy}
+                onClick={() => void submitCreateTask()}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {createBusy ? "Создание…" : "Создать"}
+              </button>
             </div>
           </div>
         </div>

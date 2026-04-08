@@ -89,14 +89,20 @@ function SummaryStats({ statusSummary }: { statusSummary: StatusSummary }) {
 
 export function GPRSection({
   tasks,
+  allGprTasks,
   mode,
   onSaveTasks,
+  onReloadGprTasks,
   activePartId,
   onChangePart,
 }: {
   tasks: GPRTask[];
+  /** Полный список задач всех частей (для выбора родителя при создании). */
+  allGprTasks?: GPRTask[];
   mode: "edit" | "presentation";
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
+  /** Перезагрузка списка с API после создания задачи. */
+  onReloadGprTasks?: () => Promise<void>;
   activePartId: number;
   onChangePart: (partId: number) => void;
 }) {
@@ -143,7 +149,9 @@ export function GPRSection({
           <GPRTable
             ref={tableRef}
             tasks={tasks}
+            allTasks={allGprTasks ?? tasks}
             onSaveTasks={onSaveTasks}
+            onReloadGprTasks={onReloadGprTasks}
             activePartId={activePartId}
             onChangePart={onChangePart}
             hideEditToolbar
