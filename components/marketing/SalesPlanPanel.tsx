@@ -328,6 +328,17 @@ type KpiDashboardItem = {
   sparkline?: number[];
   sparkBars?: number[];
   sparkLine?: number[];
+  sparkMode?: "combo" | "bars" | "line";
+  sparkTone?: KpiCardTone;
+  tooltip: {
+    metricMeaning: string;
+    formula: string;
+    fact: string;
+    plan: string;
+    deviation: string;
+    miniChart: string;
+    conclusion: string;
+  };
 };
 
 function KpiDashboard({
@@ -389,25 +400,29 @@ function KpiDashboard({
     <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
       {items.map((kpi) => {
         const s = toneStyles(kpi.tone);
+        const sparkStyle = toneStyles(kpi.sparkTone ?? kpi.tone);
         const rawBars = kpi.sparkBars ?? kpi.sparkline ?? [];
         const rawLine = kpi.sparkLine ?? kpi.sparkline ?? [];
-        const pairCount = Math.min(rawBars.length, rawLine.length);
+        const mode = kpi.sparkMode ?? "combo";
+        const isBarsOnly = mode === "bars";
+        const isLineOnly = mode === "line";
+        const pairCount = isBarsOnly ? rawBars.length : Math.min(rawBars.length, rawLine.length);
         const bars = rawBars.slice(rawBars.length - pairCount);
-        const line = rawLine.slice(rawLine.length - pairCount);
+        const line = isBarsOnly ? [] : rawLine.slice(rawLine.length - pairCount);
         const hasSpark = pairCount >= 2;
         const barMin = hasSpark ? Math.min(...bars) : 0;
         const barMax = hasSpark ? Math.max(...bars) : 1;
         const barRange = Math.max(1e-6, barMax - barMin);
-        const lineMin = hasSpark ? Math.min(...line) : 0;
-        const lineMax = hasSpark ? Math.max(...line) : 1;
+        const lineMin = line.length ? Math.min(...line) : 0;
+        const lineMax = line.length ? Math.max(...line) : 1;
         const lineRange = Math.max(1e-6, lineMax - lineMin);
         const w = 172;
-        const h = 40;
+        const h = isBarsOnly ? 56 : 40;
         const n = pairCount;
-        const gap = 4;
+        const gap = isBarsOnly ? 6 : 4;
         const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
         const rx = Math.min(6, Math.max(0, barW / 2));
-        const pts = hasSpark
+        const pts = hasSpark && line.length
           ? line.map((v, i) => {
               const x = i * (barW + gap) + barW / 2;
               const y = h - ((v - lineMin) / lineRange) * h;
@@ -431,55 +446,98 @@ function KpiDashboard({
               })()
             : "";
         const lastPt = pts.length ? pts[pts.length - 1]! : null;
+        const absMax = Math.max(1, Math.abs(barMin), Math.abs(barMax));
+        const zeroY = h * 0.5;
         return (
-          <div key={kpi.key} className={`relative overflow-hidden rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
+          <div key={kpi.key} className={`group relative overflow-visible rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
             <div className="pointer-events-none absolute inset-0" style={{ background: s.radial }} />
             <div className="relative p-3 sm:p-3.5">
               <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
               <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
               {hasSpark ? (
                 <div className="mt-2">
-                  <svg viewBox={`0 0 ${w} ${h}`} className="h-10 w-full overflow-visible" preserveAspectRatio="none" aria-hidden>
+                  <svg
+                    viewBox={`0 0 ${w} ${h}`}
+                    className={`${isBarsOnly ? "h-14" : "h-10"} w-full overflow-visible`}
+                    preserveAspectRatio="none"
+                    aria-hidden
+                  >
+                    {isBarsOnly ? (
+                      <line
+                        x1={0}
+                        y1={zeroY}
+                        x2={w}
+                        y2={zeroY}
+                        stroke={presentation ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.45)"}
+                        strokeWidth="1"
+                      />
+                    ) : null}
                     {/* bars: background layer */}
-                    {bars.map((_, i) => {
-                      const x = i * (barW + gap);
-                      return (
-                        <rect
-                          key={`bg-${kpi.key}-${i}`}
-                          x={x}
-                          y={0}
-                          width={barW}
-                          height={h}
-                          rx={rx}
-                          fill={s.miniBar}
-                          opacity={0.2}
-                        />
-                      );
-                    })}
+                    {!isLineOnly
+                      ? bars.map((_, i) => {
+                          const x = i * (barW + gap);
+                          return (
+                            <rect
+                              key={`bg-${kpi.key}-${i}`}
+                              x={x}
+                              y={0}
+                              width={barW}
+                              height={h}
+                              rx={rx}
+                              fill={sparkStyle.miniBar}
+                              opacity={isBarsOnly ? 0.12 : 0.2}
+                            />
+                          );
+                        })
+                      : null}
                     {/* bars: main layer */}
-                    {bars.map((v, i) => {
+                    {!isLineOnly
+                      ? bars.map((v, i) => {
+                          const x = i * (barW + gap);
+                          const hh = isBarsOnly ? (Math.abs(v) / absMax) * (h / 2) : ((v - barMin) / barRange) * h;
+                          const y = isBarsOnly ? (v >= 0 ? zeroY - hh : zeroY) : h - hh;
+                          const fill = isBarsOnly ? (v >= 0 ? "#22c55e" : "#ef4444") : sparkStyle.miniBar;
+                          const isLastBar = i === bars.length - 1;
+                          return (
+                            <rect
+                              key={`main-${kpi.key}-${i}`}
+                              x={x}
+                              y={y}
+                              width={barW}
+                              height={hh}
+                              rx={rx}
+                              fill={fill}
+                              opacity={isBarsOnly ? 1 : 0.7}
+                              stroke={isBarsOnly && isLastBar ? (presentation ? "#f8fafc" : "#0f172a") : "none"}
+                              strokeWidth={isBarsOnly && isLastBar ? 1.4 : 0}
+                              style={isBarsOnly && isLastBar ? { filter: "drop-shadow(0 0 5px rgba(248,250,252,0.45))" } : undefined}
+                            />
+                          );
+                        })
+                      : null}
+                    {/* current month marker for deviation bars */}
+                    {isBarsOnly && bars.length > 0 ? (() => {
+                      const i = bars.length - 1;
+                      const v = bars[i] ?? 0;
                       const x = i * (barW + gap);
-                      const hh = ((v - barMin) / barRange) * h;
-                      const y = h - hh;
+                      const hh = (Math.abs(v) / absMax) * (h / 2);
+                      const y = v >= 0 ? zeroY - hh : zeroY;
+                      const cx = x + barW / 2;
+                      const cy = v >= 0 ? y : y + hh;
+                      const c = v >= 0 ? "#22c55e" : "#ef4444";
                       return (
-                        <rect
-                          key={`main-${kpi.key}-${i}`}
-                          x={x}
-                          y={y}
-                          width={barW}
-                          height={hh}
-                          rx={rx}
-                          fill={s.miniBar}
-                          opacity={0.7}
-                        />
+                        <>
+                          <circle cx={cx} cy={cy} r="2.5" fill={c} />
+                          <circle cx={cx} cy={cy} r="5.2" fill={c} opacity={0.18} />
+                        </>
                       );
-                    })}
+                    })() : null}
                     {/* line overlay */}
-                    <path d={linePath} fill="none" stroke={s.miniLine} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                    {lastPt ? (
+                    {!isBarsOnly ? <path d={linePath} fill="none" stroke={sparkStyle.miniLine} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /> : null}
+                    {!isBarsOnly && lastPt ? (
                       <>
-                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={s.miniLine} />
-                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={s.miniLine} opacity={0.14} />
+                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={sparkStyle.miniLine} />
+                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={sparkStyle.miniLine} opacity={0.14} />
                       </>
                     ) : null}
                   </svg>
@@ -497,6 +555,32 @@ function KpiDashboard({
               >
                 {kpi.description}
               </p>
+            </div>
+            <div
+              className={`pointer-events-none absolute left-2 right-2 top-[calc(100%+8px)] z-20 rounded-xl px-3 py-3 opacity-0 backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 sm:left-auto sm:right-0 sm:w-[320px] ${
+                presentation
+                  ? "border border-slate-500/45 bg-[#0b1220]/90 text-slate-200 shadow-[0_16px_40px_rgba(15,23,42,0.65)]"
+                  : "border border-slate-200/80 bg-slate-900/92 text-slate-100 shadow-[0_14px_34px_rgba(15,23,42,0.28)]"
+              }`}
+            >
+              <div className="text-[12px] font-semibold leading-tight">{kpi.title}</div>
+              <div className="mt-1 text-[12px] leading-snug text-slate-300">
+                {kpi.tooltip.metricMeaning}
+              </div>
+              <div className="mt-1 text-[11px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
+
+              <div className="mt-2 space-y-1 text-[12px] tabular-nums">
+                <div className="flex justify-between gap-3"><span className="text-slate-400">Факт</span><span>{kpi.tooltip.fact}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-400">План</span><span>{kpi.tooltip.plan}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-400">Отклонение</span><span>{kpi.tooltip.deviation}</span></div>
+              </div>
+
+              <div className="mt-2 text-[11px] leading-snug text-slate-300">
+                Mini chart: {kpi.tooltip.miniChart}
+              </div>
+              <div className="mt-1 text-[12px] leading-snug text-slate-100">
+                Вывод: {kpi.tooltip.conclusion}
+              </div>
             </div>
           </div>
         );
@@ -1071,14 +1155,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       return planRun > 0 ? (factRun / planRun) * 100 : 0;
     });
   }, [monthlyPlanExecutionData]);
-  const monthlyExecBarsSeries = useMemo(
-    () => monthlyPlanExecutionData.slice(-6).map((r) => r.fact),
-    [monthlyPlanExecutionData],
-  );
-  const monthlyExecLineSeries = useMemo(
+  const monthlyExecPctSeries = useMemo(
     () => monthlyPlanExecutionData.slice(-6).map((r) => (r.plan > 0 ? (r.fact / r.plan) * 100 : 0)),
     [monthlyPlanExecutionData],
   );
+  const monthlyDeviationSeries = useMemo(
+    () => monthlyPlanExecutionData.slice(-6).map((r) => r.deviation),
+    [monthlyPlanExecutionData],
+  );
+  const cumulativeDeviationSeries = useMemo(() => {
+    let run = 0;
+    return monthlyPlanExecutionData.slice(-6).map((r) => {
+      run += r.deviation;
+      return run;
+    });
+  }, [monthlyPlanExecutionData]);
   const monthPlanDeals = currentMonthPoint?.plan ?? 0;
   const monthFactDeals = currentMonthPoint?.fact ?? 0;
   const monthDeviationDeals = currentMonthPoint?.deviation ?? 0;
@@ -1126,6 +1217,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         : monthlyExecutionInsights.trend === "stable"
           ? "тренд стабильный"
           : "тренд пока нечитабелен";
+  const cumulativeLineTone: KpiCardTone = (() => {
+    const n = cumulativeDeviationSeries.length;
+    if (n < 2) return "yellow";
+    const last = cumulativeDeviationSeries[n - 1] ?? 0;
+    const prev = cumulativeDeviationSeries[n - 2] ?? 0;
+    if (last < 0 && last < prev) return "red";
+    return "yellow";
+  })();
   const dynamicsKpiItems: KpiDashboardItem[] = [
     {
       key: "cum-exec",
@@ -1141,6 +1240,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       tone: cumulativeExecTone,
       hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
       sparkline: cumulativeExecSeriesPct,
+      tooltip: {
+        metricMeaning: "Показывает, какую долю накопительного плана уже закрыли по факту.",
+        formula: "Формула: накопительный факт / накопительный план × 100%.",
+        fact: `${compactRub(rev.factCumulative)}`,
+        plan: `${compactRub(rev.planCumulative)}`,
+        deviation: `${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
+        miniChart: "Столбцы и линия показывают динамику % выполнения по месяцам; точка — последний месяц.",
+        conclusion: forecastPercentAdjusted < 100 ? `Риск недовыполнения связан с ${lagSegment}.` : "Текущая динамика позволяет закрыть план.",
+      },
     },
     {
       key: "month-exec",
@@ -1155,8 +1263,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             : `Месяц компенсирует прошлый недобор, особенно в сегменте ${weakSegment}.`,
       tone: monthExecTone,
       hover: `План: ${numFmt.format(monthPlanDeals)} шт | Факт: ${numFmt.format(monthFactDeals)} шт | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
-      sparkBars: monthlyExecBarsSeries,
-      sparkLine: monthlyExecLineSeries,
+      sparkBars: monthlyExecPctSeries,
+      sparkLine: monthlyExecPctSeries,
+      tooltip: {
+        metricMeaning: "Показывает выполнение плана именно за текущий месяц.",
+        formula: "Формула: факт месяца / план месяца × 100%.",
+        fact: `${numFmt.format(monthFactDeals)} шт`,
+        plan: `${numFmt.format(monthPlanDeals)} шт`,
+        deviation: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
+        miniChart: "Столбцы — % выполнения по последним месяцам, линия — сглаженный тренд %, точка — текущее значение.",
+        conclusion: monthExecPct < 100 ? `Недобор формируется в ${lagSegment}.` : "Месяц отрабатывает план с запасом.",
+      },
     },
     {
       key: "month-dev",
@@ -1169,6 +1286,16 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           : `Плюс месяца частично компенсирует провал с ${firstLagMonth}, динамика: ${trendShort}.`,
       tone: monthDevTone,
       hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)} | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт, ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
+      sparkBars: monthlyDeviationSeries,
+      tooltip: {
+        metricMeaning: "Показывает отклонение текущего месяца в штуках и выручке.",
+        formula: "Формула: факт месяца − план месяца.",
+        fact: `${numFmt.format(monthFactDeals)} шт / ${compactRub(monthFactRevenue)}`,
+        plan: `${numFmt.format(monthPlanDeals)} шт / ${compactRub(monthPlanRevenue)}`,
+        deviation: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт / ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
+        miniChart: "Столбцы вверх/вниз показывают отклонение по месяцам; зеленый — плюс, красный — минус.",
+        conclusion: monthDeviationDeals < 0 ? `Минус месяца усиливает отставание, особенно в ${lagSegment}.` : "Плюс месяца частично компенсирует предыдущий недобор.",
+      },
     },
     {
       key: "cum-dev",
@@ -1181,6 +1308,18 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           : `Накопительное отставание компенсируется ростом в ${weakSegment}; ${trendShort}.`,
       tone: cumulativeDevTone,
       hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт | Отклонение: ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт`,
+      sparkLine: cumulativeDeviationSeries,
+      sparkMode: "line",
+      sparkTone: cumulativeLineTone,
+      tooltip: {
+        metricMeaning: "Показывает суммарное отклонение от плана к текущей дате.",
+        formula: "Формула: накопительный факт − накопительный план.",
+        fact: `${numFmt.format(currentFactCum)} шт / ${compactRub(rev.factCumulative)}`,
+        plan: `${numFmt.format(currentPlanCum)} шт / ${compactRub(rev.planCumulative)}`,
+        deviation: `${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт / ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
+        miniChart: "Линия показывает накопительное отклонение по месяцам; выделенная точка — текущее накопленное значение.",
+        conclusion: currentDeviation < 0 ? `Отставание накоплено с ${firstLagMonth}; ключевой вклад — ${lagSegment}.` : "Накопительное отклонение компенсируется текущим ростом.",
+      },
     },
   ];
 
