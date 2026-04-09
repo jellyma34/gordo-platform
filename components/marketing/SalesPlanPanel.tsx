@@ -27,6 +27,9 @@ const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.Respo
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
 const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
+const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
+const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
+const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
 const LabelList = dynamic(() => import("recharts").then((m) => m.LabelList), { ssr: false });
 const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
 const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
@@ -82,6 +85,17 @@ type DealControlRow = {
   redZone: number;
 };
 
+type DeviationContributionRow = {
+  id: SalesCategoryId;
+  name: string;
+  nameWithPct: string;
+  plan: number;
+  fact: number;
+  deviation: number;
+  percentComplete: number;
+  fill: string;
+};
+
 function dealStatus(plan: number, fact: number): TrafficStatus {
   const pct = plan > 0 ? (fact / plan) * 100 : 0;
   if (pct >= 100) return "green";
@@ -125,6 +139,28 @@ function periodKeyToday(granularity: MarketingPeriodGranularity): string {
   if (granularity === "month") return `${y}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   const q = Math.floor(d.getMonth() / 3) + 1;
   return `${y}-Q${q}`;
+}
+
+function buildDeviationContribution(categories: Array<{
+  id: SalesCategoryId;
+  name: string;
+  planCumulative: number;
+  factCumulative: number;
+  deviation: number;
+  percentComplete: number;
+}>): DeviationContributionRow[] {
+  return [...categories]
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      nameWithPct: `${c.name} · ${c.percentComplete.toFixed(1)}%`,
+      plan: c.planCumulative,
+      fact: c.factCumulative,
+      deviation: c.deviation,
+      percentComplete: c.percentComplete,
+      fill: c.deviation >= 0 ? "#22c55e" : "#ef4444",
+    }))
+    .sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
 }
 
 function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
@@ -257,6 +293,39 @@ function DealControlTooltip({
         <div className="flex items-center gap-1.5">
           <span className={`h-2.5 w-2.5 rounded-full ${statusColor}`} />
           <span>{statusText}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeviationContributionTooltip({
+  active,
+  payload,
+  presentation,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: DeviationContributionRow }>;
+  presentation: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  return (
+    <div
+      className={
+        presentation
+          ? "max-w-xs rounded-lg border border-slate-500/50 bg-[#0f172a] p-3 text-xs text-slate-200 shadow-xl"
+          : "max-w-xs rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-800 shadow-lg"
+      }
+    >
+      <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>{p.name}</div>
+      <div className="mt-2 space-y-1">
+        <div>План: {rubFmt.format(p.plan)}</div>
+        <div>Факт: {rubFmt.format(p.fact)}</div>
+        <div className={p.deviation < 0 ? "text-red-400" : "text-emerald-400"}>
+          Отклонение: {p.deviation < 0 ? "−" : "+"}
+          {rubFmt.format(Math.abs(p.deviation))}
         </div>
       </div>
     </div>
@@ -505,6 +574,23 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     () => buildSalesInsights(categoriesAdjusted, radarCategoriesAdjusted, rev),
     [categoriesAdjusted, radarCategoriesAdjusted, rev],
   );
+  const deviationContribution = useMemo(() => buildDeviationContribution(categoriesAdjusted), [categoriesAdjusted]);
+  const totalDeviationRub = useMemo(
+    () => deviationContribution.reduce((s, r) => s + r.deviation, 0),
+    [deviationContribution],
+  );
+  const apt2CompensationText = useMemo(() => {
+    const apt2 = radarCategoriesAdjusted.find((r) => r.id === "apt-2");
+    if (!apt2) return null;
+    const apt2Dev = apt2.factCumulative - apt2.planCumulative;
+    const totalLag = radarCategoriesAdjusted
+      .map((r) => r.factCumulative - r.planCumulative)
+      .filter((v) => v < 0)
+      .reduce((s, v) => s + Math.abs(v), 0);
+    if (apt2Dev <= 0 || totalLag <= 0) return null;
+    const pct = (apt2Dev / totalLag) * 100;
+    return `Перевыполнение 2-ком компенсирует ${pct.toFixed(1)}% от отставания.`;
+  }, [radarCategoriesAdjusted]);
 
   const dealControlData = useMemo(() => {
     const planRows = period === "month" ? marketingMockData.salesPlan.month : marketingMockData.salesPlan.quarter;
@@ -1037,12 +1123,66 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
       </div>
 
+      {/* Segment contribution */}
+      <div className={card}>
+        <h4 className={h4}>Вклад сегментов в отклонение плана</h4>
+        <p className={`${sub} mt-1`}>Где формируется недобор и что компенсирует отставание</p>
+        <div className="mt-4 h-[280px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={deviationContribution} layout="vertical" margin={{ top: 4, right: 8, left: 14, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fill: axisColor, fontSize: 10 }}
+                axisLine={false}
+                tickFormatter={(v: number) => `${Math.round(v / 1_000_000)}M`}
+              />
+              <YAxis
+                type="category"
+                dataKey="nameWithPct"
+                tick={{ fill: axisColor, fontSize: 10 }}
+                axisLine={false}
+                width={140}
+              />
+              <Tooltip content={<DeviationContributionTooltip presentation={presentation} />} />
+              <ReferenceLine x={0} stroke={presentation ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.5)"} />
+              <Bar dataKey="deviation" radius={[4, 4, 4, 4]}>
+                {deviationContribution.map((r) => (
+                  <Cell key={r.id} fill={r.fill} />
+                ))}
+                <LabelList
+                  dataKey="deviation"
+                  position="right"
+                  formatter={(v: number) => `${v < 0 ? "−" : "+"}${compactRub(Math.abs(v))}`}
+                  fill={presentation ? "#cbd5e1" : "#334155"}
+                  fontSize={10}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 space-y-1">
+          <p className={`text-sm font-semibold ${totalDeviationRub < 0 ? (presentation ? "text-red-300" : "text-red-700") : presentation ? "text-emerald-300" : "text-emerald-700"}`}>
+            Итого: {totalDeviationRub < 0 ? "−" : "+"}
+            {compactRub(Math.abs(totalDeviationRub))}
+          </p>
+          {apt2CompensationText ? (
+            <p className={`text-[11px] ${presentation ? "text-slate-300" : "text-slate-700"}`}>{apt2CompensationText}</p>
+          ) : null}
+        </div>
+      </div>
+
       {/* Radar */}
       <div className={card}>
         <h4 className={h4}>Выполнение по сегментам (радар)</h4>
         <p className={`${sub} mt-1`}>Накопительный % к плану по типам продуктов</p>
         <div className="mt-4">
-          <SalesPlanRadarChart categories={radarCategoriesAdjusted} presentation={presentation} />
+          <SalesPlanRadarChart
+            categories={radarCategoriesAdjusted}
+            presentation={presentation}
+            centerPercentComplete={rev.percentComplete}
+            centerDeviationRub={rev.deviationCumulative}
+          />
         </div>
       </div>
 

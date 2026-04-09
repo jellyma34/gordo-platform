@@ -12,59 +12,56 @@ const PolarGrid = dynamic(() => import("recharts").then((m) => m.PolarGrid), { s
 const PolarAngleAxis = dynamic(() => import("recharts").then((m) => m.PolarAngleAxis), { ssr: false });
 const PolarRadiusAxis = dynamic(() => import("recharts").then((m) => m.PolarRadiusAxis), { ssr: false });
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
 
 const rubFmt = new Intl.NumberFormat("ru-RU", {
   style: "currency",
   currency: "RUB",
   maximumFractionDigits: 0,
 });
+const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+const compactRub = (n: number) =>
+  Math.abs(n) >= 1_000_000
+    ? `${n < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(n) / 1_000_000))} млн ₽`
+    : rubFmt.format(n);
 
 export type RadarChartRow = {
   subject: string;
   categoryLabel: string;
   planCumulative: number;
   factCumulative: number;
-  /** Базовая линия плана на диаграмме (%). */
-  planPct: number;
-  /** Фактический % выполнения (без обрезки для tooltip). */
-  factPct: number;
-  /** Значение на оси радиуса (может быть >100). */
-  factPctDisplay: number;
-  deviation: number;
+  valuePct: number;
+  deltaPct: number;
+  deltaRub: number;
+  planBase: number;
+  valueDisplay: number;
+  tone: "red" | "yellow" | "green";
 };
 
-function vertexColor(pct: number): string {
-  if (pct > 100) return "#22c55e";
-  if (pct >= 90) return "#94a3b8";
-  return "#ef4444";
-}
-
-function polygonColors(rows: RadarChartRow[]): { stroke: string; fill: string } {
-  const pcts = rows.map((r) => r.factPct);
-  const minP = Math.min(...pcts);
-  const maxP = Math.max(...pcts);
-  if (minP < 90) return { stroke: "#f87171", fill: "rgba(248, 113, 113, 0.22)" };
-  if (maxP > 100) return { stroke: "#4ade80", fill: "rgba(74, 222, 128, 0.22)" };
-  return { stroke: "#94a3b8", fill: "rgba(148, 163, 184, 0.28)" };
+function getTone(valuePct: number): RadarChartRow["tone"] {
+  if (valuePct < 80) return "red";
+  if (valuePct <= 100) return "yellow";
+  return "green";
 }
 
 function buildRows(categories: SalesRadarCategoryRow[]): RadarChartRow[] {
   return categories.map((c) => {
     const plan = c.planCumulative;
     const fact = c.factCumulative;
-    const factPct = plan > 0 ? (fact / plan) * 100 : 0;
-    const rounded = Math.round(factPct * 10) / 10;
-    const cap = 135;
+    const valuePctRaw = plan > 0 ? (fact / plan) * 100 : 0;
+    const valuePct = Math.round(valuePctRaw * 10) / 10;
+    const deltaPct = Math.round((valuePct - 100) * 10) / 10;
+    const cap = 140;
     return {
       subject: c.axisLabel,
       categoryLabel: c.name,
       planCumulative: plan,
       factCumulative: fact,
-      planPct: 100,
-      factPct: rounded,
-      factPctDisplay: Math.min(cap, rounded),
-      deviation: fact - plan,
+      valuePct,
+      deltaPct,
+      deltaRub: fact - plan,
+      planBase: 100,
+      valueDisplay: Math.min(cap, valuePct),
+      tone: getTone(valuePct),
     };
   });
 }
@@ -81,8 +78,8 @@ function RadarTooltipContent({
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   if (!row) return null;
-  const dev = row.deviation;
-  const devSign = dev < 0 ? "−" : "+";
+  const devSignRub = row.deltaRub < 0 ? "−" : "+";
+  const devSignPct = row.deltaPct < 0 ? "−" : "+";
   return (
     <div
       className={
@@ -97,24 +94,25 @@ function RadarTooltipContent({
       <div className="mt-2 space-y-1.5">
         <div>План: {rubFmt.format(row.planCumulative)}</div>
         <div>Факт: {rubFmt.format(row.factCumulative)}</div>
-        <div className="tabular-nums">Выполнение: {row.factPct.toFixed(1)}%</div>
+        <div className="tabular-nums">К плану: {row.valuePct.toFixed(1)}%</div>
         <div
           className={
             presentation
-              ? dev < 0
+              ? row.deltaRub < 0
                 ? "text-red-300"
-                : dev > 0
+                : row.deltaRub > 0
                   ? "text-emerald-300"
                   : "text-slate-400"
-              : dev < 0
+              : row.deltaRub < 0
                 ? "text-red-600"
-                : dev > 0
+                : row.deltaRub > 0
                   ? "text-emerald-600"
                   : "text-slate-500"
           }
         >
-          Отклонение: {devSign}
-          {rubFmt.format(Math.abs(dev))}
+          Отклонение: {devSignPct}
+          {Math.abs(row.deltaPct).toFixed(1)}% ({devSignRub}
+          {rubFmt.format(Math.abs(row.deltaRub))})
         </div>
       </div>
     </div>
@@ -124,65 +122,164 @@ function RadarTooltipContent({
 type Props = {
   categories: SalesRadarCategoryRow[];
   presentation: boolean;
+  centerPercentComplete?: number;
+  centerDeviationRub?: number;
 };
 
-export function SalesPlanRadarChart({ categories, presentation }: Props) {
-  const data = useMemo(() => buildRows(categories), [categories]);
-  const { stroke, fill } = useMemo(() => polygonColors(data), [data]);
+function tonePalette(tone: RadarChartRow["tone"]): { stroke: string; fill: string } {
+  if (tone === "red") return { stroke: "#ef4444", fill: "rgba(239,68,68,0.18)" };
+  if (tone === "yellow") return { stroke: "#f59e0b", fill: "rgba(245,158,11,0.16)" };
+  return { stroke: "#22c55e", fill: "rgba(34,197,94,0.16)" };
+}
 
-  const gridStroke = presentation ? "rgba(148,163,184,0.2)" : "rgba(100,116,139,0.25)";
+function SegmentRadarShape({
+  points,
+  cx,
+  cy,
+}: {
+  points?: Array<{ x: number; y: number; payload?: RadarChartRow }>;
+  cx?: number;
+  cy?: number;
+}) {
+  if (!points?.length || cx == null || cy == null) return null;
+  return (
+    <g>
+      {points.map((p, i) => {
+        const next = points[(i + 1) % points.length];
+        if (!next) return null;
+        const tone = p.payload?.tone ?? "yellow";
+        const { stroke, fill } = tonePalette(tone);
+        return (
+          <g key={`seg-${i}`}>
+            {/* Colored segment area: center -> point -> next point */}
+            <path d={`M ${cx} ${cy} L ${p.x} ${p.y} L ${next.x} ${next.y} Z`} fill={fill} stroke="none" />
+            {/* Colored edge for this category segment */}
+            <line x1={p.x} y1={p.y} x2={next.x} y2={next.y} stroke={stroke} strokeWidth={2} strokeLinecap="round" />
+            {/* Colored spoke from center to point */}
+            <line x1={cx} y1={cy} x2={p.x} y2={p.y} stroke={stroke} strokeWidth={1.4} strokeLinecap="round" opacity={0.9} />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+export function SalesPlanRadarChart({ categories, presentation, centerPercentComplete, centerDeviationRub }: Props) {
+  const data = useMemo(() => buildRows(categories), [categories]);
+  const weak = useMemo(() => data.filter((r) => r.valuePct < 90).sort((a, b) => a.valuePct - b.valuePct), [data]);
+  const strong = useMemo(() => data.filter((r) => r.valuePct > 100).sort((a, b) => b.valuePct - a.valuePct), [data]);
+  const totalPlan = useMemo(() => data.reduce((s, r) => s + r.planCumulative, 0), [data]);
+  const totalFact = useMemo(() => data.reduce((s, r) => s + r.factCumulative, 0), [data]);
+  const centerPct = centerPercentComplete ?? (totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0);
+  const centerDev = centerDeviationRub ?? totalFact - totalPlan;
+
+  const gridStroke = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.14)";
   const tickFill = presentation ? "#94a3b8" : "#64748b";
-  const planStroke = presentation ? "rgba(226, 232, 240, 0.55)" : "rgba(100, 116, 139, 0.75)";
+  const planStroke = presentation ? "rgba(226, 232, 240, 0.45)" : "rgba(100, 116, 139, 0.5)";
+  const factStroke = presentation ? "rgba(148,163,184,0.15)" : "rgba(100,116,139,0.2)";
+  const centerTone =
+    centerPct < 80
+      ? presentation
+        ? "text-red-300"
+        : "text-red-700"
+      : centerPct <= 100
+        ? presentation
+          ? "text-amber-300"
+          : "text-amber-700"
+        : presentation
+          ? "text-emerald-300"
+          : "text-emerald-700";
 
   return (
-    <div className="h-[340px] w-full min-w-0 sm:h-[380px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="52%" outerRadius="68%" data={data} margin={{ top: 16, right: 24, bottom: 8, left: 24 }}>
-          <PolarGrid stroke={gridStroke} />
-          <PolarAngleAxis
-            dataKey="subject"
-            tick={{ fill: tickFill, fontSize: 11, fontWeight: 500 }}
-            tickLine={false}
-          />
-          <PolarRadiusAxis
-            angle={90}
-            domain={[0, 135]}
-            ticks={[0, 50, 90, 100, 120]}
-            tick={{ fill: tickFill, fontSize: 10 }}
-            tickFormatter={(v) => `${v}%`}
-          />
-          <Radar
-            name="План (100%)"
-            dataKey="planPct"
-            stroke={planStroke}
-            strokeWidth={1.2}
-            fill="none"
-            fillOpacity={0}
-            dot={false}
-            isAnimationActive={false}
-          />
-          <Radar
-            name="Факт (% выполнения)"
-            dataKey="factPctDisplay"
-            stroke={stroke}
-            strokeWidth={2}
-            fill={fill}
-            fillOpacity={1}
-            dot={(props: { cx?: number; cy?: number; payload?: RadarChartRow }) => {
-              const { cx, cy, payload } = props;
-              if (cx == null || cy == null || !payload) return null;
-              const c = vertexColor(payload.factPct);
-              return <circle cx={cx} cy={cy} r={5} fill={c} stroke="rgba(15,23,42,0.85)" strokeWidth={1} />;
-            }}
-            isAnimationActive={false}
-          />
-          <Tooltip content={<RadarTooltipContent presentation={presentation} />} />
-          <Legend
-            wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-            formatter={(value) => <span style={{ color: tickFill }}>{value}</span>}
-          />
-        </RadarChart>
-      </ResponsiveContainer>
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[68%_32%]">
+      <div className="flex min-w-0 items-center justify-center">
+        <div className="relative h-[340px] w-full max-w-[520px] lg:min-w-[420px] sm:h-[380px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <RadarChart cx="50%" cy="52%" outerRadius="72%" data={data} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
+            <PolarGrid radialLines={false} stroke={gridStroke} />
+            <PolarAngleAxis dataKey="subject" tick={{ fill: tickFill, fontSize: 11, fontWeight: 600 }} tickLine={false} />
+            <PolarRadiusAxis axisLine={false} tick={false} tickCount={3} domain={[0, 140]} />
+            <Radar
+              name="План (100%)"
+              dataKey="planBase"
+              stroke={planStroke}
+              strokeWidth={1.1}
+              strokeDasharray="4 4"
+              fill="none"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Radar
+              name="Факт"
+              dataKey="valueDisplay"
+              stroke={factStroke}
+              strokeWidth={0.8}
+              fill="none"
+              shape={<SegmentRadarShape />}
+              dot={(props: { cx?: number; cy?: number; payload?: RadarChartRow }) => {
+                const { cx, cy, payload } = props;
+                if (cx == null || cy == null || !payload) return null;
+                const fill = payload.tone === "red" ? "#ef4444" : payload.tone === "yellow" ? "#f59e0b" : "#22c55e";
+                return <circle cx={cx} cy={cy} r={4.5} fill={fill} stroke={presentation ? "#0f172a" : "#ffffff"} strokeWidth={1.5} />;
+              }}
+              isAnimationActive
+              animationDuration={850}
+            />
+            <Tooltip content={<RadarTooltipContent presentation={presentation} />} />
+          </RadarChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div
+            className={
+              presentation
+                ? "rounded-full border border-slate-600/50 bg-[#0f172a]/90 px-4 py-3 text-center shadow-lg"
+                : "rounded-full border border-slate-200 bg-white/90 px-4 py-3 text-center shadow-sm"
+            }
+          >
+            <div className={`text-xl font-black tabular-nums ${centerTone}`}>{centerPct.toFixed(0)}%</div>
+            <div
+              className={`text-[11px] font-semibold tabular-nums ${
+                centerDev < 0
+                  ? presentation
+                    ? "text-red-300"
+                    : "text-red-700"
+                  : presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+              }`}
+            >
+              {centerDev < 0 ? "−" : "+"}
+              {compactRub(Math.abs(centerDev))}
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div className={presentation ? "rounded-xl border border-slate-600/50 bg-slate-900/35 p-2.5" : "rounded-xl border border-slate-200 bg-slate-50 p-2.5"}>
+        <div className={`text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>Аналитика сегментов</div>
+        <div className="mt-3">
+          <div className={`text-xs font-semibold uppercase ${presentation ? "text-red-300" : "text-red-700"}`}>Слабые сегменты</div>
+          <ul className="mt-1.5 space-y-1.5">
+            {weak.length ? weak.slice(0, 3).map((r) => (
+              <li key={r.categoryLabel} className={`text-xs ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                {r.categoryLabel}: {r.valuePct.toFixed(1)}% ({r.deltaRub < 0 ? "−" : "+"}
+                {compactRub(Math.abs(r.deltaRub))})
+              </li>
+            )) : <li className={`text-xs ${presentation ? "text-slate-400" : "text-slate-500"}`}>Критичных просадок нет</li>}
+          </ul>
+        </div>
+        <div className="mt-4">
+          <div className={`text-xs font-semibold uppercase ${presentation ? "text-emerald-300" : "text-emerald-700"}`}>Сильные сегменты</div>
+          <ul className="mt-1.5 space-y-1.5">
+            {strong.length ? strong.slice(0, 3).map((r) => (
+              <li key={r.categoryLabel} className={`text-xs ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                {r.categoryLabel}: {r.valuePct.toFixed(1)}% (+{compactRub(Math.abs(r.deltaRub))})
+              </li>
+            )) : <li className={`text-xs ${presentation ? "text-slate-400" : "text-slate-500"}`}>Сегментов выше 100% нет</li>}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
