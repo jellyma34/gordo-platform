@@ -52,13 +52,37 @@ export type SalesRadarCategoryRow = {
   factCumulative: number;
 };
 
-/** Точка ряда для графика «план / факт» (накопительно по периодам). */
+/** Срез метрики в точке ряда: план, факт и накопительный прогноз. */
+export type SalesSeriesMetricSlice = {
+  planCumulative: number;
+  factCumulative: number;
+  /** Накопительный прогноз (модель) на эту дату. */
+  forecastCumulative: number;
+};
+
+/** Точка ряда для графика «план / факт / прогноз» (накопительно по периодам). */
 export type SalesSeriesPoint = {
   periodKey: string;
   label: string;
-  revenue: { planCumulative: number; factCumulative: number };
-  units: { planCumulative: number; factCumulative: number };
-  area: { planCumulative: number; factCumulative: number };
+  revenue: SalesSeriesMetricSlice;
+  units: SalesSeriesMetricSlice;
+  area: SalesSeriesMetricSlice;
+};
+
+/** Аналитический контекст для блока «План продаж» (по гранулярности ряда). */
+export type SalesPlanGranularityAnalytics = {
+  /** Ключ периода, в котором зафиксирована отчётная дата (вертикаль на графике). */
+  currentPeriodKey: string;
+  /** Прогноз % выполнения накопительного плана к концу горизонта при текущем темпе. */
+  forecastPercentComplete: number;
+  runRate: {
+    /** Средняя выручка в месяц (эквивалент; для квартала — /3 для отображения как «в мес.»). */
+    avgMonthlyRevenueRub: number;
+    /** Прогноз накопительной выручки к концу горизонта (последняя точка прогноза). */
+    forecastCumulativeEndRub: number;
+    /** План накопительно на конец горизонта. */
+    horizonPlanCumulativeRub: number;
+  };
 };
 
 /**
@@ -80,6 +104,11 @@ export type SalesReportPayload = {
   /** Дата актуальности отчёта (ISO). */
   asOf: string;
   projectName?: string;
+  /** Прогноз, run rate, метка «текущего» периода на графике. */
+  planAnalytics: {
+    month: SalesPlanGranularityAnalytics;
+    quarter: SalesPlanGranularityAnalytics;
+  };
 };
 
 export const marketingSalesReportMock: SalesReportPayload = {
@@ -131,44 +160,124 @@ export const marketingSalesReportMock: SalesReportPayload = {
       percentOfTotal: 97.2,
     },
   },
+  planAnalytics: {
+    month: {
+      currentPeriodKey: "2026-03",
+      forecastPercentComplete: 84.2,
+      runRate: {
+        avgMonthlyRevenueRub: 362_000_000,
+        forecastCumulativeEndRub: 1_175_000_000,
+        horizonPlanCumulativeRub: 1_265_000_000,
+      },
+    },
+    quarter: {
+      currentPeriodKey: "2026-Q1",
+      forecastPercentComplete: 84.2,
+      runRate: {
+        avgMonthlyRevenueRub: 362_000_000,
+        forecastCumulativeEndRub: 1_175_000_000,
+        horizonPlanCumulativeRub: 1_265_000_000,
+      },
+    },
+  },
   series: {
     month: [
       {
         periodKey: "2026-01",
         label: "янв. 26",
-        revenue: { planCumulative: 380_000_000, factCumulative: 352_000_000 },
-        units: { planCumulative: 26, factCumulative: 24 },
-        area: { planCumulative: 1540, factCumulative: 1428 },
+        revenue: {
+          planCumulative: 380_000_000,
+          factCumulative: 352_000_000,
+          forecastCumulative: 365_000_000,
+        },
+        units: {
+          planCumulative: 26,
+          factCumulative: 24,
+          forecastCumulative: 25,
+        },
+        area: {
+          planCumulative: 1540,
+          factCumulative: 1428,
+          forecastCumulative: 1480,
+        },
       },
       {
         periodKey: "2026-02",
         label: "фев. 26",
-        revenue: { planCumulative: 780_000_000, factCumulative: 698_000_000 },
-        units: { planCumulative: 52, factCumulative: 46 },
-        area: { planCumulative: 3080, factCumulative: 2736 },
+        revenue: {
+          planCumulative: 780_000_000,
+          factCumulative: 698_000_000,
+          forecastCumulative: 735_000_000,
+        },
+        units: {
+          planCumulative: 52,
+          factCumulative: 46,
+          forecastCumulative: 49,
+        },
+        area: {
+          planCumulative: 3080,
+          factCumulative: 2736,
+          forecastCumulative: 2890,
+        },
       },
       {
         periodKey: "2026-03",
         label: "мар. 26",
-        revenue: { planCumulative: 1_265_000_000, factCumulative: 1_088_000_000 },
-        units: { planCumulative: 84, factCumulative: 71 },
-        area: { planCumulative: 4980, factCumulative: 4188 },
+        revenue: {
+          planCumulative: 1_265_000_000,
+          factCumulative: 1_088_000_000,
+          forecastCumulative: 1_175_000_000,
+        },
+        units: {
+          planCumulative: 84,
+          factCumulative: 71,
+          forecastCumulative: 77,
+        },
+        area: {
+          planCumulative: 4980,
+          factCumulative: 4188,
+          forecastCumulative: 4550,
+        },
       },
     ],
     quarter: [
       {
         periodKey: "2025-Q4",
         label: "Q4 2025",
-        revenue: { planCumulative: 920_000_000, factCumulative: 895_000_000 },
-        units: { planCumulative: 62, factCumulative: 60 },
-        area: { planCumulative: 3660, factCumulative: 3540 },
+        revenue: {
+          planCumulative: 920_000_000,
+          factCumulative: 895_000_000,
+          forecastCumulative: 905_000_000,
+        },
+        units: {
+          planCumulative: 62,
+          factCumulative: 60,
+          forecastCumulative: 61,
+        },
+        area: {
+          planCumulative: 3660,
+          factCumulative: 3540,
+          forecastCumulative: 3580,
+        },
       },
       {
         periodKey: "2026-Q1",
         label: "Q1 2026",
-        revenue: { planCumulative: 1_265_000_000, factCumulative: 1_088_000_000 },
-        units: { planCumulative: 84, factCumulative: 71 },
-        area: { planCumulative: 4980, factCumulative: 4188 },
+        revenue: {
+          planCumulative: 1_265_000_000,
+          factCumulative: 1_088_000_000,
+          forecastCumulative: 1_175_000_000,
+        },
+        units: {
+          planCumulative: 84,
+          factCumulative: 71,
+          forecastCumulative: 77,
+        },
+        area: {
+          planCumulative: 4980,
+          factCumulative: 4188,
+          forecastCumulative: 4550,
+        },
       },
     ],
   },

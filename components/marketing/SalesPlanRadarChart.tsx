@@ -36,7 +36,7 @@ export type RadarChartRow = {
 
 function vertexColor(pct: number): string {
   if (pct > 100) return "#22c55e";
-  if (pct >= 80) return "#94a3b8";
+  if (pct >= 90) return "#94a3b8";
   return "#ef4444";
 }
 
@@ -44,7 +44,7 @@ function polygonColors(rows: RadarChartRow[]): { stroke: string; fill: string } 
   const pcts = rows.map((r) => r.factPct);
   const minP = Math.min(...pcts);
   const maxP = Math.max(...pcts);
-  if (minP < 80) return { stroke: "#f87171", fill: "rgba(248, 113, 113, 0.22)" };
+  if (minP < 90) return { stroke: "#f87171", fill: "rgba(248, 113, 113, 0.22)" };
   if (maxP > 100) return { stroke: "#4ade80", fill: "rgba(74, 222, 128, 0.22)" };
   return { stroke: "#94a3b8", fill: "rgba(148, 163, 184, 0.28)" };
 }
@@ -147,7 +147,7 @@ export function SalesPlanRadarChart({ categories, presentation }: Props) {
           <PolarRadiusAxis
             angle={90}
             domain={[0, 135]}
-            ticks={[0, 50, 80, 100, 120]}
+            ticks={[0, 50, 90, 100, 120]}
             tick={{ fill: tickFill, fontSize: 10 }}
             tickFormatter={(v) => `${v}%`}
           />

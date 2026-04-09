@@ -12,21 +12,26 @@ import {
   type SalesCategoryId,
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
+import {
+  buildDiagnosticRows,
+  buildSalesInsights,
+  buildStructureRows,
+  execStatusFromPercent,
+  type ExecStatus,
+} from "@/lib/salesPlanAnalytics";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import { SalesPlanRadarChart } from "./SalesPlanRadarChart";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
+const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
+const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
 const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
 const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
 const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
+const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
+const ReferenceLine = dynamic(() => import("recharts").then((m) => m.ReferenceLine), { ssr: false });
 
-const PLAN_FILL = "rgba(148, 163, 184, 0.55)";
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
 
@@ -43,44 +48,101 @@ const compactRub = (n: number) =>
 
 type ChartMetric = "revenue" | "units" | "area";
 
-function factColor(plan: number, fact: number): string {
-  if (fact >= plan) return "#22c55e";
-  const gap = plan - fact;
-  const pct = plan > 0 ? (gap / plan) * 100 : 0;
-  if (pct > 12) return "#ef4444";
-  return "#f59e0b";
+function metricLabel(m: ChartMetric): string {
+  if (m === "revenue") return "Выручка";
+  if (m === "units") return "Штуки";
+  return "Площадь";
 }
 
-function ChartTooltipBody({
+function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
+  return points.map((row) => {
+    const b = row[metric];
+    return {
+      periodKey: row.periodKey,
+      label: row.label,
+      plan: b.planCumulative,
+      fact: b.factCumulative,
+      forecast: b.forecastCumulative,
+    };
+  });
+}
+
+function statusMeta(
+  s: ExecStatus,
+  presentation: boolean,
+): { label: string; bar: string; ring: string } {
+  if (s === "green") {
+    return {
+      label: "Перевыполнение",
+      bar: presentation ? "bg-emerald-500" : "bg-emerald-500",
+      ring: presentation ? "ring-emerald-400/40" : "ring-emerald-500/30",
+    };
+  }
+  if (s === "yellow") {
+    return {
+      label: "В зоне контроля",
+      bar: presentation ? "bg-amber-400" : "bg-amber-500",
+      ring: presentation ? "ring-amber-400/35" : "ring-amber-500/30",
+    };
+  }
+  return {
+    label: "Риск выполнения",
+    bar: presentation ? "bg-red-500" : "bg-red-500",
+    ring: presentation ? "ring-red-500/40" : "ring-red-500/30",
+  };
+}
+
+function statusLabelTable(s: ExecStatus): string {
+  if (s === "green") return "Перевып.";
+  if (s === "yellow") return "Норма";
+  return "Риск";
+}
+
+function statusDotClass(s: ExecStatus, presentation: boolean): string {
+  if (s === "green") return presentation ? "bg-emerald-400" : "bg-emerald-500";
+  if (s === "yellow") return presentation ? "bg-amber-400" : "bg-amber-500";
+  return presentation ? "bg-red-400" : "bg-red-500";
+}
+
+function LineChartTooltip({
   active,
   payload,
   metric,
+  presentation,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: { label: string; plan: number; fact: number } }>;
+  payload?: ReadonlyArray<{ payload?: { label: string; plan: number; fact: number; forecast: number } }>;
   metric: ChartMetric;
+  presentation: boolean;
 }) {
   if (!active || !payload?.length) return null;
-  const p = payload[0]!.payload;
-  const behind = p.fact < p.plan;
-  const pct = p.plan > 0 && behind ? Math.round(((p.plan - p.fact) / p.plan) * 100) : 0;
+  const p = payload[0]?.payload;
+  if (!p) return null;
   const fmt =
     metric === "revenue"
       ? (v: number) => rubFmt.format(v)
       : metric === "area"
         ? (v: number) => `${numFmt.format(v)} м²`
         : (v: number) => `${numFmt.format(v)} шт.`;
+  const shell = presentation
+    ? "max-w-xs rounded-lg border border-slate-500/50 bg-[#0f172a] p-3 text-xs text-slate-200 shadow-xl"
+    : "max-w-xs rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-800 shadow-lg";
   return (
-    <div className="max-w-xs rounded-lg border border-slate-500/50 bg-[#0f172a] p-3 text-xs text-slate-200 shadow-xl">
-      <div className="font-semibold text-slate-100">{p.label}</div>
+    <div className={shell}>
+      <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>{p.label}</div>
       <div className="mt-2 space-y-1">
-        <div>План (накопит.): {fmt(p.plan)}</div>
-        <div>Факт (накопит.): {fmt(p.fact)}</div>
-        {behind ? (
-          <div className="text-amber-200/90">Отставание: {pct}% к плану</div>
-        ) : (
-          <div className="text-emerald-300/90">План достигнут или перевыполнен</div>
-        )}
+        <div className="flex justify-between gap-4 tabular-nums">
+          <span className="text-slate-500">План</span>
+          <span>{fmt(p.plan)}</span>
+        </div>
+        <div className="flex justify-between gap-4 tabular-nums">
+          <span className="text-slate-500">Факт</span>
+          <span>{fmt(p.fact)}</span>
+        </div>
+        <div className="flex justify-between gap-4 tabular-nums">
+          <span className="text-slate-500">Прогноз</span>
+          <span>{fmt(p.forecast)}</span>
+        </div>
       </div>
     </div>
   );
@@ -143,25 +205,6 @@ function FunnelBlock({ stages, presentation }: { stages: FunnelStageRow[]; prese
   );
 }
 
-function metricLabel(m: ChartMetric): string {
-  if (m === "revenue") return "Деньги";
-  if (m === "units") return "Штуки";
-  return "Площадь";
-}
-
-function seriesToChartData(points: SalesSeriesPoint[], metric: ChartMetric) {
-  return points.map((row) => {
-    const b = row[metric];
-    return {
-      periodKey: row.periodKey,
-      label: row.label,
-      plan: b.planCumulative,
-      fact: b.factCumulative,
-      factFill: factColor(b.planCumulative, b.factCumulative),
-    };
-  });
-}
-
 const CATEGORY_LABELS: Record<SalesCategoryId, string> = {
   apartments: "Квартиры",
   parking: "Парковки",
@@ -183,10 +226,25 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const [chartMetric, setChartMetric] = useState<ChartMetric>("revenue");
 
   const report = marketingSalesReportMock;
-  const { salesData } = report;
-
+  const rev = report.salesData.revenue;
+  const analytics = period === "month" ? report.planAnalytics.month : report.planAnalytics.quarter;
   const seriesPoints = period === "month" ? report.series.month : report.series.quarter;
-  const chartData = useMemo(() => seriesToChartData(seriesPoints, chartMetric), [seriesPoints, chartMetric]);
+  const lineData = useMemo(() => seriesToLineData(seriesPoints, chartMetric), [seriesPoints, chartMetric]);
+
+  const currentLabel = useMemo(() => {
+    const hit = seriesPoints.find((p) => p.periodKey === analytics.currentPeriodKey);
+    return hit?.label ?? seriesPoints[seriesPoints.length - 1]?.label;
+  }, [seriesPoints, analytics.currentPeriodKey]);
+
+  const execStatus = execStatusFromPercent(rev.percentComplete);
+  const status = statusMeta(execStatus, presentation);
+
+  const diagnosticRows = useMemo(() => buildDiagnosticRows(report.categories), [report.categories]);
+  const structureRows = useMemo(() => buildStructureRows(report.categories), [report.categories]);
+  const insights = useMemo(
+    () => buildSalesInsights(report.categories, report.radarCategories, rev),
+    [report.categories, report.radarCategories, rev],
+  );
 
   const dynamics = useMemo(() => {
     return filterByObjectAndDealType(marketingMockData.salesDynamics, objectId, dealTypeId);
@@ -194,8 +252,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
   const funnel = marketingMockData.funnel;
 
-  const rev = salesData.revenue;
-  const behindRevenue = rev.deviationCumulative < 0;
+  const deviationPct = rev.planCumulative > 0 ? ((rev.factCumulative - rev.planCumulative) / rev.planCumulative) * 100 : 0;
 
   const axisColor = presentation ? "#94a3b8" : "#64748b";
   const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
@@ -216,75 +273,95 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`;
 
+  const heroBorder =
+    execStatus === "red"
+      ? presentation
+        ? "border-red-500/45"
+        : "border-red-200"
+      : execStatus === "yellow"
+        ? presentation
+          ? "border-amber-500/40"
+          : "border-amber-200"
+        : presentation
+          ? "border-emerald-500/35"
+          : "border-emerald-200";
+
+  const heroBg = presentation
+    ? execStatus === "red"
+      ? "bg-gradient-to-br from-red-950/50 to-[#0f172a]"
+      : execStatus === "yellow"
+        ? "bg-gradient-to-br from-amber-950/35 to-[#0f172a]"
+        : "bg-gradient-to-br from-emerald-950/35 to-[#0f172a]"
+    : execStatus === "red"
+      ? "bg-gradient-to-br from-red-50 to-white"
+      : execStatus === "yellow"
+        ? "bg-gradient-to-br from-amber-50 to-white"
+        : "bg-gradient-to-br from-emerald-50 to-white";
+
+  const insightTone = (tone: "risk" | "ok" | "neutral") => {
+    if (tone === "risk")
+      return presentation ? "border-l-red-400/80 text-slate-200" : "border-l-red-500 text-slate-800";
+    if (tone === "ok")
+      return presentation ? "border-l-emerald-400/80 text-slate-200" : "border-l-emerald-600 text-slate-800";
+    return presentation ? "border-l-slate-500 text-slate-300" : "border-l-slate-400 text-slate-700";
+  };
+
+  const rr = analytics.runRate;
+  const forecastGapRub = rr.horizonPlanCumulativeRub - rr.forecastCumulativeEndRub;
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Hero KPI */}
-      <div
-        className={
-          presentation
-            ? `overflow-hidden rounded-2xl border ${
-                behindRevenue ? "border-red-500/40 bg-gradient-to-br from-red-950/40 to-[#1e293b]" : "border-sky-500/30 bg-gradient-to-br from-sky-950/30 to-[#1e293b]"
-              } p-5 sm:p-6`
-            : `overflow-hidden rounded-xl border ${
-                behindRevenue ? "border-red-200 bg-gradient-to-br from-red-50 to-white" : "border-sky-200 bg-gradient-to-br from-sky-50 to-white"
-              } p-5 sm:p-6`
-        }
-      >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className={sub}>Выручка · накопительно к плану проекта</p>
+      {/* HERO */}
+      <div className={`overflow-hidden rounded-2xl border p-5 sm:p-6 ${heroBorder} ${heroBg}`}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className={sub}>План продаж · выручка, накопительно</p>
             <h3 className={`mt-1 text-lg font-semibold sm:text-xl ${presentation ? "text-slate-50" : "text-slate-900"}`}>
-              {report.projectName ?? "Продажи"}
+              {report.projectName ?? "Проект"}
             </h3>
             <p className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-              Данные на {report.asOf} · структура готова к API
+              Отчётная дата {report.asOf} · прогноз и темп — модель на мок-данных (готово к API)
             </p>
           </div>
-          {behindRevenue ? (
-            <div
-              className={
-                presentation
-                  ? "rounded-lg border border-red-400/40 bg-red-950/50 px-3 py-2 text-right"
-                  : "rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-right"
-              }
-            >
-              <div className={`text-xs font-medium ${presentation ? "text-red-200" : "text-red-800"}`}>
-                Отставание: {compactRub(Math.abs(rev.deviationCumulative))}
-              </div>
-              <div className={`mt-0.5 text-sm font-bold tabular-nums ${presentation ? "text-red-100" : "text-red-700"}`}>
-                Выполнение: {rev.percentComplete.toFixed(1)}%
-              </div>
+          <div
+            className={`flex shrink-0 flex-col items-stretch gap-2 rounded-xl p-3 ring-2 sm:min-w-[220px] ${status.ring} ${
+              presentation ? "bg-black/25" : "bg-white/80"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${status.bar}`} aria-hidden />
+              <span className={`text-xs font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                {status.label}
+              </span>
             </div>
-          ) : (
-            <div
-              className={
-                presentation
-                  ? "rounded-lg border border-emerald-500/35 bg-emerald-950/30 px-3 py-2 text-right"
-                  : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-right"
-              }
-            >
-              <div className={`text-xs ${presentation ? "text-emerald-200" : "text-emerald-800"}`}>План выполнен</div>
-              <div className={`text-sm font-bold tabular-nums ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
-                {rev.percentComplete.toFixed(1)}%
-              </div>
+            <div className={`text-2xl font-bold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+              {rev.percentComplete.toFixed(1)}%
             </div>
-          )}
+            <div className={`text-[11px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              Факт к плану · прогноз к концу периода:{" "}
+              <span
+                className={`font-semibold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}
+              >
+                {analytics.forecastPercentComplete.toFixed(1)}%
+              </span>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>План накопит.</div>
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
+            <div className={sub}>План</div>
             <div className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-slate-100" : "text-slate-900"}`}>
               {compactRub(rev.planCumulative)}
             </div>
           </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>Факт накопит.</div>
+          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
+            <div className={sub}>Факт</div>
             <div className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-slate-100" : "text-slate-900"}`}>
               {compactRub(rev.factCumulative)}
             </div>
           </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-slate-50 p-3"}>
+          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
             <div className={sub}>Отклонение</div>
             <div
               className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${
@@ -300,22 +377,47 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               {rev.deviationCumulative < 0 ? "−" : "+"}
               {compactRub(Math.abs(rev.deviationCumulative))}
             </div>
+            <div className={`mt-0.5 text-[11px] tabular-nums ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              {deviationPct >= 0 ? "+" : ""}
+              {deviationPct.toFixed(1)}% к плану
+            </div>
           </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>Доля от плана проекта</div>
-            <div className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {rev.percentOfTotal.toFixed(1)}%
+          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
+            <div className={sub}>Прогноз выполнения</div>
+            <div
+              className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-violet-300" : "text-violet-700"}`}
+            >
+              {analytics.forecastPercentComplete.toFixed(1)}%
+            </div>
+            <div className={`mt-0.5 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              при сохранении текущего темпа
             </div>
           </div>
         </div>
       </div>
 
-      {/* Plan / Fact chart */}
+      {/* Insights */}
+      <div className={card}>
+        <h4 className={h4}>Выводы</h4>
+        <p className={`${sub} mt-1`}>Авто-анализ по категориям и сегментам — без лишнего шума</p>
+        <ul className="mt-4 space-y-2.5">
+          {insights.map((b, i) => (
+            <li
+              key={i}
+              className={`border-l-2 pl-3 text-sm leading-snug ${insightTone(b.tone)}`}
+            >
+              {b.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Chart */}
       <div className={card}>
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h4 className={h4}>План / Факт</h4>
-            <p className={sub}>Накопительно по периодам · план — базовый ряд, факт — сравнение сверху</p>
+            <h4 className={h4}>Динамика: план, факт, прогноз</h4>
+            <p className={sub}>Накопительно · вертикаль — отчётная дата ({currentLabel})</p>
           </div>
           <div
             className={
@@ -340,190 +442,234 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             ))}
           </div>
         </div>
-        <div className="h-[280px] w-full min-w-0">
+        <div className="h-[300px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+            <LineChart data={lineData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
               <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} />
-              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickFormatter={yTick} width={44} />
-              <Tooltip content={<ChartTooltipBody metric={chartMetric} />} />
-              <Bar dataKey="plan" name="План" fill={PLAN_FILL} radius={[4, 4, 0, 0]} maxBarSize={40} />
-              <Bar dataKey="fact" name="Факт" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                {chartData.map((row) => (
-                  <Cell key={row.periodKey} fill={row.factFill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <p className={`mt-2 ${sub}`}>
-          Основной режим — деньги (руб.). Штуки и площадь — для операционного контроля.
-        </p>
-
-        <div
-          className={
-            presentation ? "mt-6 border-t border-slate-600/50 pt-5" : "mt-6 border-t border-slate-200 pt-5"
-          }
-        >
-          <h4 className={h4}>Структура плана по категориям</h4>
-          <p className={`${sub} mt-1`}>
-            Накопительное выполнение по типам: факт относительно плана (100% — контур). Цвет области — по худшему
-            сегменту (менее 80% — риск, 80–100% — норма, есть перевыполнение — рост).
-          </p>
-          <div className="mt-4">
-            <SalesPlanRadarChart categories={report.radarCategories} presentation={presentation} />
-          </div>
-        </div>
-      </div>
-
-      {/* Category breakdown — карточки, не Excel */}
-      <div>
-        <h4 className={`${h4} mb-3`}>Разбивка по категориям</h4>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {report.categories.map((cat) => {
-            const bad = cat.deviation < 0;
-            return (
-              <div
-                key={cat.id}
-                className={
-                  presentation
-                    ? `rounded-2xl border p-4 ${
-                        bad ? "border-amber-500/25 bg-amber-950/15" : "border-slate-700/60 bg-[#1e293b]"
-                      }`
-                    : `rounded-xl border p-4 ${
-                        bad ? "border-amber-200 bg-amber-50/50" : "border-slate-200 bg-white"
-                      }`
-                }
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                    {cat.name}
-                  </span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
-                      cat.percentComplete >= 100
-                        ? presentation
-                          ? "bg-emerald-500/20 text-emerald-300"
-                          : "bg-emerald-100 text-emerald-800"
-                        : bad
-                          ? presentation
-                            ? "bg-red-500/20 text-red-300"
-                            : "bg-red-100 text-red-800"
-                          : presentation
-                            ? "bg-slate-600/40 text-slate-200"
-                            : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    {cat.percentComplete.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    <div className={sub}>План (накопит.)</div>
-                    <div className={`font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
-                      {compactRub(cat.planCumulative)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className={sub}>Факт (накопит.)</div>
-                    <div className={`font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
-                      {compactRub(cat.factCumulative)}
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <div className={sub}>Отклонение</div>
-                    <div
-                      className={`font-semibold tabular-nums ${
-                        cat.deviation < 0
-                          ? presentation
-                            ? "text-red-300"
-                            : "text-red-700"
-                          : presentation
-                            ? "text-emerald-300"
-                            : "text-emerald-700"
-                      }`}
-                    >
-                      {cat.deviation < 0 ? "−" : "+"}
-                      {compactRub(Math.abs(cat.deviation))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Причины отклонений */}
-      <div className={card}>
-        <h4 className={`${h4} mb-1`}>Причины отклонений</h4>
-        <p className={`${sub} mb-4`}>Комментарии из отчёта (поле comments)</p>
-        <ul className="space-y-3">
-          {report.comments.map((c) => (
-            <li
-              key={c.id}
-              className={
-                presentation
-                  ? "flex gap-3 rounded-xl border border-slate-600/40 bg-slate-900/30 px-3 py-2.5"
-                  : "flex gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
-              }
-            >
-              {c.categoryId ? (
-                <span
-                  className={
-                    presentation
-                      ? "shrink-0 rounded-md bg-slate-700/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-300"
-                      : "shrink-0 rounded-md bg-slate-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700"
-                  }
-                >
-                  {CATEGORY_LABELS[c.categoryId]}
-                </span>
-              ) : (
-                <span
-                  className={
-                    presentation
-                      ? "shrink-0 rounded-md bg-sky-900/50 px-2 py-0.5 text-[10px] font-medium text-sky-200"
-                      : "shrink-0 rounded-md bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800"
-                  }
-                >
-                  Общее
-                </span>
-              )}
-              <p className={`min-w-0 text-sm leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                {c.text}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Вторичные блоки */}
-      <div className={card}>
-        <h4 className={`${h4} mb-3`}>Динамика сделок</h4>
-        <div className="h-[220px] w-full min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={dynamics} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
-              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} />
-              <Tooltip
-                contentStyle={{
-                  background: "#0f172a",
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "#e2e8f0" }}
+              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickFormatter={yTick} width={48} />
+              <Tooltip content={<LineChartTooltip metric={chartMetric} presentation={presentation} />} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
+              <Line type="monotone" dataKey="plan" name="План" stroke={presentation ? "#cbd5e1" : "#64748b"} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="fact" name="Факт" stroke="#38bdf8" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line
+                type="monotone"
+                dataKey="forecast"
+                name="Прогноз"
+                stroke="#a78bfa"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                dot={{ r: 2 }}
               />
-              <Line type="monotone" dataKey="deals" name="Сделки" stroke="#38bdf8" strokeWidth={2} dot={{ r: 3 }} />
+              {currentLabel ? (
+                <ReferenceLine
+                  x={currentLabel}
+                  stroke={presentation ? "#fbbf24" : "#d97706"}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  label={{
+                    value: "Сейчас",
+                    position: "top",
+                    fill: presentation ? "#fcd34d" : "#b45309",
+                    fontSize: 10,
+                  }}
+                />
+              ) : null}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Run rate */}
       <div className={card}>
-        <h4 className={`${h4} mb-3`}>Воронка продаж</h4>
-        <FunnelBlock stages={funnel} presentation={presentation} />
+        <h4 className={h4}>Run rate</h4>
+        <p className={`${sub} mt-1`}>Темп продаж и прогноз на конец горизонта (накопительно, выручка)</p>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Текущий темп</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              ~{compactRub(rr.avgMonthlyRevenueRub)}
+            </div>
+            <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>в среднем за месяц (оценка)</div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Прогноз к концу периода</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}>
+              {compactRub(rr.forecastCumulativeEndRub)}
+            </div>
+            <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>накопительно, модель</div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>К плану горизонта</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {compactRub(rr.horizonPlanCumulativeRub)}
+            </div>
+            <div className={`mt-1 text-[11px] ${forecastGapRub > 0 ? (presentation ? "text-amber-300" : "text-amber-800") : presentation ? "text-slate-500" : "text-slate-600"}`}>
+              {forecastGapRub > 0
+                ? `Недобор к плану ≈ ${compactRub(forecastGapRub)} при текущем темпе`
+                : "Прогноз не ниже плана горизонта"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Diagnostics table */}
+      <div className={card}>
+        <h4 className={h4}>Диагностика по категориям</h4>
+        <p className={`${sub} mt-1`}>От худшего к лучшему — где просадка и отклонение в деньгах</p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-left text-xs sm:text-sm">
+            <thead>
+              <tr className={presentation ? "border-b border-slate-600/50 text-slate-400" : "border-b border-slate-200 text-slate-600"}>
+                <th className="pb-2 pr-3 font-medium">Категория</th>
+                <th className="pb-2 pr-3 font-medium tabular-nums">План</th>
+                <th className="pb-2 pr-3 font-medium tabular-nums">Факт</th>
+                <th className="pb-2 pr-3 font-medium tabular-nums">%</th>
+                <th className="pb-2 pr-3 font-medium">Статус</th>
+                <th className="pb-2 font-medium tabular-nums">Отклонение</th>
+              </tr>
+            </thead>
+            <tbody>
+              {diagnosticRows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={presentation ? "border-b border-slate-700/40 text-slate-200" : "border-b border-slate-100 text-slate-800"}
+                >
+                  <td className="py-2.5 pr-3 font-medium">{row.name}</td>
+                  <td className="py-2.5 pr-3 tabular-nums text-slate-500">{rubFmt.format(row.planCumulative)}</td>
+                  <td className="py-2.5 pr-3 tabular-nums">{rubFmt.format(row.factCumulative)}</td>
+                  <td className="py-2.5 pr-3 tabular-nums font-semibold">{row.percentComplete.toFixed(1)}%</td>
+                  <td className="py-2.5 pr-3">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${statusDotClass(row.status, presentation)}`} />
+                      <span className={presentation ? "text-slate-300" : "text-slate-700"}>{statusLabelTable(row.status)}</span>
+                    </span>
+                  </td>
+                  <td
+                    className={`py-2.5 tabular-nums font-medium ${
+                      row.deviation < 0
+                        ? presentation
+                          ? "text-red-300"
+                          : "text-red-600"
+                        : presentation
+                          ? "text-emerald-300"
+                          : "text-emerald-600"
+                    }`}
+                  >
+                    {row.deviation < 0 ? "−" : "+"}
+                    {rubFmt.format(Math.abs(row.deviation))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Structure */}
+      <div className={card}>
+        <h4 className={h4}>Структура продаж</h4>
+        <p className={`${sub} mt-1`}>Доля в накопительном плане vs доля в фактической выручке</p>
+        <div className="mt-4 space-y-3">
+          {structureRows.map((r) => (
+            <div key={r.id}>
+              <div className="mb-1 flex justify-between text-xs">
+                <span className={presentation ? "font-medium text-slate-200" : "font-medium text-slate-800"}>{r.name}</span>
+                <span className={`tabular-nums ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  план {r.planSharePct.toFixed(1)}% · факт {r.factSharePct.toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex-1">
+                  <div className={presentation ? "text-[10px] text-slate-500" : "text-[10px] text-slate-500"}>Плановая структура</div>
+                  <div className={presentation ? "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-800" : "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-200"}>
+                    <div
+                      className="h-full rounded-full bg-slate-400/90"
+                      style={{ width: `${Math.min(100, r.planSharePct)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className={presentation ? "text-[10px] text-slate-500" : "text-[10px] text-slate-500"}>Фактическая структура</div>
+                  <div className={presentation ? "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-800" : "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-200"}>
+                    <div
+                      className="h-full rounded-full bg-sky-500/90"
+                      style={{ width: `${Math.min(100, r.factSharePct)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Radar */}
+      <div className={card}>
+        <h4 className={h4}>Выполнение по сегментам (радар)</h4>
+        <p className={`${sub} mt-1`}>Накопительный % к плану по типам продуктов</p>
+        <div className="mt-4">
+          <SalesPlanRadarChart categories={report.radarCategories} presentation={presentation} />
+        </div>
+      </div>
+
+      {/* Comments */}
+      <div className={card}>
+        <h4 className={`${h4} mb-1`}>Комментарии к отклонениям</h4>
+        <p className={`${sub} mb-3`}>Контекст от команд (поле comments)</p>
+        <ul className="space-y-2">
+          {report.comments.map((c) => (
+            <li
+              key={c.id}
+              className={
+                presentation
+                  ? "rounded-lg border border-slate-600/35 bg-slate-900/25 px-3 py-2 text-sm text-slate-300"
+                  : "rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+              }
+            >
+              {c.categoryId ? (
+                <span className={`mr-2 text-[10px] font-semibold uppercase ${presentation ? "text-sky-300" : "text-sky-700"}`}>
+                  {CATEGORY_LABELS[c.categoryId]}
+                </span>
+              ) : (
+                <span className={`mr-2 text-[10px] font-semibold uppercase ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                  Общее
+                </span>
+              )}
+              {c.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Secondary */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className={card}>
+          <h4 className={`${h4} mb-3`}>Динамика сделок</h4>
+          <div className="h-[200px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={dynamics} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
+                <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: "#0f172a",
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "#e2e8f0" }}
+                />
+                <Line type="monotone" dataKey="deals" name="Сделки" stroke="#38bdf8" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className={card}>
+          <h4 className={`${h4} mb-3`}>Воронка</h4>
+          <FunnelBlock stages={funnel} presentation={presentation} />
+        </div>
       </div>
     </div>
   );
