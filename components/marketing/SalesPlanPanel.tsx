@@ -324,6 +324,7 @@ type KpiDashboardItem = {
   sub: string;
   tone: KpiCardTone;
   hover: string;
+  sparkline?: number[];
 };
 
 function KpiDashboard({
@@ -338,38 +339,88 @@ function KpiDashboard({
   const toneStyles = (tone: KpiCardTone) =>
     tone === "green"
       ? {
-          bar: "bg-emerald-500",
+          bar: "bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-400",
           value: presentation ? "text-emerald-300" : "text-emerald-700",
+          line: presentation ? "#34d399" : "#059669",
+          glow: presentation ? "shadow-[0_14px_36px_rgba(16,185,129,0.26)]" : "shadow-[0_12px_30px_rgba(16,185,129,0.18)]",
+          insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(16,185,129,0.15)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(16,185,129,0.10)]",
+          radial:
+            presentation
+              ? "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.28), transparent 52%)"
+              : "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.24), transparent 55%)",
           card: presentation
-            ? "border-emerald-500/35 bg-gradient-to-br from-emerald-900/25 to-slate-900/20"
-            : "border-emerald-200 bg-gradient-to-br from-emerald-50/90 to-white",
+            ? "bg-gradient-to-br from-emerald-900/42 via-slate-900/38 to-slate-900/60"
+            : "bg-gradient-to-br from-emerald-100/85 via-white to-emerald-50/70",
         }
       : tone === "yellow"
         ? {
-            bar: "bg-amber-500",
+            bar: "bg-gradient-to-r from-amber-300 via-amber-500 to-amber-300",
             value: presentation ? "text-amber-300" : "text-amber-700",
+            line: presentation ? "#fbbf24" : "#d97706",
+            glow: presentation ? "shadow-[0_14px_36px_rgba(245,158,11,0.24)]" : "shadow-[0_12px_30px_rgba(245,158,11,0.16)]",
+            insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(245,158,11,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(245,158,11,0.10)]",
+            radial:
+              presentation
+                ? "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.30), transparent 52%)"
+                : "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.26), transparent 55%)",
             card: presentation
-              ? "border-amber-500/35 bg-gradient-to-br from-amber-900/20 to-slate-900/20"
-              : "border-amber-200 bg-gradient-to-br from-amber-50/90 to-white",
+              ? "bg-gradient-to-br from-amber-900/40 via-slate-900/38 to-slate-900/60"
+              : "bg-gradient-to-br from-amber-100/85 via-white to-amber-50/70",
           }
         : {
-            bar: "bg-red-500",
+            bar: "bg-gradient-to-r from-rose-400 via-red-500 to-rose-400",
             value: presentation ? "text-red-300" : "text-red-700",
+            line: presentation ? "#fb7185" : "#dc2626",
+            glow: presentation ? "shadow-[0_14px_36px_rgba(239,68,68,0.26)]" : "shadow-[0_12px_30px_rgba(239,68,68,0.16)]",
+            insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(239,68,68,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(239,68,68,0.10)]",
+            radial:
+              presentation
+                ? "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.30), transparent 52%)"
+                : "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.24), transparent 55%)",
             card: presentation
-              ? "border-red-500/35 bg-gradient-to-br from-red-900/20 to-slate-900/20"
-              : "border-red-200 bg-gradient-to-br from-red-50/90 to-white",
+              ? "bg-gradient-to-br from-red-900/40 via-slate-900/38 to-slate-900/60"
+              : "bg-gradient-to-br from-red-100/85 via-white to-red-50/70",
           };
 
   return (
     <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
       {items.map((kpi) => {
         const s = toneStyles(kpi.tone);
+        const spark = kpi.sparkline ?? [];
+        const hasSpark = spark.length >= 2;
+        const min = hasSpark ? Math.min(...spark) : 0;
+        const max = hasSpark ? Math.max(...spark) : 1;
+        const range = Math.max(1e-6, max - min);
+        const w = 172;
+        const h = 36;
+        const points = hasSpark
+          ? spark
+              .map((v, i) => {
+                const x = (i / Math.max(1, spark.length - 1)) * w;
+                const y = h - ((v - min) / range) * h;
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+              })
+              .join(" ")
+          : "";
+        const lastVal = hasSpark ? spark[spark.length - 1]! : 0;
+        const lastX = hasSpark ? w : 0;
+        const lastY = hasSpark ? h - ((lastVal - min) / range) * h : 0;
         return (
-          <div key={kpi.key} className={`overflow-hidden rounded-xl border ${s.card}`} title={kpi.hover}>
+          <div key={kpi.key} className={`relative overflow-hidden rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
             <div className={`h-1.5 w-full ${s.bar}`} />
-            <div className="p-3">
+            <div className="pointer-events-none absolute inset-0" style={{ background: s.radial }} />
+            <div className="relative p-3 sm:p-3.5">
               <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${s.value}`}>{kpi.value}</div>
+              <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
+              {hasSpark ? (
+                <div className="mt-2">
+                  <svg viewBox={`0 0 ${w} ${h}`} className="h-9 w-full overflow-visible" preserveAspectRatio="none" aria-hidden>
+                    <polyline fill="none" stroke={s.line} strokeWidth="1.7" points={points} strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx={lastX} cy={lastY} r="2.7" fill={s.line} />
+                    <circle cx={lastX} cy={lastY} r="5.5" fill={s.line} opacity={0.18} />
+                  </svg>
+                </div>
+              ) : null}
               <div className={`mt-1 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
             </div>
           </div>
@@ -936,6 +987,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     return idx >= 0 ? idx : Math.max(0, monthlyPlanExecutionData.length - 1);
   }, [monthlyPlanExecutionData]);
   const currentMonthPoint = monthlyPlanExecutionData[currentMonthIdx];
+  const cumulativeExecSeriesPct = useMemo(() => {
+    let planRun = 0;
+    let factRun = 0;
+    return monthlyPlanExecutionData.map((row) => {
+      planRun += row.plan;
+      factRun += row.fact;
+      return planRun > 0 ? (factRun / planRun) * 100 : 0;
+    });
+  }, [monthlyPlanExecutionData]);
   const monthPlanDeals = currentMonthPoint?.plan ?? 0;
   const monthFactDeals = currentMonthPoint?.fact ?? 0;
   const monthDeviationDeals = currentMonthPoint?.deviation ?? 0;
@@ -979,6 +1039,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       sub: `Прогноз к концу: ${forecastPercentAdjusted.toFixed(1)}%`,
       tone: cumulativeExecTone,
       hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
+      sparkline: cumulativeExecSeriesPct,
     },
     {
       key: "month-exec",
