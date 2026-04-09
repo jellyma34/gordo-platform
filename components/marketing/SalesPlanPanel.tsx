@@ -50,6 +50,14 @@ const compactRub = (n: number) =>
     : rubFmt.format(n);
 
 type ChartMetric = "revenue" | "units" | "area";
+type PlanMode = "view" | "edit";
+type PlanScenario = "optimistic" | "realistic" | "pessimistic";
+
+const SCENARIO_FACTOR: Record<PlanScenario, number> = {
+  optimistic: 1.08,
+  realistic: 1,
+  pessimistic: 0.92,
+};
 
 function metricLabel(m: ChartMetric): string {
   if (m === "revenue") return "Выручка";
@@ -383,13 +391,102 @@ type Props = {
 };
 
 export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: Props) {
+  const isPresentationMode = presentation;
   const card = presentation ? CARD : CARD_EDIT;
   const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
   const sub = presentation ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
   const [chartMetric, setChartMetric] = useState<ChartMetric>("revenue");
+  const [mode, setMode] = useState<PlanMode>("view");
+  const [scenario, setScenario] = useState<PlanScenario>("realistic");
 
   const report = marketingSalesReportMock;
-  const rev = report.salesData.revenue;
+  const baseRev = report.salesData.revenue;
+  const baseCategoryPlans = useMemo(
+    () =>
+      report.categories.reduce<Record<SalesCategoryId, number>>((acc, row) => {
+        acc[row.id] = row.planCumulative;
+        return acc;
+      }, {} as Record<SalesCategoryId, number>),
+    [report.categories],
+  );
+  const [savedTotalPlan, setSavedTotalPlan] = useState<number>(baseRev.planCumulative);
+  const [savedCategoryPlans, setSavedCategoryPlans] = useState<Record<SalesCategoryId, number>>(baseCategoryPlans);
+  const [draftTotalPlan, setDraftTotalPlan] = useState<number>(baseRev.planCumulative);
+  const [draftCategoryPlans, setDraftCategoryPlans] = useState<Record<SalesCategoryId, number>>(baseCategoryPlans);
+
+  const scenarioFactor = SCENARIO_FACTOR[scenario];
+  const effectiveTotalPlan = Math.max(0, Math.round(savedTotalPlan * scenarioFactor));
+  const effectiveCategoryPlans: Record<SalesCategoryId, number> = {
+    apartments: Math.max(0, Math.round((savedCategoryPlans.apartments ?? 0) * scenarioFactor)),
+    parking: Math.max(0, Math.round((savedCategoryPlans.parking ?? 0) * scenarioFactor)),
+    storages: Math.max(0, Math.round((savedCategoryPlans.storages ?? 0) * scenarioFactor)),
+    commercial: Math.max(0, Math.round((savedCategoryPlans.commercial ?? 0) * scenarioFactor)),
+  };
+
+  const rev = {
+    ...baseRev,
+    planCumulative: effectiveTotalPlan,
+    deviationCumulative: baseRev.factCumulative - effectiveTotalPlan,
+    percentComplete: effectiveTotalPlan > 0 ? (baseRev.factCumulative / effectiveTotalPlan) * 100 : 0,
+  };
+
+  const categoriesAdjusted = useMemo(
+    () =>
+      report.categories.map((cat) => {
+        const plan = effectiveCategoryPlans[cat.id] ?? cat.planCumulative;
+        const fact = cat.factCumulative;
+        const deviation = fact - plan;
+        const percentComplete = plan > 0 ? (fact / plan) * 100 : 0;
+        return { ...cat, planCumulative: plan, deviation, percentComplete };
+      }),
+    [report.categories, effectiveCategoryPlans],
+  );
+
+  const radarCategoriesAdjusted = useMemo(() => {
+    const ratio = (id: SalesCategoryId): number => {
+      const base = baseCategoryPlans[id] || 1;
+      return (effectiveCategoryPlans[id] || base) / base;
+    };
+    return report.radarCategories.map((r) => {
+      let group: SalesCategoryId = "commercial";
+      if (r.id.startsWith("apt-")) group = "apartments";
+      else if (r.id.includes("parking")) group = "parking";
+      else if (r.id.includes("storage")) group = "storages";
+      const k = ratio(group);
+      return { ...r, planCumulative: Math.round(r.planCumulative * k) };
+    });
+  }, [report.radarCategories, baseCategoryPlans, effectiveCategoryPlans]);
+
+  const handleCancelEdit = () => {
+    setDraftTotalPlan(savedTotalPlan);
+    setDraftCategoryPlans(savedCategoryPlans);
+    setMode("view");
+  };
+  const handleSaveEdit = () => {
+    setSavedTotalPlan(Math.max(0, draftTotalPlan));
+    setSavedCategoryPlans({
+      apartments: Math.max(0, draftCategoryPlans.apartments),
+      parking: Math.max(0, draftCategoryPlans.parking),
+      storages: Math.max(0, draftCategoryPlans.storages),
+      commercial: Math.max(0, draftCategoryPlans.commercial),
+    });
+    setMode("view");
+  };
+
+  const planManagementPayload = useMemo(
+    () => ({
+      scenario,
+      salesPlan: {
+        totalPlanRub: savedTotalPlan,
+        categoryPlansRub: savedCategoryPlans,
+      },
+      meta: {
+        asOf: report.asOf,
+        source: "mock",
+      },
+    }),
+    [scenario, savedTotalPlan, savedCategoryPlans, report.asOf],
+  );
   const analytics = period === "month" ? report.planAnalytics.month : report.planAnalytics.quarter;
   const seriesPoints = period === "month" ? report.series.month : report.series.quarter;
   const lineData = useMemo(() => seriesToLineData(seriesPoints, chartMetric), [seriesPoints, chartMetric]);
@@ -402,11 +499,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const execStatus = execStatusFromPercent(rev.percentComplete);
   const status = statusMeta(execStatus, presentation);
 
-  const diagnosticRows = useMemo(() => buildDiagnosticRows(report.categories), [report.categories]);
-  const structureRows = useMemo(() => buildStructureRows(report.categories), [report.categories]);
+  const diagnosticRows = useMemo(() => buildDiagnosticRows(categoriesAdjusted), [categoriesAdjusted]);
+  const structureRows = useMemo(() => buildStructureRows(categoriesAdjusted), [categoriesAdjusted]);
   const insights = useMemo(
-    () => buildSalesInsights(report.categories, report.radarCategories, rev),
-    [report.categories, report.radarCategories, rev],
+    () => buildSalesInsights(categoriesAdjusted, radarCategoriesAdjusted, rev),
+    [categoriesAdjusted, radarCategoriesAdjusted, rev],
   );
 
   const dealControlData = useMemo(() => {
@@ -449,6 +546,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       : 0;
   const shortfallDeals = Math.max(0, planEndDeals - forecastEndDeals);
   const requiredLeads = leadToDealRate > 0 ? Math.ceil(shortfallDeals / leadToDealRate) : 0;
+  const requiredConversionPct = requiredLeads > 0 ? (shortfallDeals / requiredLeads) * 100 : 0;
   const blockStatus: TrafficStatus =
     currentPlanCum > 0
       ? currentFactCum >= currentPlanCum
@@ -527,10 +625,125 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   };
 
   const rr = analytics.runRate;
-  const forecastGapRub = rr.horizonPlanCumulativeRub - rr.forecastCumulativeEndRub;
+  const rrAdjusted = { ...rr, horizonPlanCumulativeRub: effectiveTotalPlan };
+  const forecastPercentAdjusted = effectiveTotalPlan > 0 ? (rrAdjusted.forecastCumulativeEndRub / effectiveTotalPlan) * 100 : 0;
+  const forecastGapRub = rrAdjusted.horizonPlanCumulativeRub - rrAdjusted.forecastCumulativeEndRub;
 
   return (
     <div className="flex flex-col gap-4">
+      {!isPresentationMode ? (
+        <div className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 className={h4}>Управление планом</h4>
+              <p className={sub}>Переключайте режим и сценарий, затем сохраняйте план.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className={presentation ? "inline-flex rounded-lg border border-slate-600/60 bg-slate-900/50 p-0.5" : "inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"}>
+                {(["view", "edit"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={segmentedBtn(mode === m)}
+                    onClick={() => {
+                      if (m === "edit") {
+                        setDraftTotalPlan(savedTotalPlan);
+                        setDraftCategoryPlans(savedCategoryPlans);
+                      }
+                      setMode(m);
+                    }}
+                  >
+                    {m === "view" ? "View mode" : "Edit mode"}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={scenario}
+                onChange={(e) => setScenario(e.target.value as PlanScenario)}
+                className={
+                  presentation
+                    ? "rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100"
+                    : "rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800"
+                }
+              >
+                <option value="optimistic">optimistic</option>
+                <option value="realistic">realistic</option>
+                <option value="pessimistic">pessimistic</option>
+              </select>
+            </div>
+          </div>
+
+          {mode === "edit" ? (
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="text-xs">
+                <span className={sub}>План (общий), ₽</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={draftTotalPlan}
+                  onChange={(e) => setDraftTotalPlan(Number(e.target.value || 0))}
+                  className={
+                    presentation
+                      ? "mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 text-sm text-slate-100"
+                      : "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
+                  }
+                />
+              </label>
+              {([
+                ["apartments", "Квартиры"],
+                ["parking", "Парковки"],
+                ["storages", "Кладовые"],
+                ["commercial", "Коммерция"],
+              ] as const).map(([id, label]) => (
+                <label key={id} className="text-xs">
+                  <span className={sub}>План: {label}, ₽</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draftCategoryPlans[id]}
+                    onChange={(e) =>
+                      setDraftCategoryPlans((prev) => ({
+                        ...prev,
+                        [id]: Number(e.target.value || 0),
+                      }))
+                    }
+                    className={
+                      presentation
+                        ? "mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 text-sm text-slate-100"
+                        : "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
+                    }
+                  />
+                </label>
+              ))}
+              <div className="sm:col-span-2 lg:col-span-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+                >
+                  Сохранить
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className={
+                    presentation
+                      ? "rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200"
+                      : "rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                  }
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className={`mt-3 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              API payload (mock): {JSON.stringify(planManagementPayload)}
+            </div>
+          )}
+        </div>
+      ) : null}
+
       {/* HERO */}
       <div className={`overflow-hidden rounded-2xl border p-5 sm:p-6 ${heroBorder} ${heroBg}`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -562,7 +775,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               <span
                 className={`font-semibold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}
               >
-                {analytics.forecastPercentComplete.toFixed(1)}%
+                {forecastPercentAdjusted.toFixed(1)}%
               </span>
             </div>
           </div>
@@ -607,7 +820,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             <div
               className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-violet-300" : "text-violet-700"}`}
             >
-              {analytics.forecastPercentComplete.toFixed(1)}%
+              {forecastPercentAdjusted.toFixed(1)}%
             </div>
             <div className={`mt-0.5 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
               при сохранении текущего темпа
@@ -708,21 +921,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
             <div className={sub}>Текущий темп</div>
             <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              ~{compactRub(rr.avgMonthlyRevenueRub)}
+              ~{compactRub(rrAdjusted.avgMonthlyRevenueRub)}
             </div>
             <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>в среднем за месяц (оценка)</div>
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
             <div className={sub}>Прогноз к концу периода</div>
             <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}>
-              {compactRub(rr.forecastCumulativeEndRub)}
+              {compactRub(rrAdjusted.forecastCumulativeEndRub)}
             </div>
             <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>накопительно, модель</div>
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
             <div className={sub}>К плану горизонта</div>
             <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {compactRub(rr.horizonPlanCumulativeRub)}
+              {compactRub(rrAdjusted.horizonPlanCumulativeRub)}
             </div>
             <div className={`mt-1 text-[11px] ${forecastGapRub > 0 ? (presentation ? "text-amber-300" : "text-amber-800") : presentation ? "text-slate-500" : "text-slate-600"}`}>
               {forecastGapRub > 0
@@ -829,7 +1042,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         <h4 className={h4}>Выполнение по сегментам (радар)</h4>
         <p className={`${sub} mt-1`}>Накопительный % к плану по типам продуктов</p>
         <div className="mt-4">
-          <SalesPlanRadarChart categories={report.radarCategories} presentation={presentation} />
+          <SalesPlanRadarChart categories={radarCategoriesAdjusted} presentation={presentation} />
         </div>
       </div>
 
@@ -949,7 +1162,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             <div className={sub}>Что нужно сделать</div>
             <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
               Не хватает: <span className="tabular-nums">{numFmt.format(shortfallDeals)}</span> сделок · нужно лидов:{" "}
-              <span className="tabular-nums">{numFmt.format(requiredLeads)}</span>
+              <span className="tabular-nums">{numFmt.format(requiredLeads)}</span> · требуемая конверсия:{" "}
+              <span className="tabular-nums">{requiredConversionPct.toFixed(1)}%</span>
             </div>
           </div>
         </div>
