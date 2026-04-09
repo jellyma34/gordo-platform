@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import {
   filterByObjectAndDealType,
+  mergeSalesPlanFact,
   marketingMockData,
   type FunnelStageRow,
 } from "@/lib/marketingMockData";
@@ -25,6 +26,8 @@ import { SalesPlanRadarChart } from "./SalesPlanRadarChart";
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
+const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
+const LabelList = dynamic(() => import("recharts").then((m) => m.LabelList), { ssr: false });
 const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
 const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
@@ -52,6 +55,68 @@ function metricLabel(m: ChartMetric): string {
   if (m === "revenue") return "Выручка";
   if (m === "units") return "Штуки";
   return "Площадь";
+}
+
+type TrafficStatus = "green" | "yellow" | "red";
+
+type DealControlRow = {
+  periodKey: string;
+  label: string;
+  planCumulative: number;
+  factCumulative: number;
+  forecastCumulative: number;
+  deviation: number;
+  deviationPct: number;
+  status: TrafficStatus;
+  factGreen: number | null;
+  factYellow: number | null;
+  factRed: number | null;
+  redZone: number;
+};
+
+function dealStatus(plan: number, fact: number): TrafficStatus {
+  const pct = plan > 0 ? (fact / plan) * 100 : 0;
+  if (pct >= 100) return "green";
+  if (pct >= 90) return "yellow";
+  return "red";
+}
+
+function buildDealControlData(points: ReturnType<typeof mergeSalesPlanFact>): DealControlRow[] {
+  const elapsed = points.length > 0 ? points.length : 1;
+  const totalFact = points.reduce((s, p) => s + p.factDeals, 0);
+  const runRate = totalFact / elapsed;
+  let planRun = 0;
+  let factRun = 0;
+  return points.map((p, idx) => {
+    planRun += p.planDeals;
+    factRun += p.factDeals;
+    const forecastCumulative = Math.round(runRate * (idx + 1));
+    const status = dealStatus(planRun, factRun);
+    const deviation = factRun - planRun;
+    const deviationPct = planRun > 0 ? (deviation / planRun) * 100 : 0;
+    return {
+      periodKey: p.periodKey,
+      label: p.label,
+      planCumulative: planRun,
+      factCumulative: factRun,
+      forecastCumulative,
+      deviation,
+      deviationPct,
+      status,
+      factGreen: status === "green" ? factRun : null,
+      factYellow: status === "yellow" ? factRun : null,
+      factRed: status === "red" ? factRun : null,
+      redZone: status === "red" ? factRun : 0,
+    };
+  });
+}
+
+function periodKeyToday(granularity: MarketingPeriodGranularity): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  if (granularity === "month") return `${y}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const q = Math.floor(d.getMonth() / 3) + 1;
+  return `${y}-Q${q}`;
 }
 
 function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
@@ -148,161 +213,156 @@ function LineChartTooltip({
   );
 }
 
-function FunnelBlock({ stages, presentation }: { stages: FunnelStageRow[]; presentation: boolean }) {
-  const transitions = useMemo(() => {
+function DealControlTooltip({
+  active,
+  payload,
+  presentation,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: DealControlRow }>;
+  presentation: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  const statusColor = p.status === "green" ? "bg-emerald-500" : p.status === "yellow" ? "bg-amber-500" : "bg-red-500";
+  const statusText = p.status === "green" ? "В плане" : p.status === "yellow" ? "Зона риска" : "Отставание";
+
+  return (
+    <div
+      className={
+        presentation
+          ? "max-w-xs rounded-lg border border-slate-500/50 bg-[#0f172a] p-3 text-xs text-slate-200 shadow-xl"
+          : "max-w-xs rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-800 shadow-lg"
+      }
+    >
+      <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>{p.label}</div>
+      <div className="mt-2 space-y-1.5">
+        <div>План (накопит.): {numFmt.format(p.planCumulative)} сделок</div>
+        <div>Факт (накопит.): {numFmt.format(p.factCumulative)} сделок</div>
+        <div>Прогноз (накопит.): {numFmt.format(p.forecastCumulative)} сделок</div>
+        <div>
+          Отклонение: {p.deviation >= 0 ? "+" : "−"}
+          {numFmt.format(Math.abs(p.deviation))} шт ({p.deviationPct >= 0 ? "+" : ""}
+          {p.deviationPct.toFixed(1)}%)
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${statusColor}`} />
+          <span>{statusText}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FunnelBlock({
+  stages,
+  presentation,
+  planRevenue,
+  factRevenue,
+}: {
+  stages: FunnelStageRow[];
+  presentation: boolean;
+  planRevenue: number;
+  factRevenue: number;
+}) {
+  const finalDeals = stages[stages.length - 1]?.count ?? 0;
+  const avgCheck = finalDeals > 0 ? factRevenue / finalDeals : 0;
+
+  const stageLosses = useMemo(() => {
     const out: {
       key: string;
-      from: string;
-      to: string;
-      fromCount: number;
-      toCount: number;
-      loss: number;
-      conversion: number;
-      finalContributionPct: number;
+      stage: string;
+      lostLeads: number;
+      lostDeals: number;
+      lostRevenue: number;
     }[] = [];
-    const finalCount = stages[stages.length - 1]?.count ?? 0;
     for (let i = 0; i < stages.length - 1; i++) {
-      const a = stages[i]!.count;
-      const b = stages[i + 1]!.count;
-      const conversion = a > 0 ? (b / a) * 100 : 0;
-      const finalContributionPct = finalCount > 0 ? (b / finalCount) * 100 : 0;
+      const from = stages[i]!;
+      const to = stages[i + 1]!;
+      const lostLeads = Math.max(0, from.count - to.count);
+      const downstreamToDeal = to.count > 0 ? finalDeals / to.count : 0;
+      const lostDeals = Math.round(lostLeads * downstreamToDeal);
+      const lostRevenue = Math.round(lostDeals * avgCheck);
       out.push({
-        key: `${stages[i]!.stage}-${stages[i + 1]!.stage}`,
-        from: stages[i]!.name,
-        to: stages[i + 1]!.name,
-        fromCount: a,
-        toCount: b,
-        loss: Math.max(0, a - b),
-        conversion: Math.round(conversion * 10) / 10,
-        finalContributionPct: Math.round(finalContributionPct * 10) / 10,
+        key: `${from.stage}-${to.stage}`,
+        stage: to.name,
+        lostLeads,
+        lostDeals,
+        lostRevenue,
       });
     }
-    return out;
-  }, [stages]);
+    return out.sort((a, b) => b.lostRevenue - a.lostRevenue);
+  }, [stages, finalDeals, avgCheck]);
 
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const topProblem = stageLosses[0] ?? null;
+  const projectedFactIfFixed = topProblem ? factRevenue + topProblem.lostRevenue : factRevenue;
+  const planGap = planRevenue - factRevenue;
+  const willPlanBeMetIfFixed = projectedFactIfFixed >= planRevenue;
 
-  const biggestLoss = useMemo(() => {
-    if (!transitions.length) return null;
-    return [...transitions].sort((a, b) => b.loss - a.loss)[0] ?? null;
-  }, [transitions]);
-
-  const potential = useMemo(() => {
-    if (!transitions.length || !biggestLoss) return null;
-    const idx = transitions.findIndex((x) => x.key === biggestLoss.key);
-    if (idx < 0) return null;
-    const t = transitions[idx]!;
-    const currentRate = t.fromCount > 0 ? t.toCount / t.fromCount : 0;
-    const improvedRate = Math.min(1, currentRate * 1.1);
-    const deltaToNext = Math.max(0, Math.round((improvedRate - currentRate) * t.fromCount));
-    const downstreamRate = t.toCount > 0 ? (stages[stages.length - 1]!.count || 0) / t.toCount : 0;
-    const extraDeals = Math.round(deltaToNext * downstreamRate);
-    return { stage: t.to, extraDeals };
-  }, [transitions, biggestLoss, stages]);
-
-  const maxLoss = Math.max(...transitions.map((t) => t.loss), 1);
-
-  const convTone = (v: number) => {
-    if (v > 50)
+  const tone = (lostRevenue: number) => {
+    const ratio = planRevenue > 0 ? lostRevenue / planRevenue : 0;
+    if (ratio > 0.1)
       return presentation
-        ? { bg: "bg-emerald-500/20", text: "text-emerald-300", bar: "bg-emerald-500" }
-        : { bg: "bg-emerald-100", text: "text-emerald-700", bar: "bg-emerald-500" };
-    if (v >= 30)
+        ? "border-red-500/40 bg-red-950/20 text-red-100"
+        : "border-red-200 bg-red-50 text-red-900";
+    if (ratio >= 0.05)
       return presentation
-        ? { bg: "bg-amber-500/20", text: "text-amber-300", bar: "bg-amber-500" }
-        : { bg: "bg-amber-100", text: "text-amber-700", bar: "bg-amber-500" };
+        ? "border-amber-500/35 bg-amber-950/20 text-amber-100"
+        : "border-amber-200 bg-amber-50 text-amber-900";
     return presentation
-      ? { bg: "bg-red-500/20", text: "text-red-300", bar: "bg-red-500" }
-      : { bg: "bg-red-100", text: "text-red-700", bar: "bg-red-500" };
+      ? "border-emerald-500/35 bg-emerald-950/20 text-emerald-100"
+      : "border-emerald-200 bg-emerald-50 text-emerald-900";
   };
 
   return (
-    <div className="space-y-4">
-      {biggestLoss ? (
-        <div
-          className={
-            presentation
-              ? "rounded-xl border border-red-500/35 bg-red-950/30 px-3 py-2.5"
-              : "rounded-xl border border-red-200 bg-red-50 px-3 py-2.5"
-          }
-        >
-          <div className={`text-xs ${presentation ? "text-red-200" : "text-red-800"}`}>Основная потеря</div>
-          <div className={`text-sm font-semibold ${presentation ? "text-red-100" : "text-red-900"}`}>
-            этап {biggestLoss.to} (−{numFmt.format(biggestLoss.loss)} лидов)
-          </div>
+    <div className="space-y-3.5">
+      <div
+        className={
+          presentation
+            ? "rounded-2xl border border-red-500/45 bg-gradient-to-br from-red-900/45 to-red-950/20 p-4"
+            : "rounded-2xl border border-red-200 bg-gradient-to-br from-red-50 to-white p-4"
+        }
+      >
+        <div className={`text-xs uppercase ${presentation ? "text-red-200" : "text-red-700"}`}>Корневая причина</div>
+        <div className={`mt-1 text-xl font-black sm:text-2xl ${presentation ? "text-red-100" : "text-red-800"}`}>
+          План не выполняется из-за этапа {topProblem?.stage ?? "—"}
         </div>
-      ) : null}
-
-      {potential ? (
-        <div
-          className={
-            presentation
-              ? "rounded-xl border border-violet-500/30 bg-violet-950/20 px-3 py-2.5"
-              : "rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5"
-          }
-        >
-          <div className={`text-xs ${presentation ? "text-violet-200" : "text-violet-800"}`}>Потенциал (+10% к конверсии)</div>
-          <div className={`text-sm font-semibold ${presentation ? "text-violet-100" : "text-violet-900"}`}>
-            этап {potential.stage}: +{numFmt.format(potential.extraDeals)} доп. сделок
-          </div>
+        <div className={`mt-1 text-sm ${presentation ? "text-red-200" : "text-red-700"}`}>
+          Текущий недобор к плану: {compactRub(Math.max(0, planGap))}
         </div>
-      ) : null}
+      </div>
 
-      <div className="space-y-2.5">
-        {transitions.map((t) => {
-          const tone = convTone(t.conversion);
-          const lossWidth = Math.max(10, (t.loss / maxLoss) * 100);
-          const active = hoveredKey === t.key;
-          return (
-            <div
-              key={t.key}
-              onMouseEnter={() => setHoveredKey(t.key)}
-              onMouseLeave={() => setHoveredKey(null)}
-              className={
-                presentation
-                  ? `rounded-xl border p-3 transition-colors ${
-                      active ? "border-slate-400/70 bg-slate-900/60" : "border-slate-600/50 bg-slate-900/30"
-                    }`
-                  : `rounded-xl border p-3 transition-colors ${
-                      active ? "border-slate-300 bg-white" : "border-slate-200 bg-slate-50/70"
-                    }`
-              }
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className={`text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                    {t.from} → {t.to}
-                  </div>
-                  <div className={`mt-0.5 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                    было: {numFmt.format(t.fromCount)} · стало: {numFmt.format(t.toCount)} · потеря:{" "}
-                    <span className={presentation ? "text-red-300" : "text-red-700"}>{numFmt.format(t.loss)}</span>
-                  </div>
-                </div>
-                <span className={`rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums ${tone.bg} ${tone.text}`}>
-                  {t.conversion.toFixed(1)}%
-                </span>
-              </div>
-
-              <div className={`mt-2 h-2 overflow-hidden rounded-full ${presentation ? "bg-slate-800" : "bg-slate-200"}`}>
-                <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${lossWidth}%` }} />
-              </div>
-
-              {active ? (
-                <div
-                  className={
-                    presentation
-                      ? "mt-2 rounded-lg border border-slate-600/50 bg-black/20 p-2 text-[11px] text-slate-200"
-                      : "mt-2 rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-700"
-                  }
-                >
-                  <div>Конверсия: {t.conversion.toFixed(1)}%</div>
-                  <div>Потери: {numFmt.format(t.loss)}</div>
-                  <div>Вклад в финальные сделки: {t.finalContributionPct.toFixed(1)}%</div>
-                </div>
-              ) : null}
+      <div className="space-y-2">
+        {stageLosses.map((row) => (
+          <div key={row.key} className={`rounded-xl border p-3 ${tone(row.lostRevenue)}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-bold">{row.stage}</div>
+              <div className="text-sm font-black tabular-nums">−{compactRub(row.lostRevenue)}</div>
             </div>
-          );
-        })}
+            <div className={`mt-1 grid grid-cols-3 gap-2 text-xs ${presentation ? "text-slate-200" : "text-slate-700"}`}>
+              <div>Лиды: −{numFmt.format(row.lostLeads)}</div>
+              <div>Сделки: −{numFmt.format(row.lostDeals)}</div>
+              <div>Выручка: −{compactRub(row.lostRevenue)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className={
+          presentation
+            ? "rounded-xl border border-slate-600/60 bg-slate-900/35 p-3"
+            : "rounded-xl border border-slate-200 bg-slate-50 p-3"
+        }
+      >
+        <div className={`text-xs ${presentation ? "text-slate-400" : "text-slate-600"}`}>Вывод</div>
+        <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+          Если исправить этап {topProblem?.stage ?? "—"}, план {willPlanBeMetIfFixed ? "выполнится" : "не выполнится"}.
+        </div>
+        <div className={`mt-1 text-xs ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+          Потенциальная выручка после исправления: {compactRub(projectedFactIfFixed)} из {compactRub(planRevenue)}.
+        </div>
       </div>
     </div>
   );
@@ -349,11 +409,67 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     [report.categories, report.radarCategories, rev],
   );
 
-  const dynamics = useMemo(() => {
-    return filterByObjectAndDealType(marketingMockData.salesDynamics, objectId, dealTypeId);
-  }, [objectId, dealTypeId]);
+  const dealControlData = useMemo(() => {
+    const planRows = period === "month" ? marketingMockData.salesPlan.month : marketingMockData.salesPlan.quarter;
+    const factRows = period === "month" ? marketingMockData.salesFact.month : marketingMockData.salesFact.quarter;
+    const planFiltered = filterByObjectAndDealType(planRows, objectId, dealTypeId);
+    const factFiltered = filterByObjectAndDealType(factRows, objectId, dealTypeId);
+    return buildDealControlData(mergeSalesPlanFact(planFiltered, factFiltered));
+  }, [period, objectId, dealTypeId]);
 
+  const todayPeriodKey = useMemo(() => periodKeyToday(period), [period]);
+  const todayInData = dealControlData.some((r) => r.periodKey === todayPeriodKey);
+  const todayLabelDealControl = todayInData
+    ? dealControlData.find((r) => r.periodKey === todayPeriodKey)?.label
+    : dealControlData[dealControlData.length - 1]?.label;
+  const lagStartedLabel = dealControlData.find((r) => r.factCumulative < r.planCumulative)?.label ?? null;
+  const currentIdx = Math.max(
+    0,
+    dealControlData.findIndex((r) => r.periodKey === todayPeriodKey),
+  );
+  const effectiveCurrentIdx = dealControlData.findIndex((r) => r.periodKey === todayPeriodKey) >= 0 ? currentIdx : dealControlData.length - 1;
+  const elapsedPeriods = Math.max(1, effectiveCurrentIdx + 1);
+  const totalPeriods = Math.max(1, dealControlData.length);
+  const remainingPeriods = Math.max(0, totalPeriods - elapsedPeriods);
+  const currentPoint = dealControlData[effectiveCurrentIdx];
+  const endPoint = dealControlData[dealControlData.length - 1];
+  const currentPlanCum = currentPoint?.planCumulative ?? 0;
+  const currentFactCum = currentPoint?.factCumulative ?? 0;
+  const currentDeviation = currentFactCum - currentPlanCum;
+  const currentDeviationPct = currentPlanCum > 0 ? (currentDeviation / currentPlanCum) * 100 : 0;
+  const runRateDeals = elapsedPeriods > 0 ? currentFactCum / elapsedPeriods : 0;
+  const planEndDeals = endPoint?.planCumulative ?? 0;
+  const forecastEndDeals = Math.round(currentFactCum + runRateDeals * remainingPeriods);
+  const requiredPerPeriod = remainingPeriods > 0 ? Math.max(0, (planEndDeals - currentFactCum) / remainingPeriods) : 0;
   const funnel = marketingMockData.funnel;
+  const safeFunnel = funnel ?? [];
+  const leadToDealRate =
+    safeFunnel.length > 1 && safeFunnel[0].count > 0
+      ? safeFunnel[safeFunnel.length - 1].count / safeFunnel[0].count
+      : 0;
+  const shortfallDeals = Math.max(0, planEndDeals - forecastEndDeals);
+  const requiredLeads = leadToDealRate > 0 ? Math.ceil(shortfallDeals / leadToDealRate) : 0;
+  const blockStatus: TrafficStatus =
+    currentPlanCum > 0
+      ? currentFactCum >= currentPlanCum
+        ? "green"
+        : currentFactCum >= currentPlanCum * 0.9
+          ? "yellow"
+          : "red"
+      : "yellow";
+  const statusText = blockStatus === "green" ? "План выполняется" : blockStatus === "yellow" ? "Риск выполнения" : "План не выполняется";
+  const statusTone =
+    blockStatus === "green"
+      ? presentation
+        ? "border-emerald-500/35 bg-emerald-950/20 text-emerald-100"
+        : "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : blockStatus === "yellow"
+        ? presentation
+          ? "border-amber-500/35 bg-amber-950/20 text-amber-100"
+          : "border-amber-200 bg-amber-50 text-amber-900"
+        : presentation
+          ? "border-red-500/35 bg-red-950/20 text-red-100"
+          : "border-red-200 bg-red-50 text-red-900";
 
   const deviationPct = rev.planCumulative > 0 ? ((rev.factCumulative - rev.planCumulative) / rev.planCumulative) * 100 : 0;
 
@@ -366,6 +482,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       : chartMetric === "area"
         ? (v: number) => `${numFmt.format(v)}`
         : (v: number) => `${numFmt.format(v)}`;
+  const yTickDeals = (v: number) => `${numFmt.format(v)}`;
 
   const segmentedBtn = (active: boolean) =>
     presentation
@@ -748,30 +865,102 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       {/* Secondary */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className={card}>
-          <h4 className={`${h4} mb-3`}>Динамика сделок</h4>
-          <div className="h-[200px] w-full min-w-0">
+          <h4 className={`${h4} mb-1`}>Выполнение плана продаж</h4>
+          <p className={sub}>План/факт и прогноз накопительно: выполним план или нет.</p>
+          <div className={`mt-3 rounded-xl border p-3 ${statusTone}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="text-xs uppercase opacity-80">Статус</div>
+                <div className="text-sm font-black sm:text-base">{statusText}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs uppercase opacity-80">Отклонение сейчас</div>
+                <div className="text-sm font-bold tabular-nums">
+                  {currentDeviation >= 0 ? "+" : "−"}
+                  {numFmt.format(Math.abs(currentDeviation))} шт ({currentDeviationPct >= 0 ? "+" : ""}
+                  {currentDeviationPct.toFixed(1)}%)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
+              <div className={sub}>Прогноз к концу периода (run rate)</div>
+              <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                План: <span className="tabular-nums">{numFmt.format(planEndDeals)}</span> · Прогноз:{" "}
+                <span className={`tabular-nums ${forecastEndDeals >= planEndDeals ? "text-emerald-500" : "text-red-500"}`}>
+                  {numFmt.format(forecastEndDeals)}
+                </span>
+              </div>
+            </div>
+            <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
+              <div className={sub}>Достижимость</div>
+              <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                Требуется: <span className="tabular-nums">{numFmt.format(Math.round(requiredPerPeriod))}</span> / период · Факт:{" "}
+                <span className="tabular-nums">{numFmt.format(Math.round(runRateDeals))}</span> / период
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 h-[240px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dynamics} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+              <ComposedChart data={dealControlData} margin={{ top: 8, right: 8, left: 0, bottom: 6 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
-                <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: "#0f172a",
-                    border: "1px solid rgba(148,163,184,0.35)",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: "#e2e8f0" }}
+                <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
+                <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} tickFormatter={yTickDeals} />
+                <Tooltip content={<DealControlTooltip presentation={presentation} />} />
+                <Line
+                  type="monotone"
+                  dataKey="planCumulative"
+                  name="План (накопит.)"
+                  stroke={presentation ? "#cbd5e1" : "#475569"}
+                  strokeWidth={2}
+                  dot={false}
                 />
-                <Line type="monotone" dataKey="deals" name="Сделки" stroke="#38bdf8" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
+                <Line type="monotone" dataKey="factGreen" name="Факт (>=100%)" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: "#22c55e" }} connectNulls />
+                <Line type="monotone" dataKey="factYellow" name="Факт (90-100%)" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: "#f59e0b" }} connectNulls />
+                <Line type="monotone" dataKey="factRed" name="Факт (<90%)" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: "#ef4444" }} connectNulls>
+                  <LabelList
+                    dataKey="deviation"
+                    position="top"
+                    formatter={(v: number) => (v < 0 ? `${v}` : "")}
+                    fill={presentation ? "#fca5a5" : "#b91c1c"}
+                    fontSize={10}
+                  />
+                </Line>
+                <Line type="monotone" dataKey="forecastCumulative" name="Forecast (run rate)" stroke="#a78bfa" strokeWidth={2} strokeDasharray="6 4" dot={false} />
+                {todayLabelDealControl ? (
+                  <ReferenceLine
+                    x={todayLabelDealControl}
+                    stroke={presentation ? "#fbbf24" : "#d97706"}
+                    strokeWidth={1.2}
+                    strokeDasharray="4 4"
+                    label={{ value: "Сегодня", position: "top", fill: presentation ? "#fcd34d" : "#b45309", fontSize: 10 }}
+                  />
+                ) : null}
+              </ComposedChart>
             </ResponsiveContainer>
+          </div>
+          <p className={`mt-2 text-[11px] ${presentation ? "text-red-300" : "text-red-700"}`}>
+            {lagStartedLabel ? `Отставание началось: ${lagStartedLabel}` : "Отставание не зафиксировано."}
+          </p>
+          <div className={presentation ? "mt-2 rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
+            <div className={sub}>Что нужно сделать</div>
+            <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              Не хватает: <span className="tabular-nums">{numFmt.format(shortfallDeals)}</span> сделок · нужно лидов:{" "}
+              <span className="tabular-nums">{numFmt.format(requiredLeads)}</span>
+            </div>
           </div>
         </div>
         <div className={card}>
           <h4 className={`${h4} mb-3`}>Воронка</h4>
-          <FunnelBlock stages={funnel} presentation={presentation} />
+          <FunnelBlock
+            stages={funnel}
+            presentation={presentation}
+            planRevenue={rev.planCumulative}
+            factRevenue={rev.factCumulative}
+          />
         </div>
       </div>
     </div>
