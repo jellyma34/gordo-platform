@@ -22,7 +22,6 @@ import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import { SalesPlanRadarChart } from "./SalesPlanRadarChart";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
 const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
 const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
@@ -36,6 +35,7 @@ const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: 
 const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
 const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
 const ReferenceLine = dynamic(() => import("recharts").then((m) => m.ReferenceLine), { ssr: false });
+const ReferenceDot = dynamic(() => import("recharts").then((m) => m.ReferenceDot), { ssr: false });
 
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
@@ -65,6 +65,12 @@ function metricLabel(m: ChartMetric): string {
   if (m === "revenue") return "Выручка";
   if (m === "units") return "Штуки";
   return "Площадь";
+}
+
+function metricFormatter(metric: ChartMetric) {
+  if (metric === "revenue") return (v: number) => compactRub(v);
+  if (metric === "area") return (v: number) => `${numFmt.format(v)} м²`;
+  return (v: number) => `${numFmt.format(v)} сделок`;
 }
 
 type TrafficStatus = "green" | "yellow" | "red";
@@ -161,12 +167,16 @@ function buildDeviationContribution(categories: Array<{
 function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
   return points.map((row) => {
     const b = row[metric];
+    const deviation = b.factCumulative - b.planCumulative;
     return {
       periodKey: row.periodKey,
       label: row.label,
       plan: b.planCumulative,
       fact: b.factCumulative,
       forecast: b.forecastCumulative,
+      deviation,
+      factBelow: b.factCumulative < b.planCumulative ? b.factCumulative : null,
+      factAbove: b.factCumulative >= b.planCumulative ? b.factCumulative : null,
     };
   });
 }
@@ -270,7 +280,7 @@ function DealControlTooltip({
         <div>Прогноз (накопит.): {numFmt.format(p.forecastCumulative)} сделок</div>
         <div>
           Отклонение: {p.deviation >= 0 ? "+" : "−"}
-          {numFmt.format(Math.abs(p.deviation))} шт ({p.deviationPct >= 0 ? "+" : ""}
+          {numFmt.format(Math.abs(p.deviation))} сделок ({p.deviationPct >= 0 ? "+" : ""}
           {p.deviationPct.toFixed(1)}%)
         </div>
         <div className="flex items-center gap-1.5">
@@ -542,6 +552,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const analytics = period === "month" ? report.planAnalytics.month : report.planAnalytics.quarter;
   const seriesPoints = period === "month" ? report.series.month : report.series.quarter;
   const lineData = useMemo(() => seriesToLineData(seriesPoints, chartMetric), [seriesPoints, chartMetric]);
+  const lineFmt = metricFormatter(chartMetric);
+  const lastLinePoint = lineData[lineData.length - 1];
+  const lastLineDiff = (lastLinePoint?.fact ?? 0) - (lastLinePoint?.plan ?? 0);
 
   const currentLabel = useMemo(() => {
     const hit = seriesPoints.find((p) => p.periodKey === analytics.currentPeriodKey);
@@ -655,6 +668,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         : presentation
           ? "border-red-500/35 bg-red-950/20 text-red-100"
           : "border-red-200 bg-red-50 text-red-900";
+  const lastDealControlPoint = dealControlData[dealControlData.length - 1];
+  const chartPointStroke = presentation ? "#0f172a" : "#ffffff";
 
   const deviationPct = rev.planCumulative > 0 ? ((rev.factCumulative - rev.planCumulative) / rev.planCumulative) * 100 : 0;
 
@@ -948,16 +963,27 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             ))}
           </div>
         </div>
-        <div className="h-[300px] w-full min-w-0">
+        <div className="h-[320px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={lineData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} />
-              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickFormatter={yTick} width={48} />
+            <ComposedChart data={lineData} margin={{ top: 22, right: 44, left: 20, bottom: 20 }}>
+              <defs>
+                <filter id="dynFactGlow">
+                  <feGaussianBlur stdDeviation="2.2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} tickMargin={8} axisLine={{ stroke: gridColor }} />
+              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickFormatter={yTick} width={72} />
               <Tooltip content={<LineChartTooltip metric={chartMetric} presentation={presentation} />} />
               <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
-              <Line type="monotone" dataKey="plan" name="План" stroke={presentation ? "#cbd5e1" : "#64748b"} strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="fact" name="Факт" stroke="#38bdf8" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Area type="monotone" dataKey="factBelow" baseLine={(row: { plan: number }) => row.plan} connectNulls stroke="none" fill="rgba(239,68,68,0.18)" />
+              <Area type="monotone" dataKey="factAbove" baseLine={(row: { plan: number }) => row.plan} connectNulls stroke="none" fill="rgba(34,197,94,0.14)" />
+              <Line type="monotone" dataKey="plan" name="План" stroke={presentation ? "rgba(226,232,240,0.86)" : "#94a3b8"} strokeWidth={1.4} dot={false} />
+              <Line type="monotone" dataKey="fact" name="Факт" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3, fill: "#38bdf8" }} style={{ filter: "url(#dynFactGlow)" }} />
               <Line
                 type="monotone"
                 dataKey="forecast"
@@ -970,18 +996,68 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               {currentLabel ? (
                 <ReferenceLine
                   x={currentLabel}
-                  stroke={presentation ? "#fbbf24" : "#d97706"}
-                  strokeWidth={1.5}
+                  stroke="#facc15"
+                  strokeWidth={1.8}
                   strokeDasharray="4 4"
                   label={{
                     value: "Сейчас",
                     position: "top",
-                    fill: presentation ? "#fcd34d" : "#b45309",
+                    fill: "#facc15",
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                />
+              ) : null}
+              {lastLinePoint ? (
+                <ReferenceLine
+                  segment={[
+                    { x: lastLinePoint.label, y: lastLinePoint.plan },
+                    { x: lastLinePoint.label, y: lastLinePoint.fact },
+                  ]}
+                  stroke={lastLineDiff < 0 ? "#ef4444" : "#22c55e"}
+                  strokeWidth={1.6}
+                  label={{
+                    value: `${lastLineDiff < 0 ? "−" : "+"}${lineFmt(Math.abs(lastLineDiff))}`,
+                    position: "right",
+                    fill: lastLineDiff < 0 ? "#ef4444" : "#22c55e",
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}
+                />
+              ) : null}
+              {lastLinePoint ? (
+                <ReferenceDot
+                  x={lastLinePoint.label}
+                  y={lastLinePoint.fact}
+                  r={6}
+                  fill="#38bdf8"
+                  stroke={presentation ? "#0f172a" : "#ffffff"}
+                  strokeWidth={2}
+                  label={{
+                    value: `Факт ${lineFmt(lastLinePoint.fact)}`,
+                    position: "top",
+                    fill: presentation ? "#e2e8f0" : "#334155",
                     fontSize: 10,
                   }}
                 />
               ) : null}
-            </LineChart>
+              {lastLinePoint ? (
+                <ReferenceDot
+                  x={lastLinePoint.label}
+                  y={lastLinePoint.plan}
+                  r={5}
+                  fill={presentation ? "#cbd5e1" : "#94a3b8"}
+                  stroke={presentation ? "#0f172a" : "#ffffff"}
+                  strokeWidth={1.5}
+                  label={{
+                    value: `План ${lineFmt(lastLinePoint.plan)}`,
+                    position: "bottom",
+                    fill: presentation ? "#cbd5e1" : "#475569",
+                    fontSize: 10,
+                  }}
+                />
+              ) : null}
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -1080,8 +1156,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
             <div className={sub}>Требуемый темп</div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${requiredPerPeriod > runRateDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
-              {numFmt.format(Math.round(requiredPerPeriod))} сделок / период
+              <div className={`mt-1 text-lg font-bold tabular-nums ${requiredPerPeriod > runRateDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
+                {numFmt.format(Math.round(requiredPerPeriod))} сделка / месяц
             </div>
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
@@ -1150,49 +1226,148 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       <div className={card}>
         <h4 className={`${h4} mb-1`}>Контроль выполнения плана (сделки)</h4>
         <p className={sub}>Выполняется ли план, успеем ли к концу периода и насколько критично отставание.</p>
-        <div className={`mt-3 rounded-xl border p-3 ${statusTone}`}>
+        <div className={`mt-3 rounded-xl border p-3 shadow-[0_0_24px_rgba(56,189,248,0.08)] ${statusTone}`}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <div className="text-xs uppercase opacity-80">Статус</div>
-              <div className="text-sm font-black sm:text-base">{statusText}</div>
+              <div className="text-sm font-black sm:text-base drop-shadow-[0_0_8px_rgba(251,191,36,0.25)]">{statusText}</div>
             </div>
             <div>
               <div className="text-xs uppercase opacity-80">Отклонение</div>
-              <div className="text-sm font-bold tabular-nums">
+              <div className="text-sm font-bold tabular-nums drop-shadow-[0_0_10px_rgba(239,68,68,0.22)]">
                 {currentDeviation >= 0 ? "+" : "−"}
-                {numFmt.format(Math.abs(currentDeviation))} шт
+                {numFmt.format(Math.abs(currentDeviation))} сделок
               </div>
             </div>
             <div>
               <div className="text-xs uppercase opacity-80">Текущий темп</div>
-              <div className="text-sm font-bold tabular-nums">{numFmt.format(Math.round(runRateDeals))} / период</div>
+              <div className="text-sm font-bold tabular-nums">{numFmt.format(Math.round(runRateDeals))} сделка / месяц</div>
             </div>
             <div>
               <div className="text-xs uppercase opacity-80">Требуемый темп</div>
               <div className="text-sm font-bold tabular-nums">
-                {numFmt.format(Math.round(requiredPerPeriod))} / период
+                {numFmt.format(Math.round(requiredPerPeriod))} сделка / месяц
               </div>
             </div>
           </div>
         </div>
-        <div className="mt-3 h-[240px] w-full min-w-0">
+        <div className="relative mt-3 h-[240px] w-full min-w-0 overflow-hidden rounded-xl">
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(circle at 20% 20%, rgba(56,189,248,0.14), transparent 45%), radial-gradient(circle at 80% 30%, rgba(168,85,247,0.12), transparent 50%)",
+            }}
+          />
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={dealControlData} margin={{ top: 8, right: 8, left: 0, bottom: 6 }}>
+              <defs>
+                <linearGradient id="factAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.02} />
+                </linearGradient>
+                <filter id="factGlow">
+                  <feGaussianBlur stdDeviation="2.2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
-              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} tickFormatter={yTickDeals} />
+              <YAxis
+                tick={{ fill: axisColor, fontSize: 10 }}
+                axisLine={false}
+                allowDecimals={false}
+                tickFormatter={yTickDeals}
+                label={{ value: "Сделки, шт", angle: -90, position: "insideLeft", fill: axisColor, fontSize: 10 }}
+              />
               <Tooltip content={<DealControlTooltip presentation={presentation} />} />
               <Area type="monotone" dataKey="factBelow" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(239,68,68,0.18)" />
               <Area type="monotone" dataKey="factAbove" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(34,197,94,0.16)" />
-              <Line type="monotone" dataKey="planCumulative" name="План (накопит.)" stroke={presentation ? "#cbd5e1" : "#64748b"} strokeWidth={1.8} dot={false} />
-              <Line type="monotone" dataKey="factCumulative" name="Факт (накопит.)" stroke="#38bdf8" strokeWidth={2.6} dot={{ r: 2.5 }} />
-              <Line type="monotone" dataKey="forecastCumulative" name="Forecast" stroke="#a78bfa" strokeWidth={2} strokeDasharray="6 4" dot={false} />
+              <Area type="monotone" dataKey="factCumulative" stroke="none" fill="url(#factAreaGradient)" />
+              <Line type="monotone" dataKey="planCumulative" name="План (накопит.)" stroke={presentation ? "rgba(226,232,240,0.82)" : "#94a3b8"} strokeWidth={1.4} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="factCumulative"
+                name="Факт (накопит.)"
+                stroke="#38bdf8"
+                strokeWidth={2.8}
+                style={{ filter: "url(#factGlow)" }}
+                dot={(props: {
+                  cx?: number;
+                  cy?: number;
+                  index?: number;
+                }) => {
+                  const { cx, cy, index } = props;
+                  if (cx == null || cy == null) return null;
+                  const isLast = index === dealControlData.length - 1;
+                  return (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isLast ? 12 : 10}
+                      fill={isLast ? "#ef4444" : "#38bdf8"}
+                      stroke={chartPointStroke}
+                      strokeWidth={2}
+                      style={{ filter: "drop-shadow(0 0 8px rgba(56,189,248,0.45))" }}
+                    />
+                  );
+                }}
+              >
+                <LabelList
+                  dataKey="factCumulative"
+                  position="top"
+                  formatter={(v: number) => `${v}`}
+                  fill={presentation ? "#e2e8f0" : "#334155"}
+                  fontSize={10}
+                />
+              </Line>
+              <Line
+                type="monotone"
+                dataKey="forecastCumulative"
+                name="Forecast"
+                stroke="#a78bfa"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                dot={(props: { cx?: number; cy?: number }) => {
+                  const { cx, cy } = props;
+                  if (cx == null || cy == null) return null;
+                  return (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={10}
+                      fill="#a78bfa"
+                      stroke={chartPointStroke}
+                      strokeWidth={2}
+                      style={{ filter: "drop-shadow(0 0 8px rgba(167,139,250,0.45))" }}
+                    />
+                  );
+                }}
+              />
               {todayLabelDealControl ? (
-                <ReferenceLine x={todayLabelDealControl} stroke={presentation ? "#fbbf24" : "#d97706"} strokeWidth={1.2} strokeDasharray="4 4" />
+                <ReferenceLine x={todayLabelDealControl} stroke="#facc15" strokeWidth={1.8} strokeDasharray="4 4" />
+              ) : null}
+              {lastDealControlPoint ? (
+                <ReferenceDot
+                  x={lastDealControlPoint.label}
+                  y={lastDealControlPoint.factCumulative}
+                  r={0}
+                  label={{
+                    value: `${lastDealControlPoint.factCumulative} (${lastDealControlPoint.deviation >= 0 ? "+" : ""}${lastDealControlPoint.deviation})`,
+                    position: "top",
+                    fill: presentation ? "#fca5a5" : "#b91c1c",
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                />
               ) : null}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        <p className={`mt-2 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>Накопительное количество сделок</p>
         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
             <div className={sub}>Финальная точка периода</div>
@@ -1200,7 +1375,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               План: {numFmt.format(planEndDeals)} · Прогноз: {numFmt.format(forecastEndDeals)} · Разница:{" "}
               <span className={forecastEndDeals >= planEndDeals ? (presentation ? "text-emerald-300" : "text-emerald-700") : (presentation ? "text-red-300" : "text-red-700")}>
                 {forecastEndDeals - planEndDeals >= 0 ? "+" : "−"}
-                {numFmt.format(Math.abs(forecastEndDeals - planEndDeals))} шт
+                {numFmt.format(Math.abs(forecastEndDeals - planEndDeals))} сделок
               </span>
             </div>
           </div>
