@@ -330,11 +330,14 @@ type KpiDashboardItem = {
   sub: string;
   description: string;
   tone: KpiCardTone;
+  surfaceTone?: KpiCardTone;
+  hideRadialOverlay?: boolean;
   hover: string;
   sparkline?: number[];
   sparkBars?: number[];
   sparkLine?: number[];
   sparkMode?: "combo" | "bars" | "line";
+  sparkBarsFromBottom?: boolean;
   sparkHideBaseline?: boolean;
   sparkBaselineStroke?: string;
   sparkBaselineDasharray?: string;
@@ -410,13 +413,15 @@ function KpiDashboard({
   return (
     <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
       {items.map((kpi) => {
-        const s = toneStyles(kpi.tone);
+        const valueStyle = toneStyles(kpi.tone);
+        const surfaceStyle = toneStyles(kpi.surfaceTone ?? kpi.tone);
         const sparkStyle = toneStyles(kpi.sparkTone ?? kpi.tone);
         const rawBars = kpi.sparkBars ?? kpi.sparkline ?? [];
         const rawLine = kpi.sparkLine ?? kpi.sparkline ?? [];
         const mode = kpi.sparkMode ?? "combo";
         const isBarsOnly = mode === "bars";
         const isLineOnly = mode === "line";
+        const barsFromBottom = isBarsOnly && !!kpi.sparkBarsFromBottom;
         const pairCount = isBarsOnly
           ? rawLine.length > 0
             ? Math.min(rawBars.length, rawLine.length)
@@ -432,9 +437,9 @@ function KpiDashboard({
         const lineMax = line.length ? Math.max(...line) : 1;
         const lineRange = Math.max(1e-6, lineMax - lineMin);
         const w = 172;
-        const h = isBarsOnly ? 56 : 40;
+        const h = isBarsOnly && !barsFromBottom ? 56 : 40;
         const absMax = Math.max(1, Math.abs(barMin), Math.abs(barMax));
-        const zeroY = isBarsOnly ? h * 0.5 : h - ((0 - lineMin) / lineRange) * h;
+        const zeroY = isBarsOnly ? (barsFromBottom ? h : h * 0.5) : h - ((0 - lineMin) / lineRange) * h;
         const n = pairCount;
         const gap = isBarsOnly ? 6 : 4;
         const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
@@ -443,7 +448,9 @@ function KpiDashboard({
           ? line.map((v, i) => {
               const x = i * (barW + gap) + barW / 2;
               const y = isBarsOnly
-                ? v >= 0
+                ? barsFromBottom
+                  ? h - ((v - barMin) / barRange) * h
+                  : v >= 0
                   ? zeroY - (Math.abs(v) / absMax) * (h / 2)
                   : zeroY + (Math.abs(v) / absMax) * (h / 2)
                 : h - ((v - lineMin) / lineRange) * h;
@@ -468,20 +475,22 @@ function KpiDashboard({
             : "";
         const lastPt = pts.length ? pts[pts.length - 1]! : null;
         return (
-          <div key={kpi.key} className={`group relative overflow-visible rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
-            <div className="pointer-events-none absolute inset-0" style={{ background: s.radial }} />
+          <div key={kpi.key} className={`group relative overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}`} title={kpi.hover}>
+            {!kpi.hideRadialOverlay ? (
+              <div className="pointer-events-none absolute inset-0" style={{ background: surfaceStyle.radial }} />
+            ) : null}
             <div className="relative p-3 sm:p-3.5">
               <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
               {typeof kpi.value === "string" ? (
-                <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
+                <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${valueStyle.value}`}>{kpi.value}</div>
               ) : (
-                <div className={`mt-1.5 ${s.value}`}>{kpi.value}</div>
+                <div className={`mt-1.5 ${valueStyle.value}`}>{kpi.value}</div>
               )}
               {hasSpark ? (
                 <div className="mt-2">
                   <svg
                     viewBox={`0 0 ${w} ${h}`}
-                    className={`${isBarsOnly ? "h-14" : "h-10"} w-full overflow-visible`}
+                    className={`${isBarsOnly && !barsFromBottom ? "h-14" : "h-10"} w-full overflow-visible`}
                     preserveAspectRatio="none"
                     aria-hidden
                   >
@@ -518,8 +527,12 @@ function KpiDashboard({
                     {!isLineOnly
                       ? bars.map((v, i) => {
                           const x = i * (barW + gap);
-                          const hh = isBarsOnly ? (Math.abs(v) / absMax) * (h / 2) : ((v - barMin) / barRange) * h;
-                          const y = isBarsOnly ? (v >= 0 ? zeroY - hh : zeroY) : h - hh;
+                          const hh = isBarsOnly
+                            ? barsFromBottom
+                              ? ((v - barMin) / barRange) * h
+                              : (Math.abs(v) / absMax) * (h / 2)
+                            : ((v - barMin) / barRange) * h;
+                          const y = isBarsOnly ? (barsFromBottom ? h - hh : (v >= 0 ? zeroY - hh : zeroY)) : h - hh;
                           const neutralBand = absMax * 0.06;
                           const toneForBar = isBarsOnly
                             ? Math.abs(v) <= neutralBand
@@ -1278,8 +1291,65 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     if (last < 0 && last < prev) return "red";
     return "yellow";
   })();
-  const cumulativeDeviationDealsLabel = `${currentDeviation > 0 ? "+" : currentDeviation < 0 ? "−" : ""}${numFmt.format(Math.abs(currentDeviation))} сделок`;
-  const cumulativeDeviationRevenueLabel = `${cumulativeDeviationRevenue > 0 ? "+" : cumulativeDeviationRevenue < 0 ? "−" : ""}${compactRub(Math.abs(cumulativeDeviationRevenue))}`;
+  const cumulativeDeviationHeader = `${currentDeviation > 0 ? "+" : currentDeviation < 0 ? "−" : ""}${numFmt.format(Math.abs(currentDeviation))} / ${cumulativeDeviationRevenue > 0 ? "+" : cumulativeDeviationRevenue < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(cumulativeDeviationRevenue) / 1_000_000))} млн`;
+  const velocityMetrics = useMemo(() => {
+    const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
+    const monthsPassed = Math.max(1, Math.min(totalMonths, currentMonthIdx + 1));
+    const monthsLeft = Math.max(0, totalMonths - monthsPassed);
+    const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
+    const currentFact = monthlyPlanExecutionData
+      .slice(0, monthsPassed)
+      .reduce((sum, r) => sum + r.fact, 0);
+    const monthFact = monthlyPlanExecutionData[Math.max(0, monthsPassed - 1)]?.fact ?? 0;
+    const planPerMonth = totalPlan / totalMonths;
+    const actualPerMonth = currentFact / monthsPassed;
+    const requiredPerMonth = monthsLeft > 0 ? Math.max(0, (totalPlan - currentFact) / monthsLeft) : 0;
+    const velocityComparisonMax = Math.max(planPerMonth, actualPerMonth, requiredPerMonth, 1);
+    const speedRatio = requiredPerMonth > 0 ? actualPerMonth / requiredPerMonth : 1;
+    const tone: TrafficStatus = speedRatio >= 1 ? "green" : speedRatio >= 0.9 ? "yellow" : "red";
+    return {
+      totalMonths,
+      monthsPassed,
+      monthsLeft,
+      totalPlan,
+      currentFact,
+      monthFact,
+      planPerMonth,
+      actualPerMonth,
+      requiredPerMonth,
+      velocityComparisonMax,
+      tone,
+      achievable: actualPerMonth >= requiredPerMonth,
+    };
+  }, [monthlyPlanExecutionData, currentMonthIdx]);
+  const velocityLineData = useMemo(() => {
+    const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
+    const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
+    const plannedRate = totalPlan / totalMonths;
+    let factRun = 0;
+    return monthlyPlanExecutionData.map((r, idx) => {
+      factRun += r.fact;
+      const passed = idx + 1;
+      const left = Math.max(0, totalMonths - passed);
+      const actualRate = factRun / passed;
+      const requiredRate = left > 0 ? Math.max(0, (totalPlan - factRun) / left) : 0;
+      return {
+        label: r.label,
+        plannedRate,
+        actualRate,
+        requiredRate,
+      };
+    });
+  }, [monthlyPlanExecutionData]);
+  const velocityMonthlyBarsData = useMemo(
+    () =>
+      monthlyPlanExecutionData.map((r) => ({
+        label: r.label,
+        fact: r.fact,
+        plan: r.plan,
+      })),
+    [monthlyPlanExecutionData],
+  );
   const dynamicsKpiItems: KpiDashboardItem[] = [
     {
       key: "cum-exec",
@@ -1359,12 +1429,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     {
       key: "cum-dev",
       title: "Отклонение накопительное",
-      value: (
-        <div className="mt-0.5 flex flex-col gap-1 text-[13px] font-semibold leading-snug sm:text-[14px]">
-          <span>{cumulativeDeviationDealsLabel}</span>
-          <span>{cumulativeDeviationRevenueLabel}</span>
-        </div>
-      ),
+      value: cumulativeDeviationHeader,
       sub: "К 31 мар. 2026",
       description:
         currentDeviation < 0
@@ -1375,9 +1440,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       sparkBars: cumulativeDeviationSeries,
       sparkLine: cumulativeDeviationSeries,
       sparkMode: "bars",
+      sparkBarsFromBottom: true,
       sparkTone: currentDeviation < 0 ? "red" : cumulativeLineTone,
-      sparkBaselineStroke: "rgba(255,255,255,0.2)",
-      sparkBaselineWidth: 1,
+      surfaceTone: monthExecTone,
+      hideRadialOverlay: true,
+      sparkBaselineStroke: "rgba(255,255,255,0.8)",
+      sparkBaselineDasharray: "6 4",
+      sparkBaselineWidth: 2,
       sparkLineStroke: "rgba(255,255,255,0.92)",
       tooltip: {
         metricMeaning: "Показывает суммарное отклонение от плана к текущей дате.",
@@ -1635,6 +1704,159 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
       {/* B. Dynamics KPI dashboard */}
       <KpiDashboard presentation={presentation} items={dynamicsKpiItems} className="mb-7" />
+
+      {/* Sales Velocity */}
+      <div className={card}>
+        <div className="mb-3 flex flex-col gap-2">
+          <h4 className={h4}>Темп продаж</h4>
+          <p className={sub}>Action-oriented блок по скорости закрытия плана: текущий темп, требуемый темп и сигнал достижимости.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: "text-slate-100" },
+            { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: "text-slate-100" },
+            { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: "text-slate-100" },
+            { key: "actual-rate", title: "Фактический темп", value: velocityMetrics.actualPerMonth, tone: velocityMetrics.tone === "green" ? (presentation ? "text-emerald-300" : "text-emerald-700") : velocityMetrics.tone === "yellow" ? (presentation ? "text-amber-300" : "text-amber-700") : (presentation ? "text-red-300" : "text-red-700") },
+            { key: "required-rate", title: "Требуемый темп", value: velocityMetrics.requiredPerMonth, tone: presentation ? "text-red-300" : "text-red-700", critical: true },
+          ].map((m) => (
+            <div
+              key={m.key}
+              className={
+                m.critical
+                  ? presentation
+                    ? "rounded-xl border border-red-500/40 bg-red-950/20 p-3"
+                    : "rounded-xl border border-red-200 bg-red-50 p-3"
+                  : presentation
+                    ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3"
+                    : "rounded-xl border border-slate-200 bg-white p-3"
+              }
+            >
+              <div className={sub}>{m.title}</div>
+              <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${m.tone}`}>
+                {dec1Fmt.format(m.value)} <span className="text-xs font-normal">сделок/мес</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className={presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/30 p-3" : "rounded-xl border border-slate-200 bg-white p-3"}>
+            <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Темп по месяцам</div>
+            <div className="h-[220px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={velocityLineData} margin={{ top: 12, right: 10, left: 0, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                  <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
+                  <Tooltip
+                    formatter={(v: number, n) => [`${dec1Fmt.format(v)} сделок/мес`, String(n)]}
+                    contentStyle={{
+                      borderRadius: 10,
+                      border: presentation ? "1px solid rgba(148,163,184,0.45)" : "1px solid rgba(203,213,225,0.9)",
+                      background: presentation ? "rgba(15,23,42,0.96)" : "rgba(255,255,255,0.98)",
+                    }}
+                  />
+                  <Line type="monotone" dataKey="plannedRate" name="Плановый темп" stroke={presentation ? "rgba(226,232,240,0.9)" : "#64748b"} strokeWidth={1.8} strokeDasharray="6 4" dot={false} />
+                  <Line type="monotone" dataKey="actualRate" name="Фактический темп" stroke="#38bdf8" strokeWidth={2.4} dot={false} />
+                  <Line type="monotone" dataKey="requiredRate" name="Требуемый темп" stroke={presentation ? "#fb7185" : "#ef4444"} strokeWidth={2.6} dot={false} style={{ filter: "drop-shadow(0 0 4px rgba(244,63,94,0.45))" }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className={presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/30 p-3" : "rounded-xl border border-slate-200 bg-white p-3"}>
+            <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Факт по месяцам vs план</div>
+            <div className="h-[220px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={velocityMonthlyBarsData} margin={{ top: 12, right: 10, left: 0, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                  <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
+                  <Tooltip
+                    formatter={(v: number, n) => [`${numFmt.format(v)} сделок`, String(n)]}
+                    contentStyle={{
+                      borderRadius: 10,
+                      border: presentation ? "1px solid rgba(148,163,184,0.45)" : "1px solid rgba(203,213,225,0.9)",
+                      background: presentation ? "rgba(15,23,42,0.96)" : "rgba(255,255,255,0.98)",
+                    }}
+                  />
+                  <Bar dataKey="fact" name="Факт" maxBarSize={24} radius={[4, 4, 0, 0]}>
+                    {velocityMonthlyBarsData.map((row, idx) => (
+                      <Cell
+                        key={`velocity-fact-${row.label}-${idx}`}
+                        fill={row.fact >= row.plan ? (presentation ? "#34d399" : "#10b981") : (presentation ? "#fb7185" : "#ef4444")}
+                      />
+                    ))}
+                  </Bar>
+                  <Line type="monotone" dataKey="plan" name="План" stroke={presentation ? "rgba(226,232,240,0.9)" : "#64748b"} strokeWidth={1.8} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <div className={presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/30 p-3" : "rounded-xl border border-slate-200 bg-white p-3"}>
+            <div className={sub}>Сравнение темпов</div>
+            <div className="mt-2 space-y-2">
+              <div>
+                <div className={`mb-1 flex items-center justify-between text-xs ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <span>Фактический</span>
+                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.actualPerMonth)}</span>
+                </div>
+                <div className={presentation ? "h-2 rounded-full bg-slate-800" : "h-2 rounded-full bg-slate-200"}>
+                  <div
+                    className={`h-2 rounded-full ${velocityMetrics.tone === "green" ? "bg-emerald-500" : velocityMetrics.tone === "yellow" ? "bg-amber-500" : "bg-red-500"}`}
+                    style={{ width: `${Math.min(100, (velocityMetrics.actualPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div>
+                <div className={`mb-1 flex items-center justify-between text-xs ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <span>Требуемый</span>
+                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.requiredPerMonth)}</span>
+                </div>
+                <div className={presentation ? "h-2 rounded-full bg-slate-800" : "h-2 rounded-full bg-slate-200"}>
+                  <div
+                    className="h-2 rounded-full bg-rose-500"
+                    style={{ width: `${Math.min(100, (velocityMetrics.requiredPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`rounded-xl border p-3 ${
+              velocityMetrics.achievable
+                ? presentation
+                  ? "border-emerald-500/40 bg-emerald-950/15"
+                  : "border-emerald-200 bg-emerald-50"
+                : presentation
+                  ? "border-red-500/40 bg-red-950/15"
+                  : "border-red-200 bg-red-50"
+            }`}
+          >
+            <div
+              className={`text-base font-semibold ${
+                velocityMetrics.achievable
+                  ? presentation
+                    ? "text-emerald-200"
+                    : "text-emerald-800"
+                  : presentation
+                    ? "text-red-200"
+                    : "text-red-800"
+              }`}
+            >
+              {velocityMetrics.achievable ? "План достижим" : "План недостижим при текущем темпе"}
+            </div>
+            <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              Фактический темп: {dec1Fmt.format(velocityMetrics.actualPerMonth)} / Требуемый темп: {dec1Fmt.format(velocityMetrics.requiredPerMonth)} сделок в месяц.
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* B. Dynamics */}
       <div className={card}>
