@@ -339,9 +339,9 @@ function KpiDashboard({
   const toneStyles = (tone: KpiCardTone) =>
     tone === "green"
       ? {
-          bar: "bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-400",
           value: presentation ? "text-emerald-300" : "text-emerald-700",
-          line: presentation ? "#34d399" : "#059669",
+          miniBar: presentation ? "#34d399" : "#10b981",
+          miniLine: presentation ? "#d1fae5" : "#047857",
           glow: presentation ? "shadow-[0_14px_36px_rgba(16,185,129,0.26)]" : "shadow-[0_12px_30px_rgba(16,185,129,0.18)]",
           insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(16,185,129,0.15)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(16,185,129,0.10)]",
           radial:
@@ -354,9 +354,9 @@ function KpiDashboard({
         }
       : tone === "yellow"
         ? {
-            bar: "bg-gradient-to-r from-amber-300 via-amber-500 to-amber-300",
             value: presentation ? "text-amber-300" : "text-amber-700",
-            line: presentation ? "#fbbf24" : "#d97706",
+            miniBar: presentation ? "#fbbf24" : "#f59e0b",
+            miniLine: presentation ? "#fffbeb" : "#b45309",
             glow: presentation ? "shadow-[0_14px_36px_rgba(245,158,11,0.24)]" : "shadow-[0_12px_30px_rgba(245,158,11,0.16)]",
             insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(245,158,11,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(245,158,11,0.10)]",
             radial:
@@ -368,9 +368,9 @@ function KpiDashboard({
               : "bg-gradient-to-br from-amber-100/85 via-white to-amber-50/70",
           }
         : {
-            bar: "bg-gradient-to-r from-rose-400 via-red-500 to-rose-400",
             value: presentation ? "text-red-300" : "text-red-700",
-            line: presentation ? "#fb7185" : "#dc2626",
+            miniBar: presentation ? "#fb7185" : "#ef4444",
+            miniLine: presentation ? "#ffe4e6" : "#b91c1c",
             glow: presentation ? "shadow-[0_14px_36px_rgba(239,68,68,0.26)]" : "shadow-[0_12px_30px_rgba(239,68,68,0.16)]",
             insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(239,68,68,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(239,68,68,0.10)]",
             radial:
@@ -392,32 +392,86 @@ function KpiDashboard({
         const max = hasSpark ? Math.max(...spark) : 1;
         const range = Math.max(1e-6, max - min);
         const w = 172;
-        const h = 36;
-        const points = hasSpark
-          ? spark
-              .map((v, i) => {
-                const x = (i / Math.max(1, spark.length - 1)) * w;
-                const y = h - ((v - min) / range) * h;
-                return `${x.toFixed(2)},${y.toFixed(2)}`;
-              })
-              .join(" ")
-          : "";
-        const lastVal = hasSpark ? spark[spark.length - 1]! : 0;
-        const lastX = hasSpark ? w : 0;
-        const lastY = hasSpark ? h - ((lastVal - min) / range) * h : 0;
+        const h = 40;
+        const n = spark.length;
+        const gap = 4;
+        const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
+        const rx = Math.min(6, Math.max(0, barW / 2));
+        const pts = hasSpark
+          ? spark.map((v, i) => {
+              const x = i * (barW + gap) + barW / 2;
+              const y = h - ((v - min) / range) * h;
+              return { x, y };
+            })
+          : [];
+        const linePath =
+          pts.length >= 2
+            ? (() => {
+                let d = `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
+                for (let i = 1; i < pts.length; i++) {
+                  const p0 = pts[i - 1]!;
+                  const p1 = pts[i]!;
+                  const mx = (p0.x + p1.x) / 2;
+                  const my = (p0.y + p1.y) / 2;
+                  d += ` Q ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} ${mx.toFixed(2)} ${my.toFixed(2)}`;
+                }
+                const last = pts[pts.length - 1]!;
+                d += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+                return d;
+              })()
+            : "";
+        const lastPt = pts.length ? pts[pts.length - 1]! : null;
         return (
           <div key={kpi.key} className={`relative overflow-hidden rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
-            <div className={`h-1.5 w-full ${s.bar}`} />
             <div className="pointer-events-none absolute inset-0" style={{ background: s.radial }} />
             <div className="relative p-3 sm:p-3.5">
               <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
               <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
               {hasSpark ? (
                 <div className="mt-2">
-                  <svg viewBox={`0 0 ${w} ${h}`} className="h-9 w-full overflow-visible" preserveAspectRatio="none" aria-hidden>
-                    <polyline fill="none" stroke={s.line} strokeWidth="1.7" points={points} strokeLinecap="round" strokeLinejoin="round" />
-                    <circle cx={lastX} cy={lastY} r="2.7" fill={s.line} />
-                    <circle cx={lastX} cy={lastY} r="5.5" fill={s.line} opacity={0.18} />
+                  <svg viewBox={`0 0 ${w} ${h}`} className="h-10 w-full overflow-visible" preserveAspectRatio="none" aria-hidden>
+                    {/* bars: background layer */}
+                    {spark.map((v, i) => {
+                      const x = i * (barW + gap);
+                      return (
+                        <rect
+                          key={`bg-${kpi.key}-${i}`}
+                          x={x}
+                          y={0}
+                          width={barW}
+                          height={h}
+                          rx={rx}
+                          fill={s.miniBar}
+                          opacity={0.2}
+                        />
+                      );
+                    })}
+                    {/* bars: main layer */}
+                    {spark.map((v, i) => {
+                      const x = i * (barW + gap);
+                      const hh = ((v - min) / range) * h;
+                      const y = h - hh;
+                      return (
+                        <rect
+                          key={`main-${kpi.key}-${i}`}
+                          x={x}
+                          y={y}
+                          width={barW}
+                          height={hh}
+                          rx={rx}
+                          fill={s.miniBar}
+                          opacity={0.7}
+                        />
+                      );
+                    })}
+                    {/* line overlay */}
+                    <path d={linePath} fill="none" stroke={s.miniLine} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    {lastPt ? (
+                      <>
+                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={s.miniLine} />
+                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={s.miniLine} opacity={0.14} />
+                      </>
+                    ) : null}
                   </svg>
                 </div>
               ) : null}
