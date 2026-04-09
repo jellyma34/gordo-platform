@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   filterByObjectAndDealType,
   mergeSalesPlanFact,
@@ -326,7 +326,7 @@ function miniLineColorByTone(tone: KpiCardTone, presentation: boolean): string {
 type KpiDashboardItem = {
   key: string;
   title: string;
-  value: string;
+  value: ReactNode;
   sub: string;
   description: string;
   tone: KpiCardTone;
@@ -339,6 +339,7 @@ type KpiDashboardItem = {
   sparkBaselineStroke?: string;
   sparkBaselineDasharray?: string;
   sparkBaselineWidth?: number;
+  sparkLineStroke?: string;
   sparkTone?: KpiCardTone;
   tooltip: {
     metricMeaning: string;
@@ -416,9 +417,13 @@ function KpiDashboard({
         const mode = kpi.sparkMode ?? "combo";
         const isBarsOnly = mode === "bars";
         const isLineOnly = mode === "line";
-        const pairCount = isBarsOnly ? rawBars.length : Math.min(rawBars.length, rawLine.length);
+        const pairCount = isBarsOnly
+          ? rawLine.length > 0
+            ? Math.min(rawBars.length, rawLine.length)
+            : rawBars.length
+          : Math.min(rawBars.length, rawLine.length);
         const bars = rawBars.slice(rawBars.length - pairCount);
-        const line = isBarsOnly ? [] : rawLine.slice(rawLine.length - pairCount);
+        const line = rawLine.slice(rawLine.length - pairCount);
         const hasSpark = pairCount >= 2;
         const barMin = hasSpark ? Math.min(...bars) : 0;
         const barMax = hasSpark ? Math.max(...bars) : 1;
@@ -428,6 +433,8 @@ function KpiDashboard({
         const lineRange = Math.max(1e-6, lineMax - lineMin);
         const w = 172;
         const h = isBarsOnly ? 56 : 40;
+        const absMax = Math.max(1, Math.abs(barMin), Math.abs(barMax));
+        const zeroY = isBarsOnly ? h * 0.5 : h - ((0 - lineMin) / lineRange) * h;
         const n = pairCount;
         const gap = isBarsOnly ? 6 : 4;
         const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
@@ -435,7 +442,11 @@ function KpiDashboard({
         const pts = hasSpark && line.length
           ? line.map((v, i) => {
               const x = i * (barW + gap) + barW / 2;
-              const y = h - ((v - lineMin) / lineRange) * h;
+              const y = isBarsOnly
+                ? v >= 0
+                  ? zeroY - (Math.abs(v) / absMax) * (h / 2)
+                  : zeroY + (Math.abs(v) / absMax) * (h / 2)
+                : h - ((v - lineMin) / lineRange) * h;
               return { x, y };
             })
           : [];
@@ -456,14 +467,16 @@ function KpiDashboard({
               })()
             : "";
         const lastPt = pts.length ? pts[pts.length - 1]! : null;
-        const absMax = Math.max(1, Math.abs(barMin), Math.abs(barMax));
-        const zeroY = h * 0.5;
         return (
           <div key={kpi.key} className={`group relative overflow-visible rounded-xl ${s.card} ${s.glow} ${s.insetGlow}`} title={kpi.hover}>
             <div className="pointer-events-none absolute inset-0" style={{ background: s.radial }} />
             <div className="relative p-3 sm:p-3.5">
               <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
-              <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
+              {typeof kpi.value === "string" ? (
+                <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${s.value}`}>{kpi.value}</div>
+              ) : (
+                <div className={`mt-1.5 ${s.value}`}>{kpi.value}</div>
+              )}
               {hasSpark ? (
                 <div className="mt-2">
                   <svg
@@ -564,11 +577,20 @@ function KpiDashboard({
                         })
                       : null}
                     {/* line overlay */}
-                    {!isBarsOnly ? <path d={linePath} fill="none" stroke={sparkStyle.miniLine} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /> : null}
-                    {!isBarsOnly && lastPt ? (
+                    {linePath ? (
+                      <path
+                        d={linePath}
+                        fill="none"
+                        stroke={kpi.sparkLineStroke ?? sparkStyle.miniLine}
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ) : null}
+                    {lastPt ? (
                       <>
-                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={sparkStyle.miniLine} />
-                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={sparkStyle.miniLine} opacity={0.14} />
+                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={kpi.sparkLineStroke ?? sparkStyle.miniLine} />
+                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={kpi.sparkLineStroke ?? sparkStyle.miniLine} opacity={0.14} />
                       </>
                     ) : null}
                   </svg>
@@ -1256,6 +1278,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     if (last < 0 && last < prev) return "red";
     return "yellow";
   })();
+  const cumulativeDeviationDealsLabel = `${currentDeviation > 0 ? "+" : currentDeviation < 0 ? "−" : ""}${numFmt.format(Math.abs(currentDeviation))} сделок`;
+  const cumulativeDeviationRevenueLabel = `${cumulativeDeviationRevenue > 0 ? "+" : cumulativeDeviationRevenue < 0 ? "−" : ""}${compactRub(Math.abs(cumulativeDeviationRevenue))}`;
   const dynamicsKpiItems: KpiDashboardItem[] = [
     {
       key: "cum-exec",
@@ -1335,17 +1359,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     {
       key: "cum-dev",
       title: "Отклонение накопительное",
-      value: `${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт / ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
-      sub: `К дате ${report.asOf}`,
+      value: (
+        <div className="mt-0.5 flex flex-col gap-1 text-[13px] font-semibold leading-snug sm:text-[14px]">
+          <span>{cumulativeDeviationDealsLabel}</span>
+          <span>{cumulativeDeviationRevenueLabel}</span>
+        </div>
+      ),
+      sub: "К 31 мар. 2026",
       description:
         currentDeviation < 0
-          ? `Накопленный минус тянется от ${firstLagMonth}; ключевой источник — ${lagSegment}.`
-          : `Накопительное отставание компенсируется ростом в ${weakSegment}; ${trendShort}.`,
+          ? "Накопленное отставание растёт с окт. 2025; ключевой источник — квартиры."
+          : `Накопительное отклонение сокращается; ключевой драйвер — ${weakSegment}.`,
       tone: cumulativeDevTone,
       hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт | Отклонение: ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт`,
+      sparkBars: cumulativeDeviationSeries,
       sparkLine: cumulativeDeviationSeries,
-      sparkMode: "line",
-      sparkTone: cumulativeLineTone,
+      sparkMode: "bars",
+      sparkTone: currentDeviation < 0 ? "red" : cumulativeLineTone,
+      sparkBaselineStroke: "rgba(255,255,255,0.2)",
+      sparkBaselineWidth: 1,
+      sparkLineStroke: "rgba(255,255,255,0.92)",
       tooltip: {
         metricMeaning: "Показывает суммарное отклонение от плана к текущей дате.",
         formula: "Формула: накопительный факт − накопительный план.",
