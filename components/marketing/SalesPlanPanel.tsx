@@ -46,6 +46,7 @@ const rubFmt = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
 });
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const compactRub = (n: number) =>
   Math.abs(n) >= 1_000_000
     ? `${n < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(n) / 1_000_000))} млн ₽`
@@ -286,6 +287,251 @@ function DealControlTooltip({
         <div className="flex items-center gap-1.5">
           <span className={`h-2.5 w-2.5 rounded-full ${statusColor}`} />
           <span>{statusText}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type MonthlyPlanExecutionRow = {
+  periodKey: string;
+  label: string;
+  plan: number;
+  fact: number;
+  deviation: number;
+};
+
+type MonthlyExecutionInsights = {
+  sumDeviation: number;
+  firstNegative: MonthlyPlanExecutionRow | null;
+  worstMonth: MonthlyPlanExecutionRow | null;
+  trend: "improving" | "worsening" | "stable" | "neutral";
+  trendLabel: string;
+  runRateMonthly: number;
+  requiredMonthly: number | null;
+  tempoDiffMonthly: number | null;
+  periodCompleted: boolean;
+  planEndMonthly: number;
+  forecastEndMonthly: number;
+  planAchievableAtMonthlyTempo: boolean;
+};
+
+type KpiCardTone = "green" | "yellow" | "red";
+type KpiDashboardItem = {
+  key: string;
+  title: string;
+  value: string;
+  sub: string;
+  tone: KpiCardTone;
+  hover: string;
+};
+
+function KpiDashboard({
+  presentation,
+  items,
+  className = "",
+}: {
+  presentation: boolean;
+  items: KpiDashboardItem[];
+  className?: string;
+}) {
+  const toneStyles = (tone: KpiCardTone) =>
+    tone === "green"
+      ? {
+          bar: "bg-emerald-500",
+          value: presentation ? "text-emerald-300" : "text-emerald-700",
+          card: presentation
+            ? "border-emerald-500/35 bg-gradient-to-br from-emerald-900/25 to-slate-900/20"
+            : "border-emerald-200 bg-gradient-to-br from-emerald-50/90 to-white",
+        }
+      : tone === "yellow"
+        ? {
+            bar: "bg-amber-500",
+            value: presentation ? "text-amber-300" : "text-amber-700",
+            card: presentation
+              ? "border-amber-500/35 bg-gradient-to-br from-amber-900/20 to-slate-900/20"
+              : "border-amber-200 bg-gradient-to-br from-amber-50/90 to-white",
+          }
+        : {
+            bar: "bg-red-500",
+            value: presentation ? "text-red-300" : "text-red-700",
+            card: presentation
+              ? "border-red-500/35 bg-gradient-to-br from-red-900/20 to-slate-900/20"
+              : "border-red-200 bg-gradient-to-br from-red-50/90 to-white",
+          };
+
+  return (
+    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
+      {items.map((kpi) => {
+        const s = toneStyles(kpi.tone);
+        return (
+          <div key={kpi.key} className={`overflow-hidden rounded-xl border ${s.card}`} title={kpi.hover}>
+            <div className={`h-1.5 w-full ${s.bar}`} />
+            <div className="p-3">
+              <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
+              <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${s.value}`}>{kpi.value}</div>
+              <div className={`mt-1 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function monthlyDeviationTone(deviation: number): "green" | "yellow" | "red" {
+  if (deviation >= 0) return "green";
+  if (deviation >= -5) return "yellow";
+  return "red";
+}
+
+function monthlyDeviationFill(deviation: number, isWorst: boolean): string {
+  const tone = monthlyDeviationTone(deviation);
+  if (isWorst) {
+    if (tone === "green") return "#34d399";
+    if (tone === "yellow") return "#fbbf24";
+    return "#dc2626";
+  }
+  if (tone === "green") return "#22c55e";
+  if (tone === "yellow") return "#f59e0b";
+  return "#ef4444";
+}
+
+function buildMonthlyExecutionInsights(rows: MonthlyPlanExecutionRow[], todayMonthKey: string): MonthlyExecutionInsights {
+  const sumDeviation = rows.reduce((s, r) => s + r.deviation, 0);
+  const firstNegative = rows.find((r) => r.deviation < 0) ?? null;
+  let worstMonth: MonthlyPlanExecutionRow | null = null;
+  for (const r of rows) {
+    if (!worstMonth || r.deviation < worstMonth.deviation) worstMonth = r;
+  }
+
+  const n = rows.length;
+  let trend: MonthlyExecutionInsights["trend"] = "neutral";
+  let trendLabel = "Тренд: недостаточно месяцев для сравнения.";
+  if (n >= 3) {
+    const k = Math.max(1, Math.floor(n / 3));
+    const avgDev = (slice: MonthlyPlanExecutionRow[]) =>
+      slice.reduce((s, r) => s + r.deviation, 0) / Math.max(1, slice.length);
+    const firstAvg = avgDev(rows.slice(0, k));
+    const lastAvg = avgDev(rows.slice(n - k));
+    const diff = lastAvg - firstAvg;
+    const threshold = 0.75;
+    if (diff > threshold) {
+      trend = "improving";
+      trendLabel =
+        "Тренд: улучшается — в последних месяцах среднее помесячное отклонение выше, чем в начале ряда (ближе к плану или с перевыполнением).";
+    } else if (diff < -threshold) {
+      trend = "worsening";
+      trendLabel =
+        "Тренд: ухудшается — недавние месяцы в среднем сильнее отстают от плана, чем старт периода.";
+    } else {
+      trend = "stable";
+      trendLabel = "Тренд: без выраженного сдвига — среднее помесячное отклонение близко к началу ряда.";
+    }
+  }
+
+  let planCum = 0;
+  let factCum = 0;
+  const withCum = rows.map((r) => {
+    planCum += r.plan;
+    factCum += r.fact;
+    return { ...r, planCum, factCum };
+  });
+  const hit = withCum.findIndex((r) => r.periodKey === todayMonthKey);
+  const effIdx = hit >= 0 ? hit : Math.max(0, withCum.length - 1);
+  const elapsed = Math.max(1, effIdx + 1);
+  const total = Math.max(1, withCum.length);
+  const remaining = Math.max(0, total - elapsed);
+  const pt = withCum[effIdx] ?? withCum[withCum.length - 1]!;
+  const end = withCum[withCum.length - 1]!;
+  const runRateMonthly = pt.factCum / elapsed;
+  const planEndMonthly = end.planCum;
+  const forecastEndMonthly = Math.round(pt.factCum + runRateMonthly * remaining);
+  const periodCompleted = remaining <= 0;
+  const requiredMonthly = remaining > 0 ? Math.max(0, (planEndMonthly - pt.factCum) / remaining) : null;
+  const tempoDiffMonthly = requiredMonthly != null ? runRateMonthly - requiredMonthly : null;
+  const planAchievableAtMonthlyTempo = forecastEndMonthly >= planEndMonthly;
+
+  return {
+    sumDeviation,
+    firstNegative,
+    worstMonth,
+    trend,
+    trendLabel,
+    runRateMonthly,
+    requiredMonthly,
+    tempoDiffMonthly,
+    periodCompleted,
+    planEndMonthly,
+    forecastEndMonthly,
+    planAchievableAtMonthlyTempo,
+  };
+}
+
+function MonthlyDeviationBarLabel({
+  x,
+  y,
+  width,
+  height,
+  value,
+  presentation,
+}: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  value?: number;
+  presentation: boolean;
+}) {
+  if (x == null || y == null || width == null || height == null || value == null || Number.isNaN(value)) return null;
+  const cx = x + width / 2;
+  const isNeg = value < 0;
+  const labelY = isNeg ? y + height + 14 : y - 8;
+  const fill = presentation ? "#cbd5e1" : "#475569";
+  const text = `${value >= 0 ? "+" : "−"}${numFmt.format(Math.abs(value))}`;
+  return (
+    <text x={cx} y={labelY} textAnchor="middle" fill={fill} fontSize={9} className="tabular-nums">
+      {text}
+    </text>
+  );
+}
+
+function MonthlyPlanDeviationTooltip({
+  active,
+  payload,
+  presentation,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: MonthlyPlanExecutionRow }>;
+  presentation: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  return (
+    <div
+      className={
+        presentation
+          ? "max-w-xs rounded-md border border-slate-500/50 bg-[#0f172a] px-2.5 py-2 text-xs text-slate-200"
+          : "max-w-xs rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800"
+      }
+    >
+      <div className={`font-medium ${presentation ? "text-slate-100" : "text-slate-900"}`}>{p.label}</div>
+      <div className="mt-2 space-y-1 tabular-nums">
+        <div className="flex justify-between gap-4">
+          <span className={presentation ? "text-slate-500" : "text-slate-500"}>План</span>
+          <span>{numFmt.format(p.plan)} шт</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className={presentation ? "text-slate-500" : "text-slate-500"}>Факт</span>
+          <span>{numFmt.format(p.fact)} шт</span>
+        </div>
+        <div className={`flex justify-between gap-4 border-t pt-1 ${presentation ? "border-slate-600/35" : "border-slate-200"}`}>
+          <span className={presentation ? "text-slate-500" : "text-slate-500"}>Отклонение</span>
+          <span className={p.deviation >= 0 ? (presentation ? "text-emerald-300" : "text-emerald-700") : presentation ? "text-red-300" : "text-red-700"}>
+            {p.deviation >= 0 ? "+" : "−"}
+            {numFmt.format(Math.abs(p.deviation))} шт
+          </span>
         </div>
       </div>
     </div>
@@ -555,6 +801,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const lineFmt = metricFormatter(chartMetric);
   const lastLinePoint = lineData[lineData.length - 1];
   const lastLineDiff = (lastLinePoint?.fact ?? 0) - (lastLinePoint?.plan ?? 0);
+  const revenueLineData = useMemo(() => seriesToLineData(seriesPoints, "revenue"), [seriesPoints]);
 
   const currentLabel = useMemo(() => {
     const hit = seriesPoints.find((p) => p.periodKey === analytics.currentPeriodKey);
@@ -617,7 +864,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const runRateDeals = elapsedPeriods > 0 ? currentFactCum / elapsedPeriods : 0;
   const planEndDeals = endPoint?.planCumulative ?? 0;
   const forecastEndDeals = Math.round(currentFactCum + runRateDeals * remainingPeriods);
-  const requiredPerPeriod = remainingPeriods > 0 ? Math.max(0, (planEndDeals - currentFactCum) / remainingPeriods) : 0;
+  const requiredPerPeriod = remainingPeriods > 0 ? Math.max(0, (planEndDeals - currentFactCum) / remainingPeriods) : null;
   const funnel = marketingMockData.funnel;
   const safeFunnel = funnel ?? [];
   const leadToDealRate =
@@ -668,8 +915,43 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         : presentation
           ? "border-red-500/35 bg-red-950/20 text-red-100"
           : "border-red-200 bg-red-50 text-red-900";
-  const lastDealControlPoint = dealControlData[dealControlData.length - 1];
-  const chartPointStroke = presentation ? "#0f172a" : "#ffffff";
+  const monthlyPlanExecutionData = useMemo((): MonthlyPlanExecutionRow[] => {
+    const planFiltered = filterByObjectAndDealType(marketingMockData.salesPlan.month, objectId, dealTypeId);
+    const factFiltered = filterByObjectAndDealType(marketingMockData.salesFact.month, objectId, dealTypeId);
+    return mergeSalesPlanFact(planFiltered, factFiltered).map((row) => ({
+      periodKey: row.periodKey,
+      label: row.label,
+      plan: row.planDeals,
+      fact: row.factDeals,
+      deviation: row.factDeals - row.planDeals,
+    }));
+  }, [objectId, dealTypeId]);
+  const monthlyExecutionInsights = useMemo(() => {
+    const todayMonthKey = periodKeyToday("month");
+    return buildMonthlyExecutionInsights(monthlyPlanExecutionData, todayMonthKey);
+  }, [monthlyPlanExecutionData]);
+  const currentMonthIdx = useMemo(() => {
+    const monthKey = periodKeyToday("month");
+    const idx = monthlyPlanExecutionData.findIndex((r) => r.periodKey === monthKey);
+    return idx >= 0 ? idx : Math.max(0, monthlyPlanExecutionData.length - 1);
+  }, [monthlyPlanExecutionData]);
+  const currentMonthPoint = monthlyPlanExecutionData[currentMonthIdx];
+  const monthPlanDeals = currentMonthPoint?.plan ?? 0;
+  const monthFactDeals = currentMonthPoint?.fact ?? 0;
+  const monthDeviationDeals = currentMonthPoint?.deviation ?? 0;
+  const monthExecPct = monthPlanDeals > 0 ? (monthFactDeals / monthPlanDeals) * 100 : 0;
+  const currentRevCum = revenueLineData[effectiveCurrentIdx];
+  const prevRevCum = effectiveCurrentIdx > 0 ? revenueLineData[effectiveCurrentIdx - 1] : undefined;
+  const monthPlanRevenue = Math.max(0, (currentRevCum?.plan ?? 0) - (prevRevCum?.plan ?? 0));
+  const monthFactRevenue = Math.max(0, (currentRevCum?.fact ?? 0) - (prevRevCum?.fact ?? 0));
+  const monthDeviationRevenue = monthFactRevenue - monthPlanRevenue;
+  const cumulativeDeviationRevenue = rev.deviationCumulative;
+  const rr = analytics.runRate;
+  const rrAdjusted = { ...rr, horizonPlanCumulativeRub: effectiveTotalPlan };
+  const forecastPercentAdjusted = effectiveTotalPlan > 0 ? (rrAdjusted.forecastCumulativeEndRub / effectiveTotalPlan) * 100 : 0;
+  const forecastGapRub = rrAdjusted.horizonPlanCumulativeRub - rrAdjusted.forecastCumulativeEndRub;
+  const riskExecutionPct = Math.min(100, Math.max(0, 100 - forecastPercentAdjusted));
+  const dealsExecutionPct = currentPlanCum > 0 ? (currentFactCum / currentPlanCum) * 100 : 0;
 
   const deviationPct = rev.planCumulative > 0 ? ((rev.factCumulative - rev.planCumulative) / rev.planCumulative) * 100 : 0;
 
@@ -683,6 +965,46 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         ? (v: number) => `${numFmt.format(v)}`
         : (v: number) => `${numFmt.format(v)}`;
   const yTickDeals = (v: number) => `${numFmt.format(v)}`;
+  const cumulativeExecTone: "green" | "yellow" | "red" =
+    rev.percentComplete >= 100 ? "green" : rev.percentComplete >= 95 ? "yellow" : "red";
+  const monthExecTone: "green" | "yellow" | "red" = monthExecPct >= 100 ? "green" : monthExecPct >= 95 ? "yellow" : "red";
+  const monthDevTone: "green" | "yellow" | "red" = monthDeviationDeals >= 0 ? "green" : monthDeviationDeals >= -5 ? "yellow" : "red";
+  const cumulativeDevTone: "green" | "yellow" | "red" = currentDeviation >= 0 ? "green" : currentDeviation >= -5 ? "yellow" : "red";
+  const riskTone: "green" | "yellow" | "red" = riskExecutionPct <= 10 ? "green" : riskExecutionPct <= 25 ? "yellow" : "red";
+  const dynamicsKpiItems: KpiDashboardItem[] = [
+    {
+      key: "cum-exec",
+      title: "Выполнение плана (накопительно)",
+      value: `${rev.percentComplete.toFixed(1)}%`,
+      sub: `Прогноз к концу: ${forecastPercentAdjusted.toFixed(1)}%`,
+      tone: cumulativeExecTone,
+      hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
+    },
+    {
+      key: "month-exec",
+      title: "Выполнение за месяц",
+      value: `${monthExecPct.toFixed(1)}%`,
+      sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · факт/план`,
+      tone: monthExecTone,
+      hover: `План: ${numFmt.format(monthPlanDeals)} шт | Факт: ${numFmt.format(monthFactDeals)} шт | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
+    },
+    {
+      key: "month-dev",
+      title: "Отклонение за месяц",
+      value: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт / ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
+      sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · к плану`,
+      tone: monthDevTone,
+      hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)} | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт, ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
+    },
+    {
+      key: "cum-dev",
+      title: "Отклонение накопительное",
+      value: `${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт / ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
+      sub: `К дате ${report.asOf}`,
+      tone: cumulativeDevTone,
+      hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт | Отклонение: ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт`,
+    },
+  ];
 
   const segmentedBtn = (active: boolean) =>
     presentation
@@ -725,11 +1047,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       return presentation ? "border-l-emerald-400/80 text-slate-200" : "border-l-emerald-600 text-slate-800";
     return presentation ? "border-l-slate-500 text-slate-300" : "border-l-slate-400 text-slate-700";
   };
-
-  const rr = analytics.runRate;
-  const rrAdjusted = { ...rr, horizonPlanCumulativeRub: effectiveTotalPlan };
-  const forecastPercentAdjusted = effectiveTotalPlan > 0 ? (rrAdjusted.forecastCumulativeEndRub / effectiveTotalPlan) * 100 : 0;
-  const forecastGapRub = rrAdjusted.horizonPlanCumulativeRub - rrAdjusted.forecastCumulativeEndRub;
 
   return (
     <div className="flex flex-col gap-4">
@@ -930,6 +1247,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
         </div>
       </div>
+
+      {/* B. Dynamics KPI dashboard */}
+      <KpiDashboard presentation={presentation} items={dynamicsKpiItems} className="mb-7" />
 
       {/* B. Dynamics */}
       <div className={card}>
@@ -1156,8 +1476,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
             <div className={sub}>Требуемый темп</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums ${requiredPerPeriod > runRateDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
-                {numFmt.format(Math.round(requiredPerPeriod))} сделка / месяц
+              <div className={`mt-1 text-lg font-bold tabular-nums ${
+                requiredPerPeriod == null
+                  ? (presentation ? "text-slate-300" : "text-slate-700")
+                  : requiredPerPeriod > runRateDeals
+                    ? (presentation ? "text-red-300" : "text-red-700")
+                    : (presentation ? "text-emerald-300" : "text-emerald-700")
+              }`}>
+                {requiredPerPeriod == null ? "Период завершен" : `${numFmt.format(Math.round(requiredPerPeriod))} сделка / месяц`}
             </div>
           </div>
           <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
@@ -1225,165 +1551,336 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       {/* Управленческий KPI-график по сделкам */}
       <div className={card}>
         <h4 className={`${h4} mb-1`}>Контроль выполнения плана (сделки)</h4>
-        <p className={sub}>Выполняется ли план, успеем ли к концу периода и насколько критично отставание.</p>
-        <div className={`mt-3 rounded-xl border p-3 shadow-[0_0_24px_rgba(56,189,248,0.08)] ${statusTone}`}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div>
-              <div className="text-xs uppercase opacity-80">Статус</div>
-              <div className="text-sm font-black sm:text-base drop-shadow-[0_0_8px_rgba(251,191,36,0.25)]">{statusText}</div>
-            </div>
-            <div>
-              <div className="text-xs uppercase opacity-80">Отклонение</div>
-              <div className="text-sm font-bold tabular-nums drop-shadow-[0_0_10px_rgba(239,68,68,0.22)]">
-                {currentDeviation >= 0 ? "+" : "−"}
-                {numFmt.format(Math.abs(currentDeviation))} сделок
-              </div>
-            </div>
-            <div>
-              <div className="text-xs uppercase opacity-80">Текущий темп</div>
-              <div className="text-sm font-bold tabular-nums">{numFmt.format(Math.round(runRateDeals))} сделка / месяц</div>
-            </div>
-            <div>
-              <div className="text-xs uppercase opacity-80">Требуемый темп</div>
-              <div className="text-sm font-bold tabular-nums">
-                {numFmt.format(Math.round(requiredPerPeriod))} сделка / месяц
-              </div>
+        <p className={sub}>
+          Сводка по накопительному факту к дате, помесячному разрыву факт − план, темпу и прогнозу к концу помесячного горизонта — с явными
+          выводами над графиком.
+        </p>
+
+        {/* Главный KPI */}
+        <div className={`mt-4 grid grid-cols-2 gap-3 border-b pb-4 sm:grid-cols-4 ${presentation ? "border-slate-600/40" : "border-slate-200"}`}>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Отклонение</div>
+            <div
+              className={`mt-1 text-2xl font-semibold tabular-nums sm:text-3xl ${
+                currentDeviation >= 0
+                  ? presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+                  : presentation
+                    ? "text-red-300"
+                    : "text-red-700"
+              }`}
+            >
+              {currentDeviation >= 0 ? "+" : "−"}
+              {numFmt.format(Math.abs(currentDeviation))}{" "}
+              <span className="text-lg font-normal sm:text-xl">шт</span>
             </div>
           </div>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Факт</div>
+            <div className={`mt-1 text-2xl font-semibold tabular-nums sm:text-3xl ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {numFmt.format(currentFactCum)}
+            </div>
+            <div className={`mt-0.5 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>накопит. к дате</div>
+          </div>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>План</div>
+            <div className={`mt-1 text-2xl font-semibold tabular-nums sm:text-3xl ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {numFmt.format(currentPlanCum)}
+            </div>
+            <div className={`mt-0.5 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>накопит. к дате</div>
+          </div>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Выполнение</div>
+            <div className={`mt-1 text-2xl font-semibold tabular-nums sm:text-3xl ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {dealsExecutionPct.toFixed(1)}%
+            </div>
+            <div className={`mt-0.5 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>факт / план</div>
+          </div>
         </div>
-        <div className="relative mt-3 h-[240px] w-full min-w-0 overflow-hidden rounded-xl">
+
+        <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+          <span className={`rounded px-2 py-0.5 font-medium ${statusTone}`}>{statusText}</span>
+          <span className="tabular-nums">
+            Конец помесячного горизонта: план {numFmt.format(monthlyExecutionInsights.planEndMonthly)} · прогноз{" "}
+            {numFmt.format(monthlyExecutionInsights.forecastEndMonthly)} сделок
+          </span>
+        </div>
+
+        {/* Помесячное выполнение плана */}
+        <div className="mt-5">
+          <h5 className={`text-sm font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>Помесячное выполнение плана</h5>
+          <p className={`mt-0.5 text-[11px] font-medium ${presentation ? "text-slate-300" : "text-slate-700"}`}>Отклонение от плана по месяцам</p>
+          <p className={`mt-1 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+            Каждый столбец — факт минус план за месяц (сделки). Так видно, где впервые появился недобор и усиливается ли он к концу ряда.
+          </p>
+
           <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(circle at 20% 20%, rgba(56,189,248,0.14), transparent 45%), radial-gradient(circle at 80% 30%, rgba(168,85,247,0.12), transparent 50%)",
-            }}
-          />
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={dealControlData} margin={{ top: 8, right: 8, left: 0, bottom: 6 }}>
-              <defs>
-                <linearGradient id="factAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.02} />
-                </linearGradient>
-                <filter id="factGlow">
-                  <feGaussianBlur stdDeviation="2.2" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
-              <YAxis
-                tick={{ fill: axisColor, fontSize: 10 }}
-                axisLine={false}
-                allowDecimals={false}
-                tickFormatter={yTickDeals}
-                label={{ value: "Сделки, шт", angle: -90, position: "insideLeft", fill: axisColor, fontSize: 10 }}
-              />
-              <Tooltip content={<DealControlTooltip presentation={presentation} />} />
-              <Area type="monotone" dataKey="factBelow" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(239,68,68,0.18)" />
-              <Area type="monotone" dataKey="factAbove" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(34,197,94,0.16)" />
-              <Area type="monotone" dataKey="factCumulative" stroke="none" fill="url(#factAreaGradient)" />
-              <Line type="monotone" dataKey="planCumulative" name="План (накопит.)" stroke={presentation ? "rgba(226,232,240,0.82)" : "#94a3b8"} strokeWidth={1.4} dot={false} />
-              <Line
-                type="monotone"
-                dataKey="factCumulative"
-                name="Факт (накопит.)"
-                stroke="#38bdf8"
-                strokeWidth={2.8}
-                style={{ filter: "url(#factGlow)" }}
-                dot={(props: {
-                  cx?: number;
-                  cy?: number;
-                  index?: number;
-                }) => {
-                  const { cx, cy, index } = props;
-                  if (cx == null || cy == null) return null;
-                  const isLast = index === dealControlData.length - 1;
-                  return (
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={isLast ? 12 : 10}
-                      fill={isLast ? "#ef4444" : "#38bdf8"}
-                      stroke={chartPointStroke}
-                      strokeWidth={2}
-                      style={{ filter: "drop-shadow(0 0 8px rgba(56,189,248,0.45))" }}
-                    />
-                  );
-                }}
-              >
-                <LabelList
-                  dataKey="factCumulative"
-                  position="top"
-                  formatter={(v: number) => `${v}`}
-                  fill={presentation ? "#e2e8f0" : "#334155"}
-                  fontSize={10}
-                />
-              </Line>
-              <Line
-                type="monotone"
-                dataKey="forecastCumulative"
-                name="Forecast"
-                stroke="#a78bfa"
-                strokeWidth={2}
-                strokeDasharray="6 4"
-                dot={(props: { cx?: number; cy?: number }) => {
-                  const { cx, cy } = props;
-                  if (cx == null || cy == null) return null;
-                  return (
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={10}
-                      fill="#a78bfa"
-                      stroke={chartPointStroke}
-                      strokeWidth={2}
-                      style={{ filter: "drop-shadow(0 0 8px rgba(167,139,250,0.45))" }}
-                    />
-                  );
-                }}
-              />
-              {todayLabelDealControl ? (
-                <ReferenceLine x={todayLabelDealControl} stroke="#facc15" strokeWidth={1.8} strokeDasharray="4 4" />
-              ) : null}
-              {lastDealControlPoint ? (
-                <ReferenceDot
-                  x={lastDealControlPoint.label}
-                  y={lastDealControlPoint.factCumulative}
-                  r={0}
-                  label={{
-                    value: `${lastDealControlPoint.factCumulative} (${lastDealControlPoint.deviation >= 0 ? "+" : ""}${lastDealControlPoint.deviation})`,
-                    position: "top",
-                    fill: presentation ? "#fca5a5" : "#b91c1c",
-                    fontSize: 11,
-                    fontWeight: 700,
-                  }}
-                />
-              ) : null}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-        <p className={`mt-2 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>Накопительное количество сделок</p>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
-            <div className={sub}>Финальная точка периода</div>
-            <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              План: {numFmt.format(planEndDeals)} · Прогноз: {numFmt.format(forecastEndDeals)} · Разница:{" "}
-              <span className={forecastEndDeals >= planEndDeals ? (presentation ? "text-emerald-300" : "text-emerald-700") : (presentation ? "text-red-300" : "text-red-700")}>
-                {forecastEndDeals - planEndDeals >= 0 ? "+" : "−"}
-                {numFmt.format(Math.abs(forecastEndDeals - planEndDeals))} сделок
-              </span>
+            className={`mt-3 grid gap-2 rounded-lg border px-3 py-3 text-sm sm:grid-cols-3 ${presentation ? "border-slate-600/45 bg-slate-900/35" : "border-slate-200 bg-slate-50/90"}`}
+          >
+            <div>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                Начало отклонения
+              </div>
+              <div className={`mt-1 font-medium tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                {monthlyExecutionInsights.firstNegative ? (
+                  <>
+                    {monthlyExecutionInsights.firstNegative.label}
+                    <span className={`block text-xs font-normal ${presentation ? "text-red-300" : "text-red-700"}`}>
+                      −{numFmt.format(Math.abs(monthlyExecutionInsights.firstNegative.deviation))} шт к плану
+                    </span>
+                  </>
+                ) : (
+                  <span className={presentation ? "text-emerald-300" : "text-emerald-700"}>Недобор не зафиксирован</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                Самый слабый месяц
+              </div>
+              <div className={`mt-1 font-medium tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                {monthlyExecutionInsights.worstMonth ? (
+                  <>
+                    {monthlyExecutionInsights.worstMonth.label}
+                    <span
+                      className={`block text-xs font-normal ${
+                        monthlyExecutionInsights.worstMonth.deviation < 0
+                          ? presentation
+                            ? "text-red-300"
+                            : "text-red-700"
+                          : presentation
+                            ? "text-slate-400"
+                            : "text-slate-600"
+                      }`}
+                    >
+                      {monthlyExecutionInsights.worstMonth.deviation >= 0 ? "+" : "−"}
+                      {numFmt.format(Math.abs(monthlyExecutionInsights.worstMonth.deviation))} шт к плану
+                    </span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </div>
+            </div>
+            <div className="sm:col-span-1">
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                Динамика
+              </div>
+              <p className={`mt-1 text-xs leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                {monthlyExecutionInsights.trend === "improving" ? "^ " : monthlyExecutionInsights.trend === "worsening" ? "v " : "- "}
+                {monthlyExecutionInsights.trendLabel}
+              </p>
             </div>
           </div>
-          <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
-            <div className={sub}>Вердикт</div>
-            <div className={`mt-1 text-sm font-semibold ${forecastEndDeals < planEndDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
-              {forecastEndDeals < planEndDeals ? "План недостижим при текущем темпе" : "План достижим при текущем темпе"}
+
+          <div
+            className={`mt-3 rounded-md border px-3 py-2 text-center text-sm font-semibold tabular-nums ${presentation ? "border-slate-600/50 bg-slate-900/25 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          >
+            Суммарное отклонение:{" "}
+            <span
+              className={
+                monthlyExecutionInsights.sumDeviation >= 0
+                  ? presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+                  : presentation
+                    ? "text-red-300"
+                    : "text-red-700"
+              }
+            >
+              {monthlyExecutionInsights.sumDeviation >= 0 ? "+" : "−"}
+              {numFmt.format(Math.abs(monthlyExecutionInsights.sumDeviation))} сделок
+            </span>
+          </div>
+
+          <div className="mt-2 h-[248px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyPlanExecutionData} margin={{ top: 16, right: 8, left: 0, bottom: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: axisColor, fontSize: 9 }}
+                  axisLine={{ stroke: gridColor }}
+                  tickLine={false}
+                  label={{ value: "Месяц", position: "bottom", offset: 0, fill: axisColor, fontSize: 10 }}
+                />
+                <YAxis
+                  tick={{ fill: axisColor, fontSize: 10 }}
+                  axisLine={false}
+                  tickFormatter={yTickDeals}
+                  width={40}
+                  label={{ value: "Отклонение, шт", angle: -90, position: "insideLeft", fill: axisColor, fontSize: 10 }}
+                />
+                <Tooltip content={<MonthlyPlanDeviationTooltip presentation={presentation} />} cursor={{ fill: presentation ? "rgba(148,163,184,0.08)" : "rgba(100,116,139,0.08)" }} />
+                <ReferenceLine y={0} stroke={presentation ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.35)"} strokeWidth={1} />
+                <Bar dataKey="deviation" name="Отклонение" maxBarSize={40} radius={[2, 2, 0, 0]}>
+                  {monthlyPlanExecutionData.map((entry, i) => (
+                    <Cell
+                      key={`mpe-${entry.periodKey}-${i}`}
+                      fill={monthlyDeviationFill(entry.deviation, entry.periodKey === monthlyExecutionInsights.worstMonth?.periodKey)}
+                      stroke={entry.periodKey === monthlyExecutionInsights.worstMonth?.periodKey ? "#f8fafc" : "none"}
+                      strokeWidth={entry.periodKey === monthlyExecutionInsights.worstMonth?.periodKey ? 1.8 : 0}
+                    />
+                  ))}
+                  <LabelList
+                    dataKey="deviation"
+                    content={(props: { x?: number; y?: number; width?: number; height?: number; value?: unknown }) => {
+                      const v = props.value;
+                      const num = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+                      return (
+                        <MonthlyDeviationBarLabel
+                          x={props.x}
+                          y={props.y}
+                          width={props.width}
+                          height={props.height}
+                          value={Number.isFinite(num) ? num : undefined}
+                          presentation={presentation}
+                        />
+                      );
+                    }}
+                  />
+                  <LabelList
+                    dataKey="deviation"
+                    content={(props: { x?: number; y?: number; width?: number; value?: unknown; index?: number }) => {
+                      const idx = props.index ?? -1;
+                      const row = idx >= 0 ? monthlyPlanExecutionData[idx] : null;
+                      if (!row || row.periodKey !== monthlyExecutionInsights.worstMonth?.periodKey) return null;
+                      if (props.x == null || props.y == null || props.width == null) return null;
+                      const cx = props.x + props.width / 2;
+                      const ly = row.deviation < 0 ? props.y - 10 : props.y - 16;
+                      return (
+                        <text x={cx} y={ly} textAnchor="middle" fill="#f43f5e" fontSize={10} fontWeight={700}>
+                          Худший месяц
+                        </text>
+                      );
+                    }}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Темп (по помесячному ряду — согласован с графиком выше) */}
+        <div className={`mt-5 grid grid-cols-1 gap-3 border-t pt-4 sm:grid-cols-3 ${presentation ? "border-slate-600/40" : "border-slate-200"}`}>
+          <p className={`sm:col-span-3 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            Темп считается по помесячным сделкам: средний факт за прошедшие месяцы до текущего и темп, который нужен до конца ряда, чтобы
+            закрыть план.
+          </p>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Текущий темп</div>
+            <div className={`mt-1 text-xl font-semibold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {dec1Fmt.format(monthlyExecutionInsights.runRateMonthly)} <span className="text-sm font-normal">сделок / мес</span>
             </div>
+          </div>
+          <div>
+            <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Требуемый темп</div>
+            <div className={`mt-1 text-xl font-semibold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              {monthlyExecutionInsights.requiredMonthly == null ? (
+                "Период завершен"
+              ) : (
+                <>
+                  {dec1Fmt.format(monthlyExecutionInsights.requiredMonthly)} <span className="text-sm font-normal">сделок / мес</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div>
+            {monthlyExecutionInsights.periodCompleted ? (
+              <>
+                <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Итоговое отклонение</div>
+                <div
+                  className={`mt-1 text-xl font-semibold tabular-nums ${
+                    monthlyExecutionInsights.sumDeviation >= 0
+                      ? presentation
+                        ? "text-emerald-300"
+                        : "text-emerald-700"
+                      : presentation
+                        ? "text-red-300"
+                        : "text-red-700"
+                  }`}
+                >
+                  {monthlyExecutionInsights.sumDeviation >= 0 ? "+" : "−"}
+                  {numFmt.format(Math.abs(monthlyExecutionInsights.sumDeviation))}{" "}
+                  <span className="text-sm font-normal">сделок</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={`text-[11px] font-medium uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>Разница темпов</div>
+                <div
+                  className={`mt-1 text-xl font-semibold tabular-nums ${
+                    (monthlyExecutionInsights.tempoDiffMonthly ?? 0) >= 0
+                      ? presentation
+                        ? "text-emerald-300"
+                        : "text-emerald-700"
+                      : presentation
+                        ? "text-red-300"
+                        : "text-red-700"
+                  }`}
+                >
+                  {(monthlyExecutionInsights.tempoDiffMonthly ?? 0) >= 0 ? "+" : "−"}
+                  {dec1Fmt.format(Math.abs(monthlyExecutionInsights.tempoDiffMonthly ?? 0))}{" "}
+                  <span className="text-sm font-normal">сделок / мес</span>
+                </div>
+                <div className={`mt-0.5 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>текущий − требуемый</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Вывод */}
+        <div
+          className={`mt-5 rounded-lg border px-4 py-3 ${
+            monthlyExecutionInsights.planAchievableAtMonthlyTempo
+              ? presentation
+                ? "border-emerald-500/40 bg-emerald-950/15"
+                : "border-emerald-200 bg-emerald-50/80"
+              : presentation
+                ? "border-red-500/40 bg-red-950/15"
+                : "border-red-200 bg-red-50/80"
+          }`}
+        >
+          <div
+            className={`text-lg font-semibold ${
+              monthlyExecutionInsights.planAchievableAtMonthlyTempo
+                ? presentation
+                  ? "text-emerald-200"
+                  : "text-emerald-800"
+                : presentation
+                  ? "text-red-200"
+                  : "text-red-800"
+            }`}
+          >
+            {monthlyExecutionInsights.planAchievableAtMonthlyTempo ? "План достижим" : "План недостижим"}
+          </div>
+          <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+            при сохранении текущего помесячного темпа: прогноз {numFmt.format(monthlyExecutionInsights.forecastEndMonthly)} при целевых{" "}
+            {numFmt.format(monthlyExecutionInsights.planEndMonthly)} сделок к концу горизонта.
+          </p>
+        </div>
+
+        {/* Вторичный график: накопительные кривые */}
+        <div className="mt-5">
+          <h5 className={`text-xs font-medium uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+            Справочно: накопительные план, факт и прогноз
+          </h5>
+          <div className="mt-1 h-[112px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={dealControlData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} allowDecimals={false} width={34} tickFormatter={yTickDeals} />
+                <Tooltip content={<DealControlTooltip presentation={presentation} />} />
+                <Line type="monotone" dataKey="planCumulative" name="План" stroke={presentation ? "rgba(148,163,184,0.85)" : "#94a3b8"} strokeWidth={1} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="factCumulative" name="Факт" stroke="#38bdf8" strokeWidth={1.15} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="forecastCumulative" name="Прогноз" stroke="#a78bfa" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+                {todayLabelDealControl ? (
+                  <ReferenceLine x={todayLabelDealControl} stroke="#ca8a04" strokeWidth={1} strokeDasharray="3 3" />
+                ) : null}
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
