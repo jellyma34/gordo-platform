@@ -14,9 +14,7 @@ import {
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
 import {
-  buildDiagnosticRows,
   buildSalesInsights,
-  buildStructureRows,
   execStatusFromPercent,
   type ExecStatus,
 } from "@/lib/salesPlanAnalytics";
@@ -27,6 +25,7 @@ const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.Respo
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
 const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
+const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
 const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
 const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
@@ -79,10 +78,8 @@ type DealControlRow = {
   deviation: number;
   deviationPct: number;
   status: TrafficStatus;
-  factGreen: number | null;
-  factYellow: number | null;
-  factRed: number | null;
-  redZone: number;
+  factAbove: number | null;
+  factBelow: number | null;
 };
 
 type DeviationContributionRow = {
@@ -125,10 +122,8 @@ function buildDealControlData(points: ReturnType<typeof mergeSalesPlanFact>): De
       deviation,
       deviationPct,
       status,
-      factGreen: status === "green" ? factRun : null,
-      factYellow: status === "yellow" ? factRun : null,
-      factRed: status === "red" ? factRun : null,
-      redZone: status === "red" ? factRun : 0,
+      factAbove: factRun >= planRun ? factRun : null,
+      factBelow: factRun < planRun ? factRun : null,
     };
   });
 }
@@ -199,18 +194,6 @@ function statusMeta(
     bar: presentation ? "bg-red-500" : "bg-red-500",
     ring: presentation ? "ring-red-500/40" : "ring-red-500/30",
   };
-}
-
-function statusLabelTable(s: ExecStatus): string {
-  if (s === "green") return "Перевып.";
-  if (s === "yellow") return "Норма";
-  return "Риск";
-}
-
-function statusDotClass(s: ExecStatus, presentation: boolean): string {
-  if (s === "green") return presentation ? "bg-emerald-400" : "bg-emerald-500";
-  if (s === "yellow") return presentation ? "bg-amber-400" : "bg-amber-500";
-  return presentation ? "bg-red-400" : "bg-red-500";
 }
 
 function LineChartTooltip({
@@ -568,8 +551,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const execStatus = execStatusFromPercent(rev.percentComplete);
   const status = statusMeta(execStatus, presentation);
 
-  const diagnosticRows = useMemo(() => buildDiagnosticRows(categoriesAdjusted), [categoriesAdjusted]);
-  const structureRows = useMemo(() => buildStructureRows(categoriesAdjusted), [categoriesAdjusted]);
   const insights = useMemo(
     () => buildSalesInsights(categoriesAdjusted, radarCategoriesAdjusted, rev),
     [categoriesAdjusted, radarCategoriesAdjusted, rev],
@@ -633,6 +614,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const shortfallDeals = Math.max(0, planEndDeals - forecastEndDeals);
   const requiredLeads = leadToDealRate > 0 ? Math.ceil(shortfallDeals / leadToDealRate) : 0;
   const requiredConversionPct = requiredLeads > 0 ? (shortfallDeals / requiredLeads) * 100 : 0;
+  const topWeakRadar = radarCategoriesAdjusted
+    .map((r) => ({
+      name: r.name,
+      pct: r.planCumulative > 0 ? (r.factCumulative / r.planCumulative) * 100 : 0,
+      deviation: r.factCumulative - r.planCumulative,
+    }))
+    .sort((a, b) => a.pct - b.pct)[0];
+  const topNegativeContribution = deviationContribution.filter((r) => r.deviation < 0)[0];
+  const funnelTopLossStage = safeFunnel.length > 1
+    ? safeFunnel
+        .slice(0, -1)
+        .map((s, i) => {
+          const next = safeFunnel[i + 1]!;
+          const lostLeads = Math.max(0, s.count - next.count);
+          const downstream = next.count > 0 ? (safeFunnel[safeFunnel.length - 1]!.count || 0) / next.count : 0;
+          const lostDeals = Math.round(lostLeads * downstream);
+          return { stage: next.name, lostLeads, lostDeals };
+        })
+        .sort((a, b) => b.lostDeals - a.lostDeals)[0]
+    : null;
   const blockStatus: TrafficStatus =
     currentPlanCum > 0
       ? currentFactCum >= currentPlanCum
@@ -915,28 +916,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
       </div>
 
-      {/* Insights */}
-      <div className={card}>
-        <h4 className={h4}>Выводы</h4>
-        <p className={`${sub} mt-1`}>Авто-анализ по категориям и сегментам — без лишнего шума</p>
-        <ul className="mt-4 space-y-2.5">
-          {insights.map((b, i) => (
-            <li
-              key={i}
-              className={`border-l-2 pl-3 text-sm leading-snug ${insightTone(b.tone)}`}
-            >
-              {b.text}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Chart */}
+      {/* B. Dynamics */}
       <div className={card}>
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h4 className={h4}>Динамика: план, факт, прогноз</h4>
-            <p className={sub}>Накопительно · вертикаль — отчётная дата ({currentLabel})</p>
+            <h4 className={h4}>B. Динамика (план vs факт vs forecast)</h4>
+            <p className={sub}>
+              Накопительно · старт отклонения: {lagStartedLabel ?? "не зафиксирован"} · текущая точка: {currentLabel}
+            </p>
           </div>
           <div
             className={
@@ -999,134 +986,28 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
       </div>
 
-      {/* Run rate */}
+      {/* C. Radar */}
       <div className={card}>
-        <h4 className={h4}>Run rate</h4>
-        <p className={`${sub} mt-1`}>Темп продаж и прогноз на конец горизонта (накопительно, выручка)</p>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>Текущий темп</div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              ~{compactRub(rrAdjusted.avgMonthlyRevenueRub)}
-            </div>
-            <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>в среднем за месяц (оценка)</div>
-          </div>
-          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>Прогноз к концу периода</div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}>
-              {compactRub(rrAdjusted.forecastCumulativeEndRub)}
-            </div>
-            <div className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>накопительно, модель</div>
-          </div>
-          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
-            <div className={sub}>К плану горизонта</div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {compactRub(rrAdjusted.horizonPlanCumulativeRub)}
-            </div>
-            <div className={`mt-1 text-[11px] ${forecastGapRub > 0 ? (presentation ? "text-amber-300" : "text-amber-800") : presentation ? "text-slate-500" : "text-slate-600"}`}>
-              {forecastGapRub > 0
-                ? `Недобор к плану ≈ ${compactRub(forecastGapRub)} при текущем темпе`
-                : "Прогноз не ниже плана горизонта"}
-            </div>
-          </div>
+        <h4 className={h4}>C. Отклонение по сегментам (Radar)</h4>
+        <p className={`${sub} mt-1`}>
+          Слабый сегмент: {topWeakRadar?.name ?? "—"} · {topWeakRadar ? `${topWeakRadar.pct.toFixed(1)}%` : "н/д"}
+        </p>
+        <div className="mt-4">
+          <SalesPlanRadarChart
+            categories={radarCategoriesAdjusted}
+            presentation={presentation}
+            centerPercentComplete={rev.percentComplete}
+            centerDeviationRub={rev.deviationCumulative}
+          />
         </div>
       </div>
 
-      {/* Diagnostics table */}
+      {/* D. Segment contribution */}
       <div className={card}>
-        <h4 className={h4}>Диагностика по категориям</h4>
-        <p className={`${sub} mt-1`}>От худшего к лучшему — где просадка и отклонение в деньгах</p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-xs sm:text-sm">
-            <thead>
-              <tr className={presentation ? "border-b border-slate-600/50 text-slate-400" : "border-b border-slate-200 text-slate-600"}>
-                <th className="pb-2 pr-3 font-medium">Категория</th>
-                <th className="pb-2 pr-3 font-medium tabular-nums">План</th>
-                <th className="pb-2 pr-3 font-medium tabular-nums">Факт</th>
-                <th className="pb-2 pr-3 font-medium tabular-nums">%</th>
-                <th className="pb-2 pr-3 font-medium">Статус</th>
-                <th className="pb-2 font-medium tabular-nums">Отклонение</th>
-              </tr>
-            </thead>
-            <tbody>
-              {diagnosticRows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={presentation ? "border-b border-slate-700/40 text-slate-200" : "border-b border-slate-100 text-slate-800"}
-                >
-                  <td className="py-2.5 pr-3 font-medium">{row.name}</td>
-                  <td className="py-2.5 pr-3 tabular-nums text-slate-500">{rubFmt.format(row.planCumulative)}</td>
-                  <td className="py-2.5 pr-3 tabular-nums">{rubFmt.format(row.factCumulative)}</td>
-                  <td className="py-2.5 pr-3 tabular-nums font-semibold">{row.percentComplete.toFixed(1)}%</td>
-                  <td className="py-2.5 pr-3">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`h-2 w-2 rounded-full ${statusDotClass(row.status, presentation)}`} />
-                      <span className={presentation ? "text-slate-300" : "text-slate-700"}>{statusLabelTable(row.status)}</span>
-                    </span>
-                  </td>
-                  <td
-                    className={`py-2.5 tabular-nums font-medium ${
-                      row.deviation < 0
-                        ? presentation
-                          ? "text-red-300"
-                          : "text-red-600"
-                        : presentation
-                          ? "text-emerald-300"
-                          : "text-emerald-600"
-                    }`}
-                  >
-                    {row.deviation < 0 ? "−" : "+"}
-                    {rubFmt.format(Math.abs(row.deviation))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Structure */}
-      <div className={card}>
-        <h4 className={h4}>Структура продаж</h4>
-        <p className={`${sub} mt-1`}>Доля в накопительном плане vs доля в фактической выручке</p>
-        <div className="mt-4 space-y-3">
-          {structureRows.map((r) => (
-            <div key={r.id}>
-              <div className="mb-1 flex justify-between text-xs">
-                <span className={presentation ? "font-medium text-slate-200" : "font-medium text-slate-800"}>{r.name}</span>
-                <span className={`tabular-nums ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                  план {r.planSharePct.toFixed(1)}% · факт {r.factSharePct.toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-                <div className="flex-1">
-                  <div className={presentation ? "text-[10px] text-slate-500" : "text-[10px] text-slate-500"}>Плановая структура</div>
-                  <div className={presentation ? "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-800" : "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-200"}>
-                    <div
-                      className="h-full rounded-full bg-slate-400/90"
-                      style={{ width: `${Math.min(100, r.planSharePct)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <div className={presentation ? "text-[10px] text-slate-500" : "text-[10px] text-slate-500"}>Фактическая структура</div>
-                  <div className={presentation ? "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-800" : "mt-0.5 h-2 overflow-hidden rounded-full bg-slate-200"}>
-                    <div
-                      className="h-full rounded-full bg-sky-500/90"
-                      style={{ width: `${Math.min(100, r.factSharePct)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Segment contribution */}
-      <div className={card}>
-        <h4 className={h4}>Вклад сегментов в отклонение плана</h4>
-        <p className={`${sub} mt-1`}>Где формируется недобор и что компенсирует отставание</p>
+        <h4 className={h4}>D. Вклад сегментов в отклонение (₽)</h4>
+        <p className={`${sub} mt-1`}>
+          Источник основного минуса: {topNegativeContribution?.name ?? "—"} · связь с радаром сохранена
+        </p>
         <div className="mt-4 h-[280px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={deviationContribution} layout="vertical" margin={{ top: 4, right: 8, left: 14, bottom: 4 }}>
@@ -1172,23 +1053,73 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
       </div>
 
-      {/* Radar */}
+      {/* E. Funnel */}
       <div className={card}>
-        <h4 className={h4}>Выполнение по сегментам (радар)</h4>
-        <p className={`${sub} mt-1`}>Накопительный % к плану по типам продуктов</p>
-        <div className="mt-4">
-          <SalesPlanRadarChart
-            categories={radarCategoriesAdjusted}
+        <h4 className={h4}>E. Потери в воронке и перевод в деньги</h4>
+        <p className={sub}>Критичный этап: {funnelTopLossStage?.stage ?? "—"} · потери: {funnelTopLossStage ? numFmt.format(funnelTopLossStage.lostDeals) : "0"} сделок</p>
+        <div className="mt-3">
+          <FunnelBlock
+            stages={funnel}
             presentation={presentation}
-            centerPercentComplete={rev.percentComplete}
-            centerDeviationRub={rev.deviationCumulative}
+            planRevenue={rev.planCumulative}
+            factRevenue={rev.factCumulative}
           />
         </div>
       </div>
 
-      {/* Comments */}
+      {/* F. Run rate */}
       <div className={card}>
-        <h4 className={`${h4} mb-1`}>Комментарии к отклонениям</h4>
+        <h4 className={h4}>F. Run rate</h4>
+        <p className={`${sub} mt-1`}>Текущий темп vs требуемый темп до конца периода</p>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Текущий темп</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              ~{compactRub(rrAdjusted.avgMonthlyRevenueRub)}
+            </div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Требуемый темп</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${requiredPerPeriod > runRateDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
+              {numFmt.format(Math.round(requiredPerPeriod))} сделок / период
+            </div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Прогноз к плану</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${forecastGapRub > 0 ? (presentation ? "text-amber-300" : "text-amber-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
+              {compactRub(rrAdjusted.forecastCumulativeEndRub)} / {compactRub(rrAdjusted.horizonPlanCumulativeRub)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* G. Action block */}
+      <div className={card}>
+        <h4 className={h4}>G. Что делать сейчас</h4>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Не хватает к плану</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-red-300" : "text-red-700"}`}>{numFmt.format(shortfallDeals)} сделок</div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Требуемые лиды</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{numFmt.format(requiredLeads)}</div>
+          </div>
+          <div className={presentation ? "rounded-xl bg-slate-900/40 p-3" : "rounded-xl bg-slate-50 p-3"}>
+            <div className={sub}>Требуемая конверсия</div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{requiredConversionPct.toFixed(1)}%</div>
+          </div>
+        </div>
+        <ul className="mt-3 space-y-1.5">
+          {insights.slice(0, 3).map((b, i) => (
+            <li key={i} className={`border-l-2 pl-3 text-sm ${insightTone(b.tone)}`}>{b.text}</li>
+          ))}
+        </ul>
+      </div>
+
+      {/* H. Comments */}
+      <div className={card}>
+        <h4 className={`${h4} mb-1`}>H. Комментарии к причинам</h4>
         <p className={`${sub} mb-3`}>Контекст от команд (поле comments)</p>
         <ul className="space-y-2">
           {report.comments.map((c) => (
@@ -1215,106 +1146,70 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </ul>
       </div>
 
-      {/* Secondary */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className={card}>
-          <h4 className={`${h4} mb-1`}>Выполнение плана продаж</h4>
-          <p className={sub}>План/факт и прогноз накопительно: выполним план или нет.</p>
-          <div className={`mt-3 rounded-xl border p-3 ${statusTone}`}>
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="text-xs uppercase opacity-80">Статус</div>
-                <div className="text-sm font-black sm:text-base">{statusText}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs uppercase opacity-80">Отклонение сейчас</div>
-                <div className="text-sm font-bold tabular-nums">
-                  {currentDeviation >= 0 ? "+" : "−"}
-                  {numFmt.format(Math.abs(currentDeviation))} шт ({currentDeviationPct >= 0 ? "+" : ""}
-                  {currentDeviationPct.toFixed(1)}%)
-                </div>
+      {/* Управленческий KPI-график по сделкам */}
+      <div className={card}>
+        <h4 className={`${h4} mb-1`}>Контроль выполнения плана (сделки)</h4>
+        <p className={sub}>Выполняется ли план, успеем ли к концу периода и насколько критично отставание.</p>
+        <div className={`mt-3 rounded-xl border p-3 ${statusTone}`}>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div>
+              <div className="text-xs uppercase opacity-80">Статус</div>
+              <div className="text-sm font-black sm:text-base">{statusText}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase opacity-80">Отклонение</div>
+              <div className="text-sm font-bold tabular-nums">
+                {currentDeviation >= 0 ? "+" : "−"}
+                {numFmt.format(Math.abs(currentDeviation))} шт
               </div>
             </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
-              <div className={sub}>Прогноз к концу периода (run rate)</div>
-              <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                План: <span className="tabular-nums">{numFmt.format(planEndDeals)}</span> · Прогноз:{" "}
-                <span className={`tabular-nums ${forecastEndDeals >= planEndDeals ? "text-emerald-500" : "text-red-500"}`}>
-                  {numFmt.format(forecastEndDeals)}
-                </span>
-              </div>
+            <div>
+              <div className="text-xs uppercase opacity-80">Текущий темп</div>
+              <div className="text-sm font-bold tabular-nums">{numFmt.format(Math.round(runRateDeals))} / период</div>
             </div>
-            <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
-              <div className={sub}>Достижимость</div>
-              <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                Требуется: <span className="tabular-nums">{numFmt.format(Math.round(requiredPerPeriod))}</span> / период · Факт:{" "}
-                <span className="tabular-nums">{numFmt.format(Math.round(runRateDeals))}</span> / период
+            <div>
+              <div className="text-xs uppercase opacity-80">Требуемый темп</div>
+              <div className="text-sm font-bold tabular-nums">
+                {numFmt.format(Math.round(requiredPerPeriod))} / период
               </div>
-            </div>
-          </div>
-
-          <div className="mt-3 h-[240px] w-full min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={dealControlData} margin={{ top: 8, right: 8, left: 0, bottom: 6 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
-                <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} tickFormatter={yTickDeals} />
-                <Tooltip content={<DealControlTooltip presentation={presentation} />} />
-                <Line
-                  type="monotone"
-                  dataKey="planCumulative"
-                  name="План (накопит.)"
-                  stroke={presentation ? "#cbd5e1" : "#475569"}
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line type="monotone" dataKey="factGreen" name="Факт (>=100%)" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: "#22c55e" }} connectNulls />
-                <Line type="monotone" dataKey="factYellow" name="Факт (90-100%)" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: "#f59e0b" }} connectNulls />
-                <Line type="monotone" dataKey="factRed" name="Факт (<90%)" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: "#ef4444" }} connectNulls>
-                  <LabelList
-                    dataKey="deviation"
-                    position="top"
-                    formatter={(v: number) => (v < 0 ? `${v}` : "")}
-                    fill={presentation ? "#fca5a5" : "#b91c1c"}
-                    fontSize={10}
-                  />
-                </Line>
-                <Line type="monotone" dataKey="forecastCumulative" name="Forecast (run rate)" stroke="#a78bfa" strokeWidth={2} strokeDasharray="6 4" dot={false} />
-                {todayLabelDealControl ? (
-                  <ReferenceLine
-                    x={todayLabelDealControl}
-                    stroke={presentation ? "#fbbf24" : "#d97706"}
-                    strokeWidth={1.2}
-                    strokeDasharray="4 4"
-                    label={{ value: "Сегодня", position: "top", fill: presentation ? "#fcd34d" : "#b45309", fontSize: 10 }}
-                  />
-                ) : null}
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-          <p className={`mt-2 text-[11px] ${presentation ? "text-red-300" : "text-red-700"}`}>
-            {lagStartedLabel ? `Отставание началось: ${lagStartedLabel}` : "Отставание не зафиксировано."}
-          </p>
-          <div className={presentation ? "mt-2 rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
-            <div className={sub}>Что нужно сделать</div>
-            <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              Не хватает: <span className="tabular-nums">{numFmt.format(shortfallDeals)}</span> сделок · нужно лидов:{" "}
-              <span className="tabular-nums">{numFmt.format(requiredLeads)}</span> · требуемая конверсия:{" "}
-              <span className="tabular-nums">{requiredConversionPct.toFixed(1)}%</span>
             </div>
           </div>
         </div>
-        <div className={card}>
-          <h4 className={`${h4} mb-3`}>Воронка</h4>
-          <FunnelBlock
-            stages={funnel}
-            presentation={presentation}
-            planRevenue={rev.planCumulative}
-            factRevenue={rev.factCumulative}
-          />
+        <div className="mt-3 h-[240px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={dealControlData} margin={{ top: 8, right: 8, left: 0, bottom: 6 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} />
+              <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} allowDecimals={false} tickFormatter={yTickDeals} />
+              <Tooltip content={<DealControlTooltip presentation={presentation} />} />
+              <Area type="monotone" dataKey="factBelow" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(239,68,68,0.18)" />
+              <Area type="monotone" dataKey="factAbove" baseLine={(row: DealControlRow) => row.planCumulative} connectNulls stroke="none" fill="rgba(34,197,94,0.16)" />
+              <Line type="monotone" dataKey="planCumulative" name="План (накопит.)" stroke={presentation ? "#cbd5e1" : "#64748b"} strokeWidth={1.8} dot={false} />
+              <Line type="monotone" dataKey="factCumulative" name="Факт (накопит.)" stroke="#38bdf8" strokeWidth={2.6} dot={{ r: 2.5 }} />
+              <Line type="monotone" dataKey="forecastCumulative" name="Forecast" stroke="#a78bfa" strokeWidth={2} strokeDasharray="6 4" dot={false} />
+              {todayLabelDealControl ? (
+                <ReferenceLine x={todayLabelDealControl} stroke={presentation ? "#fbbf24" : "#d97706"} strokeWidth={1.2} strokeDasharray="4 4" />
+              ) : null}
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
+            <div className={sub}>Финальная точка периода</div>
+            <div className={`mt-1 text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              План: {numFmt.format(planEndDeals)} · Прогноз: {numFmt.format(forecastEndDeals)} · Разница:{" "}
+              <span className={forecastEndDeals >= planEndDeals ? (presentation ? "text-emerald-300" : "text-emerald-700") : (presentation ? "text-red-300" : "text-red-700")}>
+                {forecastEndDeals - planEndDeals >= 0 ? "+" : "−"}
+                {numFmt.format(Math.abs(forecastEndDeals - planEndDeals))} шт
+              </span>
+            </div>
+          </div>
+          <div className={presentation ? "rounded-lg border border-slate-600/50 bg-slate-900/30 p-2.5" : "rounded-lg border border-slate-200 bg-slate-50 p-2.5"}>
+            <div className={sub}>Вердикт</div>
+            <div className={`mt-1 text-sm font-semibold ${forecastEndDeals < planEndDeals ? (presentation ? "text-red-300" : "text-red-700") : (presentation ? "text-emerald-300" : "text-emerald-700")}`}>
+              {forecastEndDeals < planEndDeals ? "План недостижим при текущем темпе" : "План достижим при текущем темпе"}
+            </div>
+          </div>
         </div>
       </div>
     </div>
