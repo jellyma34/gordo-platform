@@ -322,9 +322,12 @@ type KpiDashboardItem = {
   title: string;
   value: string;
   sub: string;
+  description: string;
   tone: KpiCardTone;
   hover: string;
   sparkline?: number[];
+  sparkBars?: number[];
+  sparkLine?: number[];
 };
 
 function KpiDashboard({
@@ -386,21 +389,28 @@ function KpiDashboard({
     <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
       {items.map((kpi) => {
         const s = toneStyles(kpi.tone);
-        const spark = kpi.sparkline ?? [];
-        const hasSpark = spark.length >= 2;
-        const min = hasSpark ? Math.min(...spark) : 0;
-        const max = hasSpark ? Math.max(...spark) : 1;
-        const range = Math.max(1e-6, max - min);
+        const rawBars = kpi.sparkBars ?? kpi.sparkline ?? [];
+        const rawLine = kpi.sparkLine ?? kpi.sparkline ?? [];
+        const pairCount = Math.min(rawBars.length, rawLine.length);
+        const bars = rawBars.slice(rawBars.length - pairCount);
+        const line = rawLine.slice(rawLine.length - pairCount);
+        const hasSpark = pairCount >= 2;
+        const barMin = hasSpark ? Math.min(...bars) : 0;
+        const barMax = hasSpark ? Math.max(...bars) : 1;
+        const barRange = Math.max(1e-6, barMax - barMin);
+        const lineMin = hasSpark ? Math.min(...line) : 0;
+        const lineMax = hasSpark ? Math.max(...line) : 1;
+        const lineRange = Math.max(1e-6, lineMax - lineMin);
         const w = 172;
         const h = 40;
-        const n = spark.length;
+        const n = pairCount;
         const gap = 4;
         const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
         const rx = Math.min(6, Math.max(0, barW / 2));
         const pts = hasSpark
-          ? spark.map((v, i) => {
+          ? line.map((v, i) => {
               const x = i * (barW + gap) + barW / 2;
-              const y = h - ((v - min) / range) * h;
+              const y = h - ((v - lineMin) / lineRange) * h;
               return { x, y };
             })
           : [];
@@ -431,7 +441,7 @@ function KpiDashboard({
                 <div className="mt-2">
                   <svg viewBox={`0 0 ${w} ${h}`} className="h-10 w-full overflow-visible" preserveAspectRatio="none" aria-hidden>
                     {/* bars: background layer */}
-                    {spark.map((v, i) => {
+                    {bars.map((_, i) => {
                       const x = i * (barW + gap);
                       return (
                         <rect
@@ -447,9 +457,9 @@ function KpiDashboard({
                       );
                     })}
                     {/* bars: main layer */}
-                    {spark.map((v, i) => {
+                    {bars.map((v, i) => {
                       const x = i * (barW + gap);
-                      const hh = ((v - min) / range) * h;
+                      const hh = ((v - barMin) / barRange) * h;
                       const y = h - hh;
                       return (
                         <rect
@@ -476,6 +486,17 @@ function KpiDashboard({
                 </div>
               ) : null}
               <div className={`mt-1 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
+              <p
+                className={`mt-2 text-[12px] leading-tight ${presentation ? "text-slate-300/70" : "text-slate-700/70"}`}
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {kpi.description}
+              </p>
             </div>
           </div>
         );
@@ -1050,6 +1071,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       return planRun > 0 ? (factRun / planRun) * 100 : 0;
     });
   }, [monthlyPlanExecutionData]);
+  const monthlyExecBarsSeries = useMemo(
+    () => monthlyPlanExecutionData.slice(-6).map((r) => r.fact),
+    [monthlyPlanExecutionData],
+  );
+  const monthlyExecLineSeries = useMemo(
+    () => monthlyPlanExecutionData.slice(-6).map((r) => (r.plan > 0 ? (r.fact / r.plan) * 100 : 0)),
+    [monthlyPlanExecutionData],
+  );
   const monthPlanDeals = currentMonthPoint?.plan ?? 0;
   const monthFactDeals = currentMonthPoint?.fact ?? 0;
   const monthDeviationDeals = currentMonthPoint?.deviation ?? 0;
@@ -1080,17 +1109,35 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         : (v: number) => `${numFmt.format(v)}`;
   const yTickDeals = (v: number) => `${numFmt.format(v)}`;
   const cumulativeExecTone: "green" | "yellow" | "red" =
-    rev.percentComplete >= 100 ? "green" : rev.percentComplete >= 95 ? "yellow" : "red";
+    forecastPercentAdjusted >= 100 ? "green" : forecastPercentAdjusted >= 90 ? "yellow" : "red";
   const monthExecTone: "green" | "yellow" | "red" = monthExecPct >= 100 ? "green" : monthExecPct >= 95 ? "yellow" : "red";
   const monthDevTone: "green" | "yellow" | "red" = monthDeviationDeals >= 0 ? "green" : monthDeviationDeals >= -5 ? "yellow" : "red";
   const cumulativeDevTone: "green" | "yellow" | "red" = currentDeviation >= 0 ? "green" : currentDeviation >= -5 ? "yellow" : "red";
   const riskTone: "green" | "yellow" | "red" = riskExecutionPct <= 10 ? "green" : riskExecutionPct <= 25 ? "yellow" : "red";
+  const weakSegment = topWeakRadar?.name ?? "сегменты";
+  const lagSegment = topNegativeContribution?.name ?? weakSegment;
+  const firstLagMonth = monthlyExecutionInsights.firstNegative?.label ?? "последние месяцы";
+  const worstLagMonth = monthlyExecutionInsights.worstMonth?.label ?? firstLagMonth;
+  const trendShort =
+    monthlyExecutionInsights.trend === "improving"
+      ? "тренд улучшается"
+      : monthlyExecutionInsights.trend === "worsening"
+        ? "тренд ухудшается"
+        : monthlyExecutionInsights.trend === "stable"
+          ? "тренд стабильный"
+          : "тренд пока нечитабелен";
   const dynamicsKpiItems: KpiDashboardItem[] = [
     {
       key: "cum-exec",
       title: "Выполнение плана (накопительно)",
       value: `${rev.percentComplete.toFixed(1)}%`,
       sub: `Прогноз к концу: ${forecastPercentAdjusted.toFixed(1)}%`,
+      description:
+        forecastPercentAdjusted < 90
+          ? `Основное отставание дает ${lagSegment}; заметный недобор начался с ${firstLagMonth}.`
+          : forecastPercentAdjusted < 100
+            ? `Риск связан с ${lagSegment}, но ${trendShort} и просадка частично компенсируется.`
+            : `План закрывается за счет ускорения в последних месяцах; ${lagSegment} уже не критичен.`,
       tone: cumulativeExecTone,
       hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
       sparkline: cumulativeExecSeriesPct,
@@ -1100,14 +1147,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       title: "Выполнение за месяц",
       value: `${monthExecPct.toFixed(1)}%`,
       sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · факт/план`,
+      description:
+        monthExecPct < 90
+          ? `Месяц недовыполнен: слабее всего ${lagSegment}, а точка спада — ${worstLagMonth}.`
+          : monthExecPct < 100
+            ? `Почти в плане; отрыв дают ${lagSegment}, но ${trendShort}.`
+            : `Месяц компенсирует прошлый недобор, особенно в сегменте ${weakSegment}.`,
       tone: monthExecTone,
       hover: `План: ${numFmt.format(monthPlanDeals)} шт | Факт: ${numFmt.format(monthFactDeals)} шт | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
+      sparkBars: monthlyExecBarsSeries,
+      sparkLine: monthlyExecLineSeries,
     },
     {
       key: "month-dev",
       title: "Отклонение за месяц",
       value: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт / ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
       sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · к плану`,
+      description:
+        monthDeviationDeals < 0
+          ? `Минус месяца формируют ${lagSegment}; худший период — ${worstLagMonth}.`
+          : `Плюс месяца частично компенсирует провал с ${firstLagMonth}, динамика: ${trendShort}.`,
       tone: monthDevTone,
       hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)} | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт, ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
     },
@@ -1116,6 +1175,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       title: "Отклонение накопительное",
       value: `${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт / ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
       sub: `К дате ${report.asOf}`,
+      description:
+        currentDeviation < 0
+          ? `Накопленный минус тянется от ${firstLagMonth}; ключевой источник — ${lagSegment}.`
+          : `Накопительное отставание компенсируется ростом в ${weakSegment}; ${trendShort}.`,
       tone: cumulativeDevTone,
       hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт | Отклонение: ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт`,
     },
