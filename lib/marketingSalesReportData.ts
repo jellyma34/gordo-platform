@@ -41,6 +41,17 @@ export type SalesDeviationComment = {
   categoryId?: SalesCategoryId;
 };
 
+/** Категория для radar: выручка накопительно (руб.) — % = fact / plan * 100. */
+export type SalesRadarCategoryRow = {
+  id: string;
+  /** Подпись на оси (краткая). */
+  axisLabel: string;
+  /** Полное название для tooltip. */
+  name: string;
+  planCumulative: number;
+  factCumulative: number;
+};
+
 /** Точка ряда для графика «план / факт» (накопительно по периодам). */
 export type SalesSeriesPoint = {
   periodKey: string;
@@ -63,6 +74,8 @@ export type SalesReportPayload = {
     quarter: SalesSeriesPoint[];
   };
   categories: SalesCategoryBreakdownRow[];
+  /** Структура выполнения плана по типам (паучья диаграмма). */
+  radarCategories: SalesRadarCategoryRow[];
   comments: SalesDeviationComment[];
   /** Дата актуальности отчёта (ISO). */
   asOf: string;
@@ -159,6 +172,50 @@ export const marketingSalesReportMock: SalesReportPayload = {
       },
     ],
   },
+  radarCategories: [
+    {
+      id: "apt-1",
+      axisLabel: "1-к",
+      name: "1-комнатные квартиры",
+      planCumulative: 320_000_000,
+      factCumulative: 298_000_000,
+    },
+    {
+      id: "apt-2",
+      axisLabel: "2-к",
+      name: "2-комнатные квартиры",
+      planCumulative: 410_000_000,
+      factCumulative: 352_000_000,
+    },
+    {
+      id: "apt-3",
+      axisLabel: "3-к",
+      name: "3-комнатные квартиры",
+      planCumulative: 180_000_000,
+      factCumulative: 168_000_000,
+    },
+    {
+      id: "parking-r",
+      axisLabel: "Парк.",
+      name: "Парковки",
+      planCumulative: 125_000_000,
+      factCumulative: 118_000_000,
+    },
+    {
+      id: "storage-r",
+      axisLabel: "Клад.",
+      name: "Кладовые",
+      planCumulative: 48_000_000,
+      factCumulative: 52_000_000,
+    },
+    {
+      id: "commercial-r",
+      axisLabel: "Комм.",
+      name: "Коммерческие помещения",
+      planCumulative: 112_000_000,
+      factCumulative: 56_000_000,
+    },
+  ],
   categories: [
     {
       id: "apartments",

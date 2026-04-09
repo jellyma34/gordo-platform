@@ -13,6 +13,7 @@ import {
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
+import { SalesPlanRadarChart } from "./SalesPlanRadarChart";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
@@ -358,6 +359,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         <p className={`mt-2 ${sub}`}>
           Основной режим — деньги (руб.). Штуки и площадь — для операционного контроля.
         </p>
+
+        <div
+          className={
+            presentation ? "mt-6 border-t border-slate-600/50 pt-5" : "mt-6 border-t border-slate-200 pt-5"
+          }
+        >
+          <h4 className={h4}>Структура плана по категориям</h4>
+          <p className={`${sub} mt-1`}>
+            Накопительное выполнение по типам: факт относительно плана (100% — контур). Цвет области — по худшему
+            сегменту (менее 80% — риск, 80–100% — норма, есть перевыполнение — рост).
+          </p>
+          <div className="mt-4">
+            <SalesPlanRadarChart categories={report.radarCategories} presentation={presentation} />
+          </div>
+        </div>
       </div>
 
       {/* Category breakdown — карточки, не Excel */}
