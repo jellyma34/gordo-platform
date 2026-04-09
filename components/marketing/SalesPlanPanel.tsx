@@ -329,6 +329,7 @@ type KpiDashboardItem = {
   sparkBars?: number[];
   sparkLine?: number[];
   sparkMode?: "combo" | "bars" | "line";
+  sparkHideBaseline?: boolean;
   sparkTone?: KpiCardTone;
   tooltip: {
     metricMeaning: string;
@@ -462,7 +463,7 @@ function KpiDashboard({
                     preserveAspectRatio="none"
                     aria-hidden
                   >
-                    {isBarsOnly ? (
+                    {isBarsOnly && !kpi.sparkHideBaseline ? (
                       <line
                         x1={0}
                         y1={zeroY}
@@ -498,6 +499,10 @@ function KpiDashboard({
                           const y = isBarsOnly ? (v >= 0 ? zeroY - hh : zeroY) : h - hh;
                           const fill = isBarsOnly ? (v >= 0 ? "#22c55e" : "#ef4444") : sparkStyle.miniBar;
                           const isLastBar = i === bars.length - 1;
+                          const scaleBoost = isBarsOnly && isLastBar ? 1.06 : 1;
+                          const glowFilter = isBarsOnly && isLastBar
+                            ? "drop-shadow(0 0 12px rgba(255, 80, 80, 0.4)) drop-shadow(0 0 24px rgba(255, 80, 80, 0.15))"
+                            : undefined;
                           return (
                             <rect
                               key={`main-${kpi.key}-${i}`}
@@ -507,31 +512,21 @@ function KpiDashboard({
                               height={hh}
                               rx={rx}
                               fill={fill}
-                              opacity={isBarsOnly ? 1 : 0.7}
-                              stroke={isBarsOnly && isLastBar ? (presentation ? "#f8fafc" : "#0f172a") : "none"}
-                              strokeWidth={isBarsOnly && isLastBar ? 1.4 : 0}
-                              style={isBarsOnly && isLastBar ? { filter: "drop-shadow(0 0 5px rgba(248,250,252,0.45))" } : undefined}
+                              opacity={isBarsOnly ? (isLastBar ? 0.98 : 0.5) : 0.7}
+                              style={
+                                isBarsOnly
+                                  ? {
+                                      transformBox: "fill-box",
+                                      transformOrigin: "center",
+                                      transform: `scale(${scaleBoost})`,
+                                      filter: glowFilter,
+                                    }
+                                  : undefined
+                              }
                             />
                           );
                         })
                       : null}
-                    {/* current month marker for deviation bars */}
-                    {isBarsOnly && bars.length > 0 ? (() => {
-                      const i = bars.length - 1;
-                      const v = bars[i] ?? 0;
-                      const x = i * (barW + gap);
-                      const hh = (Math.abs(v) / absMax) * (h / 2);
-                      const y = v >= 0 ? zeroY - hh : zeroY;
-                      const cx = x + barW / 2;
-                      const cy = v >= 0 ? y : y + hh;
-                      const c = v >= 0 ? "#22c55e" : "#ef4444";
-                      return (
-                        <>
-                          <circle cx={cx} cy={cy} r="2.5" fill={c} />
-                          <circle cx={cx} cy={cy} r="5.2" fill={c} opacity={0.18} />
-                        </>
-                      );
-                    })() : null}
                     {/* line overlay */}
                     {!isBarsOnly ? <path d={linePath} fill="none" stroke={sparkStyle.miniLine} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /> : null}
                     {!isBarsOnly && lastPt ? (
@@ -1287,6 +1282,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       tone: monthDevTone,
       hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)} | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт, ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
       sparkBars: monthlyDeviationSeries,
+      sparkMode: "bars",
+      sparkHideBaseline: true,
       tooltip: {
         metricMeaning: "Показывает отклонение текущего месяца в штуках и выручке.",
         formula: "Формула: факт месяца − план месяца.",
