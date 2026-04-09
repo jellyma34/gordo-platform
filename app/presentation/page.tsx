@@ -19,7 +19,7 @@ export default function PresentationEntry() {
     },
     {
       title: "Маркетинг",
-      description: "Показатели и направления маркетинга (в разработке).",
+      description: "План продаж, динамика, воронка и рассрочка по ДДУ — в едином стиле с разделом «Строительство».",
       href: "/presentation/marketing",
     },
     {

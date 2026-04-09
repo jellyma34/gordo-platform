@@ -1,9 +1,24 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { useAppMode } from "@/components/mode/ModeProvider";
+import { MarketingWorkspace } from "@/components/marketing/MarketingWorkspace";
+
 export default function PresentationMarketingPage() {
+  const { setMode } = useAppMode();
+  const router = useRouter();
+
+  useEffect(() => {
+    setMode("presentation");
+  }, [setMode]);
+
   return (
-    <main className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      <h1 className="text-2xl font-semibold text-slate-900">Презентация → Маркетинг</h1>
-      <p className="text-sm text-slate-600">Раздел в разработке</p>
-    </main>
+    <MarketingWorkspace
+      presentation
+      modeLabel="Презентация"
+      onBackToBlocks={() => router.push("/presentation")}
+    />
   );
 }
-

@@ -19,7 +19,7 @@ export default function EditEntry() {
     },
     {
       title: "Маркетинг",
-      description: "Раздел маркетинга (в разработке).",
+      description: "План продаж, динамика, воронка и рассрочка ДДУ (mock-данные).",
       href: "/edit/marketing",
     },
     {
