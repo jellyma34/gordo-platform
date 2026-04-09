@@ -149,58 +149,161 @@ function LineChartTooltip({
 }
 
 function FunnelBlock({ stages, presentation }: { stages: FunnelStageRow[]; presentation: boolean }) {
-  const conversions = useMemo(() => {
-    const out: { from: string; to: string; pct: number }[] = [];
+  const transitions = useMemo(() => {
+    const out: {
+      key: string;
+      from: string;
+      to: string;
+      fromCount: number;
+      toCount: number;
+      loss: number;
+      conversion: number;
+      finalContributionPct: number;
+    }[] = [];
+    const finalCount = stages[stages.length - 1]?.count ?? 0;
     for (let i = 0; i < stages.length - 1; i++) {
       const a = stages[i]!.count;
       const b = stages[i + 1]!.count;
-      const pct = a > 0 ? Math.round((b / a) * 1000) / 10 : 0;
-      out.push({ from: stages[i]!.name, to: stages[i + 1]!.name, pct });
+      const conversion = a > 0 ? (b / a) * 100 : 0;
+      const finalContributionPct = finalCount > 0 ? (b / finalCount) * 100 : 0;
+      out.push({
+        key: `${stages[i]!.stage}-${stages[i + 1]!.stage}`,
+        from: stages[i]!.name,
+        to: stages[i + 1]!.name,
+        fromCount: a,
+        toCount: b,
+        loss: Math.max(0, a - b),
+        conversion: Math.round(conversion * 10) / 10,
+        finalContributionPct: Math.round(finalContributionPct * 10) / 10,
+      });
     }
     return out;
   }, [stages]);
 
-  const max = Math.max(...stages.map((s) => s.count), 1);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
+  const biggestLoss = useMemo(() => {
+    if (!transitions.length) return null;
+    return [...transitions].sort((a, b) => b.loss - a.loss)[0] ?? null;
+  }, [transitions]);
+
+  const potential = useMemo(() => {
+    if (!transitions.length || !biggestLoss) return null;
+    const idx = transitions.findIndex((x) => x.key === biggestLoss.key);
+    if (idx < 0) return null;
+    const t = transitions[idx]!;
+    const currentRate = t.fromCount > 0 ? t.toCount / t.fromCount : 0;
+    const improvedRate = Math.min(1, currentRate * 1.1);
+    const deltaToNext = Math.max(0, Math.round((improvedRate - currentRate) * t.fromCount));
+    const downstreamRate = t.toCount > 0 ? (stages[stages.length - 1]!.count || 0) / t.toCount : 0;
+    const extraDeals = Math.round(deltaToNext * downstreamRate);
+    return { stage: t.to, extraDeals };
+  }, [transitions, biggestLoss, stages]);
+
+  const maxLoss = Math.max(...transitions.map((t) => t.loss), 1);
+
+  const convTone = (v: number) => {
+    if (v > 50)
+      return presentation
+        ? { bg: "bg-emerald-500/20", text: "text-emerald-300", bar: "bg-emerald-500" }
+        : { bg: "bg-emerald-100", text: "text-emerald-700", bar: "bg-emerald-500" };
+    if (v >= 30)
+      return presentation
+        ? { bg: "bg-amber-500/20", text: "text-amber-300", bar: "bg-amber-500" }
+        : { bg: "bg-amber-100", text: "text-amber-700", bar: "bg-amber-500" };
+    return presentation
+      ? { bg: "bg-red-500/20", text: "text-red-300", bar: "bg-red-500" }
+      : { bg: "bg-red-100", text: "text-red-700", bar: "bg-red-500" };
+  };
 
   return (
-    <div className="space-y-3">
-      {stages.map((s, i) => {
-        const w = Math.max(18, (s.count / max) * 100);
-        return (
-          <div key={s.stage}>
-            <div className="mb-1 flex justify-between text-xs">
-              <span className={presentation ? "text-slate-300" : "text-slate-700"}>{s.name}</span>
-              <span className={presentation ? "tabular-nums text-slate-200" : "tabular-nums text-slate-800"}>
-                {s.count}
-              </span>
-            </div>
+    <div className="space-y-4">
+      {biggestLoss ? (
+        <div
+          className={
+            presentation
+              ? "rounded-xl border border-red-500/35 bg-red-950/30 px-3 py-2.5"
+              : "rounded-xl border border-red-200 bg-red-50 px-3 py-2.5"
+          }
+        >
+          <div className={`text-xs ${presentation ? "text-red-200" : "text-red-800"}`}>Основная потеря</div>
+          <div className={`text-sm font-semibold ${presentation ? "text-red-100" : "text-red-900"}`}>
+            этап {biggestLoss.to} (−{numFmt.format(biggestLoss.loss)} лидов)
+          </div>
+        </div>
+      ) : null}
+
+      {potential ? (
+        <div
+          className={
+            presentation
+              ? "rounded-xl border border-violet-500/30 bg-violet-950/20 px-3 py-2.5"
+              : "rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5"
+          }
+        >
+          <div className={`text-xs ${presentation ? "text-violet-200" : "text-violet-800"}`}>Потенциал (+10% к конверсии)</div>
+          <div className={`text-sm font-semibold ${presentation ? "text-violet-100" : "text-violet-900"}`}>
+            этап {potential.stage}: +{numFmt.format(potential.extraDeals)} доп. сделок
+          </div>
+        </div>
+      ) : null}
+
+      <div className="space-y-2.5">
+        {transitions.map((t) => {
+          const tone = convTone(t.conversion);
+          const lossWidth = Math.max(10, (t.loss / maxLoss) * 100);
+          const active = hoveredKey === t.key;
+          return (
             <div
+              key={t.key}
+              onMouseEnter={() => setHoveredKey(t.key)}
+              onMouseLeave={() => setHoveredKey(null)}
               className={
                 presentation
-                  ? "h-9 rounded-lg border border-slate-600/50 bg-slate-900/40"
-                  : "h-9 rounded-lg border border-slate-200 bg-slate-50"
+                  ? `rounded-xl border p-3 transition-colors ${
+                      active ? "border-slate-400/70 bg-slate-900/60" : "border-slate-600/50 bg-slate-900/30"
+                    }`
+                  : `rounded-xl border p-3 transition-colors ${
+                      active ? "border-slate-300 bg-white" : "border-slate-200 bg-slate-50/70"
+                    }`
               }
-              style={{ width: `${w}%` }}
             >
-              <div
-                className="flex h-full items-center justify-end rounded-lg bg-sky-600/80 pr-2 text-[11px] font-medium text-white"
-                style={{ width: "100%" }}
-              >
-                {s.count}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className={`text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                    {t.from} → {t.to}
+                  </div>
+                  <div className={`mt-0.5 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    было: {numFmt.format(t.fromCount)} · стало: {numFmt.format(t.toCount)} · потеря:{" "}
+                    <span className={presentation ? "text-red-300" : "text-red-700"}>{numFmt.format(t.loss)}</span>
+                  </div>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums ${tone.bg} ${tone.text}`}>
+                  {t.conversion.toFixed(1)}%
+                </span>
               </div>
+
+              <div className={`mt-2 h-2 overflow-hidden rounded-full ${presentation ? "bg-slate-800" : "bg-slate-200"}`}>
+                <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${lossWidth}%` }} />
+              </div>
+
+              {active ? (
+                <div
+                  className={
+                    presentation
+                      ? "mt-2 rounded-lg border border-slate-600/50 bg-black/20 p-2 text-[11px] text-slate-200"
+                      : "mt-2 rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-700"
+                  }
+                >
+                  <div>Конверсия: {t.conversion.toFixed(1)}%</div>
+                  <div>Потери: {numFmt.format(t.loss)}</div>
+                  <div>Вклад в финальные сделки: {t.finalContributionPct.toFixed(1)}%</div>
+                </div>
+              ) : null}
             </div>
-            {i < conversions.length ? (
-              <div
-                className={
-                  presentation ? "py-1.5 pl-2 text-[11px] text-sky-300/90" : "py-1.5 pl-2 text-[11px] text-sky-700"
-                }
-              >
-                → {conversions[i]!.to}: {conversions[i]!.pct}% конверсия
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
