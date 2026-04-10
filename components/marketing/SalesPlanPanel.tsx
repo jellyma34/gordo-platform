@@ -1295,7 +1295,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const velocityMetrics = useMemo(() => {
     const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
     const monthsPassed = Math.max(1, Math.min(totalMonths, currentMonthIdx + 1));
-    const monthsLeft = Math.max(0, totalMonths - monthsPassed);
     const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
     const currentFact = monthlyPlanExecutionData
       .slice(0, monthsPassed)
@@ -1303,23 +1302,36 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const monthFact = monthlyPlanExecutionData[Math.max(0, monthsPassed - 1)]?.fact ?? 0;
     const planPerMonth = totalPlan / totalMonths;
     const actualPerMonth = currentFact / monthsPassed;
-    const requiredPerMonth = monthsLeft > 0 ? Math.max(0, (totalPlan - currentFact) / monthsLeft) : 0;
-    const velocityComparisonMax = Math.max(planPerMonth, actualPerMonth, requiredPerMonth, 1);
-    const speedRatio = requiredPerMonth > 0 ? actualPerMonth / requiredPerMonth : 1;
-    const tone: TrafficStatus = speedRatio >= 1 ? "green" : speedRatio >= 0.9 ? "yellow" : "red";
+    const delta = actualPerMonth - planPerMonth;
+    const tempoPct = planPerMonth > 0 ? (delta / planPerMonth) * 100 : 0;
+    const verdict = delta >= 0 ? "План выполняется по темпу" : "План недостижим при текущем темпе";
+    const velocityComparisonMax = Math.max(planPerMonth, actualPerMonth, 1);
+    let tone: TrafficStatus;
+    if (delta >= 0) {
+      tone = "green";
+    } else if (planPerMonth > 0 && delta >= -0.1 * planPerMonth) {
+      tone = "yellow";
+    } else {
+      tone = "red";
+    }
+    const verdictDescription =
+      delta < 0
+        ? `Фактический темп ниже планового (${dec1Fmt.format(actualPerMonth)} vs ${dec1Fmt.format(planPerMonth)} сделок/мес). Отклонение по темпу: ${tempoPct.toFixed(1)}%.`
+        : `Отклонение по темпу: ${tempoPct >= 0 ? "+" : ""}${tempoPct.toFixed(1)}% (${dec1Fmt.format(actualPerMonth)} vs ${dec1Fmt.format(planPerMonth)} сделок/мес).`;
     return {
       totalMonths,
       monthsPassed,
-      monthsLeft,
       totalPlan,
       currentFact,
       monthFact,
       planPerMonth,
       actualPerMonth,
-      requiredPerMonth,
+      delta,
+      tempoPct,
+      verdict,
+      verdictDescription,
       velocityComparisonMax,
       tone,
-      achievable: actualPerMonth >= requiredPerMonth,
     };
   }, [monthlyPlanExecutionData, currentMonthIdx]);
   const velocityLineData = useMemo(() => {
@@ -1330,14 +1342,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     return monthlyPlanExecutionData.map((r, idx) => {
       factRun += r.fact;
       const passed = idx + 1;
-      const left = Math.max(0, totalMonths - passed);
       const actualRate = factRun / passed;
-      const requiredRate = left > 0 ? Math.max(0, (totalPlan - factRun) / left) : 0;
       return {
         label: r.label,
         plannedRate,
         actualRate,
-        requiredRate,
       };
     });
   }, [monthlyPlanExecutionData]);
@@ -1709,27 +1718,36 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       <div className={card}>
         <div className="mb-3 flex flex-col gap-2">
           <h4 className={h4}>Темп продаж</h4>
-          <p className={sub}>Action-oriented блок по скорости закрытия плана: текущий темп, требуемый темп и сигнал достижимости.</p>
+          <p className={sub}>Сравнение фактического и планового темпа по сделкам и сигнал для решений.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: "text-slate-100" },
-            { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: "text-slate-100" },
-            { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: "text-slate-100" },
-            { key: "actual-rate", title: "Фактический темп", value: velocityMetrics.actualPerMonth, tone: velocityMetrics.tone === "green" ? (presentation ? "text-emerald-300" : "text-emerald-700") : velocityMetrics.tone === "yellow" ? (presentation ? "text-amber-300" : "text-amber-700") : (presentation ? "text-red-300" : "text-red-700") },
-            { key: "required-rate", title: "Требуемый темп", value: velocityMetrics.requiredPerMonth, tone: presentation ? "text-red-300" : "text-red-700", critical: true },
+            { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
+            { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: presentation ? "text-slate-100" : "text-slate-900" },
+            { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
+            {
+              key: "actual-rate",
+              title: "Фактический темп",
+              value: velocityMetrics.actualPerMonth,
+              tone:
+                velocityMetrics.tone === "green"
+                  ? presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+                  : velocityMetrics.tone === "yellow"
+                    ? presentation
+                      ? "text-amber-300"
+                      : "text-amber-700"
+                    : presentation
+                      ? "text-red-300"
+                      : "text-red-700",
+            },
           ].map((m) => (
             <div
               key={m.key}
               className={
-                m.critical
-                  ? presentation
-                    ? "rounded-xl border border-red-500/40 bg-red-950/20 p-3"
-                    : "rounded-xl border border-red-200 bg-red-50 p-3"
-                  : presentation
-                    ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3"
-                    : "rounded-xl border border-slate-200 bg-white p-3"
+                presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3" : "rounded-xl border border-slate-200 bg-white p-3"
               }
             >
               <div className={sub}>{m.title}</div>
@@ -1750,7 +1768,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                   <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
                   <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
                   <Tooltip
-                    formatter={(v: number, n) => [`${dec1Fmt.format(v)} сделок/мес`, String(n)]}
+                    formatter={(v: number | undefined, n) =>
+                      v == null || Number.isNaN(v) ? ["—", String(n)] : [`${dec1Fmt.format(v)} сделок/мес`, String(n)]
+                    }
                     contentStyle={{
                       borderRadius: 10,
                       border: presentation ? "1px solid rgba(148,163,184,0.45)" : "1px solid rgba(203,213,225,0.9)",
@@ -1759,7 +1779,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                   />
                   <Line type="monotone" dataKey="plannedRate" name="Плановый темп" stroke={presentation ? "rgba(226,232,240,0.9)" : "#64748b"} strokeWidth={1.8} strokeDasharray="6 4" dot={false} />
                   <Line type="monotone" dataKey="actualRate" name="Фактический темп" stroke="#38bdf8" strokeWidth={2.4} dot={false} />
-                  <Line type="monotone" dataKey="requiredRate" name="Требуемый темп" stroke={presentation ? "#fb7185" : "#ef4444"} strokeWidth={2.6} dot={false} style={{ filter: "drop-shadow(0 0 4px rgba(244,63,94,0.45))" }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1814,13 +1833,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               </div>
               <div>
                 <div className={`mb-1 flex items-center justify-between text-xs ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                  <span>Требуемый</span>
-                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.requiredPerMonth)}</span>
+                  <span>Плановый</span>
+                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.planPerMonth)}</span>
                 </div>
                 <div className={presentation ? "h-2 rounded-full bg-slate-800" : "h-2 rounded-full bg-slate-200"}>
                   <div
-                    className="h-2 rounded-full bg-rose-500"
-                    style={{ width: `${Math.min(100, (velocityMetrics.requiredPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%` }}
+                    className={presentation ? "h-2 rounded-full bg-slate-400" : "h-2 rounded-full bg-slate-500"}
+                    style={{ width: `${Math.min(100, (velocityMetrics.planPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%` }}
                   />
                 </div>
               </div>
@@ -1829,7 +1848,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
           <div
             className={`rounded-xl border p-3 ${
-              velocityMetrics.achievable
+              velocityMetrics.delta >= 0
                 ? presentation
                   ? "border-emerald-500/40 bg-emerald-950/15"
                   : "border-emerald-200 bg-emerald-50"
@@ -1840,7 +1859,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           >
             <div
               className={`text-base font-semibold ${
-                velocityMetrics.achievable
+                velocityMetrics.delta >= 0
                   ? presentation
                     ? "text-emerald-200"
                     : "text-emerald-800"
@@ -1849,11 +1868,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                     : "text-red-800"
               }`}
             >
-              {velocityMetrics.achievable ? "План достижим" : "План недостижим при текущем темпе"}
+              {velocityMetrics.verdict}
             </div>
-            <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-              Фактический темп: {dec1Fmt.format(velocityMetrics.actualPerMonth)} / Требуемый темп: {dec1Fmt.format(velocityMetrics.requiredPerMonth)} сделок в месяц.
-            </p>
+            <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>{velocityMetrics.verdictDescription}</p>
           </div>
         </div>
       </div>
