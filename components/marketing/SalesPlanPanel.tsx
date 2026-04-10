@@ -1449,6 +1449,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       };
     });
   }, [monthlyPlanExecutionData]);
+  const velocityLineLastDeviationPct = useMemo(() => {
+    const last = velocityLineData[velocityLineData.length - 1];
+    if (!last) return 0;
+    if (last.plannedRate <= 0) return 0;
+    return Math.round(((last.actualRate - last.plannedRate) / last.plannedRate) * 100);
+  }, [velocityLineData]);
   const velocityMonthlyBarsData = useMemo(
     () =>
       monthlyPlanExecutionData.map((r) => ({
@@ -1472,6 +1478,16 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     });
     return worst;
   }, [velocityMonthlyBarsData]);
+  const velocityBarLastDeviationPct = useMemo(() => {
+    const last = velocityMonthlyBarsData[velocityMonthlyBarsData.length - 1];
+    if (!last) return 0;
+    if (last.plan <= 0) return 0;
+    return Math.round(((last.fact - last.plan) / last.plan) * 100);
+  }, [velocityMonthlyBarsData]);
+  const velocityCompletionPct = useMemo(() => {
+    if (velocityMetrics.planPerMonth <= 0) return 0;
+    return Math.round((velocityMetrics.actualPerMonth / velocityMetrics.planPerMonth) * 100);
+  }, [velocityMetrics.actualPerMonth, velocityMetrics.planPerMonth]);
 
   function velocityFactPlanBarFill(entry: { fact: number; plan: number }): string {
     const { fact, plan } = entry;
@@ -1855,7 +1871,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             >
               <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-cyan-200/80" : "text-slate-600"}`}>Темп по месяцам</div>
               <div className="flex min-h-0 flex-col gap-2">
-                <div className="h-[300px] w-full min-w-0">
+                <div className="relative h-[300px] w-full min-w-0">
+                  <div
+                    aria-hidden
+                    className={
+                      presentation
+                        ? "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_62%,rgba(56,189,248,0.18)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
+                        : "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_62%,rgba(56,189,248,0.12)_0%,rgba(56,189,248,0.03)_36%,rgba(255,255,255,0)_72%)]"
+                    }
+                  />
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={velocityLineData} margin={{ top: 12, right: 10, left: 0, bottom: 10 }}>
                   <defs>
@@ -1923,16 +1947,78 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                         <g>
                           <circle cx={cx} cy={cy} r={11} fill="#38bdf8" fillOpacity={0.22} filter={`url(#${salesVelocityUid}-lastDotGlow)`} />
                           <circle cx={cx} cy={cy} r={6} fill="#fefce8" stroke="#38bdf8" strokeWidth={2.2} />
+                          <g transform={`translate(${cx + 18}, ${cy - 16})`}>
+                            <rect
+                              x={0}
+                              y={-11}
+                              rx={999}
+                              ry={999}
+                              width={52}
+                              height={24}
+                              fill={
+                                velocityLineLastDeviationPct < 0
+                                  ? presentation
+                                    ? "rgba(244,63,94,0.30)"
+                                    : "rgba(254,226,226,0.95)"
+                                  : presentation
+                                    ? "rgba(16,185,129,0.30)"
+                                    : "rgba(220,252,231,0.95)"
+                              }
+                              stroke={
+                                velocityLineLastDeviationPct < 0
+                                  ? presentation
+                                    ? "rgba(251,113,133,0.65)"
+                                    : "rgba(225,29,72,0.5)"
+                                  : presentation
+                                    ? "rgba(52,211,153,0.65)"
+                                    : "rgba(22,163,74,0.5)"
+                              }
+                              style={{
+                                filter:
+                                  velocityLineLastDeviationPct < 0
+                                    ? "drop-shadow(0 0 10px rgba(255,80,80,0.4))"
+                                    : "drop-shadow(0 0 10px rgba(34,197,94,0.35))",
+                              }}
+                            />
+                            <text
+                              x={26}
+                              y={4}
+                              textAnchor="middle"
+                              className="text-[12px] font-bold tabular-nums"
+                              fill={
+                                velocityLineLastDeviationPct < 0
+                                  ? presentation
+                                    ? "#fecdd3"
+                                    : "#be123c"
+                                  : presentation
+                                    ? "#bbf7d0"
+                                    : "#166534"
+                              }
+                            >
+                              {velocityLineLastDeviationPct >= 0 ? "+" : ""}
+                              {velocityLineLastDeviationPct}%
+                            </text>
+                          </g>
                         </g>
                       );
                     }}
                     isAnimationActive={false}
-                    style={{ filter: `url(#${salesVelocityUid}-actualGlow)` }}
+                    style={{ filter: `url(#${salesVelocityUid}-actualGlow) drop-shadow(0 0 7px rgba(56,189,248,0.45))` }}
                   />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="h-[18px]" aria-hidden />
+                <div className={`flex h-[18px] items-center justify-center gap-x-3 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className={`h-2 w-2 rounded-full ${presentation ? "bg-slate-300" : "bg-slate-500"}`} />
+                    <span>Факт</span>
+                  </span>
+                  <span aria-hidden>—</span>
+                  <span className="tabular-nums">{velocityCompletionPct}%</span>
+                  <span className={`font-semibold tabular-nums ${presentation ? "text-amber-200" : "text-amber-700"}`}>
+                    {dec1Fmt.format(velocityMetrics.actualPerMonth)} сделок
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1947,7 +2033,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             >
               <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>Факт по месяцам vs план</div>
               <div className="flex min-h-0 flex-col gap-2">
-                <div className="h-[300px] w-full min-w-0">
+                <div className="relative h-[300px] w-full min-w-0">
+                  <div
+                    aria-hidden
+                    className={
+                      presentation
+                        ? "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_52%_62%,rgba(250,204,21,0.16)_0%,rgba(250,204,21,0.05)_36%,rgba(15,23,42,0)_74%)]"
+                        : "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_52%_62%,rgba(250,204,21,0.11)_0%,rgba(250,204,21,0.03)_34%,rgba(255,255,255,0)_72%)]"
+                    }
+                  />
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                     data={velocityMonthlyBarsData}
@@ -2027,6 +2121,72 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                           />
                         );
                       })}
+                      <LabelList
+                        dataKey="fact"
+                        content={(props: { x?: number | string; y?: number | string; width?: number | string; index?: number }) => {
+                          if (props.index !== velocityMonthlyBarsData.length - 1) return null;
+                          const x = typeof props.x === "number" ? props.x : Number(props.x);
+                          const y = typeof props.y === "number" ? props.y : Number(props.y);
+                          const width = typeof props.width === "number" ? props.width : Number(props.width);
+                          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width)) return null;
+                          const cx = x + width + 14;
+                          const cy = y - 14;
+                          return (
+                            <g>
+                              <rect
+                                x={cx - 26}
+                                y={cy - 12}
+                                rx={999}
+                                ry={999}
+                                width={52}
+                                height={24}
+                                fill={
+                                  velocityBarLastDeviationPct < 0
+                                    ? presentation
+                                      ? "rgba(244,63,94,0.30)"
+                                      : "rgba(254,226,226,0.95)"
+                                    : presentation
+                                      ? "rgba(16,185,129,0.30)"
+                                      : "rgba(220,252,231,0.95)"
+                                }
+                                stroke={
+                                  velocityBarLastDeviationPct < 0
+                                    ? presentation
+                                      ? "rgba(251,113,133,0.65)"
+                                      : "rgba(225,29,72,0.5)"
+                                    : presentation
+                                      ? "rgba(52,211,153,0.65)"
+                                      : "rgba(22,163,74,0.5)"
+                                }
+                                style={{
+                                  filter:
+                                    velocityBarLastDeviationPct < 0
+                                      ? "drop-shadow(0 0 10px rgba(255,80,80,0.4))"
+                                      : "drop-shadow(0 0 10px rgba(34,197,94,0.35))",
+                                }}
+                              />
+                              <text
+                                x={cx}
+                                y={cy + 4}
+                                textAnchor="middle"
+                                className="text-[12px] font-bold tabular-nums"
+                                fill={
+                                  velocityBarLastDeviationPct < 0
+                                    ? presentation
+                                      ? "#fecdd3"
+                                      : "#be123c"
+                                    : presentation
+                                      ? "#bbf7d0"
+                                      : "#166534"
+                                }
+                              >
+                                {velocityBarLastDeviationPct >= 0 ? "+" : ""}
+                                {velocityBarLastDeviationPct}%
+                              </text>
+                            </g>
+                          );
+                        }}
+                      />
                     </Bar>
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -2034,7 +2194,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 <div
                   role="group"
                   aria-label="Легенда графика: факт и план"
-                  className={`flex h-[18px] items-center justify-center gap-x-5 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
+                  className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
                 >
                   <div className="flex items-center gap-2">
                     <span
@@ -2062,44 +2222,53 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         <div
           className={
             presentation
-              ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-r from-slate-900/60 via-slate-900/42 to-slate-900/60"
-              : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50"
+              ? "relative mt-4 overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
+              : "relative mt-4 overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
           }
         >
-          <div className="grid grid-cols-1 overflow-hidden rounded-xl xl:grid-cols-3">
+          <div
+            aria-hidden
+            className={
+              presentation
+                ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
+                : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
+            }
+          />
+
+          <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
             <div
-              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
+              className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
                 presentation
-                  ? "bg-gradient-to-r from-rose-900/70 to-rose-700/40 text-rose-100"
-                  : "bg-gradient-to-r from-rose-200 to-rose-100 text-rose-800"
+                  ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
+                  : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
               }`}
             >
               ПРОБЛЕМА
             </div>
             <div
-              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
+              className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
                 presentation
-                  ? "bg-gradient-to-r from-slate-700/65 to-slate-600/50 text-slate-100"
-                  : "bg-gradient-to-r from-slate-200 to-slate-100 text-slate-700"
+                  ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
+                  : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
               }`}
             >
               ПРИЧИНА
             </div>
             <div
-              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
+              className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
                 presentation
-                  ? "bg-gradient-to-r from-emerald-700/55 to-emerald-500/40 text-emerald-100"
-                  : "bg-gradient-to-r from-emerald-200 to-emerald-100 text-emerald-800"
+                  ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
+                  : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
               }`}
             >
               ДЕЙСТВИЕ
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3">
+          <div className="relative grid grid-cols-1 xl:grid-cols-3">
             <div className="p-4">
               <div
-                className={`text-xl font-bold tabular-nums ${
+                className={`text-2xl font-bold tabular-nums ${
                   velocityMonthDeviation < 0
                     ? presentation
                       ? "text-rose-300"
@@ -2118,8 +2287,24 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               </p>
             </div>
 
-            <div className={`p-4 xl:border-l xl:border-r ${presentation ? "xl:border-slate-700/45" : "xl:border-slate-200"}`}>
-              <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className="relative p-4">
+              <div
+                aria-hidden
+                className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
+                  presentation
+                    ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
+                    : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
+                }`}
+              />
+              <div
+                aria-hidden
+                className={`pointer-events-none absolute inset-y-3 right-0 hidden w-px xl:block ${
+                  presentation
+                    ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
+                    : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
+                }`}
+              />
+              <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
                 Снижение темпа продаж наблюдается с января; основной вклад в недобор дает сегмент с длинным циклом сделки и более слабой конверсией на
                 финальных этапах воронки.
               </p>
