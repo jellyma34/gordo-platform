@@ -1429,6 +1429,67 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   }, [monthlyPlanExecutionData, currentMonthIdx]);
   const velocityMonthDeviation = velocityMetrics.monthFact - velocityMetrics.planPerMonth;
   const velocityMonthDeviationPct = velocityMetrics.planPerMonth > 0 ? (velocityMonthDeviation / velocityMetrics.planPerMonth) * 100 : 0;
+  const salesStructureRows = useMemo(() => {
+    const byId = new Map(radarCategoriesAdjusted.map((r) => [r.id, r]));
+    const apt1 = byId.get("apt-1");
+    const apt2 = byId.get("apt-2");
+    const apt3 = byId.get("apt-3");
+    const parking = byId.get("parking-r");
+    const storages = byId.get("storage-r");
+    const commercial = byId.get("commercial-r");
+    const apartmentsTotal = categoriesAdjusted.find((c) => c.id === "apartments");
+    const apt4PlanRub = Math.max(0, (apartmentsTotal?.planCumulative ?? 0) - ((apt1?.planCumulative ?? 0) + (apt2?.planCumulative ?? 0) + (apt3?.planCumulative ?? 0)));
+    const apt4FactRub = Math.max(0, (apartmentsTotal?.factCumulative ?? 0) - ((apt1?.factCumulative ?? 0) + (apt2?.factCumulative ?? 0) + (apt3?.factCumulative ?? 0)));
+
+    const planAvgDealRub = rev.planCumulative / Math.max(1, report.salesData.units.planCumulative);
+    const factAvgDealRub = baseRev.factCumulative / Math.max(1, report.salesData.units.factCumulative);
+    const toUnits = (rub: number, avg: number) => (avg > 0 ? Math.max(0, Math.round(rub / avg)) : 0);
+
+    const rows = [
+      { key: "apt-1", label: "1-комнатные", planRub: apt1?.planCumulative ?? 0, factRub: apt1?.factCumulative ?? 0 },
+      { key: "apt-2", label: "2-комнатные", planRub: apt2?.planCumulative ?? 0, factRub: apt2?.factCumulative ?? 0 },
+      { key: "apt-3", label: "3-комнатные", planRub: apt3?.planCumulative ?? 0, factRub: apt3?.factCumulative ?? 0 },
+      { key: "apt-4", label: "4+ комнатные", planRub: apt4PlanRub, factRub: apt4FactRub },
+      { key: "parking", label: "Парковки", planRub: parking?.planCumulative ?? 0, factRub: parking?.factCumulative ?? 0 },
+      { key: "storages", label: "Кладовые", planRub: storages?.planCumulative ?? 0, factRub: storages?.factCumulative ?? 0 },
+      { key: "commercial", label: "Коммерция", planRub: commercial?.planCumulative ?? 0, factRub: commercial?.factCumulative ?? 0 },
+    ];
+
+    return rows.map((row) => {
+      const planUnits = toUnits(row.planRub, planAvgDealRub);
+      const factUnits = toUnits(row.factRub, factAvgDealRub);
+      const pct = planUnits > 0 ? (factUnits / planUnits) * 100 : 0;
+      return {
+        ...row,
+        planUnits,
+        factUnits,
+        percent: pct,
+        deltaUnits: factUnits - planUnits,
+        deltaRub: row.factRub - row.planRub,
+      };
+    });
+  }, [radarCategoriesAdjusted, categoriesAdjusted, rev.planCumulative, baseRev.factCumulative, report.salesData.units.planCumulative, report.salesData.units.factCumulative]);
+  const salesStructureBalanceRows = useMemo(() => {
+    const totalPlanUnits = salesStructureRows.reduce((s, r) => s + r.planUnits, 0);
+    const totalFactUnits = salesStructureRows.reduce((s, r) => s + r.factUnits, 0);
+    return salesStructureRows.map((row) => {
+      const planShare = totalPlanUnits > 0 ? (row.planUnits / totalPlanUnits) * 100 : 0;
+      const factShare = totalFactUnits > 0 ? (row.factUnits / totalFactUnits) * 100 : 0;
+      const deltaShare = factShare - planShare;
+      return { ...row, planShare, factShare, deltaShare };
+    });
+  }, [salesStructureRows]);
+  const salesStructureReplacementInsight = useMemo(() => {
+    const positives = [...salesStructureBalanceRows].filter((r) => r.deltaShare > 0).sort((a, b) => b.deltaShare - a.deltaShare);
+    const negatives = [...salesStructureBalanceRows].filter((r) => r.deltaShare < 0).sort((a, b) => a.deltaShare - b.deltaShare);
+    const topPos = positives.slice(0, 2);
+    const topNeg = negatives.slice(0, 2);
+    const replacementText =
+      topPos.length && topNeg.length
+        ? `Рост ${topPos.map((r) => r.label).join(" и ")} происходит за счет ${topNeg.map((r) => r.label).join(" и ")}.`
+        : "Существенных замещений структуры не выявлено.";
+    return { topPos, topNeg, replacementText };
+  }, [salesStructureBalanceRows]);
   const velocityLineData = useMemo((): SalesVelocityLineRow[] => {
     const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
     const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
@@ -2316,6 +2377,213 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 <li>2. Перераспределить бюджет в каналы с лучшим CPL.</li>
                 <li>3. Запустить короткие промо-акции для ускорения сделки.</li>
               </ul>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={
+            presentation
+              ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/80 via-slate-900/55 to-slate-950/90 p-3"
+              : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
+          }
+        >
+          <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-red-200/85" : "text-red-700"}`}>
+            Выполнение структуры продаж (критически важно)
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[980px] w-full border-collapse text-xs">
+              <thead>
+                <tr className={presentation ? "text-slate-400" : "text-slate-600"}>
+                  <th className="px-2 py-1.5 text-left font-semibold">Категория</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">План (шт)</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Факт (шт)</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">% выполнения</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Отклонение (шт)</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">План (руб)</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Факт (руб)</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Отклонение (руб)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesStructureRows.map((row) => {
+                  const isNegative = row.deltaUnits < 0;
+                  const pctTone =
+                    row.percent < 80
+                      ? presentation
+                        ? "bg-rose-500/70"
+                        : "bg-rose-500"
+                      : row.percent <= 100
+                        ? presentation
+                          ? "bg-amber-400/80"
+                          : "bg-amber-500"
+                        : presentation
+                          ? "bg-emerald-500/80"
+                          : "bg-emerald-500";
+                  const rowTone = isNegative
+                    ? presentation
+                      ? "bg-rose-900/12"
+                      : "bg-rose-50/60"
+                    : presentation
+                      ? "bg-emerald-900/10"
+                      : "bg-emerald-50/50";
+                  return (
+                    <tr
+                      key={row.key}
+                      className={`${rowTone} ${presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"}`}
+                    >
+                      <td className={`px-2 py-2 font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{numFmt.format(row.planUnits)}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{numFmt.format(row.factUnits)}</td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-10 text-right font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                            {Math.round(row.percent)}%
+                          </span>
+                          <div className={`h-1.5 w-24 overflow-hidden rounded-full ${presentation ? "bg-slate-700/55" : "bg-slate-200"}`}>
+                            <div className={`h-full rounded-full ${pctTone}`} style={{ width: `${Math.max(0, Math.min(130, row.percent))}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td
+                        className={`px-2 py-2 text-right font-semibold tabular-nums ${
+                          row.deltaUnits < 0
+                            ? presentation
+                              ? "text-rose-300"
+                              : "text-rose-700"
+                            : presentation
+                              ? "text-emerald-300"
+                              : "text-emerald-700"
+                        }`}
+                      >
+                        {row.deltaUnits >= 0 ? "+" : "−"}
+                        {numFmt.format(Math.abs(row.deltaUnits))}
+                      </td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{compactRub(row.planRub)}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{compactRub(row.factRub)}</td>
+                      <td
+                        className={`px-2 py-2 text-right font-semibold tabular-nums ${
+                          row.deltaRub < 0
+                            ? presentation
+                              ? "text-rose-300"
+                              : "text-rose-700"
+                            : presentation
+                              ? "text-emerald-300"
+                              : "text-emerald-700"
+                        }`}
+                      >
+                        {row.deltaRub >= 0 ? "+" : "−"}
+                        {compactRub(Math.abs(row.deltaRub))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div
+          className={
+            presentation
+              ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/75 via-slate-900/50 to-slate-950/90 p-3"
+              : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
+          }
+        >
+          <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/85" : "text-amber-700"}`}>
+            Баланс структуры продаж (перекосы)
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[860px] w-full border-collapse text-xs">
+              <thead>
+                <tr className={presentation ? "text-slate-400" : "text-slate-600"}>
+                  <th className="px-2 py-1.5 text-left font-semibold">Тип</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Доля факт (%)</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Доля план (%)</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Δ доли (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesStructureBalanceRows.map((row) => {
+                  const absDelta = Math.abs(row.deltaShare);
+                  const deltaTone =
+                    absDelta > 5
+                      ? presentation
+                        ? "text-rose-300"
+                        : "text-rose-700"
+                      : absDelta >= 3
+                        ? presentation
+                          ? "text-amber-300"
+                          : "text-amber-700"
+                        : presentation
+                          ? "text-emerald-300"
+                          : "text-emerald-700";
+                  const barTone =
+                    absDelta > 5
+                      ? presentation
+                        ? "bg-rose-500/75"
+                        : "bg-rose-500"
+                      : absDelta >= 3
+                        ? presentation
+                          ? "bg-amber-400/85"
+                          : "bg-amber-500"
+                        : presentation
+                          ? "bg-emerald-500/80"
+                          : "bg-emerald-500";
+                  return (
+                    <tr key={row.key} className={presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"}>
+                      <td className={`px-2 py-2 font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-10 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-800"}`}>{row.factShare.toFixed(1)}%</span>
+                          <div className={`h-1.5 w-28 overflow-hidden rounded-full ${presentation ? "bg-slate-700/55" : "bg-slate-200"}`}>
+                            <div className={`h-full rounded-full ${barTone}`} style={{ width: `${Math.max(0, Math.min(100, row.factShare))}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-10 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{row.planShare.toFixed(1)}%</span>
+                          <div className={`h-1.5 w-28 overflow-hidden rounded-full ${presentation ? "bg-slate-700/45" : "bg-slate-200/80"}`}>
+                            <div className={`${presentation ? "bg-slate-300/70" : "bg-slate-500/60"} h-full rounded-full`} style={{ width: `${Math.max(0, Math.min(100, row.planShare))}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className={`px-2 py-2 text-right font-semibold tabular-nums ${deltaTone}`}>
+                        {row.deltaShare >= 0 ? "+" : "−"}
+                        {Math.abs(row.deltaShare).toFixed(1)}%
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 ${
+              presentation ? "border-slate-600/45 bg-slate-900/45" : "border-slate-200 bg-white/70"
+            }`}
+          >
+            <div className={`text-[11px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>Инсайт замещения</div>
+            <p className={`mt-1 text-sm ${presentation ? "text-slate-200" : "text-slate-800"}`}>{salesStructureReplacementInsight.replacementText}</p>
+            <div className={`mt-1 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2 ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <div>
+                Драйверы:{" "}
+                {salesStructureReplacementInsight.topPos.length
+                  ? salesStructureReplacementInsight.topPos
+                      .map((r) => `${r.label} (+${r.deltaShare.toFixed(1)}%)`)
+                      .join(", ")
+                  : "—"}
+              </div>
+              <div>
+                Вытесняются:{" "}
+                {salesStructureReplacementInsight.topNeg.length
+                  ? salesStructureReplacementInsight.topNeg
+                      .map((r) => `${r.label} (${r.deltaShare.toFixed(1)}%)`)
+                      .join(", ")
+                  : "—"}
+              </div>
             </div>
           </div>
         </div>
