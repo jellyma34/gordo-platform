@@ -342,56 +342,6 @@ function SalesVelocityLineTooltip({
   );
 }
 
-function SalesVelocityFactPlanDeviationLabel({
-  x,
-  y,
-  width,
-  value,
-  presentation,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  value?: unknown;
-  presentation: boolean;
-}) {
-  if (x == null || y == null || width == null) return null;
-  const d = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(d)) return null;
-  const cx = x + width / 2;
-  const labelY = y - 7;
-  const abs = numFmt.format(Math.abs(Math.round(d)));
-  const text = `${d >= 0 ? "+" : "−"}${abs}`;
-  const fill =
-    d < 0
-      ? presentation
-        ? "#fb7185"
-        : "#dc2626"
-      : d === 0
-        ? presentation
-          ? "#94a3b8"
-          : "#64748b"
-        : presentation
-          ? "#4ade80"
-          : "#16a34a";
-  return (
-    <text
-      x={cx}
-      y={labelY}
-      textAnchor="middle"
-      fill={fill}
-      fontSize={10}
-      fontWeight={700}
-      className="tabular-nums"
-      style={{
-        textShadow: presentation ? "0 0 10px rgba(248,250,252,0.22), 0 1px 2px rgba(30,41,59,0.45)" : undefined,
-      }}
-    >
-      {text}
-    </text>
-  );
-}
-
 function SalesVelocityBarTooltip({
   active,
   payload,
@@ -404,9 +354,14 @@ function SalesVelocityBarTooltip({
   presentation: boolean;
 }) {
   if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
+  const row = payload.map((item) => item?.payload).find(
+    (p): p is { label: string; fact: number; plan: number; deviation: number } =>
+      p != null &&
+      typeof (p as { fact?: unknown }).fact === "number" &&
+      typeof (p as { plan?: unknown }).plan === "number",
+  );
   if (!row) return null;
-  const dev = row.deviation;
+  const dev = row.deviation ?? row.fact - row.plan;
   const shell =
     presentation
       ? "max-w-xs rounded-lg border border-sky-500/30 bg-[#0f172a]/95 p-3 text-xs text-slate-200 shadow-[0_0_20px_rgba(56,189,248,0.14)]"
@@ -1454,7 +1409,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const actualPerMonth = currentFact / monthsPassed;
     const delta = actualPerMonth - planPerMonth;
     const tempoPct = planPerMonth > 0 ? (delta / planPerMonth) * 100 : 0;
-    const verdict = delta >= 0 ? "План выполняется по темпу" : "План недостижим при текущем темпе";
     const velocityComparisonMax = Math.max(planPerMonth, actualPerMonth, 1);
     let tone: TrafficStatus;
     if (delta >= 0) {
@@ -1464,10 +1418,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     } else {
       tone = "red";
     }
-    const verdictDescription =
-      delta < 0
-        ? `Фактический темп ниже планового (${dec1Fmt.format(actualPerMonth)} vs ${dec1Fmt.format(planPerMonth)} сделок/мес). Отклонение по темпу: ${tempoPct.toFixed(1)}%.`
-        : `Отклонение по темпу: ${tempoPct >= 0 ? "+" : ""}${tempoPct.toFixed(1)}% (${dec1Fmt.format(actualPerMonth)} vs ${dec1Fmt.format(planPerMonth)} сделок/мес).`;
     const tempoDeltaLabel =
       tempoPct >= 0 ? `+${tempoPct.toFixed(1)}% к плановому темпу` : `−${Math.abs(tempoPct).toFixed(1)}% к плановому темпу`;
     return {
@@ -1481,12 +1431,32 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       delta,
       tempoPct,
       tempoDeltaLabel,
-      verdict,
-      verdictDescription,
       velocityComparisonMax,
       tone,
     };
   }, [monthlyPlanExecutionData, currentMonthIdx]);
+  const velocityKpiCards = [
+    { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
+    { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: presentation ? "text-slate-100" : "text-slate-900" },
+    { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
+    {
+      key: "actual-rate",
+      title: "Фактический темп",
+      value: velocityMetrics.actualPerMonth,
+      tone:
+        velocityMetrics.tone === "green"
+          ? presentation
+            ? "text-emerald-300"
+            : "text-emerald-700"
+          : velocityMetrics.tone === "yellow"
+            ? presentation
+              ? "text-amber-300"
+              : "text-amber-700"
+            : presentation
+              ? "text-red-300"
+              : "text-red-700",
+    },
+  ];
   const velocityLineData = useMemo((): SalesVelocityLineRow[] => {
     const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
     const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
@@ -1902,44 +1872,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           <p className={sub}>Сравнение фактического и планового темпа по сделкам и сигнал для решений.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
-            { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: presentation ? "text-slate-100" : "text-slate-900" },
-            { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
-            {
-              key: "actual-rate",
-              title: "Фактический темп",
-              value: velocityMetrics.actualPerMonth,
-              tone:
-                velocityMetrics.tone === "green"
-                  ? presentation
-                    ? "text-emerald-300"
-                    : "text-emerald-700"
-                  : velocityMetrics.tone === "yellow"
-                    ? presentation
-                      ? "text-amber-300"
-                      : "text-amber-700"
-                    : presentation
-                      ? "text-red-300"
-                      : "text-red-700",
-            },
-          ].map((m) => (
-            <div
-              key={m.key}
-              className={
-                presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3" : "rounded-xl border border-slate-200 bg-white p-3"
-              }
-            >
-              <div className={sub}>{m.title}</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${m.tone}`}>
-                {dec1Fmt.format(m.value)} <span className="text-xs font-normal">сделок/мес</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="mt-1 grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div
             className={
               presentation
@@ -2035,113 +1968,114 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             }
           >
             <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>Факт по месяцам vs план</div>
-            <div className="h-[248px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={velocityMonthlyBarsData} margin={{ top: 26, right: 10, left: 0, bottom: 10 }}>
-                  <defs>
-                    <linearGradient id={`${salesVelocityUid}-barGreen`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#bbf7d0" />
-                      <stop offset="40%" stopColor="#4ade80" />
-                      <stop offset="100%" stopColor="#15803d" />
-                    </linearGradient>
-                    <linearGradient id={`${salesVelocityUid}-barYellow`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#fef9c3" />
-                      <stop offset="45%" stopColor="#facc15" />
-                      <stop offset="100%" stopColor="#a16207" />
-                    </linearGradient>
-                    <linearGradient id={`${salesVelocityUid}-barRed`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#fecdd3" />
-                      <stop offset="50%" stopColor="#f87171" />
-                      <stop offset="100%" stopColor="#b91c1c" />
-                    </linearGradient>
-                    <filter id={`${salesVelocityUid}-barSoftGlow`} x="-40%" y="-40%" width="180%" height="180%">
-                      <feGaussianBlur stdDeviation="2.4" result="bg" />
-                      <feMerge>
-                        <feMergeNode in="bg" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                  <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
-                  <Tooltip content={<SalesVelocityBarTooltip presentation={presentation} />} />
-                  <Bar
-                    dataKey="fact"
-                    name="Факт"
-                    fill={`url(#${salesVelocityUid}-barYellow)`}
-                    maxBarSize={28}
-                    radius={[9, 9, 3, 3]}
-                    style={{ filter: `url(#${salesVelocityUid}-barSoftGlow)` }}
+            <div className="flex min-h-0 flex-col gap-2">
+              <div className="h-[228px] w-full min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={velocityMonthlyBarsData}
+                    margin={{ top: 6, right: 10, left: 0, bottom: 2 }}
+                    barGap="-100%"
+                    barCategoryGap="14%"
                   >
-                    {velocityMonthlyBarsData.map((entry, index) => {
-                      const isWorst = index === velocityFactPlanWorstIndex && velocityFactPlanWorstIndex >= 0;
-                      return (
-                        <Cell
-                          key={`velocity-fact-${entry.label}-${index}`}
-                          fill={velocityFactPlanBarFill(entry)}
-                          stroke={
-                            isWorst
-                              ? presentation
-                                ? "#fda4af"
-                                : "#e11d48"
-                              : presentation
-                                ? "rgba(255,255,255,0.38)"
-                                : "rgba(248,250,252,0.65)"
-                          }
-                          strokeWidth={isWorst ? 2.75 : 1.1}
-                          style={
-                            isWorst
-                              ? { filter: "drop-shadow(0 0 10px rgba(244,63,94,0.75))" }
-                              : undefined
-                          }
-                        />
-                      );
-                    })}
-                    <LabelList
-                      dataKey="deviation"
-                      position="top"
-                      content={(props: { x?: number; y?: number; width?: number; value?: unknown }) => (
-                        <SalesVelocityFactPlanDeviationLabel
-                          x={props.x}
-                          y={props.y}
-                          width={props.width}
-                          value={props.value}
-                          presentation={presentation}
-                        />
-                      )}
+                    <defs>
+                      <linearGradient id={`${salesVelocityUid}-barGreen`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#bbf7d0" />
+                        <stop offset="40%" stopColor="#4ade80" />
+                        <stop offset="100%" stopColor="#15803d" />
+                      </linearGradient>
+                      <linearGradient id={`${salesVelocityUid}-barYellow`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fef9c3" />
+                        <stop offset="45%" stopColor="#facc15" />
+                        <stop offset="100%" stopColor="#a16207" />
+                      </linearGradient>
+                      <linearGradient id={`${salesVelocityUid}-barRed`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fecdd3" />
+                        <stop offset="50%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#b91c1c" />
+                      </linearGradient>
+                      <filter id={`${salesVelocityUid}-barSoftGlow`} x="-40%" y="-40%" width="180%" height="180%">
+                        <feGaussianBlur stdDeviation="2.4" result="bg" />
+                        <feMerge>
+                          <feMergeNode in="bg" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                    <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
+                    <Tooltip content={<SalesVelocityBarTooltip presentation={presentation} />} />
+                    <Bar
+                      dataKey="plan"
+                      name="План"
+                      fill={presentation ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
+                      stroke={presentation ? "rgba(255,255,255,0.28)" : "rgba(100,116,139,0.45)"}
+                      strokeWidth={0.9}
+                      maxBarSize={36}
+                      radius={[8, 8, 2, 2]}
+                      isAnimationActive={false}
+                      legendType="rect"
                     />
-                  </Bar>
-                  <Line
-                    type="linear"
-                    dataKey="plan"
-                    name="План"
-                    stroke={presentation ? "rgba(255,255,255,0.95)" : "#64748b"}
-                    strokeWidth={presentation ? 2.2 : 2}
-                    strokeDasharray="6 5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    dot={(dotProps: { cx?: number; cy?: number; index?: number }) => {
-                      if (dotProps.index !== velocityMonthlyBarsData.length - 1) return null;
-                      if (dotProps.cx == null || dotProps.cy == null) return null;
-                      return (
-                        <circle
-                          cx={dotProps.cx}
-                          cy={dotProps.cy}
-                          r={6}
-                          fill="#5CE1FF"
-                          stroke="#FFFFFF"
-                          strokeWidth={2}
-                          style={{
-                            filter: "drop-shadow(0 0 6px rgba(92,225,255,0.9))",
-                          }}
-                        />
-                      );
+                    <Bar
+                      dataKey="fact"
+                      name="Факт"
+                      fill={`url(#${salesVelocityUid}-barYellow)`}
+                      maxBarSize={24}
+                      radius={[7, 7, 2, 2]}
+                      style={{ filter: `url(#${salesVelocityUid}-barSoftGlow)` }}
+                      legendType="rect"
+                    >
+                      {velocityMonthlyBarsData.map((entry, index) => {
+                        const isWorst = index === velocityFactPlanWorstIndex && velocityFactPlanWorstIndex >= 0;
+                        return (
+                          <Cell
+                            key={`velocity-fact-${entry.label}-${index}`}
+                            fill={velocityFactPlanBarFill(entry)}
+                            stroke={
+                              isWorst
+                                ? presentation
+                                  ? "#fda4af"
+                                  : "#e11d48"
+                                : presentation
+                                  ? "rgba(255,255,255,0.38)"
+                                  : "rgba(248,250,252,0.65)"
+                            }
+                            strokeWidth={isWorst ? 2.75 : 1.1}
+                            style={
+                              isWorst
+                                ? { filter: "drop-shadow(0 0 10px rgba(244,63,94,0.75))" }
+                                : undefined
+                            }
+                          />
+                        );
+                      })}
+                    </Bar>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div
+                role="group"
+                aria-label="Легенда графика: факт и план"
+                className={`flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
+                    style={{
+                      background: presentation
+                        ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
+                        : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
                     }}
-                    isAnimationActive={false}
                   />
-                </ComposedChart>
-              </ResponsiveContainer>
+                  <span>Факт</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`}
+                  />
+                  <span>План</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2212,50 +2146,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             </p>
           </div>
 
-          <div
-            className="relative overflow-hidden rounded-xl p-3"
-            style={{
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor:
-                velocityMetrics.delta >= 0
-                  ? presentation
-                    ? "rgba(52,211,153,0.5)"
-                    : "rgba(16,185,129,0.45)"
-                  : presentation
-                    ? "rgba(251,113,133,0.55)"
-                    : "rgba(239,68,68,0.45)",
-              boxShadow:
-                velocityMetrics.delta >= 0
-                  ? presentation
-                    ? "0 0 32px rgba(34,197,94,0.2), inset 0 0 0 1px rgba(52,211,153,0.35), inset 0 0 40px rgba(16,185,129,0.08)"
-                    : "0 0 20px rgba(16,185,129,0.15), inset 0 0 0 1px rgba(52,211,153,0.25)"
-                  : presentation
-                    ? "0 0 36px rgba(239,68,68,0.28), inset 0 0 0 1px rgba(251,113,133,0.42), inset 0 0 48px rgba(127,29,29,0.12)"
-                    : "0 0 18px rgba(239,68,68,0.12), inset 0 0 0 1px rgba(248,113,113,0.35)",
-              background: presentation
-                ? velocityMetrics.delta >= 0
-                  ? "linear-gradient(148deg, rgba(6,78,59,0.42) 0%, rgba(15,23,42,0.88) 45%, rgba(15,23,42,0.97) 100%)"
-                  : "linear-gradient(148deg, rgba(127,29,29,0.48) 0%, rgba(30,41,59,0.55) 38%, rgba(15,23,42,0.96) 100%)"
-                : velocityMetrics.delta >= 0
-                  ? "linear-gradient(148deg, rgba(209,250,229,0.95) 0%, rgba(255,255,255,0.98) 100%)"
-                  : "linear-gradient(148deg, rgba(254,226,226,0.95) 0%, rgba(255,255,255,0.98) 100%)",
-            }}
-          >
-            <div
-              className={`relative text-base font-semibold ${
-                velocityMetrics.delta >= 0
-                  ? presentation
-                    ? "text-emerald-200"
-                    : "text-emerald-800"
-                  : presentation
-                    ? "text-red-200"
-                    : "text-red-800"
-              }`}
-            >
-              {velocityMetrics.verdict}
-            </div>
-            <p className={`relative mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>{velocityMetrics.verdictDescription}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {velocityKpiCards.map((m) => (
+              <div
+                key={m.key}
+                className={
+                  presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3" : "rounded-xl border border-slate-200 bg-white p-3"
+                }
+              >
+                <div className={sub}>{m.title}</div>
+                <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${m.tone}`}>
+                  {dec1Fmt.format(m.value)} <span className="text-xs font-normal">сделок/мес</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
