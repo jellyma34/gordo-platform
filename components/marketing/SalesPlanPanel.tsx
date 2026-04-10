@@ -1408,8 +1408,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const planPerMonth = totalPlan / totalMonths;
     const actualPerMonth = currentFact / monthsPassed;
     const delta = actualPerMonth - planPerMonth;
-    const tempoPct = planPerMonth > 0 ? (delta / planPerMonth) * 100 : 0;
-    const velocityComparisonMax = Math.max(planPerMonth, actualPerMonth, 1);
     let tone: TrafficStatus;
     if (delta >= 0) {
       tone = "green";
@@ -1418,8 +1416,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     } else {
       tone = "red";
     }
-    const tempoDeltaLabel =
-      tempoPct >= 0 ? `+${tempoPct.toFixed(1)}% к плановому темпу` : `−${Math.abs(tempoPct).toFixed(1)}% к плановому темпу`;
     return {
       totalMonths,
       monthsPassed,
@@ -1428,35 +1424,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       monthFact,
       planPerMonth,
       actualPerMonth,
-      delta,
-      tempoPct,
-      tempoDeltaLabel,
-      velocityComparisonMax,
       tone,
     };
   }, [monthlyPlanExecutionData, currentMonthIdx]);
-  const velocityKpiCards = [
-    { key: "plan-month", title: "План на месяц", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
-    { key: "fact-month", title: "Факт за месяц", value: velocityMetrics.monthFact, tone: presentation ? "text-slate-100" : "text-slate-900" },
-    { key: "plan-rate", title: "Плановый темп", value: velocityMetrics.planPerMonth, tone: presentation ? "text-slate-100" : "text-slate-900" },
-    {
-      key: "actual-rate",
-      title: "Фактический темп",
-      value: velocityMetrics.actualPerMonth,
-      tone:
-        velocityMetrics.tone === "green"
-          ? presentation
-            ? "text-emerald-300"
-            : "text-emerald-700"
-          : velocityMetrics.tone === "yellow"
-            ? presentation
-              ? "text-amber-300"
-              : "text-amber-700"
-            : presentation
-              ? "text-red-300"
-              : "text-red-700",
-    },
-  ];
+  const velocityMonthDeviation = velocityMetrics.monthFact - velocityMetrics.planPerMonth;
+  const velocityMonthDeviationPct = velocityMetrics.planPerMonth > 0 ? (velocityMonthDeviation / velocityMetrics.planPerMonth) * 100 : 0;
   const velocityLineData = useMemo((): SalesVelocityLineRow[] => {
     const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
     const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
@@ -1872,18 +1844,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           <p className={sub}>Сравнение фактического и планового темпа по сделкам и сигнал для решений.</p>
         </div>
 
-        <div className="mt-1 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div
-            className={
-              presentation
-                ? "rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
-            }
-          >
-            <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-cyan-200/80" : "text-slate-600"}`}>Темп по месяцам</div>
-            <div className="h-[220px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={velocityLineData} margin={{ top: 12, right: 10, left: 0, bottom: 10 }}>
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            <div
+              className={
+                presentation
+                  ? "rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
+              }
+            >
+              <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-cyan-200/80" : "text-slate-600"}`}>Темп по месяцам</div>
+              <div className="flex min-h-0 flex-col gap-2">
+                <div className="h-[300px] w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={velocityLineData} margin={{ top: 12, right: 10, left: 0, bottom: 10 }}>
                   <defs>
                     <linearGradient id={`${salesVelocityUid}-actualStroke`} x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
                       <stop offset="0%" stopColor="#38bdf8" />
@@ -1955,23 +1929,27 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                     isAnimationActive={false}
                     style={{ filter: `url(#${salesVelocityUid}-actualGlow)` }}
                   />
-                </ComposedChart>
-              </ResponsiveContainer>
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="h-[18px]" aria-hidden />
+              </div>
             </div>
           </div>
 
-          <div
-            className={
-              presentation
-                ? "rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
-            }
-          >
-            <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>Факт по месяцам vs план</div>
-            <div className="flex min-h-0 flex-col gap-2">
-              <div className="h-[228px] w-full min-w-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
+          <div className="flex flex-col gap-3">
+            <div
+              className={
+                presentation
+                  ? "rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
+              }
+            >
+              <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>Факт по месяцам vs план</div>
+              <div className="flex min-h-0 flex-col gap-2">
+                <div className="h-[300px] w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
                     data={velocityMonthlyBarsData}
                     margin={{ top: 6, right: 10, left: 0, bottom: 2 }}
                     barGap="-100%"
@@ -2050,116 +2028,110 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                         );
                       })}
                     </Bar>
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div
-                role="group"
-                aria-label="Легенда графика: факт и план"
-                className={`flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
-                    style={{
-                      background: presentation
-                        ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
-                        : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
-                    }}
-                  />
-                  <span>Факт</span>
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`}
-                  />
-                  <span>План</span>
+                <div
+                  role="group"
+                  aria-label="Легенда графика: факт и план"
+                  className={`flex h-[18px] items-center justify-center gap-x-5 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
+                      style={{
+                        background: presentation
+                          ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
+                          : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
+                      }}
+                    />
+                    <span>Факт</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`}
+                    />
+                    <span>План</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-          <div
-            className={
-              presentation
-                ? "rounded-xl border border-slate-500/30 bg-gradient-to-br from-slate-900/75 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                : "rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/90 p-3"
-            }
-          >
-            <div className={sub}>Сравнение темпов</div>
-            <div className="mt-2 space-y-3">
-              <div>
-                <div className={`mb-1 flex items-center justify-between text-xs ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                  <span>Фактический</span>
-                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.actualPerMonth)}</span>
-                </div>
-                <div className={`h-2.5 w-full overflow-hidden rounded-full ${presentation ? "bg-slate-700/50" : "bg-slate-200/90"}`}>
-                  <div
-                    className="h-2.5 rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(100, (velocityMetrics.actualPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%`,
-                      background:
-                        velocityMetrics.delta >= 0
-                          ? "linear-gradient(90deg, #047857 0%, #10b981 42%, #6ee7b7 100%)"
-                          : "linear-gradient(90deg, #7f1d1d 0%, #ef4444 48%, #fb7185 100%)",
-                      boxShadow:
-                        velocityMetrics.delta >= 0
-                          ? "0 0 14px rgba(52,211,153,0.45), 0 0 4px rgba(16,185,129,0.35)"
-                          : "0 0 16px rgba(248,113,113,0.5), 0 0 4px rgba(239,68,68,0.35)",
-                    }}
-                  />
-                </div>
-              </div>
-              <div>
-                <div className={`mb-1 flex items-center justify-between text-xs ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                  <span>Плановый</span>
-                  <span className="tabular-nums">{dec1Fmt.format(velocityMetrics.planPerMonth)}</span>
-                </div>
-                <div className={`h-2.5 w-full overflow-hidden rounded-full ${presentation ? "bg-slate-700/50" : "bg-slate-200/90"}`}>
-                  <div
-                    className="h-2.5 rounded-full"
-                    style={{
-                      width: `${Math.min(100, (velocityMetrics.planPerMonth / velocityMetrics.velocityComparisonMax) * 100)}%`,
-                      background: presentation
-                        ? "linear-gradient(90deg, rgba(226,232,240,0.35) 0%, rgba(248,250,252,0.75) 55%, rgba(203,213,225,0.9) 100%)"
-                        : "linear-gradient(90deg, #cbd5e1 0%, #94a3b8 100%)",
-                      boxShadow: presentation ? "0 0 10px rgba(248,250,252,0.12)" : "0 0 6px rgba(148,163,184,0.25)",
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-            <p
-              className={`mt-2.5 text-[11px] font-semibold tabular-nums ${
-                velocityMetrics.tempoPct >= 0
-                  ? presentation
-                    ? "text-emerald-300/90"
-                    : "text-emerald-700"
-                  : presentation
-                    ? "text-rose-300/90"
-                    : "text-rose-700"
+        <div
+          className={
+            presentation
+              ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-r from-slate-900/60 via-slate-900/42 to-slate-900/60"
+              : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50"
+          }
+        >
+          <div className="grid grid-cols-1 overflow-hidden rounded-xl xl:grid-cols-3">
+            <div
+              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
+                presentation
+                  ? "bg-gradient-to-r from-rose-900/70 to-rose-700/40 text-rose-100"
+                  : "bg-gradient-to-r from-rose-200 to-rose-100 text-rose-800"
               }`}
             >
-              {velocityMetrics.tempoDeltaLabel}
-            </p>
+              ПРОБЛЕМА
+            </div>
+            <div
+              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
+                presentation
+                  ? "bg-gradient-to-r from-slate-700/65 to-slate-600/50 text-slate-100"
+                  : "bg-gradient-to-r from-slate-200 to-slate-100 text-slate-700"
+              }`}
+            >
+              ПРИЧИНА
+            </div>
+            <div
+              className={`px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
+                presentation
+                  ? "bg-gradient-to-r from-emerald-700/55 to-emerald-500/40 text-emerald-100"
+                  : "bg-gradient-to-r from-emerald-200 to-emerald-100 text-emerald-800"
+              }`}
+            >
+              ДЕЙСТВИЕ
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {velocityKpiCards.map((m) => (
+          <div className="grid grid-cols-1 xl:grid-cols-3">
+            <div className="p-4">
               <div
-                key={m.key}
-                className={
-                  presentation ? "rounded-xl border border-slate-600/40 bg-slate-900/35 p-3" : "rounded-xl border border-slate-200 bg-white p-3"
-                }
+                className={`text-xl font-bold tabular-nums ${
+                  velocityMonthDeviation < 0
+                    ? presentation
+                      ? "text-rose-300"
+                      : "text-rose-700"
+                    : presentation
+                      ? "text-emerald-300"
+                      : "text-emerald-700"
+                }`}
               >
-                <div className={sub}>{m.title}</div>
-                <div className={`mt-1 text-lg font-bold tabular-nums sm:text-xl ${m.tone}`}>
-                  {dec1Fmt.format(m.value)} <span className="text-xs font-normal">сделок/мес</span>
-                </div>
+                {velocityMonthDeviation < 0 ? "−" : "+"}
+                {numFmt.format(Math.abs(Math.round(velocityMonthDeviation)))} сделок ({velocityMonthDeviationPct >= 0 ? "+" : ""}
+                {velocityMonthDeviationPct.toFixed(1)}%)
               </div>
-            ))}
+              <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                {velocityMonthDeviation < 0 ? "Факт за месяц ниже плана." : "Факт за месяц выше плана."}
+              </p>
+            </div>
+
+            <div className={`p-4 xl:border-l xl:border-r ${presentation ? "xl:border-slate-700/45" : "xl:border-slate-200"}`}>
+              <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                Снижение темпа продаж наблюдается с января; основной вклад в недобор дает сегмент с длинным циклом сделки и более слабой конверсией на
+                финальных этапах воронки.
+              </p>
+            </div>
+
+            <div className="p-4">
+              <ul className={`space-y-1.5 text-sm ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <li>1. Усилить маркетинг в отстающих сегментах.</li>
+                <li>2. Перераспределить бюджет в каналы с лучшим CPL.</li>
+                <li>3. Запустить короткие промо-акции для ускорения сделки.</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
