@@ -2025,6 +2025,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       name: r.name,
       factConv: Math.round(r.actualConversionPct * 10) / 10,
       planConv: Math.round(r.plannedConversionPct * 10) / 10,
+      factPlanLabel: `${dec1Fmt.format(r.actualConversionPct)}% (plan ${dec1Fmt.format(r.plannedConversionPct)}%)`,
       fill: getUpsellConvColor(r.actualConversionPct, r.plannedConversionPct) || "#FF4D4F",
     }));
     const convChartYMax = Math.min(
@@ -4439,27 +4440,29 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
                 <div className="mt-4 h-[168px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={upsellDiagnosticAnalysis.convCompare} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+            <BarChart
+              data={upsellDiagnosticAnalysis.convCompare}
+              margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+              barGap={8}
+              barCategoryGap="40%"
+            >
+              <XAxis dataKey="factPlanLabel" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} />
               <YAxis
                 tick={{ fill: axisColor, fontSize: 9 }}
                 axisLine={false}
                 width={36}
-                domain={[0, upsellDiagnosticAnalysis.convChartYMax]}
+                domain={[0, 60]}
                 tickFormatter={(v) => `${v}%`}
               />
               <Tooltip formatter={(v: number) => [`${dec1Fmt.format(v)}%`, ""]} contentStyle={{ fontSize: 10, borderRadius: 6 }} />
-              <Line
-                type="monotone"
+              <Bar
                 dataKey="planConv"
                 name="План, %"
-                stroke={presentation ? "rgba(148,163,184,0.9)" : "#374151"}
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                dot={{ r: 2 }}
+                barSize={48}
+                fill="rgba(156,163,175,0.32)"
+                radius={[4, 4, 0, 0]}
               />
-              <Bar dataKey="factConv" name="Факт, %" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="factConv" name="Факт, %" barSize={24} radius={[4, 4, 0, 0]}>
                 {upsellDiagnosticAnalysis.convCompare.map((row, idx) => {
                   return <Cell key={`upsell-conv-cell-${row.name}-${idx}`} fill={row.fill || "#FF4D4F"} />;
                 })}
