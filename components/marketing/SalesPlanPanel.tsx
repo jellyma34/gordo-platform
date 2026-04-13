@@ -1599,11 +1599,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         ? `Критичные минусы: ${topLoss.map((r) => `${r.label} (${compactRub(r.deltaRub)})`).join("; ")}.`
         : "Критичных провалов по выручке по категориям нет.";
     const cause = salesStructureReplacementInsight.replacementText;
+    const topPosShare = salesStructureReplacementInsight.topPos.map((r) => r.label);
+    const topNegShare = salesStructureReplacementInsight.topNeg.map((r) => r.label);
+    const shiftCause =
+      topPosShare.length && topNegShare.length
+        ? `Рост ${topPosShare.join(" и ")} замещает ${topNegShare.join(" и ")}: дешевые сегменты вытесняют более маржинальные.`
+        : cause;
+    const action =
+      topNegShare.length > 0
+        ? `Сместить план продаж в ${topNegShare.join(" и ")} и ограничить давление на низкомаржинальные сегменты.`
+        : "Пересобрать структурный микс в пользу высокомаржинальных сегментов.";
     const consequence =
       negSum < 0
         ? `Суммарно по «минусовым»: ${compactRub(negSum)}; компенсация +${compactRub(posSum)}. На маржу сильнее давят недоборы в дорогих форматах при тех же скидках.`
         : "Сальдо по выручке категорий неотрицательное; маржа зависит от фактических цен по сегментам.";
-    return { rows, problem, cause, consequence, hasUnitsRevenueConflict };
+    return { rows, problem, cause, shiftCause, action, consequence, hasUnitsRevenueConflict, negSum };
   }, [salesStructureRows, rev.planCumulative, salesStructureReplacementInsight]);
   const salesStructureBalanceDiagnostic = useMemo(() => {
     const maxDelta = Math.max(
@@ -3093,20 +3103,68 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             </table>
           </div>
           <div
-            className={`mt-3 space-y-1.5 border-t pt-3 ${presentation ? "border-slate-700/40 text-slate-400" : "border-slate-200 text-slate-600"}`}
+            className={
+              presentation
+                ? "relative mt-3 overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
+                : "relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
+            }
           >
-            <p className="text-[10px] leading-snug">
-              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Проблема: </span>
-              {salesStructureExecutionDiagnostic.problem}
-            </p>
-            <p className="text-[10px] leading-snug">
-              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Причина: </span>
-              {salesStructureExecutionDiagnostic.cause}
-            </p>
-            <p className="text-[10px] leading-snug">
-              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Следствие: </span>
-              {salesStructureExecutionDiagnostic.consequence}
-            </p>
+            <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
+              <div
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
+                  presentation
+                    ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
+                    : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
+                }`}
+              >
+                ПРОБЛЕМА
+              </div>
+              <div
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
+                  presentation
+                    ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
+                    : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
+                }`}
+              >
+                ПРИЧИНА
+              </div>
+              <div
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
+                  presentation
+                    ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
+                    : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
+                }`}
+              >
+                ДЕЙСТВИЕ
+              </div>
+            </div>
+
+            <div className="relative grid grid-cols-1 xl:grid-cols-3">
+              <div className={`p-4 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
+                <p className={`text-xl font-bold tabular-nums ${presentation ? "text-rose-300" : "text-rose-700"}`}>
+                  −{compactRub(Math.abs(salesStructureExecutionDiagnostic.negSum))} (перекос структуры)
+                </p>
+                <p className={`mt-1 text-[11px] leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  деньги не добраны из-за структуры продаж
+                </p>
+              </div>
+              <div className={`p-4 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
+                <p className={`text-[11px] leading-snug ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                  рост кладовых и парковок вытесняет
+                </p>
+                <p className={`mt-0.5 text-[11px] leading-snug ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                  2-комнатные и коммерцию → падение выручки
+                </p>
+              </div>
+              <div className="p-4">
+                <p className={`text-[11px] leading-snug ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
+                  сместить продажи в 2-комнатные и коммерцию
+                </p>
+                <p className={`mt-0.5 text-[11px] leading-snug ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
+                  ограничить давление низкомаржинальных сегментов
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
