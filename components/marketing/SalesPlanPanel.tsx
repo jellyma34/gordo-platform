@@ -4271,7 +4271,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
         </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
             <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
               Сделки по квартирам (база)
@@ -4316,17 +4316,33 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>План upsell, ₽</div>
-            <div className={`mt-1 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {compactRub(upsellDiagnosticAnalysis.totalPlan)}
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>UPSSELL (₽)</div>
+            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <span className={presentation ? "text-sky-200" : "text-sky-800"}>{compactRub(upsellDiagnosticAnalysis.totalActual)}</span>
+              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>/</span>
+              <span>{compactRub(upsellDiagnosticAnalysis.totalPlan)}</span>
+              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план</span>
             </div>
-          </div>
-          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>Факт upsell, ₽</div>
-            <div className={`mt-1 text-xl font-black tabular-nums ${presentation ? "text-sky-200" : "text-sky-800"}`}>
-              {compactRub(upsellDiagnosticAnalysis.totalActual)}
+            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presentation ? "text-violet-200" : "text-violet-800"}`}>
+              {upsellDiagnosticAnalysis.totalPlan > 0
+                ? `${dec1Fmt.format((upsellDiagnosticAnalysis.totalActual / upsellDiagnosticAnalysis.totalPlan) * 100)}% выполнения плана`
+                : "0.0% выполнения плана"}
+            </div>
+            <div
+              className={`mt-1 text-[10px] font-bold tabular-nums ${
+                upsellDiagnosticAnalysis.totalRevDelta >= 0
+                  ? presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+                  : presentation
+                    ? "text-rose-300"
+                    : "text-rose-700"
+              }`}
+            >
+              Δ {upsellDiagnosticAnalysis.totalRevDelta >= 0 ? "+" : "−"}
+              {compactRub(Math.abs(upsellDiagnosticAnalysis.totalRevDelta))}
             </div>
           </div>
           <div
