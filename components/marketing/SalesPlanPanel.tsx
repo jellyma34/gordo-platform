@@ -3111,7 +3111,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           >
             <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
               <div
-                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase leading-none tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
                   presentation
                     ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
                     : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
@@ -3120,7 +3120,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 ПРОБЛЕМА
               </div>
               <div
-                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase leading-none tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
                   presentation
                     ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
                     : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
@@ -3129,7 +3129,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 ПРИЧИНА
               </div>
               <div
-                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
+                className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase leading-none tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
                   presentation
                     ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
                     : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
@@ -3140,27 +3140,30 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             </div>
 
             <div className="relative grid grid-cols-1 xl:grid-cols-3">
-              <div className={`p-4 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
-                <p className={`text-xl font-bold tabular-nums ${presentation ? "text-rose-300" : "text-rose-700"}`}>
-                  −{compactRub(Math.abs(salesStructureExecutionDiagnostic.negSum))} (перекос структуры)
+              <div className={`p-5 xl:p-6 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
+                <p className={`text-[30px] font-extrabold leading-[1.2] tabular-nums sm:text-[32px] ${presentation ? "text-rose-200" : "text-rose-800"}`}>
+                  −{compactRub(Math.abs(salesStructureExecutionDiagnostic.negSum))}
                 </p>
-                <p className={`mt-1 text-[11px] leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <p className={`mt-2 text-[18px] font-semibold leading-tight ${presentation ? "text-rose-100" : "text-rose-900"}`}>
+                  перекос структуры
+                </p>
+                <p className={`mt-3 text-[14px] leading-snug opacity-60 ${presentation ? "text-slate-200" : "text-slate-700"}`}>
                   деньги не добраны из-за структуры продаж
                 </p>
               </div>
-              <div className={`p-4 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
-                <p className={`text-[11px] leading-snug ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+              <div className={`p-5 xl:p-6 ${presentation ? "border-slate-700/35" : "border-slate-200/80"} xl:border-r`}>
+                <p className={`text-[16px] leading-[1.25] sm:text-[18px] ${presentation ? "text-slate-100" : "text-slate-800"}`}>
                   рост кладовых и парковок вытесняет
                 </p>
-                <p className={`mt-0.5 text-[11px] leading-snug ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                <p className={`mt-2 text-[16px] leading-[1.25] sm:text-[18px] ${presentation ? "text-slate-100" : "text-slate-800"}`}>
                   2-комнатные и коммерцию → падение выручки
                 </p>
               </div>
-              <div className="p-4">
-                <p className={`text-[11px] leading-snug ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
+              <div className="p-5 xl:p-6">
+                <p className={`text-[16px] font-semibold leading-[1.25] sm:text-[18px] ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
                   сместить продажи в 2-комнатные и коммерцию
                 </p>
-                <p className={`mt-0.5 text-[11px] leading-snug ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
+                <p className={`mt-2 text-[16px] font-semibold leading-[1.25] sm:text-[18px] ${presentation ? "text-emerald-100" : "text-emerald-900"}`}>
                   ограничить давление низкомаржинальных сегментов
                 </p>
               </div>
