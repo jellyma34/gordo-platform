@@ -2121,124 +2121,130 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const inv = inventoryLiquidationAnalysis;
     const cf = financialCashFlow;
     const up = upsellDiagnosticAnalysis;
-    const drivers = rootCauseDecomposition.driversSortedByImpact;
-    const worstNegDriver = drivers.find((d) => d.impactRub < 0);
+    const paceToNorm = inv.plannedPace > 0 ? inv.actualPace / inv.plannedPace : 1;
     const revMissRub = Math.max(0, -rev.deviationCumulative);
     const upsellMissRub = Math.max(0, -up.totalRevDelta);
-    const invWorstLabel = inv.barByType[0]?.label ?? "узкий сегмент";
+    const avgDealRub = baseRev.factCumulative / Math.max(1, report.salesData.units.factCumulative);
+    const invRiskRub = Math.round(inv.totalRisk * avgDealRub);
+    const invWorstLabel = inv.barByType[0]?.label ?? "Портфель";
+    const weakStruct = [...salesStructureRows].filter((r) => r.deltaRub < 0).sort((a, b) => a.deltaRub - b.deltaRub)[0];
 
-    type Cand = { rubSort: number; impactRub: number | null; problem: string; action: string };
+    const negRub = (n: number) => `−${compactRub(Math.abs(n))}`;
+
+    type Cand = { rubSort: number; problem: string; action: string };
     const cands: Cand[] = [];
 
-    if (rev.deviationCumulative < 0 || forecastPercentAdjusted < 99) {
+    if (rev.deviationCumulative < 0 || forecastPercentAdjusted < 98) {
       cands.push({
-        rubSort: Math.max(revMissRub, forecastGapRub * 0.45),
-        impactRub: rev.deviationCumulative < 0 ? revMissRub : null,
-        problem: `Выручка отстаёт: Δ ${compactRub(rev.deviationCumulative)}; прогноз горизонта ${forecastPercentAdjusted.toFixed(0)}% (ран-рейт не добирает ~${compactRub(Math.max(0, forecastGapRub))}).`,
-        action: `Неделя фокуса на «${lagSegment}»: план сделок, воронка, промо/цены — в связке с блоком темпа.`,
+        rubSort: Math.max(revMissRub, forecastGapRub * 0.4),
+        problem: `${lagSegment} → ${negRub(revMissRub)}`,
+        action: `Дожать продажи в ${lagSegment}`,
       });
     }
     if (cf.gapOverThreshold) {
       cands.push({
         rubSort: cf.gapRub,
-        impactRub: cf.gapRub,
-        problem: `Кассовый разрыв ДДУ–эскроу ${compactRub(cf.gapRub)} выше порога ${compactRub(cf.thresholdRub)} — деньги запаздывают.`,
-        action: `Уплотнить оплаты и регистрацию эскроу; еженедельно снимать «хвосты» по сделкам.`,
+        problem: `ДДУ−эскроу → ${negRub(cf.gapRub)}`,
+        action: `Ускорить поступления на эскроу`,
+      });
+    }
+    if (weakStruct && weakStruct.deltaRub < -8_000_000) {
+      cands.push({
+        rubSort: Math.abs(weakStruct.deltaRub),
+        problem: `${weakStruct.label} → ${negRub(Math.abs(weakStruct.deltaRub))}`,
+        action: `Сместить промо на ${weakStruct.label}`,
       });
     }
     if (upsellMissRub >= 3_000_000) {
       cands.push({
         rubSort: upsellMissRub,
-        impactRub: upsellMissRub,
-        problem: `Upsell недобран на ${compactRub(upsellMissRub)}: база квартир ${numFmt.format(up.aptF)}/${numFmt.format(up.aptP)}, узел — ${
-          up.insight.driver === "conversion" ? "конверсия доп. продуктов" : up.insight.driver === "base" ? "объём сделок (база)" : "база и конверсия"
-        }.`,
-        action: `Пакет паркинг/кладовые в КП + контроль конверсии в CRM на каждой квартирной сделке.`,
+        problem: `Upsell → ${negRub(upsellMissRub)}`,
+        action: `Закрепить паркинг и кладовые в КП`,
       });
     }
-    if (inv.timeDeficitMonths >= 0.55) {
+    if (inv.timeDeficitMonths >= 0.5) {
       cands.push({
-        rubSort: inv.totalRisk * 350_000,
-        impactRub: null,
-        problem: `Остатки: ${numFmt.format(inv.totalRisk)} шт в зоне риска непроданного; до дедлайна не хватает ~${dec1Fmt.format(inv.timeDeficitMonths)} мес. темпа (лидер — «${invWorstLabel}»).`,
-        action: `Ускорить «${invWorstLabel}»: промо, цена, агентский канал — снять прогноз залипания.`,
+        rubSort: Math.max(invRiskRub, 1),
+        problem: `${invWorstLabel} → ${negRub(invRiskRub)}`,
+        action: `Ускорить выкуп ${invWorstLabel}`,
       });
     }
 
     cands.sort((a, b) => b.rubSort - a.rubSort);
     const primary = cands[0];
-    const problemPack = primary ?? {
-      rubSort: 0,
-      impactRub: null,
-      problem: `Контрольные метрики в коридоре: Δ выручки ${compactRub(rev.deviationCumulative)}, прогноз ${forecastPercentAdjusted.toFixed(0)}%.`,
-      action: `Удерживать текущий ритм и мониторить «${lagSegment}» при первом проседании месяца.`,
+    const pack = primary ?? {
+      problem: `Портфель → ${rev.deviationCumulative < 0 ? negRub(revMissRub) : compactRub(rev.deviationCumulative)}`,
+      action: `Держать фокус на ${lagSegment}`,
     };
-
-    let problemImpactLine: string;
-    if (problemPack.impactRub != null && problemPack.impactRub > 0) {
-      problemImpactLine = `Оценка разрыва: ~${compactRub(problemPack.impactRub)}.`;
-    } else if (rev.deviationCumulative < 0) {
-      problemImpactLine = `Оценка разрыва: ~${compactRub(revMissRub)} по выручке.`;
-    } else {
-      problemImpactLine = `Денежный эффект по остаткам — в натуральных шт. и темпе; давление на маржу при ${inv.pctAtRisk.toFixed(0)}% портфеля «в зоне».`;
-    }
-
-    let requiredAction = problemPack.action;
-    if (worstNegDriver && problemPack.problem.startsWith("Выручка")) {
-      requiredAction = `${requiredAction} Приоритет waterfall: ${worstNegDriver.labelRu}.`;
-    }
 
     const bestCat = [...deviationContribution].filter((d) => d.deviation > 0).sort((a, b) => b.deviation - a.deviation)[0];
     let mainDriver: string;
-    if (bestCat && bestCat.deviation >= 12_000_000) {
-      mainDriver = `«${bestCat.name}» даёт +${compactRub(bestCat.deviation)} к плану — главный буфер портфеля.`;
-    } else if (salesStructureReplacementInsight.topPos.length > 0 && rev.deviationCumulative < 0) {
-      mainDriver = `Сдвиг структуры в «${salesStructureReplacementInsight.topPos.map((r) => r.label).join(", ")}» частично гасит минусы других линеек.`;
+    if (up.totalRevDelta >= 3_000_000) {
+      mainDriver = `Upsell даёт плюс ${compactRub(up.totalRevDelta)} к плану`;
+    } else if (bestCat && bestCat.deviation >= 12_000_000) {
+      mainDriver = `${bestCat.name} тянет выручку на ${compactRub(bestCat.deviation)}`;
+    } else if (salesStructureReplacementInsight.topPos[0]) {
+      const t = salesStructureReplacementInsight.topPos[0]!.label;
+      mainDriver = `Структура усилилась за счёт ${t}`;
     } else if (velocityCompletionPct >= 97 && velocityMetrics.tone !== "red") {
-      mainDriver = `Темп сделок ${velocityCompletionPct}% к среднему плану — ядро продаж выдерживает нагрузку.`;
-    } else if (rev.deviationCumulative >= 0 && !cf.gapOverThreshold) {
-      mainDriver = `Сальдо по выручке не ниже плана; эскроу ${cf.conversionTotalPct.toFixed(0)}% от ДДУ — касса без критического разрыва.`;
+      mainDriver = `Темп сделок на уровне ${velocityCompletionPct}% к плану`;
+    } else if (!cf.gapOverThreshold && cf.conversionTotalPct >= 82) {
+      mainDriver = `Эскроу удерживается на ${cf.conversionTotalPct.toFixed(0)}% от ДДУ`;
     } else {
-      mainDriver = worstNegDriver
-        ? `Позитив ограничен: доминирует отрицательный вклад «${worstNegDriver.labelRu}» в waterfall.`
-        : `Позитив распределён; явного крупного буфера по категориям нет — держать упор на темпе.`;
+      mainDriver = `Опора на активность в ${lagSegment}`;
     }
+
+    const paceRed = paceToNorm < 0.82 || velocityCompletionPct < 82;
+    const paceYellow = paceToNorm < 0.94 || velocityCompletionPct < 92 || velocityMetrics.tone !== "green";
 
     let statusTone: "green" | "yellow" | "red";
     let statusLabel: string;
-    if (forecastPercentAdjusted < 90 || cumulativeExecTone === "red" || (cf.gapOverThreshold && revMissRub > 55_000_000)) {
+    if (
+      forecastPercentAdjusted < 88 ||
+      cumulativeExecTone === "red" ||
+      cf.gapOverThreshold ||
+      paceRed ||
+      (revMissRub > 60_000_000 && forecastPercentAdjusted < 95)
+    ) {
       statusTone = "red";
       statusLabel = "Отставание";
     } else if (
       forecastPercentAdjusted < 100 ||
       cumulativeExecTone === "yellow" ||
       cf.gapRub > cf.thresholdRub * 0.55 ||
-      upsellMissRub > 7_000_000 ||
-      inv.timeDeficitMonths >= 0.5
+      paceYellow ||
+      upsellMissRub > 5_000_000 ||
+      inv.timeDeficitMonths >= 0.45
     ) {
       statusTone = "yellow";
-      statusLabel = "Зона риска";
+      statusLabel = "Риск";
     } else {
       statusTone = "green";
       statusLabel = "В плане";
     }
 
-    const statusSub = `Прогноз ${forecastPercentAdjusted.toFixed(0)}% · накопит. ${rev.percentComplete.toFixed(0)}% · Δ ${compactRub(rev.deviationCumulative)}`;
+    const statusMetrics = `Прогноз ${forecastPercentAdjusted.toFixed(0)}% · Δ ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`;
+
+    const trimWords = (s: string, max = 10) => {
+      const w = s.trim().split(/\s+/).filter(Boolean);
+      return w.length <= max ? s : `${w.slice(0, max).join(" ")}…`;
+    };
 
     return {
       statusTone,
       statusLabel,
-      statusSub,
-      mainDriver,
-      mainProblem: problemPack.problem,
-      problemImpactLine,
-      requiredAction,
+      statusMetrics,
+      mainDriver: trimWords(mainDriver),
+      mainProblem: pack.problem,
+      requiredAction: pack.action,
     };
   }, [
     inventoryLiquidationAnalysis,
     financialCashFlow,
     upsellDiagnosticAnalysis,
-    rootCauseDecomposition.driversSortedByImpact,
+    salesStructureRows,
+    baseRev.factCumulative,
+    report.salesData.units.factCumulative,
     rev.deviationCumulative,
     rev.percentComplete,
     forecastPercentAdjusted,
@@ -2402,6 +2408,117 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
   return (
     <div className="flex flex-col gap-4">
+      <section
+        className={
+          presentation
+            ? "rounded-2xl border border-slate-600/50 bg-gradient-to-b from-slate-900/95 to-slate-950 p-4 sm:p-5 ring-1 ring-white/5"
+            : "rounded-2xl border border-slate-300/80 bg-white p-4 shadow-md sm:p-5"
+        }
+        aria-label="Итоговые управленческие индикаторы"
+      >
+        <div className="mb-3 flex flex-col gap-0.5 border-b border-dashed border-slate-500/20 pb-2 sm:flex-row sm:items-baseline sm:justify-between">
+          <h3 className={presentation ? "text-xs font-bold uppercase tracking-wider text-slate-400" : "text-xs font-bold uppercase tracking-wider text-slate-500"}>
+            Итоговые управленческие индикаторы
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div
+            className={`rounded-2xl border-2 px-4 py-5 sm:col-span-2 sm:px-6 sm:py-7 ${
+              executiveManagementSummary.statusTone === "green"
+                ? presentation
+                  ? "border-emerald-400/60 bg-emerald-950/40"
+                  : "border-emerald-400 bg-emerald-50"
+                : executiveManagementSummary.statusTone === "yellow"
+                  ? presentation
+                    ? "border-amber-400/55 bg-amber-950/35"
+                    : "border-amber-400 bg-amber-50"
+                  : presentation
+                    ? "border-rose-500/60 bg-rose-950/40"
+                    : "border-rose-500 bg-rose-50"
+            }`}
+          >
+            <div
+              className={`text-[9px] font-bold uppercase tracking-widest opacity-80 ${
+                executiveManagementSummary.statusTone === "green"
+                  ? presentation
+                    ? "text-emerald-200"
+                    : "text-emerald-900"
+                  : executiveManagementSummary.statusTone === "yellow"
+                    ? presentation
+                      ? "text-amber-200"
+                      : "text-amber-900"
+                    : presentation
+                      ? "text-rose-200"
+                      : "text-rose-900"
+              }`}
+            >
+              Статус
+            </div>
+            <p
+              className={`mt-1 text-3xl font-black leading-none sm:text-4xl md:text-5xl ${
+                executiveManagementSummary.statusTone === "green"
+                  ? presentation
+                    ? "text-emerald-50"
+                    : "text-emerald-950"
+                  : executiveManagementSummary.statusTone === "yellow"
+                    ? presentation
+                      ? "text-amber-50"
+                      : "text-amber-950"
+                    : presentation
+                      ? "text-rose-50"
+                      : "text-rose-950"
+              }`}
+            >
+              {executiveManagementSummary.statusLabel}
+            </p>
+            <p className={`mt-2 text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              {executiveManagementSummary.statusMetrics}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
+              presentation ? "border-rose-500/60 bg-rose-950/35" : "border-rose-500 bg-rose-50"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-rose-200" : "text-rose-900"}`}>
+              Проблема
+            </div>
+            <p className={`mt-2 text-lg font-black leading-tight sm:text-xl ${presentation ? "text-rose-50" : "text-rose-950"}`}>
+              {executiveManagementSummary.mainProblem}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border-2 px-4 py-4 shadow-md sm:px-5 sm:py-5 ${
+              presentation
+                ? "border-sky-400/80 bg-sky-950/55 shadow-sky-950/50"
+                : "border-sky-600 bg-sky-100 shadow-sky-300/60"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-sky-200" : "text-sky-900"}`}>
+              Действие
+            </div>
+            <p className={`mt-2 text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
+              {executiveManagementSummary.requiredAction}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border px-4 py-4 sm:col-span-2 sm:px-5 sm:py-4 ${
+              presentation ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+              Драйвер
+            </div>
+            <p className={`mt-2 text-sm font-medium leading-snug sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              {executiveManagementSummary.mainDriver}
+            </p>
+          </div>
+        </div>
+      </section>
+
       {!isPresentationMode ? (
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2520,112 +2637,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       >
         {salesPlanSectionHeader}
       </p>
-
-      <div className="mb-7">
-        <div className="mb-2 flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
-          <h4 className={h4}>Итоговые управленческие индикаторы (сводка)</h4>
-          <span className={`text-[10px] font-medium uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-            Решение за 30 секунд
-          </span>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div
-            className={`rounded-xl border-2 px-3 py-3 ${
-              executiveManagementSummary.statusTone === "green"
-                ? presentation
-                  ? "border-emerald-500/50 bg-emerald-950/25"
-                  : "border-emerald-300 bg-emerald-50"
-                : executiveManagementSummary.statusTone === "yellow"
-                  ? presentation
-                    ? "border-amber-500/45 bg-amber-950/20"
-                    : "border-amber-300 bg-amber-50"
-                  : presentation
-                    ? "border-rose-500/50 bg-rose-950/25"
-                    : "border-rose-300 bg-rose-50"
-            }`}
-          >
-            <div
-              className={`text-[9px] font-black uppercase tracking-wide ${
-                executiveManagementSummary.statusTone === "green"
-                  ? presentation
-                    ? "text-emerald-200"
-                    : "text-emerald-900"
-                  : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
-                      ? "text-amber-200"
-                      : "text-amber-900"
-                    : presentation
-                      ? "text-rose-200"
-                      : "text-rose-900"
-              }`}
-            >
-              Статус проекта
-            </div>
-            <div
-              className={`mt-1.5 text-lg font-black leading-tight ${
-                executiveManagementSummary.statusTone === "green"
-                  ? presentation
-                    ? "text-emerald-100"
-                    : "text-emerald-950"
-                  : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
-                      ? "text-amber-100"
-                      : "text-amber-950"
-                    : presentation
-                      ? "text-rose-100"
-                      : "text-rose-950"
-              }`}
-            >
-              {executiveManagementSummary.statusLabel}
-            </div>
-            <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-              {executiveManagementSummary.statusSub}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-xl border px-3 py-3 ${
-              presentation ? "border-emerald-600/35 bg-slate-950/50" : "border-emerald-200 bg-emerald-50/60"
-            }`}
-          >
-            <div className={`text-[9px] font-black uppercase tracking-wide ${presentation ? "text-emerald-200" : "text-emerald-800"}`}>
-              Главный драйвер
-            </div>
-            <p className={`mt-2 text-[11px] font-semibold leading-snug ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {executiveManagementSummary.mainDriver}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-xl border-2 px-3 py-3 ${
-              presentation ? "border-rose-500/55 bg-rose-950/30" : "border-rose-400 bg-rose-50"
-            }`}
-          >
-            <div className={`text-[9px] font-black uppercase tracking-wide ${presentation ? "text-rose-200" : "text-rose-900"}`}>
-              Главная проблема
-            </div>
-            <p className={`mt-2 text-[11px] font-semibold leading-snug ${presentation ? "text-rose-50" : "text-rose-950"}`}>
-              {executiveManagementSummary.mainProblem}
-            </p>
-            <p className={`mt-1.5 text-[10px] font-bold tabular-nums ${presentation ? "text-rose-200/90" : "text-rose-800"}`}>
-              {executiveManagementSummary.problemImpactLine}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-xl border-2 px-3 py-3 ${
-              presentation ? "border-sky-500/50 bg-sky-950/35 shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]" : "border-sky-500 bg-sky-50"
-            }`}
-          >
-            <div className={`text-[9px] font-black uppercase tracking-wide ${presentation ? "text-sky-200" : "text-sky-900"}`}>
-              Требуемое действие
-            </div>
-            <p className={`mt-2 text-[11px] font-bold leading-snug ${presentation ? "text-sky-50" : "text-sky-950"}`}>
-              {executiveManagementSummary.requiredAction}
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* B. Dynamics KPI dashboard */}
       <KpiDashboard presentation={presentation} items={dynamicsKpiItems} className="mb-7" />
