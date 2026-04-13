@@ -1444,6 +1444,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const yTickCashM = (v: number) => `${Math.round(v / 1_000_000)}M`;
   const yTickGapBar = (v: number) => `${Math.round(v / 1_000_000)}M`;
   const yTickPct0 = (v: number) => `${Math.round(v)}%`;
+  const getUpsellConvColor = (fact: number, plan: number) => {
+    if (plan <= 0) return "#FF4D4F";
+    if (fact >= plan) return "#22C55E";
+    return "#FF4D4F";
+  };
 
   const yTickDeals = (v: number) => `${numFmt.format(v)}`;
   const cumulativeExecTone: "green" | "yellow" | "red" =
@@ -1972,7 +1977,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const totalConvPlan = rows.reduce((s, r, i) => s + r.plannedConversionPct * wRev[i]!, 0);
     const totalConvFact = rows.reduce((s, r, i) => s + r.actualConversionPct * wRev[i]!, 0);
     const totalConvDeltaPP = totalConvFact - totalConvPlan;
-    const totalConvExecPct = totalConvPlan > 0 ? (totalConvFact / totalConvPlan) * 100 : 0;
     const aptExecPct = (aptF / aptP) * 100;
 
     const volumePenaltyRub = Math.max(0, volumeRevGap);
@@ -2019,8 +2023,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
     const convCompare = rows.map((r) => ({
       name: r.name,
-      planConv: Math.round(r.plannedConversionPct * 10) / 10,
       factConv: Math.round(r.actualConversionPct * 10) / 10,
+      planConv: Math.round(r.plannedConversionPct * 10) / 10,
+      fill: getUpsellConvColor(r.actualConversionPct, r.plannedConversionPct) || "#FF4D4F",
     }));
     const convChartYMax = Math.min(
       100,
@@ -2055,7 +2060,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       totalConvPlan,
       totalConvFact,
       totalConvDeltaPP,
-      totalConvExecPct,
       weakConvName,
       weakConvDeltaPP,
       targetPct: up.targetConversionPct,
@@ -2066,6 +2070,46 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       convChartYMax,
     };
   }, [report.upsellDiagnostic]);
+
+  const upsellConversionSignal = useMemo(() => {
+    const ratio =
+      upsellDiagnosticAnalysis.totalConvPlan > 0
+        ? upsellDiagnosticAnalysis.totalConvFact / upsellDiagnosticAnalysis.totalConvPlan
+        : 0;
+    const forceRed = upsellDiagnosticAnalysis.totalRevDelta < 0;
+    const status: "green" | "yellow" | "red" = forceRed ? "red" : ratio >= 1 ? "green" : ratio >= 0.8 ? "yellow" : "red";
+
+    if (status === "green") {
+      return {
+        status,
+        label: "🟢 КОНВЕРСИЯ В НОРМЕ",
+        cardClass: presentation ? "border-emerald-500/45 bg-emerald-950/25" : "border-emerald-200 bg-emerald-50",
+        labelClass: presentation ? "text-emerald-300" : "text-emerald-700",
+        valueClass: presentation ? "text-emerald-200" : "text-emerald-800",
+      };
+    }
+    if (status === "yellow") {
+      return {
+        status,
+        label: "🟡 КОНВЕРСИЯ В РИСКЕ",
+        cardClass: presentation ? "border-amber-500/45 bg-amber-950/25" : "border-amber-200 bg-amber-50",
+        labelClass: presentation ? "text-amber-300" : "text-amber-700",
+        valueClass: presentation ? "text-amber-200" : "text-amber-800",
+      };
+    }
+    return {
+      status,
+      label: "🔴 КОНВЕРСИЯ ПРОСЕДАЕТ",
+      cardClass: presentation ? "border-rose-500/55 bg-rose-950/35" : "border-rose-300 bg-rose-50",
+      labelClass: presentation ? "text-rose-300" : "text-rose-700",
+      valueClass: presentation ? "text-rose-100" : "text-rose-700",
+    };
+  }, [
+    presentation,
+    upsellDiagnosticAnalysis.totalConvFact,
+    upsellDiagnosticAnalysis.totalConvPlan,
+    upsellDiagnosticAnalysis.totalRevDelta,
+  ]);
 
   const executiveManagementSummary = useMemo(() => {
     const inv = inventoryLiquidationAnalysis;
@@ -4291,46 +4335,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               {upsellDiagnosticAnalysis.aptExecPct.toFixed(1)}% выполнения плана по базе
             </div>
           </div>
-          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-xl border-2 px-4 py-3 ${upsellConversionSignal.cardClass}`}>
             <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
               Сводная конверсия upsell
             </div>
-            <div
-              className={`mt-1 text-[10px] font-black uppercase tracking-wide ${
-                upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                  ? presentation
-                    ? "text-emerald-300"
-                    : "text-emerald-700"
-                  : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                    ? presentation
-                      ? "text-amber-300"
-                      : "text-amber-700"
-                    : presentation
-                      ? "text-rose-300"
-                      : "text-rose-700"
-              }`}
-            >
-              {upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                ? "🟢 КОНВЕРСИЯ В НОРМЕ"
-                : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                  ? "🟡 КОНВЕРСИЯ В РИСКЕ"
-                  : "🔴 КОНВЕРСИЯ ПРОСЕДАЕТ"}
+            <div className={`mt-1 text-[10px] font-black uppercase tracking-wide ${upsellConversionSignal.labelClass}`}>
+              {upsellConversionSignal.label}
             </div>
-            <div
-              className={`mt-1 text-2xl font-black tabular-nums sm:text-[30px] ${
-                upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                  ? presentation
-                    ? "text-emerald-200"
-                    : "text-emerald-800"
-                  : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
-                    ? presentation
-                      ? "text-amber-200"
-                      : "text-amber-800"
-                    : presentation
-                      ? "text-rose-100"
-                      : "text-rose-700"
-              }`}
-            >
+            <div className={`mt-1 text-2xl font-black tabular-nums sm:text-[30px] ${upsellConversionSignal.valueClass}`}>
               {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvFact)}%
               <span className={`ml-2 text-[12px] font-semibold ${presentation ? "text-slate-300" : "text-slate-600"}`}>
                 (план {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvPlan)}%)
@@ -4438,33 +4450,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 tickFormatter={(v) => `${v}%`}
               />
               <Tooltip formatter={(v: number) => [`${dec1Fmt.format(v)}%`, ""]} contentStyle={{ fontSize: 10, borderRadius: 6 }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
-              <ReferenceLine
-                y={upsellDiagnosticAnalysis.targetPct}
-                stroke={presentation ? "#fbbf24" : "#d97706"}
-                strokeDasharray="5 5"
-                label={{
-                  value: `Норматив ${dec1Fmt.format(upsellDiagnosticAnalysis.targetPct)}%`,
-                  fill: axisColor,
-                  fontSize: 9,
-                  position: "insideTopRight",
-                }}
+              <Line
+                type="monotone"
+                dataKey="planConv"
+                name="План, %"
+                stroke={presentation ? "rgba(148,163,184,0.9)" : "#374151"}
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={{ r: 2 }}
               />
-              {upsellDiagnosticAnalysis.hasBenchmark && upsellDiagnosticAnalysis.benchmarkPctExplicit != null ? (
-                <ReferenceLine
-                  y={upsellDiagnosticAnalysis.benchmarkPctExplicit}
-                  stroke={presentation ? "#34d399" : "#059669"}
-                  strokeDasharray="2 6"
-                  label={{
-                    value: `Бенчмарк ${dec1Fmt.format(upsellDiagnosticAnalysis.benchmarkPctExplicit)}%`,
-                    fill: axisColor,
-                    fontSize: 9,
-                    position: "insideBottomRight",
-                  }}
-                />
-              ) : null}
-              <Bar dataKey="planConv" name="План, %" fill={presentation ? "rgba(148,163,184,0.85)" : "#94a3b8"} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="factConv" name="Факт, %" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="factConv" name="Факт, %" radius={[4, 4, 0, 0]}>
+                {upsellDiagnosticAnalysis.convCompare.map((row, idx) => {
+                  return <Cell key={`upsell-conv-cell-${row.name}-${idx}`} fill={row.fill || "#FF4D4F"} />;
+                })}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
