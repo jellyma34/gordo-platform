@@ -3751,23 +3751,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               </p>
             </div>
 
-            <div
-              className={`rounded-xl border px-4 py-3 ${
-                presentation ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
-              }`}
-            >
-              <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-                Итоговое отклонение (накопительно)
-              </div>
-              <div className={`mt-1 text-2xl font-black tabular-nums ${rev.deviationCumulative < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}>
-                {rev.deviationCumulative <= 0 ? "−" : "+"}
-                {compactRub(Math.abs(rev.deviationCumulative))}
-              </div>
-              <p className={`mt-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-                Факт выручки к накопительному плану · план {compactRub(rev.planCumulative)} · факт {compactRub(baseRev.factCumulative)}
-              </p>
-            </div>
-
             <div className="grid gap-4 lg:grid-cols-2">
               <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
                 <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
