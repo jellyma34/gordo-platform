@@ -13,11 +13,7 @@ import {
   type SalesCategoryId,
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
-import {
-  buildSalesInsights,
-  execStatusFromPercent,
-  type ExecStatus,
-} from "@/lib/salesPlanAnalytics";
+import { buildSalesInsights } from "@/lib/salesPlanAnalytics";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import { SalesPlanRadarChart } from "./SalesPlanRadarChart";
 
@@ -180,31 +176,6 @@ function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
       factAbove: b.factCumulative >= b.planCumulative ? b.factCumulative : null,
     };
   });
-}
-
-function statusMeta(
-  s: ExecStatus,
-  presentation: boolean,
-): { label: string; bar: string; ring: string } {
-  if (s === "green") {
-    return {
-      label: "Перевыполнение",
-      bar: presentation ? "bg-emerald-500" : "bg-emerald-500",
-      ring: presentation ? "ring-emerald-400/40" : "ring-emerald-500/30",
-    };
-  }
-  if (s === "yellow") {
-    return {
-      label: "В зоне контроля",
-      bar: presentation ? "bg-amber-400" : "bg-amber-500",
-      ring: presentation ? "ring-amber-400/35" : "ring-amber-500/30",
-    };
-  }
-  return {
-    label: "Риск выполнения",
-    bar: presentation ? "bg-red-500" : "bg-red-500",
-    ring: presentation ? "ring-red-500/40" : "ring-red-500/30",
-  };
 }
 
 function LineChartTooltip({
@@ -1189,9 +1160,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     return hit?.label ?? seriesPoints[seriesPoints.length - 1]?.label;
   }, [seriesPoints, analytics.currentPeriodKey]);
 
-  const execStatus = execStatusFromPercent(rev.percentComplete);
-  const status = statusMeta(execStatus, presentation);
-
   const insights = useMemo(
     () => buildSalesInsights(categoriesAdjusted, radarCategoriesAdjusted, rev),
     [categoriesAdjusted, radarCategoriesAdjusted, rev],
@@ -1355,10 +1323,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const rrAdjusted = { ...rr, horizonPlanCumulativeRub: effectiveTotalPlan };
   const forecastPercentAdjusted = effectiveTotalPlan > 0 ? (rrAdjusted.forecastCumulativeEndRub / effectiveTotalPlan) * 100 : 0;
   const forecastGapRub = rrAdjusted.horizonPlanCumulativeRub - rrAdjusted.forecastCumulativeEndRub;
-  const riskExecutionPct = Math.min(100, Math.max(0, 100 - forecastPercentAdjusted));
   const dealsExecutionPct = currentPlanCum > 0 ? (currentFactCum / currentPlanCum) * 100 : 0;
-
-  const deviationPct = rev.planCumulative > 0 ? ((rev.factCumulative - rev.planCumulative) / rev.planCumulative) * 100 : 0;
 
   const axisColor = presentation ? "#94a3b8" : "#64748b";
   const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
@@ -1375,7 +1340,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const monthExecTone: "green" | "yellow" | "red" = monthExecPct >= 100 ? "green" : monthExecPct >= 95 ? "yellow" : "red";
   const monthDevTone: "green" | "yellow" | "red" = monthDeviationDeals >= 0 ? "green" : monthDeviationDeals >= -5 ? "yellow" : "red";
   const cumulativeDevTone: "green" | "yellow" | "red" = currentDeviation >= 0 ? "green" : currentDeviation >= -5 ? "yellow" : "red";
-  const riskTone: "green" | "yellow" | "red" = riskExecutionPct <= 10 ? "green" : riskExecutionPct <= 25 ? "yellow" : "red";
   const weakSegment = topWeakRadar?.name ?? "сегменты";
   const lagSegment = topNegativeContribution?.name ?? weakSegment;
   const firstLagMonth = monthlyExecutionInsights.firstNegative?.label ?? "последние месяцы";
@@ -1678,30 +1642,18 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`;
 
-  const heroBorder =
-    execStatus === "red"
-      ? presentation
-        ? "border-red-500/45"
-        : "border-red-200"
-      : execStatus === "yellow"
-        ? presentation
-          ? "border-amber-500/40"
-          : "border-amber-200"
-        : presentation
-          ? "border-emerald-500/35"
-          : "border-emerald-200";
-
-  const heroBg = presentation
-    ? execStatus === "red"
-      ? "bg-gradient-to-br from-red-950/50 to-[#0f172a]"
-      : execStatus === "yellow"
-        ? "bg-gradient-to-br from-amber-950/35 to-[#0f172a]"
-        : "bg-gradient-to-br from-emerald-950/35 to-[#0f172a]"
-    : execStatus === "red"
-      ? "bg-gradient-to-br from-red-50 to-white"
-      : execStatus === "yellow"
-        ? "bg-gradient-to-br from-amber-50 to-white"
-        : "bg-gradient-to-br from-emerald-50 to-white";
+  const salesPlanSectionHeader = useMemo(() => {
+    const name = report.projectName ?? "ЖК Гордо";
+    const parts = report.asOf.split("-");
+    if (parts.length !== 3) return `${name} · на ${report.asOf}`;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
+    const mo = months[m - 1];
+    if (!mo || [y, m, d].some((n) => Number.isNaN(n))) return `${name} · на ${report.asOf}`;
+    return `${name} · на ${d} ${mo} ${y}`;
+  }, [report.projectName, report.asOf]);
 
   const insightTone = (tone: "risk" | "ok" | "neutral") => {
     if (tone === "risk")
@@ -1826,90 +1778,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
       ) : null}
 
-      {/* HERO */}
-      <div className={`overflow-hidden rounded-2xl border p-5 sm:p-6 ${heroBorder} ${heroBg}`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <p className={sub}>План продаж · выручка, накопительно</p>
-            <h3 className={`mt-1 text-lg font-semibold sm:text-xl ${presentation ? "text-slate-50" : "text-slate-900"}`}>
-              {report.projectName ?? "Проект"}
-            </h3>
-            <p className={`mt-1 text-[11px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-              Отчётная дата {report.asOf} · прогноз и темп — модель на мок-данных (готово к API)
-            </p>
-          </div>
-          <div
-            className={`flex shrink-0 flex-col items-stretch gap-2 rounded-xl p-3 ring-2 sm:min-w-[220px] ${status.ring} ${
-              presentation ? "bg-black/25" : "bg-white/80"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${status.bar}`} aria-hidden />
-              <span className={`text-xs font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                {status.label}
-              </span>
-            </div>
-            <div className={`text-2xl font-bold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
-              {rev.percentComplete.toFixed(1)}%
-            </div>
-            <div className={`text-[11px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-              Факт к плану · прогноз к концу периода:{" "}
-              <span
-                className={`font-semibold tabular-nums ${presentation ? "text-violet-300" : "text-violet-700"}`}
-              >
-                {forecastPercentAdjusted.toFixed(1)}%
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
-            <div className={sub}>План</div>
-            <div className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {compactRub(rev.planCumulative)}
-            </div>
-          </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
-            <div className={sub}>Факт</div>
-            <div className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              {compactRub(rev.factCumulative)}
-            </div>
-          </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
-            <div className={sub}>Отклонение</div>
-            <div
-              className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${
-                rev.deviationCumulative < 0
-                  ? presentation
-                    ? "text-red-300"
-                    : "text-red-700"
-                  : presentation
-                    ? "text-emerald-300"
-                    : "text-emerald-700"
-              }`}
-            >
-              {rev.deviationCumulative < 0 ? "−" : "+"}
-              {compactRub(Math.abs(rev.deviationCumulative))}
-            </div>
-            <div className={`mt-0.5 text-[11px] tabular-nums ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              {deviationPct >= 0 ? "+" : ""}
-              {deviationPct.toFixed(1)}% к плану
-            </div>
-          </div>
-          <div className={presentation ? "rounded-xl bg-black/20 p-3" : "rounded-xl bg-white/70 p-3 shadow-sm"}>
-            <div className={sub}>Прогноз выполнения</div>
-            <div
-              className={`mt-1 text-base font-bold tabular-nums sm:text-lg ${presentation ? "text-violet-300" : "text-violet-700"}`}
-            >
-              {forecastPercentAdjusted.toFixed(1)}%
-            </div>
-            <div className={`mt-0.5 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              при сохранении текущего темпа
-            </div>
-          </div>
-        </div>
-      </div>
+      <p
+        className={`text-xs font-medium tabular-nums tracking-tight ${presentation ? "text-slate-400" : "text-slate-500"}`}
+      >
+        {salesPlanSectionHeader}
+      </p>
 
       {/* B. Dynamics KPI dashboard */}
       <KpiDashboard presentation={presentation} items={dynamicsKpiItems} className="mb-7" />
