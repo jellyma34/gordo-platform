@@ -137,6 +137,32 @@ export type SalesReportPayload = {
    * Сумма impactRub должна совпадать с salesData.revenue.deviationCumulative в базовом срезе.
    */
   rootCauseWaterfall: RootCauseWaterfallModel;
+  /** Выбытие / остатки: прогноз нереализованного к концу проекта (диагностика риска). */
+  inventoryLiquidation: InventoryLiquidationModel;
+};
+
+/** Строка остатка по типу продукта (шт.). */
+export type InventoryLiquidationTypeRow = {
+  id: string;
+  label: string;
+  planUnits: number;
+  soldUnits: number;
+  /** planUnits − soldUnits, ≥ 0 */
+  remainingUnits: number;
+  /** Прогноз нераспроданного к дате завершения продаж, не больше remaining. */
+  unsoldForecastUnits: number;
+};
+
+export type InventoryLiquidationModel = {
+  /** Конец горизонта продаж (ISO). */
+  salesEndDate: string;
+  /** Месяцев от asOf до salesEndDate. */
+  monthsRemaining: number;
+  /** Целевой темп выбытия остатка (план), шт./мес. */
+  plannedSalesPerMonth: number;
+  /** Фактический темп (скользящий / по последним периодам), шт./мес. */
+  actualSalesPerMonth: number;
+  byType: InventoryLiquidationTypeRow[];
 };
 
 export type RootCauseWaterfallDriverId =
@@ -472,6 +498,19 @@ export const marketingSalesReportMock: SalesReportPayload = {
         labelRu: "Компенсация (перекрытия)",
         impactRub: 11_000_000,
       },
+    ],
+  },
+  inventoryLiquidation: {
+    salesEndDate: "2027-05-31",
+    monthsRemaining: 14,
+    plannedSalesPerMonth: 6.7,
+    actualSalesPerMonth: 5.8,
+    byType: [
+      { id: "apt-2", label: "2-комнатные", planUnits: 110, soldUnits: 72, remainingUnits: 38, unsoldForecastUnits: 13 },
+      { id: "commercial", label: "Коммерция", planUnits: 40, soldUnits: 14, remainingUnits: 26, unsoldForecastUnits: 11 },
+      { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1 },
+      { id: "parking", label: "Парковки", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2 },
+      { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1 },
     ],
   },
   comments: [
