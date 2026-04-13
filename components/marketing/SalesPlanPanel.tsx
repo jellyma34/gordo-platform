@@ -3926,6 +3926,98 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 {rootCauseDecomposition.insight}
               </p>
             </div>
+
+            <div
+              className={
+                presentation
+                  ? "relative overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
+                  : "relative overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
+              }
+            >
+              <div
+                aria-hidden
+                className={
+                  presentation
+                    ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
+                    : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
+                }
+              />
+
+              <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
+                <div
+                  className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
+                    presentation
+                      ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
+                      : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
+                  }`}
+                >
+                  ПРОБЛЕМА
+                </div>
+                <div
+                  className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
+                    presentation
+                      ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
+                      : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
+                  }`}
+                >
+                  ПРИЧИНА
+                </div>
+                <div
+                  className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
+                    presentation
+                      ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
+                      : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
+                  }`}
+                >
+                  ДЕЙСТВИЕ
+                </div>
+              </div>
+
+              <div className="relative grid grid-cols-1 xl:grid-cols-3">
+                <div className="p-4">
+                  <p className={`text-2xl font-bold tabular-nums ${presentation ? "text-rose-300" : "text-rose-700"}`}>−177 млн ₽</p>
+                  <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>недовыполнение выручки</p>
+                </div>
+
+                <div className="relative p-4">
+                  <div
+                    aria-hidden
+                    className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
+                      presentation
+                        ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
+                        : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
+                    }`}
+                  />
+                  <div
+                    aria-hidden
+                    className={`pointer-events-none absolute inset-y-3 right-0 hidden w-px xl:block ${
+                      presentation
+                        ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
+                        : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
+                    }`}
+                  />
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    темп продаж −124 млн ₽ (ключевой драйвер)
+                  </p>
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    структура −68 млн ₽ (усиливает просадку)
+                  </p>
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>компенсация: +52 млн ₽</p>
+                </div>
+
+                <div className="p-4">
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                    ускорить темп продаж (маркетинг + конверсия)
+                  </p>
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                    сместить структуру в 2-комнатные и коммерцию
+                  </p>
+                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                    ограничить давление низкомаржинальных сегментов
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
