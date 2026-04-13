@@ -61,6 +61,24 @@ function structureBalanceBarLabelLine(deltaShare: number, deltaRub: number): str
   return `${pct} · ${rub}`;
 }
 
+/** Выполнение по шт. высокое, а выручка ниже плана — типичный конфликт цены/микса. */
+function executionRevenueConflictMeta(row: {
+  percent: number;
+  deltaRub: number;
+  planUnits: number;
+  factUnits: number;
+  planRub: number;
+  factRub: number;
+}): { conflict: boolean; hint: string | null } {
+  if (row.percent < 95 || row.deltaRub >= 0) return { conflict: false, hint: null };
+  const avgPlan = row.planUnits > 0 ? row.planRub / row.planUnits : 0;
+  const avgFact = row.factUnits > 0 ? row.factRub / row.factUnits : 0;
+  if (avgPlan > 0 && avgFact > 0 && avgFact < avgPlan * 0.985) {
+    return { conflict: true, hint: "ниже средней цены сделки" };
+  }
+  return { conflict: true, hint: "скидки / сдвиг микса" };
+}
+
 type ChartMetric = "revenue" | "units" | "area";
 type PlanMode = "view" | "edit";
 type PlanScenario = "optimistic" | "realistic" | "pessimistic";
@@ -1482,11 +1500,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       if (deltaRub < 0) return "yellow";
       return "green";
     };
-    const rows = sorted.map((row) => ({
-      ...row,
-      execWorstRank: execWorstRankByKey.get(row.key) ?? null,
-      rubTone: rubTone(row.deltaRub),
-    }));
+    const rows = sorted.map((row) => {
+      const { conflict, hint } = executionRevenueConflictMeta(row);
+      return {
+        ...row,
+        execWorstRank: execWorstRankByKey.get(row.key) ?? null,
+        rubTone: rubTone(row.deltaRub),
+        unitsRevenueConflict: conflict,
+        conflictHint: hint,
+      };
+    });
+    const hasUnitsRevenueConflict = rows.some((r) => r.unitsRevenueConflict);
     const topLoss = sorted.filter((r) => r.deltaRub < 0).slice(0, 3);
     const negSum = sorted.filter((r) => r.deltaRub < 0).reduce((s, r) => s + r.deltaRub, 0);
     const posSum = sorted.filter((r) => r.deltaRub > 0).reduce((s, r) => s + r.deltaRub, 0);
@@ -1499,7 +1523,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       negSum < 0
         ? `Суммарно по «минусовым»: ${compactRub(negSum)}; компенсация +${compactRub(posSum)}. На маржу сильнее давят недоборы в дорогих форматах при тех же скидках.`
         : "Сальдо по выручке категорий неотрицательное; маржа зависит от фактических цен по сегментам.";
-    return { rows, problem, cause, consequence };
+    return { rows, problem, cause, consequence, hasUnitsRevenueConflict };
   }, [salesStructureRows, rev.planCumulative, salesStructureReplacementInsight]);
   const salesStructureBalanceDiagnostic = useMemo(() => {
     const maxDelta = Math.max(
@@ -2373,7 +2397,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             Выполнение структуры продаж — диагностика
           </div>
           <p className={`mb-3 text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-            Порядок по Δ выручке (хуже сверху). Цвет полосы и строки — по деньгам, длина полосы — % выполнения по шт.
+            Порядок по Δ выручке (хуже сверху). Цвет полосы и акцентов — по Δ ₽, длина полосы — % по шт. Высокий % по шт. не означает выручку в плане
+            {salesStructureExecutionDiagnostic.hasUnitsRevenueConflict ? " (есть метка «ниже плана по ₽»)" : ""}.
           </p>
           <div className="overflow-x-auto">
             <table className="min-w-[520px] w-full border-collapse text-xs">
@@ -2431,9 +2456,45 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                   return (
                     <tr
                       key={row.key}
-                      className={`${rowTone} ${presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"}`}
+                      className={`${rowTone} ${presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"} ${
+                        row.unitsRevenueConflict
+                          ? presentation
+                            ? "border-l-2 border-l-amber-400/70"
+                            : "border-l-2 border-l-amber-500"
+                          : ""
+                      }`}
                     >
-                      <td className={`px-2 py-2.5 font-bold ${presentation ? "text-slate-50" : "text-slate-900"}`}>{row.label}</td>
+                      <td className={`px-2 py-2.5 ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-bold">{row.label}</span>
+                            {row.unitsRevenueConflict ? (
+                              <span
+                                className={`inline-flex items-center gap-0.5 rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                                  presentation
+                                    ? "border-amber-500/45 bg-amber-950/40 text-amber-100"
+                                    : "border-amber-300 bg-amber-50 text-amber-950"
+                                }`}
+                                title="Выполнение по штукам ≥95%, но выручка ниже плана (below revenue plan)"
+                              >
+                                <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.63-1.515 2.63H3.72c-1.345 0-2.188-1.463-1.515-2.63l6.28-10.875zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a1 1 0 01-1-1V9a1 1 0 112 0v2a1 1 0 01-1 1z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span className="whitespace-nowrap">ниже плана по ₽</span>
+                              </span>
+                            ) : null}
+                          </div>
+                          {row.unitsRevenueConflict && row.conflictHint ? (
+                            <span className={`text-[9px] font-medium leading-tight ${presentation ? "text-amber-200/90" : "text-amber-900"}`}>
+                              {row.conflictHint}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-2 py-2.5">
                         <div className="flex min-w-[10rem] max-w-xs items-center gap-2">
                           <span className={`w-9 shrink-0 text-right text-[11px] font-bold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
