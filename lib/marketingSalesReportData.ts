@@ -139,6 +139,8 @@ export type SalesReportPayload = {
   rootCauseWaterfall: RootCauseWaterfallModel;
   /** Выбытие / остатки: прогноз нереализованного к концу проекта (диагностика риска). */
   inventoryLiquidation: InventoryLiquidationModel;
+  /** Доп. продажи (паркинг, кладовые): выручка upsell vs план, конверсия к сделкам по квартирам. */
+  upsellDiagnostic: UpsellDiagnosticModel;
 };
 
 /** Строка остатка по типу продукта (шт.). */
@@ -168,6 +170,29 @@ export type InventoryLiquidationModel = {
   /** Фактический темп (скользящий / по последним периодам), шт./мес. */
   actualSalesPerMonth: number;
   byType: InventoryLiquidationTypeRow[];
+};
+
+export type UpsellCategoryId = "parking" | "storage";
+
+export type UpsellCategoryRow = {
+  id: UpsellCategoryId;
+  name: string;
+  planRevenueRub: number;
+  actualRevenueRub: number;
+  /** Целевая конверсия upsell (доп. сделки / план сделок по квартирам), %. */
+  plannedConversionPct: number;
+  /** Фактическая конверсия (доп. сделки / факт сделок по квартирам), %. */
+  actualConversionPct: number;
+};
+
+export type UpsellDiagnosticModel = {
+  /** Сделки по квартирам, накопительно — план (база для норматива конверсии). */
+  apartmentDealsPlan: number;
+  /** Сделки по квартирам, накопительно — факт (база для фактической конверсии upsell). */
+  apartmentDealsFact: number;
+  /** Целевая конверсия upsell (например коридор/план продаж), % к факту квартир. */
+  targetConversionPct: number;
+  categories: UpsellCategoryRow[];
 };
 
 export type RootCauseWaterfallDriverId =
@@ -516,6 +541,29 @@ export const marketingSalesReportMock: SalesReportPayload = {
       { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1, segmentVelocityRatio: 0.96 },
       { id: "parking", label: "Парковки", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2, segmentVelocityRatio: 0.85 },
       { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1, segmentVelocityRatio: 0.78 },
+    ],
+  },
+  upsellDiagnostic: {
+    apartmentDealsPlan: 84,
+    apartmentDealsFact: 71,
+    targetConversionPct: 48,
+    categories: [
+      {
+        id: "parking",
+        name: "Парковки",
+        planRevenueRub: 22_500_000,
+        actualRevenueRub: 16_800_000,
+        plannedConversionPct: 52,
+        actualConversionPct: 42.25,
+      },
+      {
+        id: "storage",
+        name: "Кладовые",
+        planRevenueRub: 8_200_000,
+        actualRevenueRub: 9_450_000,
+        plannedConversionPct: 28,
+        actualConversionPct: 32.4,
+      },
     ],
   },
   comments: [
