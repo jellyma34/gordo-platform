@@ -1892,10 +1892,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const inv = report.inventoryLiquidation;
     const rows = inv.byType.map((r) => {
       const cappedRisk = Math.min(r.unsoldForecastUnits, r.remainingUnits);
+      const vr = Math.min(1.2, Math.max(0.3, r.segmentVelocityRatio));
+      const lowVelocity = Math.max(0, 1 - vr);
+      const riskScore = r.remainingUnits * lowVelocity;
       return {
         ...r,
         cappedRisk,
         remainingSafe: Math.max(0, r.remainingUnits - cappedRisk),
+        riskScore,
+        segmentVelocityRatioClamped: vr,
       };
     });
     const totalPlan = rows.reduce((s, r) => s + r.planUnits, 0);
@@ -1909,33 +1914,48 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       {
         name: "Портфель",
         sold: totalSold,
-        remainingSafe: Math.max(0, totalRemaining - totalRisk),
-        atRisk: totalRisk,
+        remaining: Math.max(0, totalRemaining - totalRisk),
+        unsoldForecast: totalRisk,
       },
     ];
-    const byRemainingDesc = [...rows].sort((a, b) => b.remainingUnits - a.remainingUnits);
-    const barByType = byRemainingDesc.map((r) => ({
+    const byLiquidityRiskDesc = [...rows].sort((a, b) => b.riskScore - a.riskScore);
+    const topRiskScoreIds = new Set(byLiquidityRiskDesc.slice(0, 2).map((r) => r.id));
+    const barByType = byLiquidityRiskDesc.map((r) => ({
       label: r.label,
+      id: r.id,
       sold: r.soldUnits,
-      remainingSafe: r.remainingSafe,
-      atRisk: r.cappedRisk,
+      remaining: r.remainingSafe,
+      unsoldForecast: r.cappedRisk,
       plan: r.planUnits,
+      riskScore: r.riskScore,
+      highRisk: topRiskScoreIds.has(r.id),
     }));
     const actualPace = Math.max(0.01, inv.actualSalesPerMonth);
     const plannedPace = Math.max(0.01, inv.plannedSalesPerMonth);
-    const monthsToSell = totalRemaining / actualPace;
+    const monthsToClear = totalRemaining / actualPace;
     const monthsLeft = Math.max(0.01, inv.monthsRemaining);
-    const paceGapMonths = monthsToSell - monthsLeft;
-    const topRiskTypes = [...rows].sort((a, b) => b.cappedRisk - a.cappedRisk).slice(0, 3);
-    const topRemainingTypes = byRemainingDesc.slice(0, 3);
-    const accumulating = topRemainingTypes.map((r) => r.label).join(", ");
+    const paceGapMonths = monthsToClear - monthsLeft;
+    const timeDeficitMonths = Math.max(0, paceGapMonths);
+    const paceRatio = plannedPace > 0 ? actualPace / plannedPace : 1;
     const whyLowPace = actualPace < plannedPace * 0.95;
+    const riskConcentration = [...rows]
+      .filter((r) => r.cappedRisk > 0)
+      .sort((a, b) => b.cappedRisk - a.cappedRisk)
+      .map((r) => ({
+        id: r.id,
+        label: r.label,
+        units: r.cappedRisk,
+        pctOfTotalRisk: totalRisk > 0 ? (r.cappedRisk / totalRisk) * 100 : 0,
+      }));
+    const worstLiquidity = byLiquidityRiskDesc[0];
+    const secondLiquidity = byLiquidityRiskDesc[1];
+    const topUnsold = [...rows].sort((a, b) => b.cappedRisk - a.cappedRisk);
     const insight = {
-      accumulate: `Копится наибольший остаток: ${accumulating}.`,
-      why: whyLowPace
-        ? `Почему: фактический темп выбытия ${dec1Fmt.format(actualPace)} шт/мес ниже требуемого к дедлайну ${dec1Fmt.format(plannedPace)} шт/мес (микс + воронка).`
-        : `Почему: темп близок к плану, но прогноз непроданного концентрируется в линейках: ${topRiskTypes.map((r) => r.label).join(", ")}.`,
-      consequence: `Следствие: до конца продаж (${inv.salesEndDate}) остаётся ~${dec1Fmt.format(monthsLeft)} мес.; при текущем темпе «съесть» остаток ~${dec1Fmt.format(monthsToSell)} мес. — риск нереализованного объёма и давления на цену.`,
+      problem: `Проблема: прогноз непроданного ${numFmt.format(totalRisk)} шт (${pctAtRisk.toFixed(1)}% портфеля); максимальный риск ликвидности — «${worstLiquidity?.label ?? "—"}»${secondLiquidity ? ` и «${secondLiquidity.label}»` : ""} (остаток × слабый темп сегмента).`,
+      cause: whyLowPace
+        ? `Причина: дефицит темпа — факт ${dec1Fmt.format(actualPace)} шт/мес vs требуемый к дедлайну ${dec1Fmt.format(plannedPace)} шт/мес (${(paceRatio * 100).toFixed(0)}% от нормы); плюс сдвиг структуры в медленные линейки.`
+        : `Причина: средний темп близок к плану, но сегменты с низким относительным выкупом (${topUnsold.slice(0, 2).map((r) => r.label).join(", ")}) удерживают прогноз непроданного.`,
+      consequence: `Следствие: при текущем темпе остаток «снимается» ~${dec1Fmt.format(monthsToClear)} мес. при ${dec1Fmt.format(monthsLeft)} мес. до конца — ${timeDeficitMonths > 0.5 ? `дефицит времени ~${dec1Fmt.format(timeDeficitMonths)} мес., ` : ""}рост доли нереализованного запаса и давление на цену / промо.`,
     };
     return {
       rows,
@@ -1950,10 +1970,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       barByType,
       actualPace,
       plannedPace,
-      monthsToSell,
+      paceRatio,
+      monthsToClear,
       monthsLeft,
       paceGapMonths,
-      topRiskTypes,
+      timeDeficitMonths,
+      riskConcentration,
       insight,
     };
   }, [report.inventoryLiquidation]);
@@ -3493,82 +3515,85 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         className={
           presentation
             ? `mt-4 rounded-xl border p-3 sm:p-4 ${
-                inventoryLiquidationAnalysis.pctAtRisk > 6 || inventoryLiquidationAnalysis.paceGapMonths > 0.5
+                inventoryLiquidationAnalysis.pctAtRisk > 6 || inventoryLiquidationAnalysis.timeDeficitMonths > 0.5
                   ? "border-rose-500/45 bg-gradient-to-br from-rose-950/35 via-slate-900/80 to-slate-950/95 ring-1 ring-rose-500/25"
                   : "border-slate-600/45 bg-gradient-to-br from-slate-900/75 via-slate-900/50 to-slate-950/90"
               }`
             : `mt-4 rounded-xl border p-3 sm:p-4 ${
-                inventoryLiquidationAnalysis.pctAtRisk > 6 || inventoryLiquidationAnalysis.paceGapMonths > 0.5
+                inventoryLiquidationAnalysis.pctAtRisk > 6 || inventoryLiquidationAnalysis.timeDeficitMonths > 0.5
                   ? "border-rose-200 bg-gradient-to-br from-rose-50/90 via-white to-slate-50 ring-1 ring-rose-200"
                   : "border-slate-200 bg-gradient-to-br from-white to-slate-50"
               }`
         }
       >
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-rose-200" : "text-rose-800"}`}>
-              Риск · выбытие
+              Риск ликвидации · прогноз
             </div>
             <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
               Выбытие продукта (остатки)
             </div>
             <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              Что с высокой вероятностью не уйдёт к концу проекта: доля риска, остатки по типам, темп vs срок, прогноз непроданного.
+              Фокус на том, что с высокой вероятностью останется непроданным: прогноз → темп → структура.
             </p>
-          </div>
-          <div
-            className={`shrink-0 rounded-lg border px-2 py-1 text-[9px] font-bold uppercase ${presentation ? "border-rose-400/40 text-rose-100" : "border-rose-300 text-rose-900"}`}
-          >
-            Прогноз
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {(
-            [
-              {
-                k: "sold",
-                label: "% продано",
-                val: `${inventoryLiquidationAnalysis.pctSold.toFixed(1)}%`,
-                sub: `${numFmt.format(inventoryLiquidationAnalysis.totalSold)} из ${numFmt.format(inventoryLiquidationAnalysis.totalPlan)} шт`,
-                tone: presentation ? "text-emerald-200" : "text-emerald-800",
-              },
-              {
-                k: "rem",
-                label: "% остатка",
-                val: `${inventoryLiquidationAnalysis.pctRemaining.toFixed(1)}%`,
-                sub: `${numFmt.format(inventoryLiquidationAnalysis.totalRemaining)} шт к продаже`,
-                tone: presentation ? "text-slate-200" : "text-slate-800",
-              },
-              {
-                k: "risk",
-                label: "% в зоне риска",
-                val: `${inventoryLiquidationAnalysis.pctAtRisk.toFixed(1)}%`,
-                sub: `прогноз непроданного ${numFmt.format(inventoryLiquidationAnalysis.totalRisk)} шт к портфелю`,
-                tone: presentation ? "text-orange-200" : "text-orange-800",
-              },
-            ] as const
-          ).map((kpi) => (
-            <div
-              key={kpi.k}
-              className={`rounded-lg border px-3 py-2 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}
-            >
-              <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>{kpi.label}</div>
-              <div className={`mt-0.5 text-xl font-black tabular-nums ${kpi.tone}`}>{kpi.val}</div>
-              <div className={`mt-0.5 text-[9px] leading-tight ${presentation ? "text-slate-500" : "text-slate-600"}`}>{kpi.sub}</div>
+        <div
+          className={`mt-4 rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
+            presentation
+              ? "border-orange-500/55 bg-gradient-to-br from-orange-950/50 via-slate-950/80 to-slate-950 shadow-[inset_0_1px_0_rgba(255,237,213,0.12)]"
+              : "border-orange-400 bg-gradient-to-br from-orange-50 to-amber-50/90 shadow-sm"
+          }`}
+        >
+          <div className={`text-[10px] font-black uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+            Прогноз непроданного (ключевой KPI)
+          </div>
+          <div className="mt-1 flex flex-wrap items-baseline gap-3">
+            <span className={`text-3xl font-black tabular-nums sm:text-4xl ${presentation ? "text-orange-100" : "text-orange-950"}`}>
+              {numFmt.format(inventoryLiquidationAnalysis.totalRisk)} шт
+            </span>
+            <span className={`text-2xl font-black tabular-nums sm:text-3xl ${presentation ? "text-orange-200/95" : "text-orange-800"}`}>
+              {inventoryLiquidationAnalysis.pctAtRisk.toFixed(1)}%
+            </span>
+            <span className={`text-[10px] font-medium ${presentation ? "text-orange-200/80" : "text-orange-900/80"}`}>от портфеля</span>
+          </div>
+          <p className={`mt-2 max-w-2xl text-[10px] leading-snug ${presentation ? "text-orange-100/85" : "text-orange-950/85"}`}>
+            Оценка объёма, который модель не закрывает к дате завершения продаж при текущих темпах и миксе.
+          </p>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-2">
+          <div className={`rounded-lg border px-3 py-2 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>Продано</div>
+            <div className={`mt-0.5 text-lg font-black tabular-nums ${presentation ? "text-emerald-200" : "text-emerald-800"}`}>
+              {inventoryLiquidationAnalysis.pctSold.toFixed(1)}%
             </div>
-          ))}
+            <div className={`text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              {numFmt.format(inventoryLiquidationAnalysis.totalSold)} / {numFmt.format(inventoryLiquidationAnalysis.totalPlan)} шт
+            </div>
+          </div>
+          <div className={`rounded-lg border px-3 py-2 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>Остаток</div>
+            <div className={`mt-0.5 text-lg font-black tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+              {inventoryLiquidationAnalysis.pctRemaining.toFixed(1)}%
+            </div>
+            <div className={`text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              {numFmt.format(inventoryLiquidationAnalysis.totalRemaining)} шт к выбытию
+            </div>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200/90" : "text-orange-800"}`}>
-              Портфель: продано / остаток / прогноз непроданного
+          <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-orange-500/35 bg-slate-950/50" : "border-orange-200 bg-orange-50/50"}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+              Портфель: продано · остаток · прогноз непроданного
             </div>
-            <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              Стек: продано (зелёный), остаток без прогноза риска (серый), сегмент риска (оранжевый) — «оверлей» непроданного на остатке.
+            <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              Оранжевый сегмент — прогноз непроданного (акцент); серый — остаток без этого прогноза.
             </p>
-            <div className="mt-2 h-[88px] w-full min-w-0">
+            <div className="mt-2 h-[96px] w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   layout="vertical"
@@ -3587,123 +3612,159 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                   <Tooltip
                     formatter={(v: number, name: string) => {
                       const lab =
-                        name === "sold" ? "Продано" : name === "remainingSafe" ? "Остаток (без риска)" : name === "atRisk" ? "Прогноз непроданного" : name;
+                        name === "sold" ? "Продано" : name === "remaining" ? "Остаток" : name === "unsoldForecast" ? "Прогноз непроданного" : name;
                       return [`${numFmt.format(v)} шт`, lab];
                     }}
                     contentStyle={{ fontSize: 10, borderRadius: 6 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
                   <Bar dataKey="sold" name="Продано" stackId="inv" fill="#22c55e" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="remainingSafe" name="Остаток" stackId="inv" fill={presentation ? "#64748b" : "#94a3b8"} />
-                  <Bar dataKey="atRisk" name="Риск (не уйдёт)" stackId="inv" fill="#f97316" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="remaining" name="Остаток" stackId="inv" fill={presentation ? "#475569" : "#94a3b8"} />
+                  <Bar
+                    dataKey="unsoldForecast"
+                    name="Непроданный прогноз"
+                    stackId="inv"
+                    fill="#ea580c"
+                    stroke={presentation ? "#fed7aa" : "#9a3412"}
+                    strokeWidth={2}
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-sky-200/90" : "text-sky-800"}`}>
-              Темп выбытия остатка vs срок
+          <div
+            className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-amber-500/35 bg-slate-950/45" : "border-amber-200 bg-amber-50/60"}`}
+          >
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-amber-200" : "text-amber-900"}`}>
+              Темп ликвидации и дефицит времени
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-              <div className={presentation ? "rounded-lg bg-slate-900/50 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-500" : "text-slate-500"}>План к дедлайну</div>
-                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
+                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Требуемый темп</div>
+                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
                   {dec1Fmt.format(inventoryLiquidationAnalysis.plannedPace)} шт/мес
                 </div>
+                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>к дедлайну</div>
               </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/50 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-500" : "text-slate-500"}>Факт</div>
+              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
+                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Фактический темп</div>
                 <div
                   className={`mt-0.5 font-bold tabular-nums ${
                     inventoryLiquidationAnalysis.actualPace < inventoryLiquidationAnalysis.plannedPace * 0.95
                       ? presentation
-                        ? "text-rose-200"
+                        ? "text-rose-300"
                         : "text-rose-700"
                       : presentation
-                        ? "text-emerald-200"
+                        ? "text-emerald-300"
                         : "text-emerald-700"
                   }`}
                 >
                   {dec1Fmt.format(inventoryLiquidationAnalysis.actualPace)} шт/мес
                 </div>
-              </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/50 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-500" : "text-slate-500"}>Мес. на остаток при факте</div>
-                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-amber-100" : "text-amber-900"}`}>
-                  {dec1Fmt.format(inventoryLiquidationAnalysis.monthsToSell)}
+                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                  {(inventoryLiquidationAnalysis.paceRatio * 100).toFixed(0)}% к требуемому
                 </div>
               </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/50 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-500" : "text-slate-500"}>До конца продаж</div>
+              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
+                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Мес. на полное выбытие</div>
+                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-amber-100" : "text-amber-950"}`}>
+                  {dec1Fmt.format(inventoryLiquidationAnalysis.monthsToClear)}
+                </div>
+                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>остаток / факт</div>
+              </div>
+              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
+                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Времени до конца продаж</div>
                 <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
                   {dec1Fmt.format(inventoryLiquidationAnalysis.monthsLeft)} мес.
                 </div>
               </div>
             </div>
-            <p
-              className={`mt-2 text-[10px] font-medium ${
-                inventoryLiquidationAnalysis.paceGapMonths > 0.5
+            <div
+              className={`mt-3 rounded-lg border px-3 py-2 text-[10px] font-semibold ${
+                inventoryLiquidationAnalysis.timeDeficitMonths > 0.5
                   ? presentation
-                    ? "text-rose-200"
-                    : "text-rose-700"
+                    ? "border-rose-500/50 bg-rose-950/40 text-rose-100"
+                    : "border-rose-300 bg-rose-50 text-rose-900"
                   : presentation
-                    ? "text-slate-400"
-                    : "text-slate-600"
+                    ? "border-slate-600/50 text-slate-300"
+                    : "border-slate-200 text-slate-700"
               }`}
             >
-              {inventoryLiquidationAnalysis.paceGapMonths > 0.5
-                ? `Разрыв: нужно ~${dec1Fmt.format(inventoryLiquidationAnalysis.paceGapMonths)} мес. больше срока — остаток не успеет без ускорения.`
-                : "Темп укладывается в оставшийся срок по простой оценке."}
-            </p>
+              {inventoryLiquidationAnalysis.timeDeficitMonths > 0.5 ? (
+                <>
+                  Дефицит времени: ~{dec1Fmt.format(inventoryLiquidationAnalysis.timeDeficitMonths)} мес. — остаток не укладывается в горизонт при текущем
+                  темпе.
+                </>
+              ) : (
+                <>По линейной оценке темп и срок согласованы; риск остаётся в прогнозе непроданного по миксу.</>
+              )}
+            </div>
           </div>
         </div>
 
         <div className={`mt-4 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
           <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-            Остаток по типам (сортировка по объёму остатка)
+            Структура: сортировка по риску ликвидности (остаток × слабый темп сегмента)
           </div>
-          <div className="mt-2" style={{ height: Math.max(200, inventoryLiquidationAnalysis.barByType.length * 40) }}>
+          <p className={`mt-1 text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            Топ‑2 по индексу помечены; оранжевый — прогноз непроданного по типу.
+          </p>
+          <div className="mt-2" style={{ height: Math.max(200, inventoryLiquidationAnalysis.barByType.length * 44) }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 layout="vertical"
-                data={inventoryLiquidationAnalysis.barByType}
+                data={inventoryLiquidationAnalysis.barByType.map((r) => ({
+                  ...r,
+                  labelAxis: r.highRisk ? `${r.label} · риск` : r.label,
+                }))}
                 margin={{ top: 2, right: 8, left: 4, bottom: 2 }}
-                barCategoryGap={10}
+                barCategoryGap={12}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
                 <XAxis type="number" tick={{ fill: axisColor, fontSize: 9 }} tickFormatter={(v) => numFmt.format(v)} />
-                <YAxis type="category" dataKey="label" width={108} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} />
+                <YAxis type="category" dataKey="labelAxis" width={132} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} />
                 <Tooltip
                   formatter={(v: number, name: string) => {
                     const lab =
-                      name === "sold" ? "Продано" : name === "remainingSafe" ? "Остаток" : name === "atRisk" ? "Риск" : name;
+                      name === "sold" ? "Продано" : name === "remaining" ? "Остаток" : name === "unsoldForecast" ? "Прогноз непроданного" : name;
                     return [`${numFmt.format(v)} шт`, lab];
                   }}
                   contentStyle={{ fontSize: 10, borderRadius: 6 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 9 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
                 <Bar dataKey="sold" name="Продано" stackId="t" fill="#22c55e" />
-                <Bar dataKey="remainingSafe" name="Остаток" stackId="t" fill={presentation ? "#64748b" : "#94a3b8"} />
-                <Bar dataKey="atRisk" name="Риск" stackId="t" fill="#f97316" />
+                <Bar dataKey="remaining" name="Остаток" stackId="t" fill={presentation ? "#475569" : "#94a3b8"} />
+                <Bar
+                  dataKey="unsoldForecast"
+                  name="Непроданный прогноз"
+                  stackId="t"
+                  fill="#ea580c"
+                  stroke={presentation ? "#fed7aa" : "#9a3412"}
+                  strokeWidth={1.5}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className={`mt-4 grid gap-3 md:grid-cols-2`}>
-          <div className={`rounded-xl border p-3 ${presentation ? "border-orange-500/35 bg-orange-950/20" : "border-orange-200 bg-orange-50/80"}`}>
+        <div className={`mt-4 grid gap-3 lg:grid-cols-2`}>
+          <div className={`rounded-xl border p-3 ${presentation ? "border-orange-500/40 bg-orange-950/25" : "border-orange-200 bg-orange-50/90"}`}>
             <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
-              Прогноз непроданного по типам
+              Концентрация риска по типам
             </div>
+            <p className={`mt-1 text-[9px] ${presentation ? "text-orange-100/75" : "text-orange-950/80"}`}>
+              Доля каждой категории в суммарном прогнозе непроданного.
+            </p>
             <ul className="mt-2 space-y-2">
-              {inventoryLiquidationAnalysis.topRiskTypes.map((r, idx) => (
+              {inventoryLiquidationAnalysis.riskConcentration.map((r, idx) => (
                 <li
                   key={r.id}
                   className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[10px] ${
                     idx === 0
                       ? presentation
-                        ? "border-orange-400/50 bg-black/20 font-semibold text-orange-100"
+                        ? "border-orange-400/60 bg-black/25 font-semibold text-orange-50"
                         : "border-orange-400 bg-white font-semibold text-orange-950"
                       : presentation
                         ? "border-slate-600/40 text-slate-200"
@@ -3711,7 +3772,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                   }`}
                 >
                   <span className="min-w-0 truncate">{r.label}</span>
-                  <span className="shrink-0 tabular-nums">{numFmt.format(r.cappedRisk)} шт</span>
+                  <span className="shrink-0 text-right tabular-nums">
+                    {numFmt.format(r.units)} шт
+                    <span className={`ml-2 font-bold ${presentation ? "text-orange-200" : "text-orange-800"}`}>
+                      {r.pctOfTotalRisk.toFixed(0)}%
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -3722,11 +3788,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             }`}
           >
             <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
-              Инсайт
+              Инсайт (проблема → причина → следствие)
             </div>
-            <p className="mt-2">{inventoryLiquidationAnalysis.insight.accumulate}</p>
-            <p className="mt-1.5">{inventoryLiquidationAnalysis.insight.why}</p>
-            <p className="mt-1.5 font-medium">{inventoryLiquidationAnalysis.insight.consequence}</p>
+            <p className="mt-2 font-medium">{inventoryLiquidationAnalysis.insight.problem}</p>
+            <p className="mt-1.5">{inventoryLiquidationAnalysis.insight.cause}</p>
+            <p className="mt-1.5 font-semibold">{inventoryLiquidationAnalysis.insight.consequence}</p>
           </div>
         </div>
       </div>

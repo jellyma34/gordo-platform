@@ -151,6 +151,11 @@ export type InventoryLiquidationTypeRow = {
   remainingUnits: number;
   /** Прогноз нераспроданного к дате завершения продаж, не больше remaining. */
   unsoldForecastUnits: number;
+  /**
+   * Относительный темп выбытия сегмента (факт/норма по типу), 0.3…1.2.
+   * Чем ниже — тем «медленнее» ликвидация при текущем спросе.
+   */
+  segmentVelocityRatio: number;
 };
 
 export type InventoryLiquidationModel = {
@@ -506,11 +511,11 @@ export const marketingSalesReportMock: SalesReportPayload = {
     plannedSalesPerMonth: 6.7,
     actualSalesPerMonth: 5.8,
     byType: [
-      { id: "apt-2", label: "2-комнатные", planUnits: 110, soldUnits: 72, remainingUnits: 38, unsoldForecastUnits: 13 },
-      { id: "commercial", label: "Коммерция", planUnits: 40, soldUnits: 14, remainingUnits: 26, unsoldForecastUnits: 11 },
-      { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1 },
-      { id: "parking", label: "Парковки", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2 },
-      { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1 },
+      { id: "apt-2", label: "2-комнатные", planUnits: 110, soldUnits: 72, remainingUnits: 38, unsoldForecastUnits: 13, segmentVelocityRatio: 0.68 },
+      { id: "commercial", label: "Коммерция", planUnits: 40, soldUnits: 14, remainingUnits: 26, unsoldForecastUnits: 11, segmentVelocityRatio: 0.52 },
+      { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1, segmentVelocityRatio: 0.96 },
+      { id: "parking", label: "Парковки", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2, segmentVelocityRatio: 0.85 },
+      { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1, segmentVelocityRatio: 0.78 },
     ],
   },
   comments: [
