@@ -3887,30 +3887,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             </div>
 
             <div
-              className={`rounded-xl border p-3 text-[11px] leading-relaxed ${
-                presentation ? "border-slate-600/50 bg-slate-950/45 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-800"
-              }`}
-            >
-              <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                Причинно-следственная цепочка
-              </div>
-              <ol className={`mt-2 list-inside list-decimal space-y-1.5 ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                <li>{rootCauseDecomposition.causal.main}</li>
-                {rootCauseDecomposition.causal.secondary ? <li>{rootCauseDecomposition.causal.secondary}</li> : null}
-                <li>{rootCauseDecomposition.causal.bridge}</li>
-                <li className="font-semibold">{rootCauseDecomposition.causal.final}</li>
-              </ol>
-              {rootCauseDecomposition.showConversionBlock && funnelTopLossStage ? (
-                <p className={`mt-2 border-t pt-2 text-[10px] ${presentation ? "border-slate-700/50 text-slate-400" : "border-slate-200 text-slate-600"}`}>
-                  Конверсия: критичный этап воронки — «{funnelTopLossStage.stage}»; оценочный вклад в мосте совпадает с драйвером «Конверсия воронки» (см. таблицу драйверов).
-                </p>
-              ) : null}
-              <p className={`mt-3 border-t pt-2 text-[10px] font-medium leading-snug ${presentation ? "border-slate-700/50 text-slate-200" : "border-slate-200 text-slate-900"}`}>
-                {rootCauseDecomposition.insight}
-              </p>
-            </div>
-
-            <div
               className={
                 presentation
                   ? "relative overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
