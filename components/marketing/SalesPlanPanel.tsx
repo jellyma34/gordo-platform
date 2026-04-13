@@ -2119,6 +2119,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     };
 
     const bestCat = [...deviationContribution].filter((d) => d.deviation > 0).sort((a, b) => b.deviation - a.deviation)[0];
+    const topNegCat = [...deviationContribution].filter((d) => d.deviation < 0).sort((a, b) => a.deviation - b.deviation)[0];
     const strongestLoss = [...rootCauseDecomposition.drivers]
       .filter((d) => d.impactRub < 0)
       .sort((a, b) => a.impactRub - b.impactRub)[0];
@@ -2151,7 +2152,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       (revMissRub > 60_000_000 && forecastPercentAdjusted < 95)
     ) {
       statusTone = "red";
-      statusLabel = "Отставание";
+      statusLabel = "🔴 ОТСТАВАНИЕ";
     } else if (
       forecastPercentAdjusted < 100 ||
       cumulativeExecTone === "yellow" ||
@@ -2161,17 +2162,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       inv.timeDeficitMonths >= 0.45
     ) {
       statusTone = "yellow";
-      statusLabel = "Риск";
+      statusLabel = "🟠 РИСК";
     } else {
       statusTone = "green";
-      statusLabel = "В плане";
+      statusLabel = "🟢 В ПЛАНЕ";
     }
 
-    const statusMetrics = `Отклонение: ${fmtSignedRub(rev.deviationCumulative)}`;
+    const forecastSign = forecastGapRub >= 0 ? "−" : "+";
+    const forecastMln = Math.round(Math.abs(forecastGapRub) / 1_000_000);
+    const forecastText = forecastMln >= 300 ? `${forecastSign}300+ млн ₽` : `${forecastSign}${compactRub(Math.abs(forecastGapRub))}`;
+    const statusLabelFull = `${statusLabel} ${fmtSignedRub(rev.deviationCumulative)}`;
+    const statusMetrics = `📉 Тренд ухудшается → прогноз ${forecastText}`;
+    const paceLossRub = Math.max(0, forecastGapRub);
+    const paceLossPerMonth = Math.round(paceLossRub / Math.max(1, velocityMetrics.totalMonths));
+    const weakDemandRub = Math.max(0, -((topNegCat?.deviation ?? 0)));
+    const compRub = bestCat?.deviation ?? 0;
+    const compLabel = (bestCat?.name ?? "сильный сегмент").toLowerCase();
     const causalChain = [
-      fmtSignedRub(rev.deviationCumulative),
-      strongestLoss ? `← ${strongestLoss.labelRu} (${fmtSignedRub(strongestLoss.impactRub)})` : "← Основной фактор не определен",
-      `← ${pack.cause}`,
+      "Отставание",
+      `← темп ниже плана (${fmtSignedRub(-paceLossPerMonth)}/мес)`,
+      `← слабый спрос на квартиры (${fmtSignedRub(-weakDemandRub)})`,
     ];
 
     const trimWords = (s: string, max = 10) => {
@@ -2181,12 +2191,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
     return {
       statusTone,
-      statusLabel,
+      statusLabel: statusLabelFull,
       statusMetrics,
       causalChain,
-      mainDriver: trimWords(mainDriver),
-      mainProblem: pack.problem,
-      requiredAction: pack.action,
+      mainDriver: compRub > 0 ? `${bestCat?.name ?? "Сильный сегмент"} компенсируют часть потерь (${fmtSignedRub(compRub)})` : trimWords(mainDriver),
+      mainProblem: `Слабый спрос на квартиры → ${fmtSignedRub(-weakDemandRub)} (ключевой драйвер)`,
+      requiredAction: "Ускорить продажи квартир:\n– цена\n– маркетинг\n– конверсия",
     };
   }, [
     inventoryLiquidationAnalysis,
@@ -4346,7 +4356,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             >
               {executiveManagementSummary.statusLabel}
             </p>
-            <p className={`mt-2 text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <p className={`mt-2 whitespace-pre-line text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
               {executiveManagementSummary.statusMetrics}
             </p>
             <div className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-snug ${presentation ? "border-slate-600/70 bg-black/20 text-slate-200" : "border-slate-200 bg-white/80 text-slate-700"}`}>
@@ -4380,7 +4390,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-sky-200" : "text-sky-900"}`}>
               Действие
             </div>
-            <p className={`mt-2 text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
+            <p className={`mt-2 whitespace-pre-line text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
               {executiveManagementSummary.requiredAction}
             </p>
           </div>
