@@ -32,6 +32,7 @@ const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: 
 const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
 const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
 const ReferenceLine = dynamic(() => import("recharts").then((m) => m.ReferenceLine), { ssr: false });
+const ReferenceArea = dynamic(() => import("recharts").then((m) => m.ReferenceArea), { ssr: false });
 const ReferenceDot = dynamic(() => import("recharts").then((m) => m.ReferenceDot), { ssr: false });
 
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
@@ -1201,50 +1202,128 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       const gapCumulative = p.dduCumulative - p.escrowCumulative;
       const prevGap = i > 0 ? pts[i - 1].dduCumulative - pts[i - 1].escrowCumulative : 0;
       const gapPeriod = i === 0 ? gapCumulative : gapCumulative - prevGap;
+      const spread = p.dduCumulative - p.escrowCumulative;
+      const conversionPct = p.dduCumulative > 0 ? (p.escrowCumulative / p.dduCumulative) * 100 : 0;
       return {
         label: p.label,
         periodKey: p.periodKey,
         ddu: p.dduCumulative,
         escrow: p.escrowCumulative,
+        spread,
+        conversionPct,
         gapCumulative,
         gapPeriod,
         execPct: execPctArr[i] ?? 0,
       };
     });
+    const n = chartRows.length;
+    const lastGap = n > 0 ? chartRows[n - 1].gapCumulative : 0;
+    const prevGap = n >= 2 ? chartRows[n - 2].gapCumulative : lastGap;
+    const firstGap = n > 0 ? chartRows[0].gapCumulative : 0;
+    const gapDeltaLastRub = n >= 2 ? lastGap - prevGap : 0;
+    const gapDeltaHorizonRub = n >= 1 ? lastGap - firstGap : 0;
+    const noiseRub = 2_000_000;
+    const gapTrend: "up" | "down" | "flat" =
+      gapDeltaLastRub > noiseRub ? "up" : gapDeltaLastRub < -noiseRub ? "down" : "flat";
+
+    let slopePerPeriod = 0;
+    if (n >= 2) {
+      const xs = chartRows.map((_, i) => i);
+      const ys = chartRows.map((r) => r.gapCumulative);
+      const mx = xs.reduce((a, b) => a + b, 0) / n;
+      const my = ys.reduce((a, b) => a + b, 0) / n;
+      let num = 0;
+      let den = 0;
+      for (let i = 0; i < n; i++) {
+        num += (xs[i] - mx) * (ys[i] - my);
+        den += (xs[i] - mx) ** 2;
+      }
+      slopePerPeriod = den !== 0 ? num / den : 0;
+    }
+    const forecastNextGapRub = lastGap + slopePerPeriod;
+    const relSlope = lastGap > 1 ? slopePerPeriod / lastGap : 0;
+    let liquidityRiskForecast: "increasing" | "stable" | "decreasing";
+    if (slopePerPeriod > Math.max(lastGap * 0.06, 12_000_000)) liquidityRiskForecast = "increasing";
+    else if (slopePerPeriod < Math.min(-lastGap * 0.02, -8_000_000)) liquidityRiskForecast = "decreasing";
+    else liquidityRiskForecast = "stable";
+
+    const liquidityRiskLabelRu =
+      liquidityRiskForecast === "increasing"
+        ? "Риск ликвидности растёт"
+        : liquidityRiskForecast === "decreasing"
+          ? "Риск снижается"
+          : "Риск стабилен";
+
+    const gapChartData = [
+      ...chartRows.map((r) => ({ label: r.label, gapCumulative: r.gapCumulative, isForecast: false })),
+      ...(n >= 2
+        ? ([{ label: "Прогноз*", gapCumulative: forecastNextGapRub, isForecast: true }] as const)
+        : []),
+    ];
+
     const dduTotal = cf.dduFactCumulative;
     const escTotal = cf.escrowFactCumulative;
     const gapRub = dduTotal - escTotal;
     const gapOverThreshold = gapRub > cf.gapAlertThresholdRub;
     const escrowToDdu = dduTotal > 0 ? escTotal / dduTotal : 1;
+    const conversionTotalPct = escrowToDdu * 100;
     const escrowDduWarning = escrowToDdu < 0.8;
     const revExecEscrowPct = rev.planCumulative > 0 ? (escTotal / rev.planCumulative) * 100 : 0;
     const execYMax = Math.max(105, ...execPctArr.map((x) => x * 1.12));
+    const conversionYMax = Math.max(100, ...chartRows.map((r) => r.conversionPct), 92) * 1.06;
 
-    const insightDdu =
-      "Накопительный объём по договорам ДДУ. Устойчивый рост без сопоставимого эскроу усиливает потенциальный кассовый лаг.";
-    const insightEscrow =
-      "Поступления на спецсчёт — реальная ликвидность. Отставание от ДДУ до регистрации и по графику платежей ожидаемо, хроническое — риск.";
+    const signedDeltaMln = (rub: number) => {
+      const sign = rub >= 0 ? "+" : "−";
+      const abs = Math.abs(rub);
+      const mln = abs / 1_000_000;
+      return `${sign}${dec1Fmt.format(mln)} млн ₽`;
+    };
+
+    const insightMerge =
+      "Синий слой — эскроу, розовый — «хвост» ДДУ без денег на спецсчёте (ДДУ−эскроу). Расхождение кривых и толщина розового слоя — зона кассового лага.";
     const insightGap = gapOverThreshold
-      ? `Разрыв ${compactRub(gapRub)} выше порога ${compactRub(cf.gapAlertThresholdRub)}: деньги на эскроу существенно отстают от договорной базы.`
+      ? `Накопительный разрыв ${compactRub(gapRub)} выше порога ${compactRub(cf.gapAlertThresholdRub)}. Тренд и прогноз показывают, нарастает ли отставание денег от договоров.`
       : gapRub > 0
-        ? `Разрыв ${compactRub(gapRub)} — часть ДДУ ещё не конвертировалась в эскроу; контролируйте графики и сроки переводов.`
-        : `Разрыв неположителен: по периодам эскроу не отстаёт от ДДУ в номинале.`;
-    const insightExec = `Накопительно эскроу закрыл ${revExecEscrowPct.toFixed(1)}% плана выручки (${compactRub(rev.planCumulative)}). Линия 100% — целевой ориентир по деньгам, не по ДДУ.`;
+        ? `Разрыв ${compactRub(gapRub)}: часть ДДУ ещё не в эскроу. Следите за динамикой Δ и прогнозом.`
+        : `Разрыв неположителен по горизонту; контроль тренда всё равно нужен при смене графиков платежей.`;
+    const insightConversion = `Конверсия денег: эскроу / ДДУ = ${conversionTotalPct.toFixed(1)}%. Целевой коридор 80–90% — баланс между нормальной отсрочкой и хроническим отставанием поступлений.`;
+    const insightExec = `Выполнение плана ${revExecEscrowPct.toFixed(1)}% считается по эскроу, поэтому оно отражает лаг поступлений относительно плана выручки: пока эскроу «тянет» за ДДУ, процент плана занижен не из‑за отсутствия сделок, а из‑за задержки денег (регистрация, рассрочка, график). Линия 100% — цель по деньгам на счёте.`;
+
+    const trendHintRu =
+      gapTrend === "up"
+        ? "За последний период разрыв вырос — деньги отстают от договорной базы."
+        : gapTrend === "down"
+          ? "За последний период разрыв сузился — поступления на эскроу догоняют ДДУ."
+          : "Шаг разрыва за последний период небольшой относительно масштаба.";
 
     return {
       chartRows,
+      gapChartData,
       dduTotal,
       escTotal,
       gapRub,
       gapOverThreshold,
       escrowDduWarning,
       escrowToDdu,
+      conversionTotalPct,
       revExecEscrowPct,
       thresholdRub: cf.gapAlertThresholdRub,
       execYMax,
-      insightDdu,
-      insightEscrow,
+      conversionYMax,
+      gapTrend,
+      gapDeltaLastRub,
+      gapDeltaHorizonRub,
+      signedDeltaLast: signedDeltaMln(gapDeltaLastRub),
+      signedDeltaHorizon: signedDeltaMln(gapDeltaHorizonRub),
+      slopePerPeriod,
+      forecastNextGapRub,
+      liquidityRiskForecast,
+      liquidityRiskLabelRu,
+      slopePerPeriodFormatted: signedDeltaMln(slopePerPeriod),
+      trendHintRu,
+      insightMerge,
       insightGap,
+      insightConversion,
       insightExec,
     };
   }, [report, period, seriesPoints, baseRev.planCumulative, rev.planCumulative]);
@@ -1423,6 +1502,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
   const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const yTickCashM = (v: number) => `${Math.round(v / 1_000_000)}M`;
   const yTickGapBar = (v: number) => `${Math.round(v / 1_000_000)}M`;
+  const yTickPct0 = (v: number) => `${Math.round(v)}%`;
 
   const yTick =
     chartMetric === "revenue"
@@ -2864,172 +2944,163 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               Финансовые показатели
             </div>
             <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              Диагностика кассы: сравнение продаж по ДДУ и фактических поступлений на эскроу. Доля плана по выручке считается только от эскроу, не от ДДУ. Разрыв (ДДУ − эскроу) — ключевой индикатор риска кассового разрыва.
+              Предиктивная диагностика ликвидности: накопительный разрыв ДДУ−эскроу, конверсия в деньги, тренд и прогноз риска. План выручки здесь — только по поступлениям на эскроу (лаг денег), не по договорной базе.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-4">
             <div
-              className={`flex min-h-0 flex-col rounded-xl border p-3 sm:p-4 ${
-                presentation ? "border-slate-700/55 bg-slate-950/35" : "border-slate-200/90 bg-white/95"
-              }`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                  Продажи по ДДУ
-                </div>
-                {financialCashFlow.escrowDduWarning ? (
-                  <span
-                    className={`shrink-0 rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase ${
-                      presentation ? "border-amber-500/45 text-amber-100" : "border-amber-300 text-amber-950"
-                    }`}
-                    title="Эскроу / ДДУ ниже 80%"
-                  >
-                    эскроу/ДДУ {"<"}80%
-                  </span>
-                ) : null}
-              </div>
-              <div className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${presentation ? "text-slate-50" : "text-slate-900"}`}>
-                {rubFmt.format(financialCashFlow.dduTotal)}
-              </div>
-              <div className="mt-2 h-[136px] min-h-[120px] w-full min-w-0 sm:h-[156px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={financialCashFlow.chartRows} margin={{ top: 6, right: 10, left: 0, bottom: 2 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                    <YAxis
-                      tick={{ fill: axisColor, fontSize: 10 }}
-                      axisLine={false}
-                      width={44}
-                      tickFormatter={yTickCashM}
-                      domain={[0, "auto"]}
-                    />
-                    <Tooltip
-                      formatter={(v: number) => rubFmt.format(v)}
-                      labelStyle={{ fontSize: 11 }}
-                      contentStyle={
-                        presentation
-                          ? { background: "#0f172a", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }
-                          : { borderRadius: 8 }
-                      }
-                    />
-                    <Line type="monotone" dataKey="ddu" name="ДДУ, ₽" stroke={presentation ? "#e2e8f0" : "#334155"} strokeWidth={2.2} dot={{ r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightDdu}</p>
-            </div>
-
-            <div
-              className={`flex min-h-0 flex-col rounded-xl border p-3 sm:p-4 ${
-                presentation ? "border-slate-700/55 bg-slate-950/35" : "border-slate-200/90 bg-white/95"
-              }`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                  Поступления на эскроу
-                </div>
-                {financialCashFlow.escrowDduWarning ? (
-                  <span
-                    className={`shrink-0 rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase ${
-                      presentation ? "border-amber-500/45 text-amber-100" : "border-amber-300 text-amber-950"
-                    }`}
-                    title="Эскроу / ДДУ ниже 80%"
-                  >
-                    эскроу/ДДУ {"<"}80%
-                  </span>
-                ) : null}
-              </div>
-              <div className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${presentation ? "text-sky-200" : "text-sky-800"}`}>
-                {rubFmt.format(financialCashFlow.escTotal)}
-              </div>
-              <div className="mt-2 h-[136px] min-h-[120px] w-full min-w-0 sm:h-[156px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={financialCashFlow.chartRows} margin={{ top: 6, right: 10, left: 0, bottom: 2 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                    <YAxis
-                      tick={{ fill: axisColor, fontSize: 10 }}
-                      axisLine={false}
-                      width={44}
-                      tickFormatter={yTickCashM}
-                      domain={[0, "auto"]}
-                    />
-                    <Tooltip
-                      formatter={(v: number) => rubFmt.format(v)}
-                      labelStyle={{ fontSize: 11 }}
-                      contentStyle={
-                        presentation
-                          ? { background: "#0f172a", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }
-                          : { borderRadius: 8 }
-                      }
-                    />
-                    <Line type="monotone" dataKey="escrow" name="Эскроу, ₽" stroke="#38bdf8" strokeWidth={2.2} dot={{ r: 3, fill: "#38bdf8" }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightEscrow}</p>
-            </div>
-
-            <div
-              className={`flex min-h-0 flex-col rounded-xl border-2 p-3 shadow-lg sm:p-4 ${
+              className={`flex min-h-0 flex-col rounded-2xl border-2 p-4 shadow-xl sm:p-5 ${
                 financialCashFlow.gapOverThreshold
                   ? presentation
-                    ? "border-rose-400/90 bg-gradient-to-br from-rose-950/90 via-rose-950/55 to-slate-950 ring-2 ring-rose-500/50 shadow-rose-950/40"
-                    : "border-rose-500 bg-gradient-to-br from-rose-100 via-white to-rose-50/90 ring-2 ring-rose-300 shadow-rose-200/50"
+                    ? "border-rose-400/95 bg-gradient-to-br from-rose-950/95 via-rose-950/60 to-slate-950 ring-2 ring-rose-500/55 shadow-rose-950/50"
+                    : "border-rose-500 bg-gradient-to-br from-rose-100 via-white to-rose-50 ring-2 ring-rose-400 shadow-rose-200/60"
                   : presentation
-                    ? "border-violet-400/85 bg-gradient-to-br from-violet-950/80 via-slate-950 to-slate-950 ring-2 ring-violet-400/45 shadow-violet-950/30"
-                    : "border-violet-500 bg-gradient-to-br from-violet-100/90 via-white to-slate-50 ring-2 ring-violet-300 shadow-violet-200/40"
+                    ? "border-violet-400/90 bg-gradient-to-br from-violet-950/90 via-slate-950 to-slate-950 ring-2 ring-violet-400/50 shadow-violet-950/40"
+                    : "border-violet-500 bg-gradient-to-br from-violet-100 via-white to-slate-50 ring-2 ring-violet-300 shadow-violet-200/50"
               }`}
             >
-              <div
-                className={`text-[10px] font-extrabold uppercase tracking-wide ${
-                  financialCashFlow.gapOverThreshold
-                    ? presentation
-                      ? "text-rose-100"
-                      : "text-rose-950"
-                    : presentation
-                      ? "text-violet-100"
-                      : "text-violet-950"
-                }`}
-              >
-                Разрыв (ДДУ − эскроу)
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div
+                    className={`text-[11px] font-extrabold uppercase tracking-wide ${
+                      financialCashFlow.gapOverThreshold
+                        ? presentation
+                          ? "text-rose-100"
+                          : "text-rose-950"
+                        : presentation
+                          ? "text-violet-100"
+                          : "text-violet-950"
+                    }`}
+                  >
+                    Разрыв ДДУ − эскроу — центр диагностики
+                  </div>
+                  <div
+                    className={`mt-1 text-3xl font-black tabular-nums tracking-tight sm:text-4xl ${
+                      financialCashFlow.gapOverThreshold
+                        ? presentation
+                          ? "text-rose-50"
+                          : "text-rose-900"
+                        : presentation
+                          ? "text-slate-50"
+                          : "text-slate-900"
+                    }`}
+                  >
+                    {financialCashFlow.gapRub >= 0 ? "" : "−"}
+                    {compactRub(Math.abs(financialCashFlow.gapRub))}
+                  </div>
+                  <p
+                    className={`mt-1 text-[10px] font-semibold ${
+                      financialCashFlow.gapOverThreshold
+                        ? presentation
+                          ? "text-rose-200/90"
+                          : "text-rose-800"
+                        : presentation
+                          ? "text-violet-200/90"
+                          : "text-violet-900"
+                    }`}
+                  >
+                    Порог: {compactRub(financialCashFlow.thresholdRub)}
+                    {financialCashFlow.gapOverThreshold ? " · превышен" : " · не превышен"}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 lg:items-end">
+                  <div
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold tabular-nums ${
+                      financialCashFlow.gapTrend === "up"
+                        ? presentation
+                          ? "border-rose-400/60 bg-rose-950/50 text-rose-100"
+                          : "border-rose-300 bg-rose-50 text-rose-900"
+                        : financialCashFlow.gapTrend === "down"
+                          ? presentation
+                            ? "border-emerald-400/50 bg-emerald-950/40 text-emerald-100"
+                            : "border-emerald-300 bg-emerald-50 text-emerald-900"
+                          : presentation
+                            ? "border-slate-500/50 bg-slate-900/60 text-slate-200"
+                            : "border-slate-300 bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    {financialCashFlow.gapTrend === "up" ? "↑ Рост разрыва" : null}
+                    {financialCashFlow.gapTrend === "down" ? "↓ Снижение разрыва" : null}
+                    {financialCashFlow.gapTrend === "flat" ? "→ Без сильного шага" : null}
+                  </div>
+                  <div
+                    className={`text-right text-[10px] font-semibold tabular-nums ${
+                      financialCashFlow.gapOverThreshold
+                        ? presentation
+                          ? "text-rose-100/90"
+                          : "text-rose-900"
+                        : presentation
+                          ? "text-slate-200"
+                          : "text-slate-800"
+                    }`}
+                  >
+                    Δ за последний период: {financialCashFlow.signedDeltaLast}
+                    <br />
+                    Δ за горизонт: {financialCashFlow.signedDeltaHorizon}
+                  </div>
+                  <div
+                    className={`flex flex-wrap justify-end gap-2 text-[9px] font-bold uppercase leading-tight ${
+                      financialCashFlow.liquidityRiskForecast === "increasing"
+                        ? presentation
+                          ? "text-rose-200"
+                          : "text-rose-800"
+                        : financialCashFlow.liquidityRiskForecast === "decreasing"
+                          ? presentation
+                            ? "text-emerald-200"
+                            : "text-emerald-800"
+                          : presentation
+                            ? "text-slate-300"
+                            : "text-slate-600"
+                    }`}
+                  >
+                    <span
+                      className={`rounded-md border px-2 py-1 ${
+                        financialCashFlow.liquidityRiskForecast === "increasing"
+                          ? presentation
+                            ? "border-rose-400/50 bg-black/20"
+                            : "border-rose-300 bg-white/80"
+                          : financialCashFlow.liquidityRiskForecast === "decreasing"
+                            ? presentation
+                              ? "border-emerald-400/40 bg-black/20"
+                              : "border-emerald-300 bg-white/80"
+                            : presentation
+                              ? "border-slate-500/40 bg-black/15"
+                              : "border-slate-300 bg-white/80"
+                      }`}
+                    >
+                      {financialCashFlow.liquidityRiskLabelRu}
+                    </span>
+                  </div>
+                  <p
+                    className={`max-w-md text-right text-[9px] leading-snug ${
+                      financialCashFlow.gapOverThreshold
+                        ? presentation
+                          ? "text-rose-100/80"
+                          : "text-rose-900/85"
+                        : presentation
+                          ? "text-slate-300/90"
+                          : "text-slate-700"
+                    }`}
+                  >
+                    Прогноз накопительного разрыва (лин. тренд): ~{compactRub(financialCashFlow.forecastNextGapRub)} · наклон ~{" "}
+                    {financialCashFlow.slopePerPeriodFormatted}/период
+                  </p>
+                </div>
               </div>
-              <div className="mt-0.5 text-[9px] font-semibold opacity-90">Главный диагностический показатель · столбцы = прирост разрыва за период</div>
-              <div
-                className={`mt-1 text-2xl font-black tabular-nums tracking-tight sm:text-3xl ${
-                  financialCashFlow.gapOverThreshold
-                    ? presentation
-                      ? "text-rose-50"
-                      : "text-rose-900"
-                    : presentation
-                      ? "text-slate-50"
-                      : "text-slate-900"
-                }`}
-              >
-                {financialCashFlow.gapRub >= 0 ? "" : "−"}
-                {compactRub(Math.abs(financialCashFlow.gapRub))}
-              </div>
-              <p
-                className={`text-[9px] font-semibold ${
-                  financialCashFlow.gapOverThreshold
-                    ? presentation
-                      ? "text-rose-200/90"
-                      : "text-rose-800"
-                    : presentation
-                      ? "text-violet-200/85"
-                      : "text-violet-900"
-                }`}
-              >
-                Порог: {compactRub(financialCashFlow.thresholdRub)}
-                {financialCashFlow.gapOverThreshold ? " · превышен" : " · не превышен"}
-              </p>
-              <div className="mt-2 h-[144px] min-h-[128px] w-full min-w-0 sm:h-[168px]">
+
+              <div className="mt-3 h-[168px] min-h-[140px] w-full min-w-0 sm:h-[188px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={financialCashFlow.chartRows} margin={{ top: 6, right: 10, left: 0, bottom: 2 }}>
+                  <ComposedChart data={financialCashFlow.gapChartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id="gapAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={financialCashFlow.gapOverThreshold ? "#fb7185" : "#a78bfa"} stopOpacity={0.45} />
+                        <stop offset="100%" stopColor={financialCashFlow.gapOverThreshold ? "#fb7185" : "#a78bfa"} stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                    <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} width={44} tickFormatter={yTickGapBar} domain={["auto", "auto"]} />
+                    <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} width={48} tickFormatter={yTickGapBar} domain={[0, "auto"]} />
                     <Tooltip
                       formatter={(v: number) => rubFmt.format(v)}
                       labelStyle={{ fontSize: 11 }}
@@ -3039,38 +3110,218 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                           : { borderRadius: 8 }
                       }
                     />
-                    <Bar dataKey="gapPeriod" name="Прирост разрыва, ₽" radius={[5, 5, 0, 0]} maxBarSize={56}>
-                      {financialCashFlow.chartRows.map((row) => (
-                        <Cell
-                          key={row.periodKey}
-                          fill={
-                            financialCashFlow.gapOverThreshold
-                              ? presentation
-                                ? "#fb7185"
-                                : "#e11d48"
-                              : presentation
-                                ? "#a78bfa"
-                                : "#6d28d9"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
+                    <Area
+                      type="monotone"
+                      dataKey="gapCumulative"
+                      name="Разрыв (площадь)"
+                      stroke="none"
+                      fill="url(#gapAreaGrad)"
+                      baseLine={0}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="gapCumulative"
+                      name="Разрыв накопит., ₽"
+                      stroke={financialCashFlow.gapOverThreshold ? "#fecdd3" : "#ddd6fe"}
+                      strokeWidth={2.6}
+                      dot={(dotProps: { cx?: number; cy?: number; payload?: { isForecast?: boolean }; index?: number }) => {
+                        const { cx, cy, payload, index } = dotProps;
+                        if (cx == null || cy == null) return null;
+                        const k = index ?? 0;
+                        if (payload?.isForecast) {
+                          return (
+                            <circle
+                              key={`gap-fc-${k}`}
+                              cx={cx}
+                              cy={cy}
+                              r={6}
+                              fill="#facc15"
+                              stroke={presentation ? "#0f172a" : "#1e293b"}
+                              strokeWidth={1.5}
+                            />
+                          );
+                        }
+                        return (
+                          <circle
+                            key={`gap-h-${k}`}
+                            cx={cx}
+                            cy={cy}
+                            r={3.5}
+                            fill={financialCashFlow.gapOverThreshold ? "#fb7185" : "#8b5cf6"}
+                            stroke={presentation ? "#fff" : "#1e293b"}
+                            strokeWidth={1}
+                          />
+                        );
+                      }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
+              <p className="mt-1 text-[9px] opacity-80">*Последняя точка линии — прогноз по линейному тренду на следующий период (эвристика для раннего предупреждения).</p>
               <p
                 className={`mt-2 text-[10px] leading-snug ${
                   financialCashFlow.gapOverThreshold
                     ? presentation
-                      ? "text-rose-100/90"
-                      : "text-rose-950/90"
+                      ? "text-rose-50/95"
+                      : "text-rose-950"
                     : presentation
-                      ? "text-violet-100/85"
-                      : "text-violet-950/90"
+                      ? "text-violet-50/90"
+                      : "text-violet-950"
                 }`}
               >
                 {financialCashFlow.insightGap}
               </p>
+              <p
+                className={`mt-1 text-[10px] leading-snug ${
+                  financialCashFlow.gapOverThreshold
+                    ? presentation
+                      ? "text-rose-100/85"
+                      : "text-rose-900/90"
+                    : presentation
+                      ? "text-slate-300"
+                      : "text-slate-600"
+                }`}
+              >
+                {financialCashFlow.trendHintRu}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div
+                className={`flex min-h-0 flex-col rounded-xl border p-3 sm:p-4 ${
+                  presentation ? "border-slate-700/55 bg-slate-950/35" : "border-slate-200/90 bg-white/95"
+                }`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className={`min-w-0 text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    ДДУ и эскроу — наложение и дивергенция
+                  </div>
+                  {financialCashFlow.escrowDduWarning ? (
+                    <span
+                      className={`shrink-0 rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase ${
+                        presentation ? "border-amber-500/45 text-amber-100" : "border-amber-300 text-amber-950"
+                      }`}
+                    >
+                      эскроу/ДДУ {"<"}80%
+                    </span>
+                  ) : null}
+                </div>
+                <div className={`mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                  <span>ДДУ: {rubFmt.format(financialCashFlow.dduTotal)}</span>
+                  <span className="text-sky-500">Эскроу: {rubFmt.format(financialCashFlow.escTotal)}</span>
+                </div>
+                <div className="mt-2 h-[152px] min-h-[128px] w-full min-w-0 sm:h-[172px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={financialCashFlow.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                      <YAxis
+                        tick={{ fill: axisColor, fontSize: 10 }}
+                        axisLine={false}
+                        width={48}
+                        tickFormatter={yTickCashM}
+                        domain={[0, "auto"]}
+                      />
+                      <Tooltip
+                        formatter={(v: number, name: string) => [rubFmt.format(v), name]}
+                        labelStyle={{ fontSize: 11 }}
+                        contentStyle={
+                          presentation
+                            ? { background: "#0f172a", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }
+                            : { borderRadius: 8 }
+                        }
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 10, paddingTop: 4 }}
+                        formatter={(value) => <span style={{ color: axisColor }}>{value}</span>}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="escrow"
+                        name="Эскроу (стек)"
+                        stackId="cash"
+                        stroke="#0ea5e9"
+                        fill="rgba(56,189,248,0.42)"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="spread"
+                        name="Дивергенция ДДУ−эскроу"
+                        stackId="cash"
+                        stroke="#fb7185"
+                        fill="rgba(251,113,133,0.45)"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="ddu"
+                        name="ДДУ (верх)"
+                        stroke={presentation ? "#f8fafc" : "#0f172a"}
+                        strokeWidth={2.2}
+                        dot={{ r: 2 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightMerge}</p>
+              </div>
+
+              <div
+                className={`flex min-h-0 flex-col rounded-xl border p-3 sm:p-4 ${
+                  presentation ? "border-slate-700/55 bg-slate-950/35" : "border-slate-200/90 bg-white/95"
+                }`}
+              >
+                <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  Конверсия в деньги (эскроу / ДДУ)
+                </div>
+                <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                  <span className={`text-2xl font-black tabular-nums ${presentation ? "text-sky-200" : "text-sky-800"}`}>
+                    {financialCashFlow.conversionTotalPct.toFixed(1)}%
+                  </span>
+                  <span className={`text-[9px] font-semibold ${presentation ? "text-slate-500" : "text-slate-600"}`}>накопит. · коридор 80–90%</span>
+                </div>
+                <div className="mt-2 h-[152px] min-h-[128px] w-full min-w-0 sm:h-[172px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={financialCashFlow.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                      <YAxis
+                        tick={{ fill: axisColor, fontSize: 10 }}
+                        axisLine={false}
+                        width={40}
+                        domain={[60, financialCashFlow.conversionYMax]}
+                        tickFormatter={yTickPct0}
+                      />
+                      <Tooltip
+                        formatter={(v: number) => [`${v.toFixed(1)}%`, "Эскроу/ДДУ"]}
+                        labelStyle={{ fontSize: 11 }}
+                        contentStyle={
+                          presentation
+                            ? { background: "#0f172a", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8 }
+                            : { borderRadius: 8 }
+                        }
+                      />
+                      <ReferenceArea
+                        y1={80}
+                        y2={90}
+                        fill={presentation ? "rgba(34,197,94,0.14)" : "rgba(22,163,74,0.12)"}
+                        strokeOpacity={0}
+                      />
+                      <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 3" strokeWidth={1} />
+                      <ReferenceLine y={90} stroke="#22c55e" strokeDasharray="4 3" strokeWidth={1} />
+                      <Line
+                        type="monotone"
+                        dataKey="conversionPct"
+                        name="Эскроу/ДДУ, %"
+                        stroke="#38bdf8"
+                        strokeWidth={2.4}
+                        dot={{ r: 3, fill: "#38bdf8" }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightConversion}</p>
+              </div>
             </div>
 
             <div
@@ -3079,10 +3330,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               } ${financialCashFlow.revExecEscrowPct < 80 ? (presentation ? "ring-1 ring-amber-500/45" : "ring-1 ring-amber-300") : ""}`}
             >
               <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                Выполнение плана выручки (по эскроу)
+                Выполнение плана выручки (по эскроу) и лаг эскроу
               </div>
               <div
-                className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${
+                className={`mt-1 text-2xl font-bold tabular-nums sm:text-3xl ${
                   financialCashFlow.revExecEscrowPct >= 100
                     ? presentation
                       ? "text-emerald-300"
@@ -3099,11 +3350,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 {financialCashFlow.revExecEscrowPct.toFixed(1)}%
               </div>
               <p className={`text-[9px] leading-tight ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-                Эскроу / план (накопит.) · линия 100% — целевой уровень по деньгам
+                Ниже 100% часто совпадает с лагом эскроу относительно плана: деньги ещё не дошли до счёта, хотя договорная работа могла быть выше.
               </p>
-              <div className="mt-2 h-[136px] min-h-[120px] w-full min-w-0 sm:h-[156px]">
+              <div className="mt-2 h-[152px] min-h-[128px] w-full min-w-0 sm:h-[172px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={financialCashFlow.chartRows} margin={{ top: 6, right: 10, left: 0, bottom: 2 }}>
+                  <LineChart data={financialCashFlow.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
                     <YAxis
@@ -3114,7 +3365,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                       tickFormatter={(v) => `${v}%`}
                     />
                     <Tooltip
-                      formatter={(v: number) => [`${v.toFixed(1)}%`, "Выполнение, %"]}
+                      formatter={(v: number) => [`${v.toFixed(1)}%`, "План по эскроу, %"]}
                       labelStyle={{ fontSize: 11 }}
                       contentStyle={
                         presentation
@@ -3128,7 +3379,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                       strokeDasharray="5 4"
                       strokeWidth={1.5}
                       label={{
-                        value: "100%",
+                        value: "100% плана",
                         position: "insideTopRight",
                         fill: "#facc15",
                         fontSize: 10,
@@ -3140,13 +3391,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                       dataKey="execPct"
                       name="Выполнение, %"
                       stroke={presentation ? "#7dd3fc" : "#0369a1"}
-                      strokeWidth={2.2}
+                      strokeWidth={2.4}
                       dot={{ r: 3 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightExec}</p>
+              <p className={`mt-2 text-[10px] leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightExec}</p>
             </div>
           </div>
         </div>
