@@ -2129,69 +2129,78 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const invWorstLabel = inv.barByType[0]?.label ?? "Портфель";
     const weakStruct = [...salesStructureRows].filter((r) => r.deltaRub < 0).sort((a, b) => a.deltaRub - b.deltaRub)[0];
 
-    const negRub = (n: number) => `−${compactRub(Math.abs(n))}`;
+    const fmtSignedRub = (n: number) => `${n >= 0 ? "+" : "−"}${compactRub(Math.abs(n))}`;
 
-    type Cand = { rubSort: number; problem: string; action: string };
+    type Cand = { rubSort: number; cause: string; problem: string; action: string };
     const cands: Cand[] = [];
 
     if (rev.deviationCumulative < 0 || forecastPercentAdjusted < 98) {
       cands.push({
         rubSort: Math.max(revMissRub, forecastGapRub * 0.4),
-        problem: `${lagSegment} → ${negRub(revMissRub)}`,
-        action: `Дожать продажи в ${lagSegment}`,
+        cause: `просадка спроса в ${lagSegment}`,
+        problem: `просадка спроса в ${lagSegment} → ${fmtSignedRub(-revMissRub)}`,
+        action: `Перезапустить оффер в ${lagSegment} на 14 дней`,
       });
     }
     if (cf.gapOverThreshold) {
       cands.push({
         rubSort: cf.gapRub,
-        problem: `ДДУ−эскроу → ${negRub(cf.gapRub)}`,
-        action: `Ускорить поступления на эскроу`,
+        cause: "медленная конверсия ДДУ в эскроу",
+        problem: `медленная конверсия ДДУ в эскроу → ${fmtSignedRub(-cf.gapRub)}`,
+        action: "Перевести текущие ДДУ в эскроу за 5 рабочих дней",
       });
     }
     if (weakStruct && weakStruct.deltaRub < -8_000_000) {
       cands.push({
         rubSort: Math.abs(weakStruct.deltaRub),
-        problem: `${weakStruct.label} → ${negRub(Math.abs(weakStruct.deltaRub))}`,
-        action: `Сместить промо на ${weakStruct.label}`,
+        cause: `перекос структуры в ${weakStruct.label}`,
+        problem: `перекос структуры в ${weakStruct.label} → ${fmtSignedRub(weakStruct.deltaRub)}`,
+        action: `Перенаправить 60% лидов в ${weakStruct.label} до конца месяца`,
       });
     }
     if (upsellMissRub >= 3_000_000) {
       cands.push({
         rubSort: upsellMissRub,
-        problem: `Upsell → ${negRub(upsellMissRub)}`,
-        action: `Закрепить паркинг и кладовые в КП`,
+        cause: "низкая upsell конверсия в паркинг и кладовые",
+        problem: `низкая upsell конверсия в паркинг и кладовые → ${fmtSignedRub(-upsellMissRub)}`,
+        action: "Добавить обязательный upsell скрипт в каждый показ квартиры",
       });
     }
     if (inv.timeDeficitMonths >= 0.5) {
       cands.push({
         rubSort: Math.max(invRiskRub, 1),
-        problem: `${invWorstLabel} → ${negRub(invRiskRub)}`,
-        action: `Ускорить выкуп ${invWorstLabel}`,
+        cause: `замедление выкупа ${invWorstLabel}`,
+        problem: `замедление выкупа ${invWorstLabel} → ${fmtSignedRub(-invRiskRub)}`,
+        action: `Запустить спецпрайс на ${invWorstLabel} до выкупа 30% остатка`,
       });
     }
 
     cands.sort((a, b) => b.rubSort - a.rubSort);
     const primary = cands[0];
     const pack = primary ?? {
-      problem: `Портфель → ${rev.deviationCumulative < 0 ? negRub(revMissRub) : compactRub(rev.deviationCumulative)}`,
-      action: `Держать фокус на ${lagSegment}`,
+      cause: `слабый спрос в ${lagSegment}`,
+      problem: `слабый спрос в ${lagSegment} → ${fmtSignedRub(rev.deviationCumulative)}`,
+      action: `Усилить лидогенерацию в ${lagSegment} на текущей неделе`,
     };
 
     const bestCat = [...deviationContribution].filter((d) => d.deviation > 0).sort((a, b) => b.deviation - a.deviation)[0];
+    const strongestLoss = [...rootCauseDecomposition.drivers]
+      .filter((d) => d.impactRub < 0)
+      .sort((a, b) => a.impactRub - b.impactRub)[0];
     let mainDriver: string;
-    if (up.totalRevDelta >= 3_000_000) {
-      mainDriver = `Upsell даёт плюс ${compactRub(up.totalRevDelta)} к плану`;
+    if (up.totalRevDelta > 0) {
+      mainDriver = `Upsell компенсирует ${fmtSignedRub(up.totalRevDelta)} отклонения`;
     } else if (bestCat && bestCat.deviation >= 12_000_000) {
-      mainDriver = `${bestCat.name} тянет выручку на ${compactRub(bestCat.deviation)}`;
+      mainDriver = `${bestCat.name} компенсирует ${fmtSignedRub(bestCat.deviation)} отклонения`;
     } else if (salesStructureReplacementInsight.topPos[0]) {
       const t = salesStructureReplacementInsight.topPos[0]!.label;
-      mainDriver = `Структура усилилась за счёт ${t}`;
+      mainDriver = `${t} дает частичную компенсацию в структуре`;
     } else if (velocityCompletionPct >= 97 && velocityMetrics.tone !== "red") {
-      mainDriver = `Темп сделок на уровне ${velocityCompletionPct}% к плану`;
+      mainDriver = "Темп сделок удерживает положительный вклад месяца";
     } else if (!cf.gapOverThreshold && cf.conversionTotalPct >= 82) {
-      mainDriver = `Эскроу удерживается на ${cf.conversionTotalPct.toFixed(0)}% от ДДУ`;
+      mainDriver = "Стабильный эскроу поток снижает давление на кассовый разрыв";
     } else {
-      mainDriver = `Опора на активность в ${lagSegment}`;
+      mainDriver = "Положительный драйвер по ₽ пока не сформирован";
     }
 
     const paceRed = paceToNorm < 0.82 || velocityCompletionPct < 82;
@@ -2223,7 +2232,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       statusLabel = "В плане";
     }
 
-    const statusMetrics = `Прогноз ${forecastPercentAdjusted.toFixed(0)}% · Δ ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`;
+    const statusMetrics = `Отклонение: ${fmtSignedRub(rev.deviationCumulative)}`;
+    const causalChain = [
+      fmtSignedRub(rev.deviationCumulative),
+      strongestLoss ? `← ${strongestLoss.labelRu} (${fmtSignedRub(strongestLoss.impactRub)})` : "← Основной фактор не определен",
+      `← ${pack.cause}`,
+    ];
 
     const trimWords = (s: string, max = 10) => {
       const w = s.trim().split(/\s+/).filter(Boolean);
@@ -2234,6 +2248,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       statusTone,
       statusLabel,
       statusMetrics,
+      causalChain,
       mainDriver: trimWords(mainDriver),
       mainProblem: pack.problem,
       requiredAction: pack.action,
@@ -2251,6 +2266,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     cumulativeExecTone,
     forecastGapRub,
     deviationContribution,
+    rootCauseDecomposition.drivers,
     salesStructureReplacementInsight,
     velocityCompletionPct,
     velocityMetrics.tone,
@@ -2408,117 +2424,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
   return (
     <div className="flex flex-col gap-4">
-      <section
-        className={
-          presentation
-            ? "rounded-2xl border border-slate-600/50 bg-gradient-to-b from-slate-900/95 to-slate-950 p-4 sm:p-5 ring-1 ring-white/5"
-            : "rounded-2xl border border-slate-300/80 bg-white p-4 shadow-md sm:p-5"
-        }
-        aria-label="Итоговые управленческие индикаторы"
-      >
-        <div className="mb-3 flex flex-col gap-0.5 border-b border-dashed border-slate-500/20 pb-2 sm:flex-row sm:items-baseline sm:justify-between">
-          <h3 className={presentation ? "text-xs font-bold uppercase tracking-wider text-slate-400" : "text-xs font-bold uppercase tracking-wider text-slate-500"}>
-            Итоговые управленческие индикаторы
-          </h3>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div
-            className={`rounded-2xl border-2 px-4 py-5 sm:col-span-2 sm:px-6 sm:py-7 ${
-              executiveManagementSummary.statusTone === "green"
-                ? presentation
-                  ? "border-emerald-400/60 bg-emerald-950/40"
-                  : "border-emerald-400 bg-emerald-50"
-                : executiveManagementSummary.statusTone === "yellow"
-                  ? presentation
-                    ? "border-amber-400/55 bg-amber-950/35"
-                    : "border-amber-400 bg-amber-50"
-                  : presentation
-                    ? "border-rose-500/60 bg-rose-950/40"
-                    : "border-rose-500 bg-rose-50"
-            }`}
-          >
-            <div
-              className={`text-[9px] font-bold uppercase tracking-widest opacity-80 ${
-                executiveManagementSummary.statusTone === "green"
-                  ? presentation
-                    ? "text-emerald-200"
-                    : "text-emerald-900"
-                  : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
-                      ? "text-amber-200"
-                      : "text-amber-900"
-                    : presentation
-                      ? "text-rose-200"
-                      : "text-rose-900"
-              }`}
-            >
-              Статус
-            </div>
-            <p
-              className={`mt-1 text-3xl font-black leading-none sm:text-4xl md:text-5xl ${
-                executiveManagementSummary.statusTone === "green"
-                  ? presentation
-                    ? "text-emerald-50"
-                    : "text-emerald-950"
-                  : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
-                      ? "text-amber-50"
-                      : "text-amber-950"
-                    : presentation
-                      ? "text-rose-50"
-                      : "text-rose-950"
-              }`}
-            >
-              {executiveManagementSummary.statusLabel}
-            </p>
-            <p className={`mt-2 text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-              {executiveManagementSummary.statusMetrics}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
-              presentation ? "border-rose-500/60 bg-rose-950/35" : "border-rose-500 bg-rose-50"
-            }`}
-          >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-rose-200" : "text-rose-900"}`}>
-              Проблема
-            </div>
-            <p className={`mt-2 text-lg font-black leading-tight sm:text-xl ${presentation ? "text-rose-50" : "text-rose-950"}`}>
-              {executiveManagementSummary.mainProblem}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-2xl border-2 px-4 py-4 shadow-md sm:px-5 sm:py-5 ${
-              presentation
-                ? "border-sky-400/80 bg-sky-950/55 shadow-sky-950/50"
-                : "border-sky-600 bg-sky-100 shadow-sky-300/60"
-            }`}
-          >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-sky-200" : "text-sky-900"}`}>
-              Действие
-            </div>
-            <p className={`mt-2 text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
-              {executiveManagementSummary.requiredAction}
-            </p>
-          </div>
-
-          <div
-            className={`rounded-2xl border px-4 py-4 sm:col-span-2 sm:px-5 sm:py-4 ${
-              presentation ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50"
-            }`}
-          >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-              Драйвер
-            </div>
-            <p className={`mt-2 text-sm font-medium leading-snug sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-              {executiveManagementSummary.mainDriver}
-            </p>
-          </div>
-        </div>
-      </section>
-
       {!isPresentationMode ? (
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4442,6 +4347,123 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           <p className="mt-1.5 font-medium">{upsellDiagnosticAnalysis.insight.money}</p>
         </div>
       </div>
+
+      <section
+        className={
+          presentation
+            ? "rounded-2xl border border-slate-600/50 bg-gradient-to-b from-slate-900/95 to-slate-950 p-4 sm:p-5 ring-1 ring-white/5"
+            : "rounded-2xl border border-slate-300/80 bg-white p-4 shadow-md sm:p-5"
+        }
+        aria-label="Итоговые управленческие индикаторы"
+      >
+        <div className="mb-3 flex flex-col gap-0.5 border-b border-dashed border-slate-500/20 pb-2 sm:flex-row sm:items-baseline sm:justify-between">
+          <h3 className={presentation ? "text-xs font-bold uppercase tracking-wider text-slate-400" : "text-xs font-bold uppercase tracking-wider text-slate-500"}>
+            Итоговые управленческие индикаторы
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div
+            className={`rounded-2xl border-2 px-4 py-5 sm:col-span-2 sm:px-6 sm:py-7 ${
+              executiveManagementSummary.statusTone === "green"
+                ? presentation
+                  ? "border-emerald-400/60 bg-emerald-950/40"
+                  : "border-emerald-400 bg-emerald-50"
+                : executiveManagementSummary.statusTone === "yellow"
+                  ? presentation
+                    ? "border-amber-400/55 bg-amber-950/35"
+                    : "border-amber-400 bg-amber-50"
+                  : presentation
+                    ? "border-rose-500/60 bg-rose-950/40"
+                    : "border-rose-500 bg-rose-50"
+            }`}
+          >
+            <div
+              className={`text-[9px] font-bold uppercase tracking-widest opacity-80 ${
+                executiveManagementSummary.statusTone === "green"
+                  ? presentation
+                    ? "text-emerald-200"
+                    : "text-emerald-900"
+                  : executiveManagementSummary.statusTone === "yellow"
+                    ? presentation
+                      ? "text-amber-200"
+                      : "text-amber-900"
+                    : presentation
+                      ? "text-rose-200"
+                      : "text-rose-900"
+              }`}
+            >
+              Статус
+            </div>
+            <p
+              className={`mt-1 text-3xl font-black leading-none sm:text-4xl md:text-5xl ${
+                executiveManagementSummary.statusTone === "green"
+                  ? presentation
+                    ? "text-emerald-50"
+                    : "text-emerald-950"
+                  : executiveManagementSummary.statusTone === "yellow"
+                    ? presentation
+                      ? "text-amber-50"
+                      : "text-amber-950"
+                    : presentation
+                      ? "text-rose-50"
+                      : "text-rose-950"
+              }`}
+            >
+              {executiveManagementSummary.statusLabel}
+            </p>
+            <p className={`mt-2 text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              {executiveManagementSummary.statusMetrics}
+            </p>
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-snug ${presentation ? "border-slate-600/70 bg-black/20 text-slate-200" : "border-slate-200 bg-white/80 text-slate-700"}`}>
+              <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>Причинная цепочка</div>
+              <p className="mt-1 font-black tabular-nums">{executiveManagementSummary.causalChain[0]}</p>
+              <p className="mt-0.5">{executiveManagementSummary.causalChain[1]}</p>
+              <p className="mt-0.5">{executiveManagementSummary.causalChain[2]}</p>
+            </div>
+          </div>
+
+          <div
+            className={`rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
+              presentation ? "border-rose-500/60 bg-rose-950/35" : "border-rose-500 bg-rose-50"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-rose-200" : "text-rose-900"}`}>
+              Проблема
+            </div>
+            <p className={`mt-2 text-lg font-black leading-tight sm:text-xl ${presentation ? "text-rose-50" : "text-rose-950"}`}>
+              {executiveManagementSummary.mainProblem}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border-2 px-4 py-4 shadow-md sm:px-5 sm:py-5 ${
+              presentation
+                ? "border-sky-400/80 bg-sky-950/55 shadow-sky-950/50"
+                : "border-sky-600 bg-sky-100 shadow-sky-300/60"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-sky-200" : "text-sky-900"}`}>
+              Действие
+            </div>
+            <p className={`mt-2 text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
+              {executiveManagementSummary.requiredAction}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border px-4 py-4 sm:col-span-2 sm:px-5 sm:py-4 ${
+              presentation ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50"
+            }`}
+          >
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+              Драйвер
+            </div>
+            <p className={`mt-2 text-sm font-medium leading-snug sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              {executiveManagementSummary.mainDriver}
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* B. Dynamics */}
       <div className={card}>
