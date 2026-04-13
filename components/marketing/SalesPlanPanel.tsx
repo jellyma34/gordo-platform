@@ -1972,6 +1972,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const totalConvPlan = rows.reduce((s, r, i) => s + r.plannedConversionPct * wRev[i]!, 0);
     const totalConvFact = rows.reduce((s, r, i) => s + r.actualConversionPct * wRev[i]!, 0);
     const totalConvDeltaPP = totalConvFact - totalConvPlan;
+    const totalConvExecPct = totalConvPlan > 0 ? (totalConvFact / totalConvPlan) * 100 : 0;
     const aptExecPct = (aptF / aptP) * 100;
 
     const volumePenaltyRub = Math.max(0, volumeRevGap);
@@ -1987,6 +1988,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
     const worstByConvGap = [...rows].sort((a, b) => b.convGapPct - a.convGapPct)[0];
     const weakConvName = worstByConvGap && worstByConvGap.convGapPct > 0.5 ? worstByConvGap.name : rows[0]?.name ?? "—";
+    const weakConvDeltaPP = worstByConvGap?.convGapPct ?? 0;
 
     const revBreakdownLine = rows
       .map((r) => `${r.name}: ${r.revDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(r.revDelta))}`)
@@ -2053,6 +2055,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       totalConvPlan,
       totalConvFact,
       totalConvDeltaPP,
+      totalConvExecPct,
+      weakConvName,
+      weakConvDeltaPP,
       targetPct: up.targetConversionPct,
       benchmarkPctExplicit,
       hasBenchmark: benchmarkPctExplicit != null,
@@ -4290,28 +4295,56 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
               Сводная конверсия upsell
             </div>
-            <div className={`mt-1 text-[10px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-              Взвешено долей плановой выручки по категориям
-            </div>
-            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              <span>{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvFact)}%</span>
-              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>к</span>
-              <span className={presentation ? "text-slate-300" : "text-slate-600"}>{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvPlan)}%</span>
-              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план, %</span>
-            </div>
             <div
-              className={`mt-1 text-[10px] font-bold tabular-nums ${
-                upsellDiagnosticAnalysis.totalConvDeltaPP >= 0
+              className={`mt-1 text-[10px] font-black uppercase tracking-wide ${
+                upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
                   ? presentation
                     ? "text-emerald-300"
                     : "text-emerald-700"
-                  : presentation
-                    ? "text-rose-300"
-                    : "text-rose-700"
+                  : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
+                    ? presentation
+                      ? "text-amber-300"
+                      : "text-amber-700"
+                    : presentation
+                      ? "text-rose-300"
+                      : "text-rose-700"
               }`}
             >
-              Δ {upsellDiagnosticAnalysis.totalConvDeltaPP >= 0 ? "+" : ""}
-              {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvDeltaPP)} п.п. к плановому индексу
+              {upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
+                ? "🟢 КОНВЕРСИЯ В НОРМЕ"
+                : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
+                  ? "🟡 КОНВЕРСИЯ В РИСКЕ"
+                  : "🔴 КОНВЕРСИЯ ПРОСЕДАЕТ"}
+            </div>
+            <div
+              className={`mt-1 text-2xl font-black tabular-nums sm:text-[30px] ${
+                upsellDiagnosticAnalysis.totalConvExecPct > 100 && upsellDiagnosticAnalysis.totalRevDelta >= 0
+                  ? presentation
+                    ? "text-emerald-200"
+                    : "text-emerald-800"
+                  : upsellDiagnosticAnalysis.totalConvExecPct >= 80 && upsellDiagnosticAnalysis.totalRevDelta >= 0
+                    ? presentation
+                      ? "text-amber-200"
+                      : "text-amber-800"
+                    : presentation
+                      ? "text-rose-100"
+                      : "text-rose-700"
+              }`}
+            >
+              {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvFact)}%
+              <span className={`ml-2 text-[12px] font-semibold ${presentation ? "text-slate-300" : "text-slate-600"}`}>
+                (план {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvPlan)}%)
+              </span>
+            </div>
+            <div className={`mt-1 text-[10px] font-semibold tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              {upsellDiagnosticAnalysis.totalConvDeltaPP >= 0 ? "+" : ""}{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvDeltaPP)} п.п. →
+              {" "}недобор выручки
+            </div>
+            <div className={`mt-1 text-[10px] ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              Основной провал: {upsellDiagnosticAnalysis.weakConvName} (−{dec1Fmt.format(Math.max(0, upsellDiagnosticAnalysis.weakConvDeltaPP))} п.п.)
+            </div>
+            <div className={`mt-1 text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              Норма: {Math.floor(upsellDiagnosticAnalysis.totalConvPlan)}–{Math.floor(upsellDiagnosticAnalysis.totalConvPlan) + 5}%
             </div>
           </div>
         </div>
