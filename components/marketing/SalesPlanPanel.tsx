@@ -1444,15 +1444,42 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     });
   }, [salesStructureRows]);
   const salesStructureReplacementInsight = useMemo(() => {
-    const positives = [...salesStructureBalanceRows].filter((r) => r.deltaShare > 0).sort((a, b) => b.deltaShare - a.deltaShare);
-    const negatives = [...salesStructureBalanceRows].filter((r) => r.deltaShare < 0).sort((a, b) => a.deltaShare - b.deltaShare);
+    const positives = [...salesStructureBalanceRows]
+      .filter((r) => r.deltaShare > 0)
+      .sort((a, b) => b.deltaRub - a.deltaRub || b.deltaShare - a.deltaShare);
+    const negatives = [...salesStructureBalanceRows]
+      .filter((r) => r.deltaShare < 0)
+      .sort((a, b) => a.deltaRub - b.deltaRub || a.deltaShare - b.deltaShare);
     const topPos = positives.slice(0, 2);
     const topNeg = negatives.slice(0, 2);
     const replacementText =
       topPos.length && topNeg.length
-        ? `Рост ${topPos.map((r) => r.label).join(" и ")} происходит за счет ${topNeg.map((r) => r.label).join(" и ")}.`
+        ? `Рост ${topPos.map((r) => r.label).join(" и ")} происходит за счёт ${topNeg.map((r) => r.label).join(" и ")}.`
         : "Существенных замещений структуры не выявлено.";
     return { topPos, topNeg, replacementText };
+  }, [salesStructureBalanceRows]);
+  const salesStructureBalanceDiagnostic = useMemo(() => {
+    const maxAbsDeltaShare = Math.max(0.5, ...salesStructureBalanceRows.map((r) => Math.abs(r.deltaShare)));
+    const maxAbsRub = Math.max(
+      1,
+      ...salesStructureBalanceRows.map((r) => Math.abs(r.deltaRub)),
+    );
+    const sorted = [...salesStructureBalanceRows].sort((a, b) => {
+      const da = Math.abs(a.deltaRub);
+      const db = Math.abs(b.deltaRub);
+      if (db !== da) return db - da;
+      return Math.abs(b.deltaShare) - Math.abs(a.deltaShare);
+    });
+    const negByLoss = [...salesStructureBalanceRows]
+      .filter((r) => r.deltaRub < 0)
+      .sort((a, b) => a.deltaRub - b.deltaRub);
+    const lossRankByKey = new Map(negByLoss.map((r, i) => [r.key, i + 1]));
+    const rows = sorted.map((row) => ({
+      ...row,
+      impactNorm: Math.abs(row.deltaRub) / maxAbsRub,
+      lossRank: row.deltaRub < 0 ? (lossRankByKey.get(row.key) ?? null) : null,
+    }));
+    return { rows, maxAbsDeltaShare, maxAbsRub };
   }, [salesStructureBalanceRows]);
   const velocityLineData = useMemo((): SalesVelocityLineRow[] => {
     const totalPlan = monthlyPlanExecutionData.reduce((sum, r) => sum + r.plan, 0);
@@ -1513,6 +1540,39 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     if (velocityMetrics.planPerMonth <= 0) return 0;
     return Math.round((velocityMetrics.actualPerMonth / velocityMetrics.planPerMonth) * 100);
   }, [velocityMetrics.actualPerMonth, velocityMetrics.planPerMonth]);
+
+  const salesStructureBalanceExecInsight = useMemo(() => {
+    const rows = salesStructureBalanceDiagnostic.rows;
+    const topLoss = [...salesStructureBalanceRows]
+      .filter((r) => r.deltaRub < 0)
+      .sort((a, b) => a.deltaRub - b.deltaRub)
+      .slice(0, 3);
+    const negRubTotal = rows.filter((r) => r.deltaRub < 0).reduce((s, r) => s + r.deltaRub, 0);
+    const posRubTotal = rows.filter((r) => r.deltaRub > 0).reduce((s, r) => s + r.deltaRub, 0);
+    const { topPos, topNeg } = salesStructureReplacementInsight;
+
+    const line1 =
+      topLoss.length > 0
+        ? `Проблема: ${topLoss.map((r) => r.label).join(", ")}.`
+        : "Проблема: без явного отставания по сегментам.";
+
+    const line2 =
+      topPos.length && topNeg.length
+        ? `Причина: доля ↑ ${topPos.map((r) => r.label).join(", ")} за счёт ↓ ${topNeg.map((r) => r.label).join(", ")}.`
+        : "Причина: замещение по модели слабое.";
+
+    const line3 =
+      negRubTotal < 0
+        ? `Следствие: ${compactRub(negRubTotal)} к выручке, компенсация +${compactRub(posRubTotal)}, темп ${velocityCompletionPct}% к плану.`
+        : `Следствие: сальдо по ₽ ≥ 0, темп ${velocityCompletionPct}% к плану.`;
+
+    return { line1, line2, line3 };
+  }, [
+    salesStructureBalanceDiagnostic.rows,
+    salesStructureBalanceRows,
+    salesStructureReplacementInsight,
+    velocityCompletionPct,
+  ]);
 
   function velocityFactPlanBarFill(entry: { fact: number; plan: number }): string {
     const { fact, plan } = entry;
@@ -2363,101 +2423,147 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
           }
         >
-          <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/85" : "text-amber-700"}`}>
-            Баланс структуры продаж (перекосы)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-[860px] w-full border-collapse text-xs">
-              <thead>
-                <tr className={presentation ? "text-slate-400" : "text-slate-600"}>
-                  <th className="px-2 py-1.5 text-left font-semibold">Тип</th>
-                  <th className="px-2 py-1.5 text-left font-semibold">Доля факт (%)</th>
-                  <th className="px-2 py-1.5 text-left font-semibold">Доля план (%)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Δ доли (%)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {salesStructureBalanceRows.map((row) => {
-                  const absDelta = Math.abs(row.deltaShare);
-                  const deltaTone =
-                    absDelta > 5
-                      ? presentation
-                        ? "text-rose-300"
-                        : "text-rose-700"
-                      : absDelta >= 3
-                        ? presentation
-                          ? "text-amber-300"
-                          : "text-amber-700"
-                        : presentation
-                          ? "text-emerald-300"
-                          : "text-emerald-700";
-                  const barTone =
-                    absDelta > 5
-                      ? presentation
-                        ? "bg-rose-500/75"
-                        : "bg-rose-500"
-                      : absDelta >= 3
-                        ? presentation
-                          ? "bg-amber-400/85"
-                          : "bg-amber-500"
-                        : presentation
-                          ? "bg-emerald-500/80"
-                          : "bg-emerald-500";
-                  return (
-                    <tr key={row.key} className={presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"}>
-                      <td className={`px-2 py-2 font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-10 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-800"}`}>{row.factShare.toFixed(1)}%</span>
-                          <div className={`h-1.5 w-28 overflow-hidden rounded-full ${presentation ? "bg-slate-700/55" : "bg-slate-200"}`}>
-                            <div className={`h-full rounded-full ${barTone}`} style={{ width: `${Math.max(0, Math.min(100, row.factShare))}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-10 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{row.planShare.toFixed(1)}%</span>
-                          <div className={`h-1.5 w-28 overflow-hidden rounded-full ${presentation ? "bg-slate-700/45" : "bg-slate-200/80"}`}>
-                            <div className={`${presentation ? "bg-slate-300/70" : "bg-slate-500/60"} h-full rounded-full`} style={{ width: `${Math.max(0, Math.min(100, row.planShare))}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className={`px-2 py-2 text-right font-semibold tabular-nums ${deltaTone}`}>
-                        {row.deltaShare >= 0 ? "+" : "−"}
-                        {Math.abs(row.deltaShare).toFixed(1)}%
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                Баланс структуры продаж
+              </div>
+              <p className={`mt-0.5 max-w-sm text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                Длина — Δ доли; толщина — |Δ ₽|; порядок — по |₽|. Три худших минуса — плотнее и насыщеннее.
+              </p>
+            </div>
+            <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+              <span>0 — план</span>
+              <span>← минус</span>
+              <span>плюс →</span>
+            </div>
           </div>
 
           <div
-            className={`mt-3 rounded-lg border px-3 py-2 ${
-              presentation ? "border-slate-600/45 bg-slate-900/45" : "border-slate-200 bg-white/70"
-            }`}
+            className={`mb-2 hidden text-[10px] md:grid md:gap-2 ${presentation ? "text-slate-500" : "text-slate-500"}`}
+            style={{ gridTemplateColumns: "minmax(0,7.5rem) minmax(0,1fr) minmax(0,4rem) minmax(0,5rem)" }}
           >
-            <div className={`text-[11px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>Инсайт замещения</div>
-            <p className={`mt-1 text-sm ${presentation ? "text-slate-200" : "text-slate-800"}`}>{salesStructureReplacementInsight.replacementText}</p>
-            <div className={`mt-1 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2 ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-              <div>
-                Драйверы:{" "}
-                {salesStructureReplacementInsight.topPos.length
-                  ? salesStructureReplacementInsight.topPos
-                      .map((r) => `${r.label} (+${r.deltaShare.toFixed(1)}%)`)
-                      .join(", ")
-                  : "—"}
-              </div>
-              <div>
-                Вытесняются:{" "}
-                {salesStructureReplacementInsight.topNeg.length
-                  ? salesStructureReplacementInsight.topNeg
-                      .map((r) => `${r.label} (${r.deltaShare.toFixed(1)}%)`)
-                      .join(", ")
-                  : "—"}
-              </div>
-            </div>
+            <span>Сегмент</span>
+            <span className="text-center">Δ доля · план</span>
+            <span className="text-right tabular-nums">п.п.</span>
+            <span className="text-right tabular-nums">₽</span>
+          </div>
+
+          <ul className="space-y-2.5">
+            {salesStructureBalanceDiagnostic.rows.map((row) => {
+              const wPct = Math.min(
+                100,
+                (Math.abs(row.deltaShare) / salesStructureBalanceDiagnostic.maxAbsDeltaShare) * 100,
+              );
+              const topProblem = row.lossRank != null && row.lossRank <= 3 && row.deltaRub < 0;
+              const { impactNorm } = row;
+              let trackPx = 11 + impactNorm * 24;
+              if (topProblem) {
+                trackPx += row.lossRank === 1 ? 14 : row.lossRank === 2 ? 9 : 5;
+              }
+              trackPx = Math.min(46, Math.round(trackPx));
+
+              const negOpacity = topProblem ? 1 : 0.38 + 0.62 * impactNorm;
+              let barFillNeg = "";
+              if (topProblem) {
+                if (row.lossRank === 1) barFillNeg = "bg-red-600";
+                else if (row.lossRank === 2) barFillNeg = "bg-rose-600";
+                else barFillNeg = "bg-rose-500";
+              } else if (row.deltaRub < 0 || row.deltaShare < 0) {
+                barFillNeg = presentation ? "bg-rose-500" : "bg-rose-600";
+              } else {
+                barFillNeg = presentation ? "bg-slate-500" : "bg-slate-400";
+              }
+
+              const posOpacity = 0.42 + 0.58 * impactNorm;
+              const barFillPos =
+                row.deltaRub > 0
+                  ? presentation
+                    ? "bg-emerald-500"
+                    : "bg-emerald-600"
+                  : row.deltaRub < 0
+                    ? presentation
+                      ? "bg-amber-500/90"
+                      : "bg-amber-600"
+                    : presentation
+                      ? "bg-slate-500"
+                      : "bg-slate-400";
+
+              const rowShell = presentation ? "border-slate-700/35 bg-slate-950/20" : "border-slate-200/80 bg-white/80";
+              const centerLineClass = presentation
+                ? "bg-slate-200/95 shadow-[0_0_10px_rgba(248,250,252,0.35)]"
+                : "bg-slate-600 shadow-[0_0_8px_rgba(71,85,105,0.35)]";
+              const metricClass = presentation ? "text-slate-500" : "text-slate-500";
+
+              return (
+                <li
+                  key={row.key}
+                  className={`rounded-lg border px-2 py-2 sm:py-1.5 ${rowShell}`}
+                  aria-label={`${row.label}: отклонение доли ${row.deltaShare >= 0 ? "+" : "−"}${Math.abs(row.deltaShare).toFixed(1)} процентных пункта, влияние ${compactRub(row.deltaRub)}`}
+                >
+                  <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_minmax(0,4rem)_minmax(0,5rem)] md:gap-2">
+                    <div className={`text-xs font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</div>
+                    <div className="flex min-w-0 items-center" style={{ minHeight: trackPx }}>
+                      <div
+                        className={`relative flex h-full min-h-0 w-full overflow-hidden rounded-md ${
+                          presentation ? "bg-slate-800/70" : "bg-slate-200/90"
+                        }`}
+                        style={{ height: trackPx }}
+                      >
+                        <div
+                          className={`pointer-events-none absolute inset-y-0 left-1/2 z-20 w-[3px] -translate-x-1/2 rounded-full ${centerLineClass}`}
+                          aria-hidden
+                        />
+                        <div className="relative z-0 flex h-full w-1/2 items-stretch justify-end pr-px">
+                          {row.deltaShare < 0 ? (
+                            <div
+                              className={`rounded-l-sm ${barFillNeg}`}
+                              style={{ width: `${wPct}%`, opacity: row.deltaShare < 0 ? negOpacity : 1 }}
+                            />
+                          ) : null}
+                        </div>
+                        <div className="relative z-0 flex h-full w-1/2 items-stretch justify-start pl-px">
+                          {row.deltaShare > 0 ? (
+                            <div
+                              className={`rounded-r-sm ${barFillPos}`}
+                              style={{ width: `${wPct}%`, opacity: posOpacity }}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      className={`hidden text-right text-[10px] font-medium tabular-nums md:block ${metricClass}`}
+                      title="Отклонение доли, п.п."
+                    >
+                      {row.deltaShare >= 0 ? "+" : "−"}
+                      {dec1Fmt.format(Math.abs(row.deltaShare))}
+                    </div>
+                    <div
+                      className={`hidden text-right text-[10px] font-medium tabular-nums md:block ${metricClass}`}
+                      title="Отклонение выручки"
+                    >
+                      {row.deltaRub >= 0 ? "+" : "−"}
+                      {compactRub(Math.abs(row.deltaRub))}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div
+            className={`mt-4 space-y-1.5 border-t pt-3 ${presentation ? "border-slate-700/40" : "border-slate-200"}`}
+          >
+            <p className={`text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              {salesStructureBalanceExecInsight.line1}
+            </p>
+            <p className={`text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              {salesStructureBalanceExecInsight.line2}
+            </p>
+            <p className={`text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              {salesStructureBalanceExecInsight.line3}
+            </p>
           </div>
         </div>
       </div>
