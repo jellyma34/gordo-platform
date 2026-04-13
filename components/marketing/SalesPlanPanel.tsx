@@ -1984,42 +1984,113 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     const up = report.upsellDiagnostic;
     const aptF = Math.max(1, up.apartmentDealsFact);
     const aptP = Math.max(1, up.apartmentDealsPlan);
+    const benchmarkPctExplicit = up.benchmarkConversionPct;
     const rows = up.categories.map((c) => {
       const revDelta = c.actualRevenueRub - c.planRevenueRub;
       const execPct = c.planRevenueRub > 0 ? (c.actualRevenueRub / c.planRevenueRub) * 100 : 0;
       const convGapPct = c.plannedConversionPct - c.actualConversionPct;
+      const convDeltaPct = c.actualConversionPct - c.plannedConversionPct;
       const planUpsellOrders = (c.plannedConversionPct / 100) * aptP;
       const revPerPlannedUpsell = c.planRevenueRub / Math.max(1, planUpsellOrders);
       const gapConvToPlan = Math.max(0, (c.plannedConversionPct - c.actualConversionPct) / 100);
       const potentialRevFromPlanConv = gapConvToPlan * aptF * revPerPlannedUpsell;
       const gapConvToTarget = Math.max(0, (up.targetConversionPct - c.actualConversionPct) / 100);
       const potentialRevToTarget = gapConvToTarget * aptF * revPerPlannedUpsell;
+      const gapConvToBenchmark =
+        benchmarkPctExplicit != null ? Math.max(0, (benchmarkPctExplicit - c.actualConversionPct) / 100) : 0;
+      const potentialRevToBenchmark = gapConvToBenchmark * aptF * revPerPlannedUpsell;
+      const scaledPlanRev = c.planRevenueRub * (aptF / aptP);
       return {
         ...c,
         revDelta,
         execPct,
         convGapPct,
+        convDeltaPct,
         potentialRevFromPlanConv,
         potentialRevToTarget,
+        potentialRevToBenchmark,
+        scaledPlanRev,
+        revPerPlannedUpsell,
       };
     });
     const totalPlan = rows.reduce((s, r) => s + r.planRevenueRub, 0);
     const totalActual = rows.reduce((s, r) => s + r.actualRevenueRub, 0);
     const totalRevDelta = totalActual - totalPlan;
+    const scaledPlanTotal = rows.reduce((s, r) => s + r.scaledPlanRev, 0);
+    const volumeRevGap = totalPlan - scaledPlanTotal;
+    const conversionRevGap = scaledPlanTotal - totalActual;
     const totalPotentialPlanConv = rows.reduce((s, r) => s + r.potentialRevFromPlanConv, 0);
     const totalPotentialTarget = rows.reduce((s, r) => s + r.potentialRevToTarget, 0);
-    const worstByRev = [...rows].sort((a, b) => a.revDelta - b.revDelta)[0];
+    const totalPotentialBenchmark = rows.reduce((s, r) => s + r.potentialRevToBenchmark, 0);
+
+    const wRev = totalPlan > 0 ? rows.map((r) => r.planRevenueRub / totalPlan) : rows.map(() => 1 / Math.max(1, rows.length));
+    const totalConvPlan = rows.reduce((s, r, i) => s + r.plannedConversionPct * wRev[i]!, 0);
+    const totalConvFact = rows.reduce((s, r, i) => s + r.actualConversionPct * wRev[i]!, 0);
+    const totalConvDeltaPP = totalConvFact - totalConvPlan;
+    const aptExecPct = (aptF / aptP) * 100;
+
+    const volumePenaltyRub = Math.max(0, volumeRevGap);
+    const convPenaltyRub = Math.max(0, conversionRevGap);
+    const driver: "conversion" | "base" | "mixed" =
+      volumePenaltyRub < totalPlan * 0.005 && convPenaltyRub < totalPlan * 0.005
+        ? "mixed"
+        : convPenaltyRub >= volumePenaltyRub * 1.15
+          ? "conversion"
+          : volumePenaltyRub >= convPenaltyRub * 1.15
+            ? "base"
+            : "mixed";
+
     const worstByConvGap = [...rows].sort((a, b) => b.convGapPct - a.convGapPct)[0];
+    const weakConvName = worstByConvGap && worstByConvGap.convGapPct > 0.5 ? worstByConvGap.name : rows[0]?.name ?? "—";
+
+    const revBreakdownLine = rows
+      .map((r) => `${r.name}: ${r.revDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(r.revDelta))}`)
+      .join(" · ");
+
+    const cause =
+      driver === "base"
+        ? `Основной драйвер — база: недобор сделок по квартирам (${numFmt.format(aptF)} факт / ${numFmt.format(aptP)} план, ${aptExecPct.toFixed(1)}%) съедает около ${compactRub(volumePenaltyRub)} суммарного плана upsell при пропорциональном масштабе. На фактической базе при плановой конверсии — около ${compactRub(scaledPlanTotal)} против ${compactRub(totalPlan)} «полного» плана.`
+        : driver === "conversion"
+          ? `Основной драйвер — конверсия: на текущей базе квартир недомонетизация около ${compactRub(convPenaltyRub)} (${compactRub(scaledPlanTotal)} ожидаемо при плановой конверсии vs ${compactRub(totalActual)} факт). Сильнее всего разрыв в «${weakConvName}».`
+          : `База и конверсия сопоставимы по ущербу: недобор от объёма квартир ~${compactRub(volumePenaltyRub)} к плану upsell; недобор конверсии на этой базе ~${compactRub(convPenaltyRub)}.`;
+
+    const upsideText =
+      totalPotentialPlanConv > 0
+        ? `Апсайд при доведении конверсии до плана (на текущей базе квартир): до ${compactRub(totalPotentialPlanConv)}.`
+        : "Суммарная конверсия на уровне или выше планового индекса — смотрите базу квартир и целевой норматив.";
+    const benchmarkUpsideText =
+      benchmarkPctExplicit != null && totalPotentialBenchmark > 0
+        ? ` Дополнительно до внешнего бенчмарка ${dec1Fmt.format(benchmarkPctExplicit)}% — до ${compactRub(totalPotentialBenchmark)}.`
+        : "";
+
     const insight = {
-      underperform: worstByRev?.revDelta < 0 ? worstByRev.name : rows.find((r) => r.convGapPct > 1)?.name ?? "—",
-      why: `Причина недобора: отставание конверсии upsell от плана (макс. разрыв — ${worstByConvGap?.name ?? "—"}, ${worstByConvGap ? `${worstByConvGap.convGapPct >= 0 ? "+" : ""}${dec1Fmt.format(Math.abs(worstByConvGap.convGapPct))} п.п.` : "—"}). Связка с ядром: доп. продукт / сделки по квартирам (факт ${numFmt.format(aptF)} шт, план ${numFmt.format(aptP)} шт).`,
-      money: `Финансовый эффект по upsell: ${totalRevDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(totalRevDelta))} к суммарному плану паркинга и кладовых.`,
+      driver,
+      cause,
+      money: `Суммарно по upsell: ${totalRevDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(totalRevDelta))} к плану. ${upsideText}${benchmarkUpsideText}`,
+      revBreakdownLine,
     };
-    const barCompare = rows.map((r) => ({
+
+    const convCompare = rows.map((r) => ({
       name: r.name,
-      plan: r.planRevenueRub,
-      actual: r.actualRevenueRub,
+      planConv: Math.round(r.plannedConversionPct * 10) / 10,
+      factConv: Math.round(r.actualConversionPct * 10) / 10,
     }));
+    const convChartYMax = Math.min(
+      100,
+      Math.max(
+        50,
+        Math.ceil(
+          (Math.max(
+            ...rows.flatMap((r) => [r.plannedConversionPct, r.actualConversionPct]),
+            up.targetConversionPct,
+            benchmarkPctExplicit ?? 0,
+          ) +
+            4) /
+            5,
+        ) * 5,
+      ),
+    );
+
     return {
       rows,
       totalPlan,
@@ -2027,12 +2098,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       totalRevDelta,
       totalPotentialPlanConv,
       totalPotentialTarget,
+      totalPotentialBenchmark,
+      scaledPlanTotal,
+      volumeRevGap,
+      conversionRevGap,
       aptF,
       aptP,
+      aptExecPct,
+      totalConvPlan,
+      totalConvFact,
+      totalConvDeltaPP,
       targetPct: up.targetConversionPct,
-      worstByRev,
+      benchmarkPctExplicit,
+      hasBenchmark: benchmarkPctExplicit != null,
       insight,
-      barCompare,
+      convCompare,
+      convChartYMax,
     };
   }, [report.upsellDiagnostic]);
 
@@ -3863,14 +3944,59 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-800"}`}>
-              Выручка · конверсия
+              Конверсия · монетизация
             </div>
             <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
               Дополнительные продажи (upsell)
             </div>
             <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-              Паркинг и кладовые к сделкам по квартирам: ловим ли доп. выручку или теряем её из‑за конверсии.
+              Насколько эффективно монетизируем сделки по квартирам паркингом и кладовыми: сначала конверсия, затем денежный эффект и выполнение плана.
             </p>
+          </div>
+        </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+              Сделки по квартирам (база)
+            </div>
+            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <span className={presentation ? "text-sky-200" : "text-sky-800"}>{numFmt.format(upsellDiagnosticAnalysis.aptF)}</span>
+              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>/</span>
+              <span>{numFmt.format(upsellDiagnosticAnalysis.aptP)}</span>
+              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план, шт.</span>
+            </div>
+            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presentation ? "text-violet-200" : "text-violet-800"}`}>
+              {upsellDiagnosticAnalysis.aptExecPct.toFixed(1)}% выполнения плана по базе
+            </div>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+              Сводная конверсия upsell
+            </div>
+            <div className={`mt-1 text-[10px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              Взвешено долей плановой выручки по категориям
+            </div>
+            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <span>{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvFact)}%</span>
+              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>к</span>
+              <span className={presentation ? "text-slate-300" : "text-slate-600"}>{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvPlan)}%</span>
+              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план, %</span>
+            </div>
+            <div
+              className={`mt-1 text-[10px] font-bold tabular-nums ${
+                upsellDiagnosticAnalysis.totalConvDeltaPP >= 0
+                  ? presentation
+                    ? "text-emerald-300"
+                    : "text-emerald-700"
+                  : presentation
+                    ? "text-rose-300"
+                    : "text-rose-700"
+              }`}
+            >
+              Δ {upsellDiagnosticAnalysis.totalConvDeltaPP >= 0 ? "+" : ""}
+              {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvDeltaPP)} п.п. к плановому индексу
+            </div>
           </div>
         </div>
 
@@ -3915,35 +4041,65 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               {upsellDiagnosticAnalysis.totalRevDelta >= 0 ? "+" : "−"}
               {compactRub(Math.abs(upsellDiagnosticAnalysis.totalRevDelta))}
             </div>
-            <div className={`mt-1 text-[9px] ${presentation ? "text-rose-200/80" : "text-rose-800/90"}`}>факт − план по паркингу и кладовым</div>
+            <div className={`mt-1 text-[9px] leading-snug ${presentation ? "text-rose-200/85" : "text-rose-900/85"}`}>
+              <span className="font-semibold">Вклад по категориям:</span> {upsellDiagnosticAnalysis.insight.revBreakdownLine}
+            </div>
           </div>
         </div>
 
         <div
           className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-snug ${presentation ? "border-slate-600/40 bg-slate-950/40 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}
         >
-          <span className="font-semibold">База (ядро):</span> накопительно{" "}
-          <span className="tabular-nums font-bold">{numFmt.format(upsellDiagnosticAnalysis.aptF)}</span> сделок по квартирам (факт) при плане{" "}
-          <span className="tabular-nums font-bold">{numFmt.format(upsellDiagnosticAnalysis.aptP)}</span> шт. Конверсия upsell = доля сделок с доп. продуктом от
-          сделок по квартирам (факт для фактической конверсии, план для плановой). Связка с динамикой ядра — блок{" "}
-          <span className="font-semibold">B. Динамика</span> (показатель «Штуки»).
+          <span className="font-semibold">Зависимость от базы:</span> ожидаемая выручка upsell при плановой конверсии на текущей базе — около{" "}
+          <span className="tabular-nums font-bold">{compactRub(upsellDiagnosticAnalysis.scaledPlanTotal)}</span> (масштаб{" "}
+          <span className="tabular-nums font-bold">{numFmt.format(upsellDiagnosticAnalysis.aptF)}</span> /{" "}
+          <span className="tabular-nums font-bold">{numFmt.format(upsellDiagnosticAnalysis.aptP)}</span> к «полному» плану{" "}
+          <span className="tabular-nums font-bold">{compactRub(upsellDiagnosticAnalysis.totalPlan)}</span>). Недобор базы — около{" "}
+          <span className="tabular-nums font-bold">{compactRub(Math.max(0, upsellDiagnosticAnalysis.volumeRevGap))}</span> к суммарному плану; недобор конверсии на
+          этой базе — <span className="tabular-nums font-bold">{compactRub(Math.max(0, upsellDiagnosticAnalysis.conversionRevGap))}</span>. Динамика ядра —{" "}
+          <span className="font-semibold">B. Динамика</span> («Штуки»).
         </div>
 
-        <div className="mt-4 h-[140px] w-full min-w-0">
+                <div className="mt-4 h-[168px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={upsellDiagnosticAnalysis.barCompare} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+            <BarChart data={upsellDiagnosticAnalysis.convCompare} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridColor }} tickLine={false} />
               <YAxis
                 tick={{ fill: axisColor, fontSize: 9 }}
                 axisLine={false}
-                width={44}
-                tickFormatter={(v) => `${Math.round(v / 1_000_000)}M`}
+                width={36}
+                domain={[0, upsellDiagnosticAnalysis.convChartYMax]}
+                tickFormatter={(v) => `${v}%`}
               />
-              <Tooltip formatter={(v: number) => rubFmt.format(v)} contentStyle={{ fontSize: 10, borderRadius: 6 }} />
+              <Tooltip formatter={(v: number) => [`${dec1Fmt.format(v)}%`, ""]} contentStyle={{ fontSize: 10, borderRadius: 6 }} />
               <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
-              <Bar dataKey="plan" name="План ₽" fill={presentation ? "rgba(148,163,184,0.85)" : "#94a3b8"} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="actual" name="Факт ₽" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              <ReferenceLine
+                y={upsellDiagnosticAnalysis.targetPct}
+                stroke={presentation ? "#fbbf24" : "#d97706"}
+                strokeDasharray="5 5"
+                label={{
+                  value: `Норматив ${dec1Fmt.format(upsellDiagnosticAnalysis.targetPct)}%`,
+                  fill: axisColor,
+                  fontSize: 9,
+                  position: "insideTopRight",
+                }}
+              />
+              {upsellDiagnosticAnalysis.hasBenchmark && upsellDiagnosticAnalysis.benchmarkPctExplicit != null ? (
+                <ReferenceLine
+                  y={upsellDiagnosticAnalysis.benchmarkPctExplicit}
+                  stroke={presentation ? "#34d399" : "#059669"}
+                  strokeDasharray="2 6"
+                  label={{
+                    value: `Бенчмарк ${dec1Fmt.format(upsellDiagnosticAnalysis.benchmarkPctExplicit)}%`,
+                    fill: axisColor,
+                    fontSize: 9,
+                    position: "insideBottomRight",
+                  }}
+                />
+              ) : null}
+              <Bar dataKey="planConv" name="План, %" fill={presentation ? "rgba(148,163,184,0.85)" : "#94a3b8"} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="factConv" name="Факт, %" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -3956,31 +4112,38 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             >
               <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-800"}`}>{r.name}</div>
 
-              <div className={`mt-2 text-2xl font-black tabular-nums ${r.revDelta >= 0 ? (presentation ? "text-emerald-200" : "text-emerald-800") : presentation ? "text-rose-200" : "text-rose-700"}`}>
+              <div className={`mt-2 text-lg font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                {dec1Fmt.format(r.plannedConversionPct)}% → {dec1Fmt.format(r.actualConversionPct)}%
+                <span className={`ml-2 text-[10px] font-bold ${presentation ? "text-slate-500" : "text-slate-600"}`}>план → факт</span>
+              </div>
+              <div
+                className={`mt-0.5 text-sm font-bold tabular-nums ${
+                  r.convDeltaPct >= 0
+                    ? presentation
+                      ? "text-emerald-300"
+                      : "text-emerald-700"
+                    : presentation
+                      ? "text-rose-300"
+                      : "text-rose-700"
+                }`}
+              >
+                Δ конверсии {r.convDeltaPct >= 0 ? "+" : ""}
+                {dec1Fmt.format(r.convDeltaPct)} п.п.
+              </div>
+
+              <div
+                className={`mt-3 text-xl font-black tabular-nums ${r.revDelta >= 0 ? (presentation ? "text-emerald-200" : "text-emerald-800") : presentation ? "text-rose-200" : "text-rose-700"}`}
+              >
                 {r.revDelta >= 0 ? "+" : "−"}
                 {compactRub(Math.abs(r.revDelta))}
               </div>
-              <div className={`text-[9px] font-medium ${presentation ? "text-slate-500" : "text-slate-600"}`}>вклад в ₽ (факт − план)</div>
+              <div className={`text-[9px] font-medium ${presentation ? "text-slate-500" : "text-slate-600"}`}>влияние на выручку (факт − план)</div>
 
-              <div className={`mt-3 grid grid-cols-2 gap-2 text-[10px] ${presentation ? "text-slate-300" : "text-slate-800"}`}>
-                <div className={presentation ? "rounded-md bg-slate-900/60 p-2" : "rounded-md bg-slate-50 p-2"}>
-                  <div className={presentation ? "text-slate-500" : "text-slate-500"}>Конверсия upsell</div>
-                  <div className="mt-0.5 font-bold tabular-nums">
-                    план {dec1Fmt.format(r.plannedConversionPct)}% → факт {dec1Fmt.format(r.actualConversionPct)}%
-                  </div>
-                  <div className={`mt-0.5 text-[9px] ${r.convGapPct > 0 ? (presentation ? "text-rose-300" : "text-rose-700") : presentation ? "text-emerald-300" : "text-emerald-700"}`}>
-                    разрыв {r.convGapPct >= 0 ? "+" : ""}
-                    {dec1Fmt.format(r.convGapPct)} п.п.
-                  </div>
-                </div>
-                <div className={presentation ? "rounded-md bg-slate-900/60 p-2" : "rounded-md bg-slate-50 p-2"}>
-                  <div className={presentation ? "text-slate-500" : "text-slate-500"}>Выполнение плана, %</div>
-                  <div className="mt-0.5 text-lg font-black tabular-nums">{r.execPct.toFixed(1)}%</div>
-                  <div className={`mt-0.5 text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>факт / план по ₽</div>
-                </div>
+              <div className={`mt-2 flex items-baseline justify-between gap-2 ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <span className="text-[9px] uppercase tracking-wide">Выполнение плана</span>
+                <span className={`text-base font-black tabular-nums ${presentation ? "text-violet-200" : "text-violet-700"}`}>{r.execPct.toFixed(1)}%</span>
               </div>
-
-              <div className={`mt-2 text-[9px] tabular-nums ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              <div className={`text-[9px] tabular-nums ${presentation ? "text-slate-500" : "text-slate-600"}`}>
                 План {compactRub(r.planRevenueRub)} · факт {compactRub(r.actualRevenueRub)}
               </div>
             </div>
@@ -3989,13 +4152,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
 
         <div className={`mt-4 rounded-xl border p-3 ${presentation ? "border-violet-500/35 bg-violet-950/20" : "border-violet-200 bg-violet-50/80"}`}>
           <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-900"}`}>
-            Потенциал при доведении конверсии
+            Потенциал (разрыв до плановой конверсии и норматива)
           </div>
           <p className={`mt-1 text-[10px] leading-snug ${presentation ? "text-violet-100/85" : "text-violet-950/90"}`}>
-            Оценка доп. выручки (линейно): до плановой конверсии по каждой линейке —{" "}
-            <span className="font-bold tabular-nums">{compactRub(upsellDiagnosticAnalysis.totalPotentialPlanConv)}</span>; до целевой{" "}
-            {upsellDiagnosticAnalysis.targetPct}% к факту квартир —{" "}
+            Закрыть разрыв до <span className="font-semibold">плановой</span> конверсии на текущей базе квартир — до{" "}
+            <span className="font-bold tabular-nums">{compactRub(upsellDiagnosticAnalysis.totalPotentialPlanConv)}</span>. До единого целевого норматива{" "}
+            {dec1Fmt.format(upsellDiagnosticAnalysis.targetPct)}% (покатегорочно) — до{" "}
             <span className="font-bold tabular-nums">{compactRub(upsellDiagnosticAnalysis.totalPotentialTarget)}</span>.
+            {upsellDiagnosticAnalysis.hasBenchmark && upsellDiagnosticAnalysis.benchmarkPctExplicit != null ? (
+              <span>
+                {" "}
+                Внешний бенчмарк {dec1Fmt.format(upsellDiagnosticAnalysis.benchmarkPctExplicit)}% — до{" "}
+                <span className="font-bold tabular-nums">{compactRub(upsellDiagnosticAnalysis.totalPotentialBenchmark)}</span>.
+              </span>
+            ) : null}
           </p>
         </div>
 
@@ -4008,10 +4178,16 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
             Инсайт
           </div>
           <p className="mt-2 font-semibold">
-            Слабее всего:{" "}
-            <span className={presentation ? "text-violet-200" : "text-violet-900"}>{upsellDiagnosticAnalysis.insight.underperform}</span>
+            Главный рычаг:{" "}
+            <span className={presentation ? "text-violet-200" : "text-violet-900"}>
+              {upsellDiagnosticAnalysis.insight.driver === "conversion"
+                ? "конверсия (эффективность монетизации при текущей базе)"
+                : upsellDiagnosticAnalysis.insight.driver === "base"
+                  ? "база (объём сделок по квартирам)"
+                  : "смешанный (база и конверсия близки по вкладу)"}
+            </span>
           </p>
-          <p className="mt-1.5">{upsellDiagnosticAnalysis.insight.why}</p>
+          <p className="mt-1.5">{upsellDiagnosticAnalysis.insight.cause}</p>
           <p className="mt-1.5 font-medium">{upsellDiagnosticAnalysis.insight.money}</p>
         </div>
       </div>

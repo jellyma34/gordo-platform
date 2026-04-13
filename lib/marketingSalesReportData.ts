@@ -190,7 +190,12 @@ export type UpsellDiagnosticModel = {
   apartmentDealsPlan: number;
   /** Сделки по квартирам, накопительно — факт (база для фактической конверсии upsell). */
   apartmentDealsFact: number;
-  /** Целевая конверсия upsell (например коридор/план продаж), % к факту квартир. */
+  /**
+   * Опциональный бенчмарк конверсии (коридор / лучшая практика), %.
+   * Если не задан — в UI используется `targetConversionPct`.
+   */
+  benchmarkConversionPct?: number;
+  /** Целевая конверсия upsell (план продаж / норматив), % к факту квартир. */
   targetConversionPct: number;
   categories: UpsellCategoryRow[];
 };
@@ -546,6 +551,8 @@ export const marketingSalesReportMock: SalesReportPayload = {
   upsellDiagnostic: {
     apartmentDealsPlan: 84,
     apartmentDealsFact: 71,
+    /** Опционально: внешний бенчмарк конверсии (в UI — вторая линия на графике и доп. потенциал). */
+    benchmarkConversionPct: 52,
     targetConversionPct: 48,
     categories: [
       {
