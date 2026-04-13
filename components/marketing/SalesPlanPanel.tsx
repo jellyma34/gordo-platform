@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   filterByObjectAndDealType,
   mergeSalesPlanFact,
@@ -47,6 +47,19 @@ const compactRub = (n: number) =>
   Math.abs(n) >= 1_000_000
     ? `${n < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(n) / 1_000_000))} млн ₽`
     : rubFmt.format(n);
+
+/** Одна строка для подписи на баре баланса структуры: «-2,8% · -56M». */
+function structureBalanceBarLabelLine(deltaShare: number, deltaRub: number): string {
+  const sPct = deltaShare >= 0 ? "+" : "−";
+  const pct = `${sPct}${dec1Fmt.format(Math.abs(deltaShare))}%`;
+  const absR = Math.abs(deltaRub);
+  const sRub = deltaRub >= 0 ? "+" : "−";
+  let rub: string;
+  if (absR >= 1_000_000) rub = `${sRub}${numFmt.format(Math.round(absR / 1_000_000))}M`;
+  else if (absR >= 1_000) rub = `${sRub}${numFmt.format(Math.round(absR / 1_000))}K`;
+  else rub = `${sRub}${numFmt.format(Math.round(absR))}`;
+  return `${pct} · ${rub}`;
+}
 
 type ChartMetric = "revenue" | "units" | "area";
 type PlanMode = "view" | "edit";
@@ -1458,6 +1471,36 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         : "Существенных замещений структуры не выявлено.";
     return { topPos, topNeg, replacementText };
   }, [salesStructureBalanceRows]);
+  const salesStructureExecutionDiagnostic = useMemo(() => {
+    const materialRub = Math.max(2_500_000, rev.planCumulative * 0.004);
+    const sorted = [...salesStructureRows].sort((a, b) => a.deltaRub - b.deltaRub);
+    const worstKeys = sorted.filter((r) => r.deltaRub < 0).slice(0, 3).map((r) => r.key);
+    const execWorstRankByKey = new Map(worstKeys.map((k, i) => [k, i + 1]));
+    const rubTone = (deltaRub: number): "red" | "yellow" | "green" => {
+      if (deltaRub > 0) return "green";
+      if (deltaRub <= -materialRub * 0.45) return "red";
+      if (deltaRub < 0) return "yellow";
+      return "green";
+    };
+    const rows = sorted.map((row) => ({
+      ...row,
+      execWorstRank: execWorstRankByKey.get(row.key) ?? null,
+      rubTone: rubTone(row.deltaRub),
+    }));
+    const topLoss = sorted.filter((r) => r.deltaRub < 0).slice(0, 3);
+    const negSum = sorted.filter((r) => r.deltaRub < 0).reduce((s, r) => s + r.deltaRub, 0);
+    const posSum = sorted.filter((r) => r.deltaRub > 0).reduce((s, r) => s + r.deltaRub, 0);
+    const problem =
+      topLoss.length > 0
+        ? `Критичные минусы: ${topLoss.map((r) => `${r.label} (${compactRub(r.deltaRub)})`).join("; ")}.`
+        : "Критичных провалов по выручке по категориям нет.";
+    const cause = salesStructureReplacementInsight.replacementText;
+    const consequence =
+      negSum < 0
+        ? `Суммарно по «минусовым»: ${compactRub(negSum)}; компенсация +${compactRub(posSum)}. На маржу сильнее давят недоборы в дорогих форматах при тех же скидках.`
+        : "Сальдо по выручке категорий неотрицательное; маржа зависит от фактических цен по сегментам.";
+    return { rows, problem, cause, consequence };
+  }, [salesStructureRows, rev.planCumulative, salesStructureReplacementInsight]);
   const salesStructureBalanceDiagnostic = useMemo(() => {
     const maxDelta = Math.max(
       1e-9,
@@ -2326,90 +2369,86 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
               : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
           }
         >
-          <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-red-200/85" : "text-red-700"}`}>
-            Выполнение структуры продаж (критически важно)
+          <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            Выполнение структуры продаж — диагностика
           </div>
+          <p className={`mb-3 text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            Порядок по Δ выручке (хуже сверху). Цвет полосы и строки — по деньгам, длина полосы — % выполнения по шт.
+          </p>
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full border-collapse text-xs">
+            <table className="min-w-[520px] w-full border-collapse text-xs">
               <thead>
                 <tr className={presentation ? "text-slate-400" : "text-slate-600"}>
                   <th className="px-2 py-1.5 text-left font-semibold">Категория</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">План (шт)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Факт (шт)</th>
-                  <th className="px-2 py-1.5 text-left font-semibold">% выполнения</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Отклонение (шт)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">План (руб)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Факт (руб)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Отклонение (руб)</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Выполнение</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Δ шт</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Δ выручка</th>
                 </tr>
               </thead>
               <tbody>
-                {salesStructureRows.map((row) => {
-                  const isNegative = row.deltaUnits < 0;
-                  const pctTone =
-                    row.percent < 80
+                {salesStructureExecutionDiagnostic.rows.map((row) => {
+                  const barW = Math.max(0, Math.min(100, row.percent));
+                  const barClass =
+                    row.rubTone === "red"
                       ? presentation
-                        ? "bg-rose-500/70"
-                        : "bg-rose-500"
-                      : row.percent <= 100
+                        ? "bg-rose-600"
+                        : "bg-rose-600"
+                      : row.rubTone === "yellow"
                         ? presentation
-                          ? "bg-amber-400/80"
+                          ? "bg-amber-500"
                           : "bg-amber-500"
                         : presentation
-                          ? "bg-emerald-500/80"
-                          : "bg-emerald-500";
-                  const rowTone = isNegative
-                    ? presentation
-                      ? "bg-rose-900/12"
-                      : "bg-rose-50/60"
-                    : presentation
-                      ? "bg-emerald-900/10"
-                      : "bg-emerald-50/50";
+                          ? "bg-emerald-500"
+                          : "bg-emerald-600";
+                  const metricTone =
+                    row.rubTone === "red"
+                      ? presentation
+                        ? "text-rose-200"
+                        : "text-rose-800"
+                      : row.rubTone === "yellow"
+                        ? presentation
+                          ? "text-amber-200"
+                          : "text-amber-900"
+                        : presentation
+                          ? "text-emerald-200"
+                          : "text-emerald-800";
+                  const rowTone =
+                    row.execWorstRank === 1
+                      ? presentation
+                        ? "bg-rose-950/40"
+                        : "bg-rose-100/90"
+                      : row.execWorstRank === 2
+                        ? presentation
+                          ? "bg-rose-950/22"
+                          : "bg-rose-50/80"
+                        : row.execWorstRank === 3
+                          ? presentation
+                            ? "bg-amber-950/15"
+                            : "bg-amber-50/70"
+                          : presentation
+                            ? "bg-transparent"
+                            : "bg-transparent";
                   return (
                     <tr
                       key={row.key}
                       className={`${rowTone} ${presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"}`}
                     >
-                      <td className={`px-2 py-2 font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</td>
-                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{numFmt.format(row.planUnits)}</td>
-                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{numFmt.format(row.factUnits)}</td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-10 text-right font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                      <td className={`px-2 py-2.5 font-bold ${presentation ? "text-slate-50" : "text-slate-900"}`}>{row.label}</td>
+                      <td className="px-2 py-2.5">
+                        <div className="flex min-w-[10rem] max-w-xs items-center gap-2">
+                          <span className={`w-9 shrink-0 text-right text-[11px] font-bold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
                             {Math.round(row.percent)}%
                           </span>
-                          <div className={`h-1.5 w-24 overflow-hidden rounded-full ${presentation ? "bg-slate-700/55" : "bg-slate-200"}`}>
-                            <div className={`h-full rounded-full ${pctTone}`} style={{ width: `${Math.max(0, Math.min(130, row.percent))}%` }} />
+                          <div className={`h-2 min-w-0 flex-1 overflow-hidden rounded-full ${presentation ? "bg-slate-700/50" : "bg-slate-200"}`}>
+                            <div className={`h-full rounded-full ${barClass}`} style={{ width: `${barW}%` }} />
                           </div>
                         </div>
                       </td>
-                      <td
-                        className={`px-2 py-2 text-right font-semibold tabular-nums ${
-                          row.deltaUnits < 0
-                            ? presentation
-                              ? "text-rose-300"
-                              : "text-rose-700"
-                            : presentation
-                              ? "text-emerald-300"
-                              : "text-emerald-700"
-                        }`}
-                      >
+                      <td className={`px-2 py-2.5 text-right text-[11px] font-semibold tabular-nums ${metricTone}`}>
                         {row.deltaUnits >= 0 ? "+" : "−"}
                         {numFmt.format(Math.abs(row.deltaUnits))}
                       </td>
-                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>{compactRub(row.planRub)}</td>
-                      <td className={`px-2 py-2 text-right tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>{compactRub(row.factRub)}</td>
-                      <td
-                        className={`px-2 py-2 text-right font-semibold tabular-nums ${
-                          row.deltaRub < 0
-                            ? presentation
-                              ? "text-rose-300"
-                              : "text-rose-700"
-                            : presentation
-                              ? "text-emerald-300"
-                              : "text-emerald-700"
-                        }`}
-                      >
+                      <td className={`px-2 py-2.5 text-right text-sm font-bold tabular-nums ${metricTone}`}>
                         {row.deltaRub >= 0 ? "+" : "−"}
                         {compactRub(Math.abs(row.deltaRub))}
                       </td>
@@ -2418,6 +2457,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 })}
               </tbody>
             </table>
+          </div>
+          <div
+            className={`mt-3 space-y-1.5 border-t pt-3 ${presentation ? "border-slate-700/40 text-slate-400" : "border-slate-200 text-slate-600"}`}
+          >
+            <p className="text-[10px] leading-snug">
+              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Проблема: </span>
+              {salesStructureExecutionDiagnostic.problem}
+            </p>
+            <p className="text-[10px] leading-snug">
+              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Причина: </span>
+              {salesStructureExecutionDiagnostic.cause}
+            </p>
+            <p className="text-[10px] leading-snug">
+              <span className={`font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Следствие: </span>
+              {salesStructureExecutionDiagnostic.consequence}
+            </p>
           </div>
         </div>
 
@@ -2465,7 +2520,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                       style={{ left: `${leftPct}%`, transform: "translateX(-50%)" }}
                     >
                       <div
-                        className={`${v === 0 ? `w-[2px] ${presentation ? "h-5 bg-slate-100 shadow-[0_0_8px_rgba(255,255,255,0.35)]" : "h-5 bg-slate-800 shadow-[0_0_6px_rgba(30,41,59,0.35)]"}` : `w-px ${presentation ? "h-3 bg-slate-500/15" : "h-3 bg-slate-400/20"}`}`}
+                        className={`${v === 0 ? `w-[2px] ${presentation ? "h-5 bg-slate-100" : "h-5 bg-slate-800"}` : `w-px ${presentation ? "h-3 bg-slate-500/[0.06]" : "h-3 bg-slate-400/[0.08]"}`}`}
                       />
                       <span className="mt-0.5 text-[9px] font-medium tabular-nums leading-none">
                         {v === 0 ? "0" : `${v > 0 ? "+" : "−"}${Math.abs(v)}%`}
@@ -2494,59 +2549,51 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 if (topProblem) {
                   if (row.lossRank === 1)
                     return presentation
-                      ? "linear-gradient(90deg, #fecaca 0%, #ef4444 38%, #b91c1c 100%)"
-                      : "linear-gradient(90deg, #fecaca 0%, #ef4444 40%, #991b1b 100%)";
+                      ? "linear-gradient(90deg, #fecdd8 0%, #f87171 42%, #b91c1c 100%)"
+                      : "linear-gradient(90deg, #fee2e2 0%, #f87171 45%, #991b1b 100%)";
                   if (row.lossRank === 2)
                     return presentation
-                      ? "linear-gradient(90deg, #fecdd3 0%, #fb7185 42%, #be123c 100%)"
-                      : "linear-gradient(90deg, #fecdd3 0%, #f43f5e 45%, #9f1239 100%)";
+                      ? "linear-gradient(90deg, #fce4e9 0%, #fb7185 48%, #c2183f 100%)"
+                      : "linear-gradient(90deg, #fff1f2 0%, #fb7185 48%, #a21c3f 100%)";
                   return presentation
-                    ? "linear-gradient(90deg, #fce7f3 0%, #fb7185 50%, #be123c 100%)"
-                    : "linear-gradient(90deg, #fce7f3 0%, #fb7185 50%, #9f1239 100%)";
+                    ? "linear-gradient(90deg, #fdf2f8 0%, #fb7185 52%, #c2183f 100%)"
+                    : "linear-gradient(90deg, #fff1f2 0%, #fb7185 52%, #a21c3f 100%)";
                 }
                 if (row.deltaRub < 0)
                   return presentation
-                    ? "linear-gradient(90deg, #fecdd3 0%, #f87171 55%, #dc2626 100%)"
-                    : "linear-gradient(90deg, #fee2e2 0%, #f87171 50%, #dc2626 100%)";
+                    ? "linear-gradient(90deg, #ffe4e6 0%, #fca5a5 52%, #e11d48 100%)"
+                    : "linear-gradient(90deg, #fff1f2 0%, #fca5a5 50%, #dc2626 100%)";
                 return presentation
-                  ? "linear-gradient(90deg, #fef3c7 0%, #fbbf24 45%, #d97706 100%)"
-                  : "linear-gradient(90deg, #fffbeb 0%, #fbbf24 50%, #b45309 100%)";
+                  ? "linear-gradient(90deg, #fffbeb 0%, #fcd34d 48%, #ca8a04 100%)"
+                  : "linear-gradient(90deg, #fffbeb 0%, #fcd34d 50%, #b45309 100%)";
               })();
 
               const posGrad = (() => {
                 if (row.deltaShare <= 0) return "";
                 if (row.deltaRub > 0)
                   return presentation
-                    ? "linear-gradient(90deg, #047857 0%, #34d399 55%, #a7f3d0 100%)"
-                    : "linear-gradient(90deg, #047857 0%, #10b981 50%, #d1fae5 100%)";
+                    ? "linear-gradient(90deg, #0f766e 0%, #14b8a6 45%, #5eead4 100%)"
+                    : "linear-gradient(90deg, #0d9488 0%, #2dd4bf 48%, #99f6e4 100%)";
                 return presentation
-                  ? "linear-gradient(90deg, #b45309 0%, #fb923c 50%, #fde68a 100%)"
-                  : "linear-gradient(90deg, #9a3412 0%, #fb923c 50%, #fef3c7 100%)";
+                  ? "linear-gradient(90deg, #b45309 0%, #eab308 48%, #fde047 100%)"
+                  : "linear-gradient(90deg, #a16207 0%, #eab308 50%, #facc15 100%)";
               })();
 
-              const topGlow =
-                topProblem && row.deltaRub < 0
-                  ? row.lossRank === 1
-                    ? "0 0 18px rgba(248,113,113,0.55), 0 0 6px rgba(239,68,68,0.35)"
-                    : row.lossRank === 2
-                      ? "0 0 14px rgba(251,113,133,0.45), 0 0 5px rgba(244,63,94,0.28)"
-                      : "0 0 10px rgba(251,113,133,0.35)"
-                  : undefined;
-
               const rowShell = presentation ? "border-slate-700/40 bg-slate-950/25" : "border-slate-200/90 bg-white/90";
-              const tickLine = presentation ? "bg-slate-400/[0.12]" : "bg-slate-500/[0.14]";
-              const centerZero = presentation
-                ? "bg-slate-100 shadow-[0_0_12px_rgba(254,252,232,0.55),0_0_4px_rgba(255,255,255,0.35)]"
-                : "bg-slate-800 shadow-[0_0_10px_rgba(30,41,59,0.35),0_0_3px_rgba(15,23,42,0.2)]";
+              const tickLine = presentation ? "bg-slate-400/[0.06]" : "bg-slate-500/[0.08]";
+              const centerZero = presentation ? "bg-slate-100" : "bg-slate-800";
 
-              const shareLabel = `${row.deltaShare >= 0 ? "+" : "−"}${dec1Fmt.format(Math.abs(row.deltaShare))}%`;
-              const rubLabel = `${row.deltaRub >= 0 ? "+" : "−"}${compactRub(Math.abs(row.deltaRub))}`;
+              const labelLine = structureBalanceBarLabelLine(row.deltaShare, row.deltaRub);
               const amberBar =
                 (row.deltaShare < 0 && row.deltaRub >= 0) || (row.deltaShare > 0 && row.deltaRub <= 0);
-              const inBarText =
-                presentation || !amberBar
-                  ? "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.82)]"
-                  : "text-amber-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.9)]";
+              const labelPillBase =
+                "max-w-[min(100%,11rem)] truncate rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none";
+              const labelPillStyle: CSSProperties = amberBar
+                ? { backgroundColor: "rgba(255,255,255,0.92)" }
+                : { backgroundColor: "rgba(0,0,0,0.45)" };
+              const labelTextClass = amberBar ? "text-slate-900" : "text-white";
+
+              const labelOutside = barWPct < 12 && barWPct > 0;
 
               return (
                 <li
@@ -2562,10 +2609,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                     </div>
                     <div className="flex min-w-0 items-center" style={{ minHeight: trackPx }}>
                       <div
-                        className={`relative w-full overflow-hidden rounded-md ${
-                          presentation ? "bg-white/[0.05]" : "bg-slate-900/[0.05]"
-                        }`}
-                        style={{ height: trackPx }}
+                        className="relative w-full overflow-hidden rounded-md"
+                        style={{
+                          height: trackPx,
+                          backgroundColor: presentation ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.07)",
+                        }}
                       >
                         {scaleTicks.map((v) => {
                           const leftPct = 50 + (v / axisMaxPp) * 50;
@@ -2582,53 +2630,78 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                           );
                         })}
                         {row.deltaShare < 0 ? (
-                          <div
-                            className="absolute bottom-0 top-0 z-[5] overflow-hidden rounded-l-sm"
-                            style={{
-                              right: "50%",
-                              width: `${barWPct}%`,
-                              opacity: negOpacity,
-                              background: negGrad,
-                              boxShadow: topGlow,
-                            }}
-                          >
+                          <>
                             <div
-                              className="pointer-events-none absolute inset-y-0 left-0 z-[6] w-2.5 bg-gradient-to-r from-white/35 to-transparent"
-                              aria-hidden
-                            />
-                            <div
-                              className={`relative z-[7] flex h-full flex-col items-end justify-center gap-0.5 pr-1.5 pl-0.5 text-right ${inBarText}`}
+                              className={`absolute bottom-0 top-0 z-[5] overflow-hidden rounded-l-sm border-l-2 ${
+                                presentation ? "border-l-slate-100" : "border-l-white"
+                              }`}
+                              style={{
+                                right: "50%",
+                                width: `${barWPct}%`,
+                                opacity: negOpacity,
+                                background: negGrad,
+                              }}
                             >
-                              <span className="text-[10px] font-bold tabular-nums leading-none">{shareLabel}</span>
-                              <span className="text-[9px] font-semibold tabular-nums leading-none opacity-95">{rubLabel}</span>
+                              {!labelOutside ? (
+                                <div className="relative z-[7] flex h-full items-center justify-end pr-1">
+                                  <span className={labelPillBase} style={labelPillStyle}>
+                                    <span className={labelTextClass}>{labelLine}</span>
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
-                          </div>
+                            {labelOutside ? (
+                              <div
+                                className="pointer-events-none absolute z-[8] flex items-center"
+                                style={{
+                                  left: `calc(50% - ${barWPct}% - 6px)`,
+                                  top: "50%",
+                                  transform: "translate(-100%, -50%)",
+                                }}
+                              >
+                                <span className={labelPillBase} style={labelPillStyle}>
+                                  <span className={labelTextClass}>{labelLine}</span>
+                                </span>
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                         {row.deltaShare > 0 ? (
-                          <div
-                            className="absolute bottom-0 top-0 z-[5] overflow-hidden rounded-r-sm"
-                            style={{
-                              left: "50%",
-                              width: `${barWPct}%`,
-                              opacity: posOpacity,
-                              background: posGrad,
-                              boxShadow:
-                                row.deltaRub > 0 && impactNorm >= 0.55
-                                  ? "0 0 14px rgba(52,211,153,0.32)"
-                                  : undefined,
-                            }}
-                          >
+                          <>
                             <div
-                              className="pointer-events-none absolute inset-y-0 right-0 z-[6] w-2.5 bg-gradient-to-l from-white/35 to-transparent"
-                              aria-hidden
-                            />
-                            <div
-                              className={`relative z-[7] flex h-full flex-col items-start justify-center gap-0.5 pl-1.5 pr-0.5 ${inBarText}`}
+                              className={`absolute bottom-0 top-0 z-[5] overflow-hidden rounded-r-sm border-r-2 ${
+                                presentation ? "border-r-slate-100" : "border-r-white"
+                              }`}
+                              style={{
+                                left: "50%",
+                                width: `${barWPct}%`,
+                                opacity: posOpacity,
+                                background: posGrad,
+                              }}
                             >
-                              <span className="text-[10px] font-bold tabular-nums leading-none">{shareLabel}</span>
-                              <span className="text-[9px] font-semibold tabular-nums leading-none opacity-95">{rubLabel}</span>
+                              {!labelOutside ? (
+                                <div className="relative z-[7] flex h-full items-center justify-start pl-1">
+                                  <span className={labelPillBase} style={labelPillStyle}>
+                                    <span className={labelTextClass}>{labelLine}</span>
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
-                          </div>
+                            {labelOutside ? (
+                              <div
+                                className="pointer-events-none absolute z-[8] flex items-center"
+                                style={{
+                                  left: `calc(50% + ${barWPct}% + 6px)`,
+                                  top: "50%",
+                                  transform: "translateY(-50%)",
+                                }}
+                              >
+                                <span className={labelPillBase} style={labelPillStyle}>
+                                  <span className={labelTextClass}>{labelLine}</span>
+                                </span>
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                     </div>
