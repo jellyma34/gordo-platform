@@ -10,6 +10,7 @@ import {
 } from "@/lib/marketingMockData";
 import {
   marketingSalesReportMock,
+  type DeviationDiagnosticMonthRow,
   type SalesCategoryId,
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
@@ -192,6 +193,103 @@ function buildDeviationContribution(categories: Array<{
       fill: c.deviation >= 0 ? "#22c55e" : "#ef4444",
     }))
     .sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+}
+
+type DeviationDriverMonthCard = {
+  periodKey: string;
+  label: string;
+  axisLabel: string;
+  name: string;
+  impactRub: number;
+};
+
+type DeviationDiagnosticAnalysis = {
+  topCards: DeviationDriverMonthCard[];
+  mainCategories: Array<{ axisLabel: string; totalRub: number }>;
+  totalImpactTopCardsRub: number;
+  trend: "growing" | "stable" | "decreasing";
+  trendLabelRu: string;
+  trendHintRu: string;
+  substitutionGrow: Array<{ axisLabel: string; deltaRub: number }>;
+  substitutionFall: Array<{ axisLabel: string; deltaRub: number }>;
+};
+
+/** Один главный негатив по месяцу, топ-3 месяца по величине минуса, сводка и эффект замещения (MoM). */
+function analyzeDeviationDiagnostic(months: DeviationDiagnosticMonthRow[]): DeviationDiagnosticAnalysis {
+  const RUB_STEP = 2_500_000;
+  const byMonth: DeviationDriverMonthCard[] = [];
+  for (const m of months) {
+    const neg = m.byRadar.filter((r) => r.deviationRub < 0);
+    if (neg.length === 0) continue;
+    const worst = neg.reduce((a, b) => (a.deviationRub <= b.deviationRub ? a : b));
+    byMonth.push({
+      periodKey: m.periodKey,
+      label: m.label,
+      axisLabel: worst.axisLabel,
+      name: worst.name,
+      impactRub: worst.deviationRub,
+    });
+  }
+  const topCards = [...byMonth].sort((a, b) => a.impactRub - b.impactRub).slice(0, 3);
+
+  const catSum = new Map<string, number>();
+  for (const row of byMonth) {
+    catSum.set(row.axisLabel, (catSum.get(row.axisLabel) ?? 0) + row.impactRub);
+  }
+  const mainCategories = [...catSum.entries()]
+    .map(([axisLabel, totalRub]) => ({ axisLabel, totalRub }))
+    .sort((a, b) => a.totalRub - b.totalRub)
+    .slice(0, 4);
+
+  const totalImpactTopCardsRub = topCards.reduce((s, c) => s + c.impactRub, 0);
+
+  const chrono = [...byMonth].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
+  let trend: DeviationDiagnosticAnalysis["trend"] = "stable";
+  let trendLabelRu = "стабильна";
+  let trendHintRu = "По главному месячному драйверу выраженного сдвига нет.";
+  if (chrono.length >= 2) {
+    const first = chrono[0]!.impactRub;
+    const last = chrono[chrono.length - 1]!.impactRub;
+    if (last < first - RUB_STEP) {
+      trend = "growing";
+      trendLabelRu = "нарастает";
+      trendHintRu = "К концу ряда главный месячный минус углубляется — корневая проблема не ослабевает.";
+    } else if (last > first + RUB_STEP) {
+      trend = "decreasing";
+      trendLabelRu = "снижается";
+      trendHintRu = "К концу ряда величина главного месячного минуса сокращается — давление на план ослабевает.";
+    }
+  }
+
+  const sortedKeys = [...months].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
+  const idOrder = Array.from(new Set(sortedKeys.flatMap((m) => m.byRadar.map((r) => r.id))));
+  const substitutionGrow: Array<{ axisLabel: string; deltaRub: number }> = [];
+  const substitutionFall: Array<{ axisLabel: string; deltaRub: number }> = [];
+  if (sortedKeys.length >= 2) {
+    const last = sortedKeys[sortedKeys.length - 1]!;
+    const prev = sortedKeys[sortedKeys.length - 2]!;
+    for (const id of idOrder) {
+      const a = last.byRadar.find((r) => r.id === id);
+      const b = prev.byRadar.find((r) => r.id === id);
+      if (!a || !b) continue;
+      const delta = a.deviationRub - b.deviationRub;
+      if (delta > RUB_STEP * 0.4) substitutionGrow.push({ axisLabel: a.axisLabel, deltaRub: delta });
+      else if (delta < -RUB_STEP * 0.4) substitutionFall.push({ axisLabel: a.axisLabel, deltaRub: delta });
+    }
+    substitutionGrow.sort((x, y) => y.deltaRub - x.deltaRub);
+    substitutionFall.sort((x, y) => x.deltaRub - y.deltaRub);
+  }
+
+  return {
+    topCards,
+    mainCategories,
+    totalImpactTopCardsRub,
+    trend,
+    trendLabelRu,
+    trendHintRu,
+    substitutionGrow,
+    substitutionFall,
+  };
 }
 
 function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
@@ -1327,6 +1425,28 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
       gapRiskStatusRu,
     };
   }, [report, period, seriesPoints, baseRev.planCumulative, rev.planCumulative]);
+
+  const deviationDiagnosticMonths = useMemo(() => {
+    const raw = report.deviationDiagnostic.month;
+    if (period === "month") {
+      const keys = new Set(seriesPoints.map((p) => p.periodKey));
+      const hit = raw.filter((r) => keys.has(r.periodKey));
+      return hit.length > 0 ? hit : raw;
+    }
+    return raw;
+  }, [report.deviationDiagnostic.month, period, seriesPoints]);
+
+  const deviationDiagnosticAnalysis = useMemo(
+    () => analyzeDeviationDiagnostic(deviationDiagnosticMonths),
+    [deviationDiagnosticMonths],
+  );
+  const deviationSubstitutionPairLabel = useMemo(() => {
+    const s = [...deviationDiagnosticMonths].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
+    if (s.length < 2) return "";
+    const b = s[s.length - 2]!;
+    const a = s[s.length - 1]!;
+    return `${a.label} vs ${b.label}`;
+  }, [deviationDiagnosticMonths]);
 
   const currentLabel = useMemo(() => {
     const hit = seriesPoints.find((p) => p.periodKey === analytics.currentPeriodKey);
@@ -3127,6 +3247,137 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 Связь с разрывом {compactRub(financialCashFlow.gapRub)}: % плана по деньгам на счёте отстаёт при отставании эскроу.
               </p>
             </div>
+          </div>
+
+          <div
+            className={`mt-4 space-y-3 border-t pt-4 ${presentation ? "border-slate-700/40" : "border-slate-200"}`}
+          >
+            <div>
+              <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                Аналитика отклонений (диагностика)
+              </div>
+              <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                Почему план не достигается: по каждому месяцу — один главный негатив по сегменту (1-к, 2-к, …); на временной шкале показаны три месяца с наибольшим минусом в ₽.
+                {period === "quarter" ? " Ряд помесячный; при квартальном графике источник тот же календарный горизонт." : ""}
+              </p>
+            </div>
+
+            {deviationDiagnosticAnalysis.topCards.length === 0 ? (
+              <p className={`text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                Нет месяцев с отрицательным отклонением по сегментам в выборке.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin]">
+                  {deviationDiagnosticAnalysis.topCards.map((card, idx) => (
+                    <div
+                      key={card.periodKey}
+                      className={`relative flex min-w-[148px] max-w-[200px] shrink-0 flex-col rounded-xl border p-3 ${
+                        presentation
+                          ? "border-slate-600/70 bg-slate-950/60 shadow-inner shadow-black/20"
+                          : "border-slate-200 bg-white shadow-sm"
+                      }`}
+                    >
+                      <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                        #{idx + 1} · {card.label}
+                      </div>
+                      <div className={`mt-2 inline-flex w-fit rounded-md border px-2 py-0.5 text-[11px] font-bold tabular-nums ${
+                        presentation ? "border-sky-500/40 bg-sky-950/40 text-sky-200" : "border-sky-200 bg-sky-50 text-sky-900"
+                      }`}>
+                        {card.axisLabel}
+                      </div>
+                      <div className={`mt-1 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                        {card.name}
+                      </div>
+                      <div className={`mt-2 text-sm font-black tabular-nums ${presentation ? "text-red-300" : "text-red-700"}`}>
+                        −{compactRub(Math.abs(card.impactRub))}
+                      </div>
+                      <div className={`mt-1 text-[8px] uppercase tracking-wide ${presentation ? "text-slate-600" : "text-slate-500"}`}>
+                        влияние на выручку
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  className={`rounded-xl border p-3 text-[11px] leading-relaxed ${
+                    presentation ? "border-slate-600/50 bg-slate-950/45 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-800"
+                  }`}
+                >
+                  <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>Сводка</div>
+                  <ul className={`mt-2 list-inside list-disc space-y-1 ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                    <li>
+                      <span className="font-medium">Основные категории риска: </span>
+                      {deviationDiagnosticAnalysis.mainCategories.length === 0
+                        ? "—"
+                        : deviationDiagnosticAnalysis.mainCategories
+                            .map((c) => `${c.axisLabel} (${compactRub(c.totalRub)})`)
+                            .join(" · ")}
+                    </li>
+                    <li>
+                      <span className="font-medium">Сумма по трём худшим месяцам (главный драйвер в каждом): </span>
+                      <span className={`tabular-nums ${presentation ? "text-red-300" : "text-red-700"}`}>
+                        −{compactRub(Math.abs(deviationDiagnosticAnalysis.totalImpactTopCardsRub))}
+                      </span>
+                    </li>
+                    <li>
+                      <span className="font-medium">Тренд главного месячного минуса: </span>
+                      {deviationDiagnosticAnalysis.trendLabelRu}
+                      <span className={`${presentation ? "text-slate-400" : "text-slate-600"}`}> — {deviationDiagnosticAnalysis.trendHintRu}</span>
+                    </li>
+                    <li>
+                      <span className="font-medium">Накопительное отклонение плана по выручке (текущее): </span>
+                      <span className="tabular-nums">
+                        {rev.deviationCumulative <= 0 ? "−" : "+"}
+                        {compactRub(Math.abs(rev.deviationCumulative))}
+                      </span>
+                    </li>
+                  </ul>
+
+                  {(deviationDiagnosticAnalysis.substitutionGrow.length > 0 ||
+                    deviationDiagnosticAnalysis.substitutionFall.length > 0) && (
+                    <div className={`mt-3 border-t pt-2 ${presentation ? "border-slate-700/50" : "border-slate-200"}`}>
+                      <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+                        Эффект замещения{deviationSubstitutionPairLabel ? ` (${deviationSubstitutionPairLabel}, Δ по сегменту)` : " (Δ по сегменту)"}
+                      </div>
+                      <p className={`mt-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                        Положительный Δ — сегмент стал ближе к плану; отрицательный — просел сильнее.
+                      </p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <div className={presentation ? "text-emerald-400" : "text-emerald-700"}>Улучшение</div>
+                          <ul className="mt-1 space-y-0.5 text-[10px]">
+                            {deviationDiagnosticAnalysis.substitutionGrow.length === 0 ? (
+                              <li className={presentation ? "text-slate-500" : "text-slate-500"}>нет существенного</li>
+                            ) : (
+                              deviationDiagnosticAnalysis.substitutionGrow.map((s) => (
+                                <li key={`g-${s.axisLabel}`} className="tabular-nums">
+                                  {s.axisLabel}: +{compactRub(s.deltaRub)}
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className={presentation ? "text-red-400" : "text-red-700"}>Ухудшение</div>
+                          <ul className="mt-1 space-y-0.5 text-[10px]">
+                            {deviationDiagnosticAnalysis.substitutionFall.length === 0 ? (
+                              <li className={presentation ? "text-slate-500" : "text-slate-500"}>нет существенного</li>
+                            ) : (
+                              deviationDiagnosticAnalysis.substitutionFall.map((s) => (
+                                <li key={`f-${s.axisLabel}`} className="tabular-nums">
+                                  {s.axisLabel}: {compactRub(s.deltaRub)}
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
         </div>

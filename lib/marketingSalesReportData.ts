@@ -132,6 +132,30 @@ export type SalesReportPayload = {
   };
   /** Продажи по ДДУ vs поступления на эскроу (кассовая диагностика). */
   cashFlowDiagnostic: CashFlowDiagnostic;
+  /**
+   * Помесячная диагностика отклонений по линиям радара (1-к, 2-к, …): факт − план за месяц, ₽.
+   * Для UI: в каждом месяце выбирается один главный негатив (минимум по ₽).
+   */
+  deviationDiagnostic: SalesDeviationDiagnostic;
+};
+
+/** Срез по сегменту (ось радара) за один календарный месяц. */
+export type DeviationDiagnosticRadarSlice = {
+  id: string;
+  axisLabel: string;
+  name: string;
+  /** Отклонение выручки за месяц: факт − план (₽). */
+  deviationRub: number;
+};
+
+export type DeviationDiagnosticMonthRow = {
+  periodKey: string;
+  label: string;
+  byRadar: DeviationDiagnosticRadarSlice[];
+};
+
+export type SalesDeviationDiagnostic = {
+  month: DeviationDiagnosticMonthRow[];
 };
 
 export const marketingSalesReportMock: SalesReportPayload = {
@@ -421,6 +445,46 @@ export const marketingSalesReportMock: SalesReportPayload = {
       percentComplete: 50.0,
     },
   ],
+  deviationDiagnostic: {
+    month: [
+      {
+        periodKey: "2026-01",
+        label: "янв. 26",
+        byRadar: [
+          { id: "apt-1", axisLabel: "1-к", name: "1-комнатные квартиры", deviationRub: -14_000_000 },
+          { id: "apt-2", axisLabel: "2-к", name: "2-комнатные квартиры", deviationRub: -62_000_000 },
+          { id: "apt-3", axisLabel: "3-к", name: "3-комнатные квартиры", deviationRub: -6_000_000 },
+          { id: "parking-r", axisLabel: "Парк.", name: "Парковки", deviationRub: -4_000_000 },
+          { id: "storage-r", axisLabel: "Клад.", name: "Кладовые", deviationRub: 2_000_000 },
+          { id: "commercial-r", axisLabel: "Комм.", name: "Коммерческие помещения", deviationRub: -18_000_000 },
+        ],
+      },
+      {
+        periodKey: "2026-02",
+        label: "фев. 26",
+        byRadar: [
+          { id: "apt-1", axisLabel: "1-к", name: "1-комнатные квартиры", deviationRub: -8_000_000 },
+          { id: "apt-2", axisLabel: "2-к", name: "2-комнатные квартиры", deviationRub: -28_000_000 },
+          { id: "apt-3", axisLabel: "3-к", name: "3-комнатные квартиры", deviationRub: -4_000_000 },
+          { id: "parking-r", axisLabel: "Парк.", name: "Парковки", deviationRub: -2_000_000 },
+          { id: "storage-r", axisLabel: "Клад.", name: "Кладовые", deviationRub: 3_000_000 },
+          { id: "commercial-r", axisLabel: "Комм.", name: "Коммерческие помещения", deviationRub: -44_000_000 },
+        ],
+      },
+      {
+        periodKey: "2026-03",
+        label: "мар. 26",
+        byRadar: [
+          { id: "apt-1", axisLabel: "1-к", name: "1-комнатные квартиры", deviationRub: -5_000_000 },
+          { id: "apt-2", axisLabel: "2-к", name: "2-комнатные квартиры", deviationRub: -35_000_000 },
+          { id: "apt-3", axisLabel: "3-к", name: "3-комнатные квартиры", deviationRub: -3_000_000 },
+          { id: "parking-r", axisLabel: "Парк.", name: "Парковки", deviationRub: -1_000_000 },
+          { id: "storage-r", axisLabel: "Клад.", name: "Кладовые", deviationRub: 1_500_000 },
+          { id: "commercial-r", axisLabel: "Комм.", name: "Коммерческие помещения", deviationRub: -22_000_000 },
+        ],
+      },
+    ],
+  },
   comments: [
     {
       id: "c1",
