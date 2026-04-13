@@ -10,7 +10,6 @@ import {
 } from "@/lib/marketingMockData";
 import {
   marketingSalesReportMock,
-  type DeviationDiagnosticMonthRow,
   type SalesCategoryId,
   type SalesSeriesPoint,
 } from "@/lib/marketingSalesReportData";
@@ -193,103 +192,6 @@ function buildDeviationContribution(categories: Array<{
       fill: c.deviation >= 0 ? "#22c55e" : "#ef4444",
     }))
     .sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
-}
-
-type DeviationDriverMonthCard = {
-  periodKey: string;
-  label: string;
-  axisLabel: string;
-  name: string;
-  impactRub: number;
-};
-
-type DeviationDiagnosticAnalysis = {
-  topCards: DeviationDriverMonthCard[];
-  mainCategories: Array<{ axisLabel: string; totalRub: number }>;
-  totalImpactTopCardsRub: number;
-  trend: "growing" | "stable" | "decreasing";
-  trendLabelRu: string;
-  trendHintRu: string;
-  substitutionGrow: Array<{ axisLabel: string; deltaRub: number }>;
-  substitutionFall: Array<{ axisLabel: string; deltaRub: number }>;
-};
-
-/** Один главный негатив по месяцу, топ-3 месяца по величине минуса, сводка и эффект замещения (MoM). */
-function analyzeDeviationDiagnostic(months: DeviationDiagnosticMonthRow[]): DeviationDiagnosticAnalysis {
-  const RUB_STEP = 2_500_000;
-  const byMonth: DeviationDriverMonthCard[] = [];
-  for (const m of months) {
-    const neg = m.byRadar.filter((r) => r.deviationRub < 0);
-    if (neg.length === 0) continue;
-    const worst = neg.reduce((a, b) => (a.deviationRub <= b.deviationRub ? a : b));
-    byMonth.push({
-      periodKey: m.periodKey,
-      label: m.label,
-      axisLabel: worst.axisLabel,
-      name: worst.name,
-      impactRub: worst.deviationRub,
-    });
-  }
-  const topCards = [...byMonth].sort((a, b) => a.impactRub - b.impactRub).slice(0, 3);
-
-  const catSum = new Map<string, number>();
-  for (const row of byMonth) {
-    catSum.set(row.axisLabel, (catSum.get(row.axisLabel) ?? 0) + row.impactRub);
-  }
-  const mainCategories = [...catSum.entries()]
-    .map(([axisLabel, totalRub]) => ({ axisLabel, totalRub }))
-    .sort((a, b) => a.totalRub - b.totalRub)
-    .slice(0, 4);
-
-  const totalImpactTopCardsRub = topCards.reduce((s, c) => s + c.impactRub, 0);
-
-  const chrono = [...byMonth].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-  let trend: DeviationDiagnosticAnalysis["trend"] = "stable";
-  let trendLabelRu = "стабильна";
-  let trendHintRu = "По главному месячному драйверу выраженного сдвига нет.";
-  if (chrono.length >= 2) {
-    const first = chrono[0]!.impactRub;
-    const last = chrono[chrono.length - 1]!.impactRub;
-    if (last < first - RUB_STEP) {
-      trend = "growing";
-      trendLabelRu = "нарастает";
-      trendHintRu = "К концу ряда главный месячный минус углубляется — корневая проблема не ослабевает.";
-    } else if (last > first + RUB_STEP) {
-      trend = "decreasing";
-      trendLabelRu = "снижается";
-      trendHintRu = "К концу ряда величина главного месячного минуса сокращается — давление на план ослабевает.";
-    }
-  }
-
-  const sortedKeys = [...months].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-  const idOrder = Array.from(new Set(sortedKeys.flatMap((m) => m.byRadar.map((r) => r.id))));
-  const substitutionGrow: Array<{ axisLabel: string; deltaRub: number }> = [];
-  const substitutionFall: Array<{ axisLabel: string; deltaRub: number }> = [];
-  if (sortedKeys.length >= 2) {
-    const last = sortedKeys[sortedKeys.length - 1]!;
-    const prev = sortedKeys[sortedKeys.length - 2]!;
-    for (const id of idOrder) {
-      const a = last.byRadar.find((r) => r.id === id);
-      const b = prev.byRadar.find((r) => r.id === id);
-      if (!a || !b) continue;
-      const delta = a.deviationRub - b.deviationRub;
-      if (delta > RUB_STEP * 0.4) substitutionGrow.push({ axisLabel: a.axisLabel, deltaRub: delta });
-      else if (delta < -RUB_STEP * 0.4) substitutionFall.push({ axisLabel: a.axisLabel, deltaRub: delta });
-    }
-    substitutionGrow.sort((x, y) => y.deltaRub - x.deltaRub);
-    substitutionFall.sort((x, y) => x.deltaRub - y.deltaRub);
-  }
-
-  return {
-    topCards,
-    mainCategories,
-    totalImpactTopCardsRub,
-    trend,
-    trendLabelRu,
-    trendHintRu,
-    substitutionGrow,
-    substitutionFall,
-  };
 }
 
 function seriesToLineData(points: SalesSeriesPoint[], metric: ChartMetric) {
@@ -1426,28 +1328,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     };
   }, [report, period, seriesPoints, baseRev.planCumulative, rev.planCumulative]);
 
-  const deviationDiagnosticMonths = useMemo(() => {
-    const raw = report.deviationDiagnostic.month;
-    if (period === "month") {
-      const keys = new Set(seriesPoints.map((p) => p.periodKey));
-      const hit = raw.filter((r) => keys.has(r.periodKey));
-      return hit.length > 0 ? hit : raw;
-    }
-    return raw;
-  }, [report.deviationDiagnostic.month, period, seriesPoints]);
-
-  const deviationDiagnosticAnalysis = useMemo(
-    () => analyzeDeviationDiagnostic(deviationDiagnosticMonths),
-    [deviationDiagnosticMonths],
-  );
-  const deviationSubstitutionPairLabel = useMemo(() => {
-    const s = [...deviationDiagnosticMonths].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-    if (s.length < 2) return "";
-    const b = s[s.length - 2]!;
-    const a = s[s.length - 1]!;
-    return `${a.label} vs ${b.label}`;
-  }, [deviationDiagnosticMonths]);
-
   const currentLabel = useMemo(() => {
     const hit = seriesPoints.find((p) => p.periodKey === analytics.currentPeriodKey);
     return hit?.label ?? seriesPoints[seriesPoints.length - 1]?.label;
@@ -1909,6 +1789,103 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
     salesStructureBalanceRows,
     salesStructureReplacementInsight,
     velocityCompletionPct,
+  ]);
+
+  const rootCauseDecomposition = useMemo(() => {
+    const baseDrivers = report.rootCauseWaterfall.drivers;
+    const baseSum = baseDrivers.reduce((s, d) => s + d.impactRub, 0);
+    const target = rev.deviationCumulative;
+    const scale = baseSum !== 0 ? target / baseSum : 1;
+    let drivers = baseDrivers.map((d) => ({
+      id: d.id,
+      labelRu: d.labelRu,
+      impactRub: Math.round(d.impactRub * scale),
+    }));
+    const sumDrivers = () => drivers.reduce((s, d) => s + d.impactRub, 0);
+    const drift = target - sumDrivers();
+    if (drift !== 0 && drivers.length > 0) {
+      let ix = 0;
+      drivers.forEach((d, i) => {
+        if (Math.abs(d.impactRub) > Math.abs(drivers[ix]!.impactRub)) ix = i;
+      });
+      drivers = drivers.map((d, i) => (i === ix ? { ...d, impactRub: d.impactRub + drift } : d));
+    }
+    const driversSortedByImpact = [...drivers].sort((a, b) => Math.abs(b.impactRub) - Math.abs(a.impactRub));
+    let run = 0;
+    const waterfallRows = drivers.map((d) => {
+      const runningStart = run;
+      run += d.impactRub;
+      return { ...d, runningStart, runningEnd: run };
+    });
+    const structureDrilldown = [...salesStructureRows]
+      .filter((r) => r.deltaRub < 0)
+      .sort((a, b) => a.deltaRub - b.deltaRub)
+      .slice(0, 4);
+    const revPts = seriesToLineData(seriesPoints, "revenue");
+    const monthIncremental = revPts.map((r, i, arr) => ({
+      label: r.label,
+      cum: r.deviation,
+      incremental: i === 0 ? r.deviation : r.deviation - arr[i - 1]!.deviation,
+    }));
+    const firstCum = revPts[0]?.deviation ?? 0;
+    const lastCum = revPts[revPts.length - 1]?.deviation ?? 0;
+    let trendRu = "стабилизируется";
+    let trendDetailRu = "Накопление отклонения без экстремального ускорения на горизонте ряда.";
+    if (lastCum < firstCum - 12_000_000) {
+      trendRu = "углубляется";
+      trendDetailRu = "Накопительный недобор по выручке к последнему периоду сильнее, чем в начале ряда.";
+    } else if (lastCum > firstCum + 12_000_000) {
+      trendRu = "сходится к плану";
+      trendDetailRu = "Накопленное отклонение по выручке снижается относительно старта периода.";
+    }
+    const incs = monthIncremental.map((m) => m.incremental);
+    const lastInc = incs[incs.length - 1] ?? 0;
+    const firstInc = incs[0] ?? 0;
+    if (incs.length >= 2 && lastInc < firstInc - 25_000_000) {
+      trendDetailRu += " Добавка к план-факту в последнем периоде заметно слабее первого — темп просел.";
+    } else if (incs.length >= 2 && lastInc > firstInc + 25_000_000) {
+      trendDetailRu += " Последний период добавляет к выручке больше относительно самого первого.";
+    }
+    const worst = driversSortedByImpact[0];
+    const second = driversSortedByImpact[1];
+    const conversion = drivers.find((d) => d.id === "conversion");
+    const showConversionBlock = conversion !== undefined && Math.abs(conversion.impactRub) >= 250_000;
+    const wfMin = Math.min(...waterfallRows.flatMap((r) => [r.runningStart, r.runningEnd]));
+    const wfMax = Math.max(...waterfallRows.flatMap((r) => [r.runningStart, r.runningEnd]));
+    const wfSpan = Math.max(wfMax - wfMin, 1);
+    const causal = {
+      main: worst
+        ? `Корневая причина по вкладу: ${worst.labelRu} — ${worst.impactRub >= 0 ? "+" : "−"}${compactRub(Math.abs(worst.impactRub))}.`
+        : "Недостаточно данных для выделения главного драйвера.",
+      secondary:
+        second && worst && second.id !== worst.id
+          ? `Вторичный эффект: ${second.labelRu} (${second.impactRub >= 0 ? "+" : "−"}${compactRub(Math.abs(second.impactRub))}).`
+          : null,
+      bridge: `Мост согласован с блоком «Выполнение структуры продаж»: ${salesStructureBalanceExecInsight.line2}`,
+      final: `Финальный разрыв к плану: ${rev.deviationCumulative <= 0 ? "−" : "+"}${compactRub(Math.abs(rev.deviationCumulative))} (накопительно).`,
+    };
+    const insight = `Решение: приоритет — снять ${worst?.labelRu ?? "узкое место"}; ${salesStructureBalanceExecInsight.line1}`;
+    return {
+      drivers,
+      driversSortedByImpact,
+      waterfallRows,
+      structureDrilldown,
+      monthIncremental,
+      trendRu,
+      trendDetailRu,
+      causal,
+      insight,
+      wfMin,
+      wfSpan,
+      showConversionBlock,
+    };
+  }, [
+    report.rootCauseWaterfall.drivers,
+    rev.deviationCumulative,
+    salesStructureRows,
+    seriesPoints,
+    salesStructureBalanceExecInsight.line1,
+    salesStructureBalanceExecInsight.line2,
   ]);
 
   function velocityFactPlanBarFill(entry: { fact: number; plan: number }): string {
@@ -2652,10 +2629,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
         </div>
 
         <div
+          id="sales-structure-diagnostic"
           className={
             presentation
-              ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/80 via-slate-900/55 to-slate-950/90 p-3"
-              : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
+              ? "mt-4 scroll-mt-24 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/80 via-slate-900/55 to-slate-950/90 p-3"
+              : "mt-4 scroll-mt-24 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
           }
         >
           <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
@@ -3250,134 +3228,192 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
           </div>
 
           <div
-            className={`mt-4 space-y-3 border-t pt-4 ${presentation ? "border-slate-700/40" : "border-slate-200"}`}
+            className={`mt-4 space-y-4 border-t pt-4 ${presentation ? "border-slate-700/40" : "border-slate-200"}`}
           >
             <div>
               <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                Аналитика отклонений (диагностика)
+                Разложение отклонения (корневые причины)
               </div>
               <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-                Почему план не достигается: по каждому месяцу — один главный негатив по сегменту (1-к, 2-к, …); на временной шкале показаны три месяца с наибольшим минусом в ₽.
-                {period === "quarter" ? " Ряд помесячный; при квартальном графике источник тот же календарный горизонт." : ""}
+                От отклонения к драйверам, затем к структуре линеек и выводу — для решений, а не для отчёта. Драйверы масштабируются при смене плана/сценария; детализация структуры совпадает с блоком ниже.
               </p>
             </div>
 
-            {deviationDiagnosticAnalysis.topCards.length === 0 ? (
-              <p className={`text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-                Нет месяцев с отрицательным отклонением по сегментам в выборке.
+            <div
+              className={`rounded-xl border px-4 py-3 ${
+                presentation ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                Итоговое отклонение (накопительно)
+              </div>
+              <div className={`mt-1 text-2xl font-black tabular-nums ${rev.deviationCumulative < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}>
+                {rev.deviationCumulative <= 0 ? "−" : "+"}
+                {compactRub(Math.abs(rev.deviationCumulative))}
+              </div>
+              <p className={`mt-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                Факт выручки к накопительному плану · план {compactRub(rev.planCumulative)} · факт {compactRub(baseRev.factCumulative)}
               </p>
-            ) : (
-              <>
-                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin]">
-                  {deviationDiagnosticAnalysis.topCards.map((card, idx) => (
-                    <div
-                      key={card.periodKey}
-                      className={`relative flex min-w-[148px] max-w-[200px] shrink-0 flex-col rounded-xl border p-3 ${
-                        presentation
-                          ? "border-slate-600/70 bg-slate-950/60 shadow-inner shadow-black/20"
-                          : "border-slate-200 bg-white shadow-sm"
-                      }`}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  Водопад драйверов (порядок = цепочка)
+                </div>
+                <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                  Сумма столбцов = итоговое отклонение. Красный — ухудшение к плану, зелёный — перекрытие.
+                </p>
+                <div className="relative mx-auto mt-3 h-44 w-full max-w-xl">
+                  <div className="relative flex h-40 items-stretch justify-between gap-1 px-0.5">
+                    {rootCauseDecomposition.waterfallRows.map((r) => {
+                      const lo = Math.min(r.runningStart, r.runningEnd);
+                      const hi = Math.max(r.runningStart, r.runningEnd);
+                      const bottomPct = ((lo - rootCauseDecomposition.wfMin) / rootCauseDecomposition.wfSpan) * 100;
+                      const heightPct = ((hi - lo) / rootCauseDecomposition.wfSpan) * 100;
+                      return (
+                        <div key={r.id} className="flex min-w-0 flex-1 flex-col items-center justify-end">
+                          <div className="relative w-[78%] flex-1">
+                            <div
+                              className={`absolute left-0 right-0 rounded-t ${r.impactRub < 0 ? "bg-rose-500/90" : "bg-emerald-500/85"}`}
+                              style={{
+                                bottom: `${bottomPct}%`,
+                                height: `${Math.max(heightPct, 1.2)}%`,
+                              }}
+                            />
+                          </div>
+                          <div className={`mt-1 line-clamp-2 text-center text-[8px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                            {r.labelRu}
+                          </div>
+                          <div
+                            className={`text-[9px] font-bold tabular-nums ${r.impactRub < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}
+                          >
+                            {r.impactRub >= 0 ? "+" : "−"}
+                            {compactRub(Math.abs(r.impactRub))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[280px] border-collapse text-[10px]">
+                    <thead>
+                      <tr className={presentation ? "text-slate-500" : "text-slate-500"}>
+                        <th className="py-1 pr-2 text-left font-semibold">Драйвер (по |вклад|)</th>
+                        <th className="py-1 text-right font-semibold">Δ ₽</th>
+                        <th className="py-1 pl-2 text-right font-semibold">После шага</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rootCauseDecomposition.driversSortedByImpact.map((d) => {
+                        const end = rootCauseDecomposition.waterfallRows.find((w) => w.id === d.id)?.runningEnd ?? 0;
+                        return (
+                          <tr key={d.id} className={presentation ? "border-t border-slate-700/35" : "border-t border-slate-200"}>
+                            <td className={`py-1.5 pr-2 ${presentation ? "text-slate-200" : "text-slate-800"}`}>{d.labelRu}</td>
+                            <td className={`py-1.5 text-right tabular-nums ${d.impactRub < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}>
+                              {d.impactRub >= 0 ? "+" : "−"}
+                              {compactRub(Math.abs(d.impactRub))}
+                            </td>
+                            <td className={`py-1.5 pl-2 text-right tabular-nums ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                              {end <= 0 ? "−" : "+"}
+                              {compactRub(Math.abs(end))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-3">
+                <div className={`rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    Структура: топ минусов к Δ выручке
+                  </div>
+                  <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                    Те же строки и порядок, что в «Выполнение структуры продаж — диагностика» (Δ ₽ по линейке).{" "}
+                    <a
+                      href="#sales-structure-diagnostic"
+                      className={`font-semibold underline decoration-dotted underline-offset-2 ${presentation ? "text-sky-300" : "text-sky-700"}`}
                     >
-                      <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
-                        #{idx + 1} · {card.label}
-                      </div>
-                      <div className={`mt-2 inline-flex w-fit rounded-md border px-2 py-0.5 text-[11px] font-bold tabular-nums ${
-                        presentation ? "border-sky-500/40 bg-sky-950/40 text-sky-200" : "border-sky-200 bg-sky-50 text-sky-900"
-                      }`}>
-                        {card.axisLabel}
-                      </div>
-                      <div className={`mt-1 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-                        {card.name}
-                      </div>
-                      <div className={`mt-2 text-sm font-black tabular-nums ${presentation ? "text-red-300" : "text-red-700"}`}>
-                        −{compactRub(Math.abs(card.impactRub))}
-                      </div>
-                      <div className={`mt-1 text-[8px] uppercase tracking-wide ${presentation ? "text-slate-600" : "text-slate-500"}`}>
-                        влияние на выручку
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div
-                  className={`rounded-xl border p-3 text-[11px] leading-relaxed ${
-                    presentation ? "border-slate-600/50 bg-slate-950/45 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-800"
-                  }`}
-                >
-                  <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>Сводка</div>
-                  <ul className={`mt-2 list-inside list-disc space-y-1 ${presentation ? "text-slate-300" : "text-slate-700"}`}>
-                    <li>
-                      <span className="font-medium">Основные категории риска: </span>
-                      {deviationDiagnosticAnalysis.mainCategories.length === 0
-                        ? "—"
-                        : deviationDiagnosticAnalysis.mainCategories
-                            .map((c) => `${c.axisLabel} (${compactRub(c.totalRub)})`)
-                            .join(" · ")}
-                    </li>
-                    <li>
-                      <span className="font-medium">Сумма по трём худшим месяцам (главный драйвер в каждом): </span>
-                      <span className={`tabular-nums ${presentation ? "text-red-300" : "text-red-700"}`}>
-                        −{compactRub(Math.abs(deviationDiagnosticAnalysis.totalImpactTopCardsRub))}
-                      </span>
-                    </li>
-                    <li>
-                      <span className="font-medium">Тренд главного месячного минуса: </span>
-                      {deviationDiagnosticAnalysis.trendLabelRu}
-                      <span className={`${presentation ? "text-slate-400" : "text-slate-600"}`}> — {deviationDiagnosticAnalysis.trendHintRu}</span>
-                    </li>
-                    <li>
-                      <span className="font-medium">Накопительное отклонение плана по выручке (текущее): </span>
-                      <span className="tabular-nums">
-                        {rev.deviationCumulative <= 0 ? "−" : "+"}
-                        {compactRub(Math.abs(rev.deviationCumulative))}
-                      </span>
-                    </li>
+                      Перейти к таблице
+                    </a>
+                    .
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {rootCauseDecomposition.structureDrilldown.length === 0 ? (
+                      <li className={`text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>Нет отрицательных Δ по линейкам.</li>
+                    ) : (
+                      rootCauseDecomposition.structureDrilldown.map((row) => (
+                        <li
+                          key={row.key}
+                          className={`flex items-baseline justify-between gap-2 text-[10px] ${presentation ? "text-slate-200" : "text-slate-800"}`}
+                        >
+                          <span className="min-w-0 truncate">{row.label}</span>
+                          <span className={`shrink-0 tabular-nums ${presentation ? "text-rose-200" : "text-rose-700"}`}>−{compactRub(Math.abs(row.deltaRub))}</span>
+                        </li>
+                      ))
+                    )}
                   </ul>
-
-                  {(deviationDiagnosticAnalysis.substitutionGrow.length > 0 ||
-                    deviationDiagnosticAnalysis.substitutionFall.length > 0) && (
-                    <div className={`mt-3 border-t pt-2 ${presentation ? "border-slate-700/50" : "border-slate-200"}`}>
-                      <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-                        Эффект замещения{deviationSubstitutionPairLabel ? ` (${deviationSubstitutionPairLabel}, Δ по сегменту)` : " (Δ по сегменту)"}
-                      </div>
-                      <p className={`mt-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
-                        Положительный Δ — сегмент стал ближе к плану; отрицательный — просел сильнее.
-                      </p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <div className={presentation ? "text-emerald-400" : "text-emerald-700"}>Улучшение</div>
-                          <ul className="mt-1 space-y-0.5 text-[10px]">
-                            {deviationDiagnosticAnalysis.substitutionGrow.length === 0 ? (
-                              <li className={presentation ? "text-slate-500" : "text-slate-500"}>нет существенного</li>
-                            ) : (
-                              deviationDiagnosticAnalysis.substitutionGrow.map((s) => (
-                                <li key={`g-${s.axisLabel}`} className="tabular-nums">
-                                  {s.axisLabel}: +{compactRub(s.deltaRub)}
-                                </li>
-                              ))
-                            )}
-                          </ul>
-                        </div>
-                        <div>
-                          <div className={presentation ? "text-red-400" : "text-red-700"}>Ухудшение</div>
-                          <ul className="mt-1 space-y-0.5 text-[10px]">
-                            {deviationDiagnosticAnalysis.substitutionFall.length === 0 ? (
-                              <li className={presentation ? "text-slate-500" : "text-slate-500"}>нет существенного</li>
-                            ) : (
-                              deviationDiagnosticAnalysis.substitutionFall.map((s) => (
-                                <li key={`f-${s.axisLabel}`} className="tabular-nums">
-                                  {s.axisLabel}: {compactRub(s.deltaRub)}
-                                </li>
-                              ))
-                            )}
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              </>
-            )}
+
+                <div className={`rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                    Тренд отклонения по периодам ряда
+                  </div>
+                  <p className={`mt-1 text-[10px] leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                    <span className="font-semibold">Накопительно: {rootCauseDecomposition.trendRu}.</span> {rootCauseDecomposition.trendDetailRu}
+                  </p>
+                  <div className="mt-2 h-[120px] w-full min-w-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={rootCauseDecomposition.monthIncremental} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                        <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis
+                          tick={{ fill: axisColor, fontSize: 8 }}
+                          axisLine={false}
+                          width={40}
+                          tickFormatter={(v) => `${Math.round(v / 1_000_000)}M`}
+                        />
+                        <Tooltip
+                          formatter={(v: number, name: string) => [rubFmt.format(v), name === "cum" ? "Накопит. откл." : "За период"]}
+                          contentStyle={{ fontSize: 10, borderRadius: 6 }}
+                        />
+                        <ReferenceLine y={0} stroke={presentation ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.5)"} />
+                        <Line type="monotone" dataKey="cum" name="cum" stroke="#f87171" strokeWidth={2} dot={{ r: 2 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className={`mt-1 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>Линия — накопительное отклонение выручки (факт − план) по выбранной гранулярности.</p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className={`rounded-xl border p-3 text-[11px] leading-relaxed ${
+                presentation ? "border-slate-600/50 bg-slate-950/45 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-800"
+              }`}
+            >
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                Причинно-следственная цепочка
+              </div>
+              <ol className={`mt-2 list-inside list-decimal space-y-1.5 ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <li>{rootCauseDecomposition.causal.main}</li>
+                {rootCauseDecomposition.causal.secondary ? <li>{rootCauseDecomposition.causal.secondary}</li> : null}
+                <li>{rootCauseDecomposition.causal.bridge}</li>
+                <li className="font-semibold">{rootCauseDecomposition.causal.final}</li>
+              </ol>
+              {rootCauseDecomposition.showConversionBlock && funnelTopLossStage ? (
+                <p className={`mt-2 border-t pt-2 text-[10px] ${presentation ? "border-slate-700/50 text-slate-400" : "border-slate-200 text-slate-600"}`}>
+                  Конверсия: критичный этап воронки — «{funnelTopLossStage.stage}»; оценочный вклад в мосте совпадает с драйвером «Конверсия воронки» (см. таблицу драйверов).
+                </p>
+              ) : null}
+              <p className={`mt-3 border-t pt-2 text-[10px] font-medium leading-snug ${presentation ? "border-slate-700/50 text-slate-200" : "border-slate-200 text-slate-900"}`}>
+                {rootCauseDecomposition.insight}
+              </p>
+            </div>
           </div>
 
         </div>
