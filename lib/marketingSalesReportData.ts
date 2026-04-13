@@ -85,6 +85,27 @@ export type SalesPlanGranularityAnalytics = {
   };
 };
 
+/** Накопительно по периоду: ДДУ vs эскроу (для мини-графиков и сверки с рядом `series`). */
+export type CashFlowSeriesPoint = {
+  periodKey: string;
+  label: string;
+  dduCumulative: number;
+  escrowCumulative: number;
+};
+
+/**
+ * Диагностика ДДУ / эскроу / разрыва.
+ * Выполнение плана по выручке в UI считается от эскроу: escrow / planCumulative(revenue).
+ */
+export type CashFlowDiagnostic = {
+  dduFactCumulative: number;
+  escrowFactCumulative: number;
+  /** Если (ДДУ − эскроу) > порога — акцент «опасного» разрыва. */
+  gapAlertThresholdRub: number;
+  month: CashFlowSeriesPoint[];
+  quarter: CashFlowSeriesPoint[];
+};
+
 /**
  * Ответ API / тело отчёта: корень с полем `salesData` (куб metrics) + ряды и разбивки.
  * Пример: `{ salesData: { units, area, revenue, avgPrice }, series, categories, comments }`
@@ -109,6 +130,8 @@ export type SalesReportPayload = {
     month: SalesPlanGranularityAnalytics;
     quarter: SalesPlanGranularityAnalytics;
   };
+  /** Продажи по ДДУ vs поступления на эскроу (кассовая диагностика). */
+  cashFlowDiagnostic: CashFlowDiagnostic;
 };
 
 export const marketingSalesReportMock: SalesReportPayload = {
@@ -179,6 +202,45 @@ export const marketingSalesReportMock: SalesReportPayload = {
         horizonPlanCumulativeRub: 1_265_000_000,
       },
     },
+  },
+  cashFlowDiagnostic: {
+    dduFactCumulative: 1_130_000_000,
+    escrowFactCumulative: 892_000_000,
+    gapAlertThresholdRub: 120_000_000,
+    month: [
+      {
+        periodKey: "2026-01",
+        label: "янв. 26",
+        dduCumulative: 390_000_000,
+        escrowCumulative: 360_000_000,
+      },
+      {
+        periodKey: "2026-02",
+        label: "фев. 26",
+        dduCumulative: 800_000_000,
+        escrowCumulative: 720_000_000,
+      },
+      {
+        periodKey: "2026-03",
+        label: "мар. 26",
+        dduCumulative: 1_130_000_000,
+        escrowCumulative: 892_000_000,
+      },
+    ],
+    quarter: [
+      {
+        periodKey: "2025-Q4",
+        label: "Q4 2025",
+        dduCumulative: 920_000_000,
+        escrowCumulative: 880_000_000,
+      },
+      {
+        periodKey: "2026-Q1",
+        label: "Q1 2026",
+        dduCumulative: 1_130_000_000,
+        escrowCumulative: 892_000_000,
+      },
+    ],
   },
   series: {
     month: [
