@@ -19,8 +19,8 @@ export default function EditEntry() {
     },
     {
       title: "Маркетинг",
-      description: "План продаж, динамика, воронка и рассрочка ДДУ (mock-данные).",
-      href: "/edit/marketing",
+      description: "Рабочий режим плана: сценарии, таблица план/факт по категориям и журнал изменений; отчёт и рассрочка — в разделе «Маркетинг».",
+      href: "/marketing/plan/edit",
     },
     {
       title: "Экономика и финансы",

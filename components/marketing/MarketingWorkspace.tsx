@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { marketingMockData } from "@/lib/marketingMockData";
@@ -96,8 +97,8 @@ export function MarketingWorkspace({ modeLabel, presentation, onBackToBlocks }: 
         <div
           className={
             presentation
-              ? "mt-4 flex flex-wrap gap-2 border-t border-slate-600/40 pt-4"
-              : "mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4"
+              ? "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-600/40 pt-4"
+              : "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4"
           }
         >
           <TabButton presentation={presentation} active={tab === "sales"} onClick={() => setTab("sales")}>
@@ -110,6 +111,14 @@ export function MarketingWorkspace({ modeLabel, presentation, onBackToBlocks }: 
           >
             Рассрочка ДДУ
           </TabButton>
+          {!presentation ? (
+            <Link
+              href="/marketing/plan/edit"
+              className="ml-auto inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Рабочий режим таблицы
+            </Link>
+          ) : null}
         </div>
       </div>
 

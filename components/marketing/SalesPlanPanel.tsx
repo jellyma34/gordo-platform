@@ -4459,7 +4459,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: P
                 dataKey="planConv"
                 name="План, %"
                 barSize={48}
-                fill="rgba(156,163,175,0.32)"
+                fill="rgba(148,163,184,0.2)"
                 radius={[4, 4, 0, 0]}
               />
               <Bar dataKey="factConv" name="Факт, %" barSize={24} radius={[4, 4, 0, 0]}>
