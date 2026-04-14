@@ -83,6 +83,63 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
         : "cursor-default rounded-lg border border-transparent px-2 py-2 font-mono text-[11px] leading-relaxed text-slate-300";
 
   const showChartExplains = chartExplainBundle != null;
+  const tempoFormulaIds = [
+    "plan_month_sum",
+    "fact_month_sum",
+    "fact_vs_plan_month",
+    "plan_per_month",
+    "actual_per_month",
+    "tempo_ratio",
+  ] as const;
+  const toTempoFormulaId = (metricId: SalesTempoExplainMetricId | undefined): (typeof tempoFormulaIds)[number] | null => {
+    switch (metricId) {
+      case "sumPlanFact":
+        return "plan_month_sum";
+      case "monthlyCompare":
+        return "fact_vs_plan_month";
+      case "monthlyRatio":
+        return "fact_vs_plan_month";
+      case "planPerMonth":
+        return "plan_per_month";
+      case "actualPerMonth":
+        return "actual_per_month";
+      case "tempoNorm":
+        return "tempo_ratio";
+      default:
+        return null;
+    }
+  };
+  const isTempoCard = (metricId: SalesTempoExplainMetricId | undefined) => {
+    const id = toTempoFormulaId(metricId);
+    return id != null && tempoFormulaIds.includes(id);
+  };
+  const salesTempoLineExplain =
+    chartExplainBundle != null
+      ? {
+          ...chartExplainBundle.salesTempoLine,
+          formulaDetailCards: (chartExplainBundle.salesTempoLine.formulaDetailCards ?? []).filter((card) =>
+            isTempoCard(card.metricId),
+          ),
+        }
+      : null;
+  const salesTempoNormExplain =
+    chartExplainBundle != null
+      ? {
+          ...chartExplainBundle.salesTempoNorm,
+          formulaDetailCards: (chartExplainBundle.salesTempoNorm.formulaDetailCards ?? []).filter((card) =>
+            isTempoCard(card.metricId),
+          ),
+        }
+      : null;
+  const factVsPlanDealsExplain =
+    chartExplainBundle != null
+      ? {
+          ...chartExplainBundle.factVsPlanDeals,
+          formulaDetailCards: (chartExplainBundle.factVsPlanDeals.formulaDetailCards ?? []).filter((card) =>
+            isTempoCard(card.metricId),
+          ),
+        }
+      : null;
 
   if (block.id === "salesTempo") {
     const monthlyInputs = interactive.points.map((p) => ({
@@ -149,8 +206,8 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
               onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
               showVelocityFooter={false}
             />
-            {showChartExplains ? (
-              <ExplainMetricBlock content={chartExplainBundle.salesTempoLine} activeMetricId={activeMetricId} />
+            {showChartExplains && salesTempoLineExplain ? (
+              <ExplainMetricBlock content={salesTempoLineExplain} activeMetricId={activeMetricId} />
             ) : null}
           </div>
 
@@ -165,8 +222,8 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
               actualPerMonth={actualPerMonth}
               onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
             />
-            {showChartExplains ? (
-              <ExplainMetricBlock content={chartExplainBundle.salesTempoNorm} activeMetricId={activeMetricId} />
+            {showChartExplains && salesTempoNormExplain ? (
+              <ExplainMetricBlock content={salesTempoNormExplain} activeMetricId={activeMetricId} />
             ) : null}
           </div>
 
@@ -185,8 +242,8 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
               onPointHover={setActiveId}
               onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
             />
-            {showChartExplains ? (
-              <ExplainMetricBlock content={chartExplainBundle.factVsPlanDeals} activeMetricId={activeMetricId} />
+            {showChartExplains && factVsPlanDealsExplain ? (
+              <ExplainMetricBlock content={factVsPlanDealsExplain} activeMetricId={activeMetricId} />
             ) : null}
           </div>
         </div>
