@@ -1,6 +1,8 @@
 import {
   analyzeUpsellDiagnostic,
+  buildSalesPlanMonthlyDealExecution,
   type ExplainFormulaDetailCard,
+  type SalesPlanMonthlyDealRow,
   SALES_TEMPO_EXPLAIN_INTRO_WORK,
   type SalesPlanExplainInteractivePoint,
   type SalesPlanPresentationExplainBlock,
@@ -8,6 +10,7 @@ import {
 import { marketingSalesReportMock } from "@/lib/marketingSalesReportData";
 import { SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS } from "@/lib/salesPlanPresentationExplainConfig";
 import type { SalesPlanExplainSessionPayload } from "@/lib/salesPlanExplainSession";
+import { salesPlanPeriodKeyThisMonth } from "@/lib/salesPlanVelocityChartData";
 import {
   SALES_PLAN_CATEGORY_IDS,
   SALES_PLAN_CATEGORY_LABELS,
@@ -29,24 +32,36 @@ const APT_IDS = ["1k", "2k", "3k", "4k_plus"] as const;
 function buildWorkModeSalesTempoFormulaDetailCards(
   payload: SalesPlanExplainSessionPayload,
   scenarioLabel: string,
-  sumPlanMonthU: number,
-  sumFactMonthU: number,
-  monthRatioU: string,
-  tempoWorkPoints: SalesPlanExplainInteractivePoint[],
+  monthlyDealRows: SalesPlanMonthlyDealRow[],
 ): { formulaDetailCards: ExplainFormulaDetailCard[]; formulaSectionFooter: string } {
   const { scenario, savedAt, metricTab } = payload;
-  const sliceNote = `Сценарий: ${scenarioLabel} (${scenario}). Снимок: ${savedAt}. Вкладка метрик при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`;
-  const monthDevU = sumFactMonthU - sumPlanMonthU;
-  const n = Math.max(1, tempoWorkPoints.length);
+  const sliceNote = `Сценарий рабочей таблицы: ${scenarioLabel} (${scenario}). Снимок: ${savedAt}. Вкладка метрик при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. График темпа — те же помесячные точки, что в презентации (marketingMockData.salesPlan.month / salesFact.month, фильтр all/all).`;
+  const monthKey = salesPlanPeriodKeyThisMonth();
+  const currentMonthIdx = (() => {
+    const idx = monthlyDealRows.findIndex((r) => r.periodKey === monthKey);
+    return idx >= 0 ? idx : Math.max(0, monthlyDealRows.length - 1);
+  })();
+  const totalMonths = Math.max(1, monthlyDealRows.length);
+  const monthsPassed = Math.max(1, Math.min(totalMonths, currentMonthIdx + 1));
+  const sumPlanMonthU = monthlyDealRows.reduce((s, r) => s + r.plan, 0);
+  const sumFactMonthU = monthlyDealRows.reduce((s, r) => s + r.fact, 0);
+  const currentFact = monthlyDealRows.slice(0, monthsPassed).reduce((s, r) => s + r.fact, 0);
+  const monthFact = monthlyDealRows[Math.max(0, monthsPassed - 1)]?.fact ?? 0;
+  const planReportMonth = monthlyDealRows[currentMonthIdx]?.plan ?? 0;
+  const monthDeviation = monthFact - planReportMonth;
+  const n = totalMonths;
   const planPerMonth = sumPlanMonthU / n;
-  const actualPerMonth = sumFactMonthU / n;
+  const actualPerMonth = currentFact / monthsPassed;
   const velocityCompletionPct = planPerMonth > 0 ? Math.round((actualPerMonth / planPerMonth) * 100) : 0;
+  const monthDevU = sumFactMonthU - sumPlanMonthU;
+  const monthRatioU = sumPlanMonthU > 0 ? ((sumFactMonthU / sumPlanMonthU) * 100).toFixed(1) : "—";
 
   const formulaDetailCards: ExplainFormulaDetailCard[] = [
     {
-      name: "Суммы плана и факта (штуки, таблица)",
+      name: "Суммы плана и факта по горизонту (штуки)",
       metricId: "sumPlanFact",
-      formula: "Σ plan_month = сумма planMonth по строкам таблицы; Σ fact_month = сумма factMonth по тем же строкам.",
+      formula:
+        "Σ plan_month = сумма planDeals по всем месяцам ряда (salesPlan.month после merge); Σ fact_month = сумма factDeals (salesFact.month) — как столбцы «Факт vs план» на слайде.",
       variables: [
         { symbol: "Σ plan_month", label: "план, шт.", value: numFmt.format(sumPlanMonthU) },
         { symbol: "Σ fact_month", label: "факт, шт.", value: numFmt.format(sumFactMonthU) },
@@ -54,43 +69,44 @@ function buildWorkModeSalesTempoFormulaDetailCards(
       ],
       calculation: `Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → Δ ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
       whyThisFormula:
-        "Сумма по строкам таблицы задаёт масштаб сделок на снимке — те же величины, что складываются в столбцы «Факт vs план» в этом блоке.",
+        "Это тот же суммарный горизонт, что подставляется в масштаб графика презентации, а не сумма по категориям рабочей сетки.",
       interpretation:
         monthDevU >= 0
-          ? "Совокупный факт не ниже совокупного плана по штукам — базовый сигнал по объёму неотрицательный."
-          : "Совокупный факт ниже плана по штукам — смотрите столбцы графика, где отставание больше всего.",
+          ? "За весь ряд факт не ниже суммарного плана по штукам — базовый объёмный сигнал неотрицательный."
+          : "За весь ряд факт ниже суммарного плана — смотрите месяцы со столбцами ниже плана.",
     },
     {
-      name: "Ровная норма на шаг ряда (план)",
+      name: "Ровная норма (план на месяц)",
       metricId: "planPerMonth",
-      formula: "planPerMonth = Σ plan_month / N — равномерная норма сделок на один шаг ряда (здесь N = число строк/столбцов в графике).",
+      formula: "planPerMonth = Σ plan_month / N, где N — число месяцев в ряду (ось X графика).",
       variables: [
         { symbol: "Σ plan_month", label: "сумма плана", value: numFmt.format(sumPlanMonthU) },
-        { symbol: "N", label: "число шагов", value: String(n) },
-        { symbol: "planPerMonth", label: "норма, сделок/шаг", value: dec1.format(planPerMonth) },
+        { symbol: "N", label: "месяцев в ряду", value: String(n) },
+        { symbol: "planPerMonth", label: "норма, сделок/мес.", value: dec1.format(planPerMonth) },
       ],
-      calculation: `planPerMonth = ${numFmt.format(sumPlanMonthU)} / ${n} = ${dec1.format(planPerMonth)} сделок. ${sliceNote}`,
+      calculation: `planPerMonth = ${numFmt.format(sumPlanMonthU)} / ${n} = ${dec1.format(planPerMonth)} сделок/мес. ${sliceNote}`,
       whyThisFormula:
-        "Горизонталь на графике «Темп по месяцам» — это ровная норма: к чему сравнивается скользящий факт по шагам ряда.",
+        "Пунктир на графике «Темп по месяцам» — ровная месячная норма из годового распределения плана (как в SalesPlanPanel).",
       interpretation:
-        "Если столбцы часто ниже этой логики нормы по шагам, линия факта обычно окажется под пунктиром нормы.",
+        "Каждый столбец справа сравнивается со своим месячным plan_month; линия темпа — со скользящим средним фактом к этой норме.",
     },
     {
-      name: "Скользящий средний факт по шагам",
+      name: "Скользящий средний факт",
       metricId: "actualPerMonth",
-      formula: "actualPerMonth = (сумма факта с 1-го по k-й шаг) / k; на последнем шаге k = N совпадает с Σ fact_month / N при полном ряду.",
+      formula:
+        "actualPerMonth = (факт с 1-го по текущий отчётный месяц) / число прошедших месяцев; отчётный месяц — по календарю (periodKey «сегодня» в ряду).",
       variables: [
-        { symbol: "Σ fact_month", label: "сумма факта", value: numFmt.format(sumFactMonthU) },
-        { symbol: "N", label: "число шагов", value: String(n) },
+        { symbol: "накопл. факт", label: "за прошедшие мес.", value: numFmt.format(currentFact) },
+        { symbol: "прошло мес.", label: "k", value: String(monthsPassed) },
         { symbol: "actualPerMonth", label: "средний факт", value: dec1.format(actualPerMonth) },
       ],
-      calculation: `На полном ряду: ${numFmt.format(sumFactMonthU)} / ${n} = ${dec1.format(actualPerMonth)} сделок. ${sliceNote}`,
+      calculation: `${numFmt.format(currentFact)} / ${monthsPassed} = ${dec1.format(actualPerMonth)} сделок/мес. ${sliceNote}`,
       whyThisFormula:
-        "Цветная линия на графике показывает накопленный средний факт — насколько вы тянете плановую планку по мере прохождения ряда.",
+        "Цветная линия — накопленный средний факт по мере движения по месяцам; совпадает с логикой презентации и дашборд-explain.",
       interpretation:
         actualPerMonth >= planPerMonth * 0.995
-          ? "Средний факт у нормы или выше — линия держится у горизонтали плана."
-          : "Средний факт ниже нормы — без усиления закрытия общий план по штукам под угрозой.",
+          ? "Средний факт у нормы или выше — линия у пунктира или выше."
+          : "Средний факт ниже нормы — без ускорения закрытий годовой план по сделкам под угрозой.",
     },
     {
       name: "Темп к норме",
@@ -103,62 +119,62 @@ function buildWorkModeSalesTempoFormulaDetailCards(
       ],
       calculation: `${dec1.format(actualPerMonth)} / ${dec1.format(planPerMonth)} × 100% = ${velocityCompletionPct}%. ${sliceNote}`,
       whyThisFormula:
-        "Один процент отвечает на вопрос: «в среднем дотягиваем ли до плановой планки на шаг ряда».",
+        "Один процент отвечает на вопрос: «в среднем дотягиваем ли до плановой планки на месяц».",
       interpretation:
         velocityCompletionPct >= 100
           ? "Не ниже 100% к норме — средний темп не проигрывает ровному плану."
-          : `Ниже 100% — средний темп отстаёт; усильте закрытие на слабых столбцах «Факт vs план».`,
+          : `Ниже 100% — средний темп отстаёт; усильте закрытие на слабых месяцах справа.`,
     },
     {
-      name: "Сравнение факта и плана по столбцам",
+      name: "Помесячное сравнение (столбцы)",
       metricId: "monthlyCompare",
       formula:
-        "На каждой колонке графика «Факт vs план» в штуках: рядом отображаются fact_month и plan_month по категории/шагу ряда; совокупное отклонение по снимку Δ = Σ fact_month − Σ plan_month.",
+        "На каждом месяце: fact_month и plan_month в штуках; отклонение месяца Δ = fact_month − plan_month. Совокупно по ряду: Σ fact_month − Σ plan_month.",
       variables: [
-        { symbol: "Σ fact_month", label: "сумма факта по строкам", value: numFmt.format(sumFactMonthU) },
-        { symbol: "Σ plan_month", label: "сумма плана по строкам", value: numFmt.format(sumPlanMonthU) },
-        { symbol: "Δ", label: "Σ факт − Σ план", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
+        { symbol: "месяц", label: "отчётная метка", value: `${monthlyDealRows[currentMonthIdx]?.label ?? "—"} (${monthlyDealRows[currentMonthIdx]?.periodKey ?? "—"})` },
+        { symbol: "fact_month", label: "факт", value: numFmt.format(monthFact) },
+        { symbol: "plan_month", label: "план", value: numFmt.format(planReportMonth) },
+        { symbol: "Δ_month", label: "факт − план", value: `${monthDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviation))}` },
       ],
-      calculation: `Совокупно по таблице: ${numFmt.format(sumFactMonthU)} − ${numFmt.format(sumPlanMonthU)} = ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. На каждом столбце то же сравнение в паре «серый план / жёлтый факт» для своей категории. ${sliceNote}`,
+      calculation: `Отчётный месяц: факт ${numFmt.format(monthFact)}, план ${numFmt.format(planReportMonth)} → Δ = ${monthDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviation))} сделок. За весь ряд: ${numFmt.format(sumFactMonthU)} − ${numFmt.format(sumPlanMonthU)} = ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}. ${sliceNote}`,
       whyThisFormula:
-        "Помесячное (покатегорийное) сравнение показывает, где именно «просели» или перевыполнили план, в отличие от одной средней линии темпа по всему ряду.",
+        "Столбцы привязаны к календарным месяцам оси X, а не к строкам категорий рабочей таблицы.",
       interpretation:
-        monthDevU >= 0
-          ? "Совокупно факт не ниже плана — отдельные столбцы всё равно могут проседать; смотрите категории с наибольшим отрицательным зазором."
-          : "Совокупно факт ниже плана — приоритет на категории и периоды с наибольшим отрицательным отклонением на столбцах.",
+        monthDeviation >= 0
+          ? "В выбранном отчётном месяце факт не ниже плана по сделкам."
+          : "В отчётном месяце факт ниже плана — усильте закрытие в этом и соседних периодах.",
     },
     {
-      name: "Доля факта к плану (совокупно)",
+      name: "Доля факта к плану (за весь ряд)",
       metricId: "monthlyRatio",
-      formula:
-        "Совокупная доля выполнения в штуках (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0; по одному столбцу в отчёте аналогично: fact_month / plan_month × 100%.",
+      formula: "Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0; по одному месяцу: fact_month / plan_month × 100%.",
       variables: [
         {
           symbol: "Σ fact / Σ plan",
           label: "штуки",
           value: `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)}`,
         },
-        { symbol: "%", label: "факт к плану", value: `${monthRatioU}%` },
+        { symbol: "%", label: "факт к плану (ряд)", value: `${monthRatioU}%` },
       ],
       calculation:
         sumPlanMonthU > 0
           ? `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)} × 100% = ${monthRatioU}%. ${sliceNote}`
           : `План в штуках = 0 — долю не считаем. ${sliceNote}`,
       whyThisFormula:
-        "Процент по совокупным штукам даёт быстрый ответ: закрыли ли вы объём относительно суммарного плана строк.",
+        "Отношение сумм по всем месяцам совпадает с показателем «объёмы столбцов» на горизонте слайда.",
       interpretation:
         sumPlanMonthU <= 0
-          ? "Нулевой план — ориентируйтесь на абсолютный факт и на отдельные столбцы."
+          ? "Нулевой суммарный план — ориентируйтесь на абсолютный факт по месяцам."
           : Number(monthRatioU) >= 100
-            ? "Не ниже 100% — совокупный факт не проигрывает плану."
-            : `Меньше 100% — совокупный недобор; усиливайте закрытие.`,
+            ? "Не ниже 100% — суммарный факт не проигрывает суммарному плану за ряд."
+            : `Меньше 100% — суммарный недобор по ряду; усиливайте слабые месяцы.`,
     },
   ];
 
   const formulaSectionFooter =
     Number(monthRatioU) >= 100
-      ? "Итог по снимку: суммарно факт месяца в штуках не ниже суммарного плана строк — контролируйте слабые линейки, чтобы не потерять запас."
-      : `Итог по снимку: месяц ${monthRatioU}% (шт.) — усильте закрытие в категориях с наибольшим отставанием.`;
+      ? "Итог: по помесячному ряду суммарный факт не ниже суммарного плана — контролируйте отдельные месяцы, чтобы не потерять запас."
+      : `Итог: ряд ${monthRatioU}% (Σ факт / Σ план) — усильте закрытие в месяцах с наибольшим отставанием столбцов.`;
 
   return { formulaDetailCards, formulaSectionFooter };
 }
@@ -169,8 +185,6 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
   const slice = grid[scenario];
   const scenarioLabel = SALES_PLAN_SCENARIO_LABELS[scenario];
 
-  let sumPlanMonthU = 0;
-  let sumFactMonthU = 0;
   let sumPlanCumU = 0;
   let sumFactCumU = 0;
   let sumPlanMonthR = 0;
@@ -183,8 +197,6 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     const r = slice.revenue[id];
     const du = deriveSalesPlanRow(u);
     const dr = deriveSalesPlanRow(r);
-    sumPlanMonthU += u.planMonth;
-    sumFactMonthU += u.factMonth;
     sumPlanCumU += u.planCumulative;
     sumFactCumU += du.factCumulative;
     sumPlanMonthR += r.planMonth;
@@ -193,36 +205,40 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     sumFactCumR += dr.factCumulative;
   }
 
-  const monthRatioU = sumPlanMonthU > 0 ? ((sumFactMonthU / sumPlanMonthU) * 100).toFixed(1) : "—";
+  /** Тот же помесячный ряд, что «Темп по месяцам» в презентации (mock month[], фильтр all/all). */
+  const monthlyDealRows = buildSalesPlanMonthlyDealExecution("all", "all");
+  const tempoWorkPoints: SalesPlanExplainInteractivePoint[] = monthlyDealRows.map((r) => ({
+    pointId: r.periodKey,
+    label: r.label,
+    plan: r.plan,
+    fact: r.fact,
+    detailLine: `${r.label} (${r.periodKey}): plan ${numFmt.format(r.plan)}, fact ${numFmt.format(r.fact)}, Δ ${numFmt.format(r.deviation)}`,
+  }));
 
-  const tempoWorkPoints: SalesPlanExplainInteractivePoint[] = SALES_PLAN_CATEGORY_IDS.map((id) => {
-    const u = slice.units[id];
-    const dev = u.factMonth - u.planMonth;
-    return {
-      pointId: `work-tempo:${id}`,
-      label: SALES_PLAN_CATEGORY_LABELS[id],
-      plan: u.planMonth,
-      fact: u.factMonth,
-      detailLine: `${SALES_PLAN_CATEGORY_LABELS[id]}: план ${numFmt.format(u.planMonth)} шт., факт ${numFmt.format(u.factMonth)} шт., Δ ${dev >= 0 ? "+" : "−"}${numFmt.format(Math.abs(dev))} шт.`,
-    };
-  });
+  const monthKey = salesPlanPeriodKeyThisMonth();
+  const tempoCurrentMonthIdx = (() => {
+    const idx = monthlyDealRows.findIndex((r) => r.periodKey === monthKey);
+    return idx >= 0 ? idx : Math.max(0, monthlyDealRows.length - 1);
+  })();
+  const tempoTotalMonths = Math.max(1, monthlyDealRows.length);
+  const tempoMonthsPassed = Math.max(1, Math.min(tempoTotalMonths, tempoCurrentMonthIdx + 1));
+  const sumPlan = monthlyDealRows.reduce((s, r) => s + r.plan, 0);
+  const sumFact = monthlyDealRows.reduce((s, r) => s + r.fact, 0);
+  const currentFact = monthlyDealRows.slice(0, tempoMonthsPassed).reduce((s, r) => s + r.fact, 0);
+  const monthFact = monthlyDealRows[Math.max(0, tempoMonthsPassed - 1)]?.fact ?? 0;
+  const planPerMonth = sumPlan / tempoTotalMonths;
+  const actualPerMonth = currentFact / tempoMonthsPassed;
+  const velocityCompletionPct = planPerMonth > 0 ? Math.round((actualPerMonth / planPerMonth) * 100) : 0;
+  const monthRatioU = sumPlan > 0 ? ((sumFact / sumPlan) * 100).toFixed(1) : "—";
 
-  const workTempoFormulas = buildWorkModeSalesTempoFormulaDetailCards(
-    payload,
-    scenarioLabel,
-    sumPlanMonthU,
-    sumFactMonthU,
-    monthRatioU,
-    tempoWorkPoints,
-  );
+  const workTempoFormulas = buildWorkModeSalesTempoFormulaDetailCards(payload, scenarioLabel, monthlyDealRows);
 
   const salesTempo: SalesPlanPresentationExplainBlock = {
     id: "salesTempo",
     title: "Темп продаж",
     dataSources: [
-      `Рабочий режим: grid[${scenario}].units и .revenue — поля planMonth, factMonth, planCumulative (снимок в sessionStorage).`,
-      "Факт накопительно по строке: planCumulative + (factMonth − planMonth).",
-      "Сводка по всем категориям таблицы (1к … коммерция).",
+      "marketingMockData.salesPlan.month[] — planDeals по месяцам; marketingMockData.salesFact.month[] — factDeals; merge через mergeSalesPlanFact и filter all/all (как слайд «Темп продаж» в презентации).",
+      `Рабочий снимок (сценарий ${scenarioLabel}) влияет на блоки «Структура» и «Upsell» ниже, но не подменяет помесячный ряд темпа.`,
     ],
     introDescription: SALES_TEMPO_EXPLAIN_INTRO_WORK,
     formulaLines: [],
@@ -230,18 +246,20 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     formulaSectionFooter: workTempoFormulas.formulaSectionFooter,
     interactive: { valueKind: "deals", points: tempoWorkPoints },
     calculationLines: [
-      `Сценарий: ${scenarioLabel} (${scenario}). Активная метрика в таблице при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`,
-      `Снимок: ${savedAt} (черновик, без кэша сервера).`,
-      `Шт.: Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → ${monthRatioU}% (факт/план по сумме строк).`,
+      `Сценарий таблицы: ${scenarioLabel} (${scenario}). Метрика при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. Снимок: ${savedAt}.`,
+      `Горизонт темпа: ${tempoTotalMonths} мес.; в расчёте учтено ${tempoMonthsPassed} прошедших месяц(ев) (отчётный periodKey: ${monthlyDealRows[tempoCurrentMonthIdx]?.periodKey ?? "—"}).`,
+      `Σ plan по ряду: ${numFmt.format(sumPlan)}; Σ fact: ${numFmt.format(sumFact)}; соотношение ${monthRatioU}%.`,
+      `Ровная норма: ${dec1.format(planPerMonth)} сделок/мес.; скользящий средний факт: ${dec1.format(actualPerMonth)} сделок/мес.; к норме: ${velocityCompletionPct}%.`,
+      `Отчётный месяц в ряду: факт ${numFmt.format(monthFact)}, план ${numFmt.format(monthlyDealRows[tempoCurrentMonthIdx]?.plan ?? 0)}.`,
     ],
     howSection:
-      "В рабочем режиме нет помесячного ряда как на слайде презентации: темп показывается как сумма по категориям за «текущий месяц» в таблице (plan_month / fact_month) и накопительные итоги по штукам и выручке после формулы факта.",
+      "График «Темп по месяцам» и столбцы «Факт vs план» строятся из того же помесячного merge salesPlan.month + salesFact.month, что и в режиме презентации (ось X — календарные месяцы). Тексты формул и индикатор темпа считаются так же, как на дашборде explain.",
     whySection:
-      Number(monthRatioU) >= 100
-        ? "По сумме строк таблицы факт не ниже плана в штуках — оперативный объём выдержан."
-        : Number(monthRatioU) >= 95
-          ? "Небольшой недобор по сумме plan_month — темп близок к целевому; проверьте столбцы с отставанием на графике."
-          : "Факт по сумме строк ниже плана — усильте закрытие там, где столбцы «Факт vs план» дают наибольший минус.",
+      velocityCompletionPct >= 100
+        ? `Скользящий темп держит норму (${velocityCompletionPct}%): накопленный факт за ${tempoMonthsPassed} мес. не отстаёт от ровной месячной планки.`
+        : velocityCompletionPct >= 92
+          ? `Темп близок к норме (${velocityCompletionPct}%): недобор умеренный; слабые месяцы видны на столбцах.`
+          : `Темп ниже нормы (${velocityCompletionPct}%): при среднем ${dec1.format(actualPerMonth)} сделок/мес. до ровной нормы ${dec1.format(planPerMonth)} не дотягиваете — без ускорения закрытий план по сделкам под угрозой.`,
   };
 
   const planAvgDeal = sumPlanCumR / Math.max(1, sumPlanCumU);

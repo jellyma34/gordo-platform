@@ -23,9 +23,10 @@ function periodKeyTodayMonth(): string {
   return `${y}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-type MonthlyExecRow = { periodKey: string; label: string; plan: number; fact: number; deviation: number };
+/** Помесячный план/факт по сделкам (как SalesPlanPanel и mergeSalesPlanFact). */
+export type SalesPlanMonthlyDealRow = { periodKey: string; label: string; plan: number; fact: number; deviation: number };
 
-function buildMonthlyPlanExecution(objectId: string, dealTypeId: string): MonthlyExecRow[] {
+export function buildSalesPlanMonthlyDealExecution(objectId: string, dealTypeId: string): SalesPlanMonthlyDealRow[] {
   const planFiltered = filterByObjectAndDealType(marketingMockData.salesPlan.month, objectId, dealTypeId);
   const factFiltered = filterByObjectAndDealType(marketingMockData.salesFact.month, objectId, dealTypeId);
   return mergeSalesPlanFact(planFiltered, factFiltered).map((row) => ({
@@ -469,7 +470,7 @@ export function computeSalesPlanDashboardExplainContext(
   period: "month" | "quarter" = "month",
 ) {
   const cfg = SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS;
-  const monthlyPlanExecutionData = buildMonthlyPlanExecution(objectId, dealTypeId);
+  const monthlyPlanExecutionData = buildSalesPlanMonthlyDealExecution(objectId, dealTypeId);
   const monthKey = periodKeyTodayMonth();
   const currentMonthIdx = (() => {
     const idx = monthlyPlanExecutionData.findIndex((r) => r.periodKey === monthKey);
@@ -625,9 +626,9 @@ export const SALES_TEMPO_EXPLAIN_INTRO_DASHBOARD: ExplainMetricDescription = {
 /** Вводное описание «Темп продаж» на explain (рабочий снимок таблицы). */
 export const SALES_TEMPO_EXPLAIN_INTRO_WORK: ExplainMetricDescription = {
   whatItIs:
-    "Показывает, хватает ли текущего темпа продаж (в сделках за месяц), чтобы выполнить план.",
+    "Тот же помесячный график, что в презентации: salesPlan.month / salesFact.month (сделки), ось X — календарные месяцы, линия — скользящий средний факт к ровной норме.",
   purpose:
-    "Позволяет сразу увидеть — идём в план или уже отстаём по текущему месяцу.",
+    "Понять по ряду месяцев — держим ли средний темп относительно распределённого плана и где проседают отдельные месяцы.",
   whyImportant:
     "Если темп ниже — к концу периода будет недобор. Если выше — план выполняется или есть запас.",
   howItAffects:
@@ -1156,7 +1157,7 @@ export function buildSalesPlanPresentationExplainBlocks(
     title: "Темп продаж",
     dataSources: [
       sliceNoteBlock,
-      "Помесячные план и факт по числу сделок — из данных отчёта (как в презентации), с теми же фильтрами объекта и типа сделки, что на странице explain.",
+      "marketingMockData.salesPlan.month[] — planDeals по календарным месяцам; marketingMockData.salesFact.month[] — factDeals; строки после filterByObjectAndDealType и mergeSalesPlanFact (как на слайде «Темп продаж» в презентации).",
     ],
     introDescription: SALES_TEMPO_EXPLAIN_INTRO_DASHBOARD,
     formulaLines: [],
