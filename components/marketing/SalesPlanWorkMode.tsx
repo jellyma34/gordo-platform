@@ -10,8 +10,10 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
 import {
   SALES_PLAN_CATEGORY_IDS,
   SALES_PLAN_CATEGORY_LABELS,
@@ -82,6 +84,7 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
   { dashboardHref },
   ref,
 ) {
+  const router = useRouter();
   const { hydrated: authHydrated, role, token } = useAuth();
   const saveLockRef = useRef(false);
   const userLabel = useMemo(() => {
@@ -160,6 +163,18 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
 
   useImperativeHandle(ref, () => ({ save, cancel }), [save, cancel]);
 
+  const openPresentationExplain = useCallback(() => {
+    const payload = {
+      v: 1 as const,
+      scenario,
+      grid: cloneGrid(draft),
+      metricTab: metric,
+      savedAt: new Date().toISOString(),
+    };
+    sessionStorage.setItem(SALES_PLAN_EXPLAIN_SESSION_KEY, JSON.stringify(payload));
+    router.push("/marketing/sales-plan/explain?source=work&from=plan_edit");
+  }, [scenario, draft, metric, router]);
+
   const toggleEditing = (next: boolean) => {
     if (!next && editingEnabled && dirty) {
       const ok = window.confirm("Есть несохранённые изменения. Отключить редактирование и отменить их?");
@@ -211,6 +226,14 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Сохранить изменения
+            </button>
+            <button
+              type="button"
+              onClick={openPresentationExplain}
+              disabled={!hydrated}
+              className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              💡 Сформировать презентацию
             </button>
           </div>
         </div>
