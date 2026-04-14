@@ -248,17 +248,6 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
           </div>
         </div>
 
-        <div>
-          <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">По каждой точке</h4>
-          <ul className="mt-2 space-y-1.5">
-            {interactive.points.map((p) => (
-              <li key={`${block.id}-row-${p.pointId}`} onMouseEnter={() => setActiveId(p.pointId)} className={dimClass(p.pointId)}>
-                <span className="mr-2 inline-block min-w-[5.5rem] text-[10px] font-semibold text-sky-400/90">{p.pointId}</span>
-                <span>{p.detailLine}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
       </div>
     );
   }

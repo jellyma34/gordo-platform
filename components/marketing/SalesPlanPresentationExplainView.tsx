@@ -274,7 +274,7 @@ export function SalesPlanPresentationExplainView({
               )}
             </section>
 
-            {!(b.id === "salesTempo" && chartExplainBundle) ? (
+            {b.id !== "salesTempo" ? (
               <>
                 <section className="mt-4 border-t border-slate-700/50 pt-4">
                   <h3 className="text-[10px] font-bold uppercase tracking-wide text-sky-400">Как считается</h3>
