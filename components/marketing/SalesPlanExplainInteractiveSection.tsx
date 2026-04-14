@@ -7,6 +7,7 @@ import type {
   SalesPlanDashboardExplainContext,
   SalesPlanPresentationExplainBlock,
 } from "@/lib/buildSalesPlanPresentationExplain";
+import type { SalesTempoExplainMetricId } from "@/lib/salesPlanExplainMetricIds";
 import {
   buildVelocityLineRows,
   buildVelocityMonthlyBars,
@@ -14,8 +15,36 @@ import {
   velocityFooterFromMonthly,
 } from "@/lib/salesPlanVelocityChartData";
 
+import { dec1Fmt } from "@/lib/salesPlanChartFormat";
+
 import { FactVsPlanChart, SalesTempoChart } from "@/components/marketing/salesPlanCharts";
-import { SalesPlanChartExplainBlock } from "@/components/marketing/SalesPlanChartExplainBlock";
+import { ExplainMetricBlock } from "@/components/marketing/ExplainMetricBlock";
+
+function SalesTempoNormFooterStrip({
+  velocityCompletionPct,
+  actualPerMonth,
+  onExplainMetricHover,
+}: {
+  velocityCompletionPct: number;
+  actualPerMonth: number;
+  onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
+}) {
+  return (
+    <div
+      className={`flex min-h-[40px] items-center justify-center gap-x-3 rounded-lg border border-cyan-500/25 bg-slate-950/40 px-3 py-2 text-[10px] font-medium leading-tight text-slate-600 ${onExplainMetricHover ? "cursor-help transition-colors hover:border-cyan-400/40 hover:bg-slate-950/60" : ""}`}
+      onMouseEnter={() => onExplainMetricHover?.("tempoNorm")}
+      onMouseLeave={() => onExplainMetricHover?.(null)}
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-slate-500" />
+        <span>Факт</span>
+      </span>
+      <span aria-hidden>—</span>
+      <span className="tabular-nums">{velocityCompletionPct}%</span>
+      <span className="font-semibold tabular-nums text-amber-700">{dec1Fmt.format(actualPerMonth)} сделок</span>
+    </div>
+  );
+}
 import {
   SalesPlanExplainStructureBalance,
   SalesPlanExplainUpsellConvChart,
@@ -32,6 +61,7 @@ type Props = {
 export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, dashboardExplainContext }: Props) {
   const interactive = block.interactive;
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeMetricId, setActiveMetricId] = useState<SalesTempoExplainMetricId | null>(null);
   const hasActive = activeId != null;
 
   const explainMeta = useMemo(
@@ -79,18 +109,36 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
     }));
 
     return (
-      <div className="mt-4 space-y-4" onMouseLeave={() => setActiveId(null)}>
+      <div
+        className="mt-4 space-y-4"
+        onMouseLeave={() => {
+          setActiveId(null);
+          setActiveMetricId(null);
+        }}
+      >
         <p className="text-[11px] leading-snug text-slate-500">
-          Те же графики, что в режиме презентации. Наведите на столбец или точку на линии — список подсветится по id точки (период или категория). В
-          подсказке — источники, формулы и пояснение.
+          Наведите на столбец или точку на линии — соответствующая строка в списке ниже подсветится.
+          {showChartExplains ? " Пунктир — норма (planPerMonth), цветная линия — скользящий факт (actualPerMonth); подсветится карточка формулы справа." : null}
         </p>
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <div className="space-y-6">
           <div
             className={
               "rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
             }
           >
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-200/80">Темп по месяцам</div>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-cyan-200/80">Темп по месяцам</span>
+              {showChartExplains ? (
+                <button
+                  type="button"
+                  className="rounded border border-cyan-500/25 bg-slate-950/50 px-2 py-0.5 text-[9px] font-medium text-cyan-100/80 hover:bg-cyan-950/40"
+                  onMouseEnter={() => setActiveMetricId("sumPlanFact")}
+                  onMouseLeave={() => setActiveMetricId(null)}
+                >
+                  Σ план / Σ факт
+                </button>
+              ) : null}
+            </div>
             <SalesTempoChart
               mode="explain"
               lineData={lineData}
@@ -98,25 +146,48 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
               actualPerMonth={actualPerMonth}
               activePointId={activeId}
               onPointHover={setActiveId}
-              blockExplain={explainMeta}
+              onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
+              showVelocityFooter={false}
             />
-            {showChartExplains ? <SalesPlanChartExplainBlock content={chartExplainBundle.salesTempo} /> : null}
+            {showChartExplains ? (
+              <ExplainMetricBlock content={chartExplainBundle.salesTempoLine} activeMetricId={activeMetricId} />
+            ) : null}
           </div>
+
+          <div
+            className={
+              "rounded-xl border border-sky-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+            }
+          >
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-200/85">Темп к норме</div>
+            <SalesTempoNormFooterStrip
+              velocityCompletionPct={velocityCompletionPct}
+              actualPerMonth={actualPerMonth}
+              onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
+            />
+            {showChartExplains ? (
+              <ExplainMetricBlock content={chartExplainBundle.salesTempoNorm} activeMetricId={activeMetricId} />
+            ) : null}
+          </div>
+
           <div
             className={
               "rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
             }
           >
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-200/75">Факт по месяцам vs план</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-200/75">Факт vs план</div>
             <FactVsPlanChart
               mode="explain"
               rows={barRows}
               valueKind="deals"
+              velocityCompletionPct={velocityCompletionPct}
               activePointId={activeId}
               onPointHover={setActiveId}
-              blockExplain={explainMeta}
+              onExplainMetricHover={showChartExplains ? setActiveMetricId : undefined}
             />
-            {showChartExplains ? <SalesPlanChartExplainBlock content={chartExplainBundle.factVsPlanDeals} /> : null}
+            {showChartExplains ? (
+              <ExplainMetricBlock content={chartExplainBundle.factVsPlanDeals} activeMetricId={activeMetricId} />
+            ) : null}
           </div>
         </div>
 
@@ -152,8 +223,7 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
   return (
     <div className="mt-4 space-y-4" onMouseLeave={() => setActiveId(null)}>
       <p className="text-[11px] leading-snug text-slate-500">
-        Тот же тип диаграммы «факт vs план», что на дашборде презентации (цвета и вёрстка). Наведите на столбец — строка с тем же id подсветится; в
-        подсказке — источники данных, формулы и расшифровка точки.
+        Диаграмма «факт vs план» в едином стиле с планом продаж. Наведите на столбец — соответствующая строка в списке ниже подсветится.
       </p>
       <div
         className={
@@ -169,23 +239,21 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
           blockExplain={explainMeta}
         />
         {showChartExplains ? (
-          <SalesPlanChartExplainBlock
-            content={isStructure ? chartExplainBundle.structureFactVsPlanRub : chartExplainBundle.upsellCategoriesRub}
-          />
+          <ExplainMetricBlock content={isStructure ? chartExplainBundle.structureFactVsPlanRub : chartExplainBundle.upsellCategoriesRub} />
         ) : null}
       </div>
 
       {isStructure && showChartExplains && balanceDiagnostic ? (
         <div className="space-y-0">
           <SalesPlanExplainStructureBalance diagnostic={balanceDiagnostic} />
-          <SalesPlanChartExplainBlock content={chartExplainBundle.structureBalance} />
+          <ExplainMetricBlock content={chartExplainBundle.structureBalance} />
         </div>
       ) : null}
 
       {isUpsell && showChartExplains && dashboardExplainContext ? (
         <div className="space-y-0">
           <SalesPlanExplainUpsellConvChart rows={dashboardExplainContext.up.convCompare} yMax={dashboardExplainContext.up.convChartYMax} />
-          <SalesPlanChartExplainBlock content={chartExplainBundle.upsellConversion} />
+          <ExplainMetricBlock content={chartExplainBundle.upsellConversion} />
         </div>
       ) : null}
 

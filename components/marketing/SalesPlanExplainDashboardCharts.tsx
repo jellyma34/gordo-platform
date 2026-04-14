@@ -21,15 +21,23 @@ const dec1 = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumF
 
 type ConvRow = { name: string; factConv: number; planConv: number; factPlanLabel: string; fill: string };
 
-export function SalesPlanExplainStructureBalance({ diagnostic }: { diagnostic: SalesPlanStructureBalanceDiagnostic }) {
+export function SalesPlanExplainStructureBalance({
+  diagnostic,
+  chartTitle = "Баланс структуры продаж",
+  chartLead = "Ширина бара от центра пропорциональна |Δ доли|; подпись на баре — Δ доли и Δ ₽ по сегменту. Сортировка по модулю денежного эффекта.",
+}: {
+  diagnostic: SalesPlanStructureBalanceDiagnostic;
+  /** Заголовок карточки (например, для отдельной секции explain). */
+  chartTitle?: string;
+  /** Краткая подсказка под заголовком. */
+  chartLead?: string;
+}) {
   const { rows, maxDelta, axisMaxPp, scaleTicks } = diagnostic;
 
   return (
     <div className="rounded-xl border border-violet-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-200/85">Баланс структуры продаж</div>
-      <p className="mb-3 max-w-xl text-[10px] leading-snug text-slate-500">
-        Те же формулы и порядок сортировки, что в презентации: ширина от центра = (|Δ доли| / max|Δ|)·50%; толщина — |Δ ₽|.
-      </p>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-200/85">{chartTitle}</div>
+      <p className="mb-3 max-w-xl text-[10px] leading-snug text-slate-500">{chartLead}</p>
       <ul className="space-y-2.5">
         <li className="hidden md:grid md:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] md:gap-2 md:items-end">
           <div aria-hidden className="min-h-[1px]" />

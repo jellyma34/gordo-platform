@@ -1,5 +1,7 @@
 import {
   analyzeUpsellDiagnostic,
+  type ExplainFormulaDetailCard,
+  SALES_TEMPO_EXPLAIN_INTRO_WORK,
   type SalesPlanExplainInteractivePoint,
   type SalesPlanPresentationExplainBlock,
 } from "@/lib/buildSalesPlanPresentationExplain";
@@ -23,6 +25,128 @@ function compactRub(n: number): string {
 }
 
 const APT_IDS = ["1k", "2k", "3k", "4k_plus"] as const;
+
+function buildWorkModeSalesTempoFormulaDetailCards(
+  payload: SalesPlanExplainSessionPayload,
+  scenarioLabel: string,
+  sumPlanMonthU: number,
+  sumFactMonthU: number,
+  monthRatioU: string,
+  sumPlanCumU: number,
+  sumFactCumU: number,
+  cumPctU: number,
+  sumPlanMonthR: number,
+  sumFactMonthR: number,
+  monthRatioR: string,
+  sumPlanCumR: number,
+  sumFactCumR: number,
+  cumPctR: number,
+  tempoWorkPoints: SalesPlanExplainInteractivePoint[],
+): { formulaDetailCards: ExplainFormulaDetailCard[]; formulaSectionFooter: string } {
+  const { scenario, savedAt, metricTab } = payload;
+  const sliceNote = `Сценарий: ${scenarioLabel} (${scenario}). Снимок: ${savedAt}. Вкладка метрик при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`;
+  const monthDevU = sumFactMonthU - sumPlanMonthU;
+  const first = tempoWorkPoints[0];
+
+  const formulaDetailCards: ExplainFormulaDetailCard[] = [
+    {
+      name: "Суммы плана и факта по таблице (текущий месяц, шт.)",
+      formula: "Σ plan_month = сумма planMonth по всем категориям (1к … коммерция); Σ fact_month = сумма factMonth по тем же строкам.",
+      variables: [
+        { symbol: "Σ plan_month", label: "план текущего месяца, шт.", value: numFmt.format(sumPlanMonthU) },
+        { symbol: "Σ fact_month", label: "факт текущего месяца, шт.", value: numFmt.format(sumFactMonthU) },
+        { symbol: "Δ мес.", label: "факт − план", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
+      ],
+      calculation: `По снимку: Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → отклонение ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
+      whyThisFormula:
+        "В рабочем режиме нет календарного помесячного ряда отчёта — оперативный «темп месяца» в штуках задаётся суммой строк вашей таблицы по выбранному сценарию.",
+      interpretation:
+        monthDevU >= 0
+          ? "По сумме категорий факт месяца не ниже плана в штуках — базовый оперативный сигнал неотрицательный."
+          : "По сумме категорий факт месяца ниже плана в штуках — смотрите линейки с наибольшим отставанием в списке точек ниже.",
+    },
+    {
+      name: "Доля выполнения месяца (шт.)",
+      formula: "Месяц (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0.",
+      variables: [
+        {
+          symbol: "Σ fact / Σ план",
+          label: "штуки за месяц",
+          value: `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)}`,
+        },
+        { symbol: "Месяц, %", label: "факт к плану", value: `${monthRatioU}%` },
+      ],
+      calculation:
+        sumPlanMonthU > 0
+          ? `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)} × 100% = ${monthRatioU}%. ${sliceNote}`
+          : `План месяца в штуках = 0 — долю не считаем. ${sliceNote}`,
+      whyThisFormula:
+        "Процент даёт тот же смысл, что и на презентации: один взгляд — закрыли ли месяц относительно суммарного плана строк таблицы.",
+      interpretation:
+        sumPlanMonthU <= 0
+          ? "Нулевой план в штуках на месяц — ориентируйтесь на абсолютный факт и на выручку."
+          : Number(monthRatioU) >= 100
+            ? "Не ниже 100% по сумме категорий — месячный темп в штуках выдержан или перевыполнен."
+            : `Месяц ${monthRatioU}% к суммарному плану — оперативный недобор по штукам в таблице.`,
+    },
+    {
+      name: "Накопительно по штукам (все категории)",
+      formula: "Свод (нак., %) = Σ fact_cum / Σ plan_cum × 100% — накопительные поля по строкам после формулы факта в таблице.",
+      variables: [
+        { symbol: "Σ plan_нак.", label: "план нарастающим", value: numFmt.format(sumPlanCumU) },
+        { symbol: "Σ fact_нак.", label: "факт нарастающим", value: numFmt.format(sumFactCumU) },
+        { symbol: "Свод, %", label: "исполнение", value: `${cumPctU}%` },
+      ],
+      calculation: `Σ fact_нак. / Σ plan_нак. = ${numFmt.format(sumFactCumU)} / ${numFmt.format(sumPlanCumU)} = ${cumPctU}%. ${sliceNote}`,
+      whyThisFormula:
+        "Накопительный процент отвечает на вопрос «как идёт год к плану по штукам» на дату снимка, даже без слайда презентации.",
+      interpretation:
+        cumPctU >= 100
+          ? "Накопительно по штукам не ниже плана в сумме строк — задел по «штукам» на дату черновика выдержан."
+          : `Свод ${cumPctU}%: накопленный факт отстаёт от суммарного плана категорий — нужен догон по месяцам или слабым линейкам.`,
+    },
+    {
+      name: "Выручка: месяц и накопительно",
+      formula: "Те же суммы и отношения для revenue[*].planMonth / factMonth и накопительных план/факт по выручке.",
+      variables: [
+        { symbol: "Месяц, % (руб.)", label: "факт/план по выручке", value: `${monthRatioR}%` },
+        { symbol: "Σ plan_нак. (руб.)", label: "план накопительно", value: compactRub(sumPlanCumR) },
+        { symbol: "Σ fact_нак. (руб.)", label: "факт накопительно", value: compactRub(sumFactCumR) },
+        { symbol: "Свод (руб.), %", label: "исполнение", value: `${cumPctR}%` },
+      ],
+      calculation: `Месяц: ${compactRub(sumFactMonthR)} / ${compactRub(sumPlanMonthR)} → ${monthRatioR}%. Накопительно: ${compactRub(sumFactCumR)} / ${compactRub(sumPlanCumR)} → ${cumPctR}%. ${sliceNote}`,
+      whyThisFormula:
+        "Штуки и рубли могут расходиться из‑за микса и среднего чека — дублируем логику для выручки, как в подсказках рабочего плана.",
+      interpretation:
+        cumPctR >= 100 && cumPctU >= 100
+          ? "И по рублям, и по штукам накопительно не хуже плана — темп согласован с деньгами."
+          : `Накопительно выручка ${cumPctR}% при штуках ${cumPctU}% — проверьте структуру и средний чек в таблице.`,
+    },
+    {
+      name: "Строки категорий (сравнение план / факт)",
+      formula: "В каждой строке: planMonth и factMonth как пара «план / факт»; наведение в explain подсвечивает ту же пару на упрощённом графике.",
+      variables: first
+        ? [
+            { symbol: "Пример", label: first.label, value: `план ${numFmt.format(first.plan)}, факт ${numFmt.format(first.fact)}` },
+          ]
+        : [],
+      calculation: first
+        ? `${first.detailLine}. Всего категорий в блоке: ${tempoWorkPoints.length}. ${sliceNote}`
+        : `Нет строк категорий. ${sliceNote}`,
+      whyThisFormula:
+        "Интерактив explain повторяет логику «факт vs план», но строит ряд из строк таблицы, а не календарных месяцев отчёта.",
+      interpretation:
+        "Ищите категории, где factMonth заметно ниже planMonth — они формируют оперативный недобор по сумме строк.",
+    },
+  ];
+
+  const formulaSectionFooter =
+    Number(monthRatioU) >= 100
+      ? "Итог по снимку: суммарно факт месяца в штуках не ниже суммарного плана строк — контролируйте слабые линейки, чтобы не потерять запас."
+      : `Итог по снимку: месяц ${monthRatioU}% (шт.) — усильте закрытие в категориях с наибольшим отставанием.`;
+
+  return { formulaDetailCards, formulaSectionFooter };
+}
 
 export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSessionPayload): SalesPlanPresentationExplainBlock[] {
   const cfg = SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS;
@@ -72,6 +196,24 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     };
   });
 
+  const workTempoFormulas = buildWorkModeSalesTempoFormulaDetailCards(
+    payload,
+    scenarioLabel,
+    sumPlanMonthU,
+    sumFactMonthU,
+    monthRatioU,
+    sumPlanCumU,
+    sumFactCumU,
+    cumPctU,
+    sumPlanMonthR,
+    sumFactMonthR,
+    monthRatioR,
+    sumPlanCumR,
+    sumFactCumR,
+    cumPctR,
+    tempoWorkPoints,
+  );
+
   const salesTempo: SalesPlanPresentationExplainBlock = {
     id: "salesTempo",
     title: "Темп продаж",
@@ -80,12 +222,10 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
       "Факт накопительно по строке: planCumulative + (factMonth − planMonth).",
       "Сводка по всем категориям таблицы (1к … коммерция).",
     ],
-    formulaLines: [
-      "Σ plan_month, Σ fact_month по выбранному сценарию",
-      "Отношение месяца: Σ fact_month / Σ plan_month",
-      "Накопительно: Σ fact_cum / Σ plan_cum × 100% (по шт. и по выручке)",
-      ...cfg.salesTempo.formulas.slice(1),
-    ],
+    introDescription: SALES_TEMPO_EXPLAIN_INTRO_WORK,
+    formulaLines: [],
+    formulaDetailCards: workTempoFormulas.formulaDetailCards,
+    formulaSectionFooter: workTempoFormulas.formulaSectionFooter,
     interactive: { valueKind: "deals", points: tempoWorkPoints },
     calculationLines: [
       `Сценарий: ${scenarioLabel} (${scenario}). Активная метрика в таблице при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`,

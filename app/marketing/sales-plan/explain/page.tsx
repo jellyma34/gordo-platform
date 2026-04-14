@@ -17,7 +17,7 @@ import {
   buildDynamicsKpiItems,
   type SalesPlanKpiPeriod,
 } from "@/lib/salesPlanDynamicsKpi";
-import { SALES_PLAN_EXPLAIN_SESSION_KEY, parseSalesPlanExplainSession } from "@/lib/salesPlanExplainSession";
+import { parseSalesPlanExplainSession, readSalesPlanExplainSessionRaw } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanExplainSessionPayload } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
 import {
@@ -97,7 +97,7 @@ function SalesPlanPresentationExplainPageInner() {
 
   useEffect(() => {
     if (source !== "work") return;
-    const raw = sessionStorage.getItem(SALES_PLAN_EXPLAIN_SESSION_KEY);
+    const raw = readSalesPlanExplainSessionRaw();
     const p = parseSalesPlanExplainSession(raw);
     if (!p) {
       setWorkErr(
@@ -161,7 +161,7 @@ function SalesPlanPresentationExplainPageInner() {
     <SalesPlanPresentationExplainView
       backHref={backHref}
       blocks={dashboardBlocks}
-      introLead="Те же данные, что и в дашборде презентации: отчёт marketingSalesReportMock и помесячный план/факт сделок из marketingMockData с учётом фильтров."
+      introLead="Те же данные, что и в дашборде презентации: отчёт по продажам и помесячный план/факт сделок с учётом выбранных фильтров объекта и типа сделки."
       metaLine={`Объект: ${objectId} · Тип сделки: ${dealTypeId}`}
       presentationHref={dashboardPresentationHref}
       kpiItems={explainKpiItems}

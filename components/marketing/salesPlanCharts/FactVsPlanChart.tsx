@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { compactRub, numFmt } from "@/lib/salesPlanChartFormat";
+import type { SalesTempoExplainMetricId } from "@/lib/salesPlanExplainMetricIds";
 import {
   barLastDeviationPct,
   velocityFactPlanBarFillId,
@@ -99,6 +100,12 @@ function FactVsPlanTooltip({
             {valueKind === "deals" ? numFmt.format(Math.abs(dev)) : compactRub(Math.abs(dev))}
           </span>
         </div>
+        {mode === "explain" && row.plan > 0 ? (
+          <div className={`flex justify-between gap-4 ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <span className={presentation ? "text-slate-400" : "text-slate-500"}>Факт / план, %</span>
+            <span className="font-semibold tabular-nums">{((row.fact / row.plan) * 100).toFixed(1)}%</span>
+          </div>
+        ) : null}
       </div>
       {mode === "explain" && blockExplain ? (
         <div className={`mt-3 space-y-2 border-t pt-2 ${presentation ? "border-slate-500/30" : "border-slate-200"}`}>
@@ -235,6 +242,8 @@ export type FactVsPlanChartProps = {
   /** Explain: подсветка и тултип */
   activePointId?: string | null;
   onPointHover?: (pointId: string | null) => void;
+  /** Explain «Темп продаж»: связь столбцов/легенды с карточками формул. */
+  onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
   blockExplain?: { dataSources: string[]; formulaLines: string[]; howSection?: string };
   className?: string;
   chartHeightClass?: string;
@@ -248,6 +257,7 @@ export function FactVsPlanChart({
   legendFactLabel = "Факт",
   activePointId = null,
   onPointHover,
+  onExplainMetricHover,
   blockExplain,
   className = "",
   chartHeightClass = "h-[300px]",
@@ -297,6 +307,16 @@ export function FactVsPlanChart({
     onPointHover(id);
   };
 
+  const onPlanBarEnter = (p: unknown) => {
+    setHoverFromPayload(p);
+    if (mode === "explain") onExplainMetricHover?.("monthlyCompare");
+  };
+
+  const onFactBarEnter = (p: unknown) => {
+    setHoverFromPayload(p);
+    if (mode === "explain") onExplainMetricHover?.("monthlyRatio");
+  };
+
   const barPresentationClick = (item: { originalDataIndex?: number }, _index: number) => {
     const idx = typeof item.originalDataIndex === "number" ? item.originalDataIndex : _index;
     onPointClick(idx);
@@ -332,7 +352,10 @@ export function FactVsPlanChart({
                 }
               }}
               onMouseLeave={() => {
-                if (mode === "explain") onPointHover?.(null);
+                if (mode === "explain") {
+                  onPointHover?.(null);
+                  onExplainMetricHover?.(null);
+                }
                 if (presentationTooltipUx) setHoverTickIndex(null);
               }}
             >
@@ -394,7 +417,7 @@ export function FactVsPlanChart({
               radius={[8, 8, 2, 2]}
               isAnimationActive={false}
               legendType="rect"
-              onMouseEnter={setHoverFromPayload}
+              onMouseEnter={mode === "explain" ? onPlanBarEnter : setHoverFromPayload}
               onClick={presentationTooltipUx ? barPresentationClick : undefined}
             >
               {presentationTooltipUx
@@ -440,7 +463,7 @@ export function FactVsPlanChart({
               radius={[7, 7, 2, 2]}
               style={{ filter: `url(#${uid}-barSoftGlow)` }}
               legendType="rect"
-              onMouseEnter={setHoverFromPayload}
+              onMouseEnter={mode === "explain" ? onFactBarEnter : setHoverFromPayload}
               onClick={presentationTooltipUx ? barPresentationClick : undefined}
             >
               {rows.map((entry, index) => {
@@ -574,7 +597,11 @@ export function FactVsPlanChart({
         aria-label="Легенда графика: факт и план"
         className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
       >
-        <div className="flex items-center gap-2">
+        <div
+          className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("barRead")}
+          onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+        >
           <span
             className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
             style={{
@@ -586,12 +613,20 @@ export function FactVsPlanChart({
           <span>{legendFactLabel}</span>
         </div>
         {velocityCompletionPct != null ? (
-          <>
+          <span
+            className={`inline-flex items-center gap-1 tabular-nums ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("ratio")}
+            onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+          >
             <span aria-hidden>—</span>
-            <span className="tabular-nums">{velocityCompletionPct}%</span>
-          </>
+            <span>{velocityCompletionPct}%</span>
+          </span>
         ) : null}
-        <div className="flex items-center gap-2">
+        <div
+          className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
+          onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+        >
           <span className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`} />
           <span>План</span>
         </div>

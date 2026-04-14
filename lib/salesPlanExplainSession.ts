@@ -11,6 +11,12 @@ export type SalesPlanExplainSessionPayload = {
   savedAt: string;
 };
 
+/** Чтение снимка для explain из браузерного хранилища сессии (только клиент). */
+export function readSalesPlanExplainSessionRaw(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(SALES_PLAN_EXPLAIN_SESSION_KEY);
+}
+
 export function parseSalesPlanExplainSession(raw: string | null): SalesPlanExplainSessionPayload | null {
   if (!raw) return null;
   try {

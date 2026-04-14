@@ -1,9 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { dec1Fmt, numFmt } from "@/lib/salesPlanChartFormat";
+import type { SalesTempoExplainMetricId } from "@/lib/salesPlanExplainMetricIds";
+import { TEMPO_LINE_DATAKEY_TO_METRIC } from "@/lib/salesPlanExplainMetricIds";
 import { lineLastDeviationPct, type SalesVelocityLineRow } from "@/lib/salesPlanVelocityChartData";
 
 import { FormulaVariablesLegend, type FormulaVariableEntry } from "./FormulaVariablesLegend";
@@ -32,6 +34,29 @@ export type SalesTempoLineRow = SalesVelocityLineRow & {
   presentationDetail?: SalesTempoPresentationDetail;
 };
 
+function TempoTooltipMetricBridge({
+  active,
+  payload,
+  onExplainMetricHover,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ dataKey?: unknown }>;
+  onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
+}) {
+  useLayoutEffect(() => {
+    if (!onExplainMetricHover) return;
+    if (!active || !payload?.length) {
+      onExplainMetricHover(null);
+      return;
+    }
+    const raw = payload[0]?.dataKey;
+    const dk = typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
+    const id = dk ? TEMPO_LINE_DATAKEY_TO_METRIC[dk] : undefined;
+    onExplainMetricHover(id ?? null);
+  }, [active, payload, onExplainMetricHover]);
+  return null;
+}
+
 function SalesVelocityLineTooltip({
   active,
   payload,
@@ -54,20 +79,30 @@ function SalesVelocityLineTooltip({
     presentation
       ? "max-w-sm rounded-lg border border-cyan-500/30 bg-[#0f172a]/95 p-3 text-xs text-slate-200 shadow-[0_0_24px_rgba(56,189,248,0.12)]"
       : "max-w-sm rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-800 shadow-lg";
+  const planLabel = mode === "explain" ? "План (норма/мес.)" : "Плановый темп";
+  const factLabel = mode === "explain" ? "Факт (скольз./мес.)" : "Фактический темп";
+  const ratioPct =
+    row.plannedRate > 0 ? ((row.actualRate / row.plannedRate) * 100).toFixed(1) : "—";
   return (
     <div className={shell}>
       <div className={`font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>{label ?? row.label}</div>
       <div className="mt-2 space-y-1 tabular-nums">
         <div className="flex justify-between gap-4">
-          <span className={presentation ? "text-slate-400" : "text-slate-500"}>Плановый темп</span>
-          <span>{dec1Fmt.format(row.plannedRate)}</span>
+          <span className={presentation ? "text-slate-400" : "text-slate-500"}>{factLabel}</span>
+          <span className="font-medium">{dec1Fmt.format(row.actualRate)}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className={presentation ? "text-slate-400" : "text-slate-500"}>Фактический темп</span>
-          <span>{dec1Fmt.format(row.actualRate)}</span>
+          <span className={presentation ? "text-slate-400" : "text-slate-500"}>{planLabel}</span>
+          <span className="font-medium">{dec1Fmt.format(row.plannedRate)}</span>
         </div>
+        {mode === "explain" ? (
+          <div className={`flex justify-between gap-4 border-t pt-1.5 ${presentation ? "border-slate-500/30" : "border-slate-200"}`}>
+            <span className={presentation ? "text-slate-400" : "text-slate-500"}>Факт / план, %</span>
+            <span className="font-semibold">{ratioPct}%</span>
+          </div>
+        ) : null}
         <div className={`flex justify-between gap-4 font-medium ${row.rateDelta >= 0 ? (presentation ? "text-emerald-300" : "text-emerald-700") : presentation ? "text-rose-300" : "text-rose-700"}`}>
-          <span>К плану</span>
+          <span>{mode === "explain" ? "Отклонение от нормы" : "К плану"}</span>
           <span>
             {row.rateDelta >= 0 ? "+" : "−"}
             {dec1Fmt.format(Math.abs(row.rateDelta))} ({row.rateDeltaPct >= 0 ? "+" : ""}
@@ -193,7 +228,11 @@ export type SalesTempoChartProps = {
   actualPerMonth: number;
   activePointId?: string | null;
   onPointHover?: (pointId: string | null) => void;
+  /** Explain: подсветка карточки формулы по ряду графика (dataKey → metricId). */
+  onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
   blockExplain?: { dataSources: string[]; formulaLines: string[]; howSection?: string };
+  /** Строка «факт / % к норме» под графиком. На explain-странице можно скрыть, если блок вынесен отдельно. */
+  showVelocityFooter?: boolean;
   className?: string;
   chartHeightClass?: string;
 };
@@ -205,7 +244,9 @@ export function SalesTempoChart({
   actualPerMonth,
   activePointId = null,
   onPointHover,
+  onExplainMetricHover,
   blockExplain,
+  showVelocityFooter = true,
   className = "",
   chartHeightClass = "h-[300px]",
 }: SalesTempoChartProps) {
@@ -272,7 +313,10 @@ export function SalesTempoChart({
                 }
               }}
               onMouseLeave={() => {
-                if (mode === "explain") onPointHover?.(null);
+                if (mode === "explain") {
+                  onPointHover?.(null);
+                  onExplainMetricHover?.(null);
+                }
                 if (presentationTooltipUx) setHoverTickIndex(null);
               }}
             >
@@ -313,15 +357,21 @@ export function SalesTempoChart({
               />
             ) : (
               <Tooltip
+                shared={!onExplainMetricHover}
                 content={({ active, payload, label }) => (
-                  <SalesVelocityLineTooltip
-                    active={active}
-                    payload={payload}
-                    label={label != null ? String(label) : undefined}
-                    presentation={presentation}
-                    mode={mode}
-                    blockExplain={blockExplain}
-                  />
+                  <>
+                    {onExplainMetricHover ? (
+                      <TempoTooltipMetricBridge active={active} payload={payload} onExplainMetricHover={onExplainMetricHover} />
+                    ) : null}
+                    <SalesVelocityLineTooltip
+                      active={active}
+                      payload={payload}
+                      label={label != null ? String(label) : undefined}
+                      presentation={presentation}
+                      mode={mode}
+                      blockExplain={blockExplain}
+                    />
+                  </>
                 )}
               />
             )}
@@ -333,6 +383,7 @@ export function SalesTempoChart({
               fillOpacity={1}
               baseLine={0}
               isAnimationActive={false}
+              style={mode === "explain" && onExplainMetricHover ? { pointerEvents: "none" } : undefined}
             />
             <Line
               type="monotone"
@@ -388,7 +439,10 @@ export function SalesTempoChart({
                       stroke="#38bdf8"
                       strokeWidth={explainGlow ? 2.5 : 1.2}
                       style={{ cursor: "pointer" }}
-                      onMouseEnter={() => onPointHover?.(pid ?? null)}
+                      onMouseEnter={() => {
+                        onPointHover?.(pid ?? null);
+                        onExplainMetricHover?.("actualPerMonth");
+                      }}
                     />
                   );
                 }
@@ -397,7 +451,12 @@ export function SalesTempoChart({
                 const presLastSel = presentationTooltipUx && selectedPoint === index;
                 return (
                   <g
-                    onMouseEnter={() => mode === "explain" && onPointHover?.(pid ?? null)}
+                    onMouseEnter={() => {
+                      if (mode === "explain") {
+                        onPointHover?.(pid ?? null);
+                        onExplainMetricHover?.("actualPerMonth");
+                      }
+                    }}
                     onClick={(e) => {
                       if (!presentationTooltipUx) return;
                       e.stopPropagation();
@@ -500,17 +559,19 @@ export function SalesTempoChart({
         </aside>
       ) : null}
       </div>
-      <div className={`flex h-[18px] items-center justify-center gap-x-3 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
-        <span className="inline-flex items-center gap-1.5">
-          <span className={`h-2 w-2 rounded-full ${presentation ? "bg-slate-300" : "bg-slate-500"}`} />
-          <span>Факт</span>
-        </span>
-        <span aria-hidden>—</span>
-        <span className="tabular-nums">{velocityCompletionPct}%</span>
-        <span className={`font-semibold tabular-nums ${presentation ? "text-amber-200" : "text-amber-700"}`}>
-          {dec1Fmt.format(actualPerMonth)} сделок
-        </span>
-      </div>
+      {showVelocityFooter ? (
+        <div className={`flex h-[18px] items-center justify-center gap-x-3 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+          <span className="inline-flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${presentation ? "bg-slate-300" : "bg-slate-500"}`} />
+            <span>Факт</span>
+          </span>
+          <span aria-hidden>—</span>
+          <span className="tabular-nums">{velocityCompletionPct}%</span>
+          <span className={`font-semibold tabular-nums ${presentation ? "text-amber-200" : "text-amber-700"}`}>
+            {dec1Fmt.format(actualPerMonth)} сделок
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
