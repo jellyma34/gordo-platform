@@ -54,16 +54,23 @@ function stripVariablesLegend(content: ExplainMetricContent) {
 export function ExplainMetricBlock({
   content,
   activeMetricId = null,
+  neutralSectionHeaders = false,
 }: {
   content: ExplainMetricContent;
   /** Подсветка карточки с тем же metricId (связь с графиком explain «Темп продаж»). */
   activeMetricId?: SalesTempoExplainMetricId | null;
+  /** Единый нейтральный цвет заголовков внутренних секций (explain «Темп продаж»). */
+  neutralSectionHeaders?: boolean;
 }) {
   const variables = stripVariablesLegend(content);
 
   const hasDescription = content.description != null;
   const interpretationText = content.interpretation ?? "";
   const detailCards = content.formulaDetailCards ?? [];
+  const detailSectionLabelClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-sky-400/90"}`;
+  const detailHowClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-amber-300/90"}`;
+  const detailWhyClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-emerald-400/90"}`;
+  const detailInterpretationClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-violet-300/85"}`;
 
   if (!hasDescription && detailCards.length > 0) {
     return (
@@ -91,29 +98,29 @@ export function ExplainMetricBlock({
                 <div className={`${descTitle} text-slate-200`}>{card.name}</div>
 
                 <div className="mt-3">
-                  <h4 className={`${descTitle} text-sky-400/90`}>Формула</h4>
+                  <h4 className={detailSectionLabelClass}>Формула</h4>
                   <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-300">{card.formula}</p>
                 </div>
 
                 <div className="mt-3">
-                  <h4 className={`${descTitle} text-sky-400/90`}>Обозначения</h4>
+                  <h4 className={detailSectionLabelClass}>Обозначения</h4>
                   <div className="mt-1.5">
                     <FormulaVariablesLegend variables={cardVars} presentation />
                   </div>
                 </div>
 
                 <div className="mt-3">
-                  <h4 className={`${descTitle} text-amber-300/90`}>Как считается</h4>
+                  <h4 className={detailHowClass}>Как считается</h4>
                   <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-200">{card.calculation}</p>
                 </div>
 
                 <div className="mt-3">
-                  <h4 className={`${descTitle} text-emerald-400/90`}>Почему эта формула</h4>
+                  <h4 className={detailWhyClass}>Почему эта формула</h4>
                   <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.whyThisFormula}</p>
                 </div>
 
                 <div className="mt-3">
-                  <h4 className={`${descTitle} text-violet-300/85`}>Интерпретация</h4>
+                  <h4 className={detailInterpretationClass}>Интерпретация</h4>
                   <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.interpretation}</p>
                 </div>
               </div>

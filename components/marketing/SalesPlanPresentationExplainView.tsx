@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState, type ReactNode } from "react";
 
 import type {
   ExplainMetricDescription,
@@ -29,6 +30,35 @@ type Props = {
 
 const card =
   "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-slate-950/95 p-4 shadow-lg ring-1 ring-white/5 sm:p-5";
+const explainSectionTitleNeutral = "text-[10px] font-bold uppercase tracking-wide text-slate-400";
+
+/** Секция с локальным состоянием: по умолчанию свёрнута (только explain «Темп продаж»). */
+function ExplainCollapsibleSection({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-600/45 bg-slate-950/35 ring-1 ring-white/[0.04]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 rounded-t-xl px-3 py-2.5 text-left transition-colors hover:bg-slate-800/45"
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{title}</span>
+        <span
+          className={`select-none text-[11px] leading-none text-slate-500 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        >
+          {"\u25BC"}
+        </span>
+      </button>
+      <div
+        className={`overflow-hidden transition-[max-height] duration-300 ease-in-out motion-reduce:transition-none ${open ? "max-h-[min(10000px,200vh)]" : "max-h-0"}`}
+      >
+        <div className="border-t border-slate-700/45 px-3 pb-3 pt-2">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 const kpiSectionIntro: ExplainMetricDescription = {
   whatItIs:
@@ -122,7 +152,48 @@ export function SalesPlanPresentationExplainView({
           </section>
         ) : null}
 
-        {blocks.map((b) => (
+        {blocks.map((b) => {
+          const isSalesTempoExplain = b.id === "salesTempo";
+          const hasFormulaCards = Boolean(b.formulaDetailCards && b.formulaDetailCards.length > 0);
+          const hasFormulaLines = b.formulaLines.length > 0;
+          const formulaBlock =
+            hasFormulaCards ? (
+              <ExplainMetricBlock
+                content={{
+                  title: "Детализация показателей",
+                  formulaLines: [],
+                  variables: [],
+                  calculation: "",
+                  whyThisResult: "",
+                  formulaDetailCards: b.formulaDetailCards,
+                  formulaSectionFooter: b.formulaSectionFooter,
+                }}
+                neutralSectionHeaders={isSalesTempoExplain}
+              />
+            ) : hasFormulaLines ? (
+              <ol className="mt-1 list-inside list-decimal space-y-1.5 font-mono text-xs text-slate-400">
+                {b.formulaLines.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ol>
+            ) : null;
+
+          const calculationsBlock =
+            b.id === "salesTempo" && chartExplainBundle && !hasFormulaCards ? (
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                Числа и расшифровка — в блоках непосредственно под каждым графиком ниже.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-1.5 font-mono text-[11px] leading-relaxed text-slate-300">
+                {b.calculationLines.map((line, i) => (
+                  <li key={`${b.id}-calc-${i}`} className="border-l-2 border-emerald-500/30 pl-2">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            );
+
+          return (
           <article key={b.id} className={card}>
             <h2 className="text-lg font-bold text-white">{b.title}</h2>
 
@@ -146,62 +217,61 @@ export function SalesPlanPresentationExplainView({
               </section>
             ) : null}
 
-            {b.formulaDetailCards && b.formulaDetailCards.length > 0 ? (
-              <section className="mt-4">
-                <h3 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Формулы и расчёты</h3>
-                <div className="mt-2">
-                  <ExplainMetricBlock
-                    content={{
-                      title: "Детализация показателей",
-                      formulaLines: [],
-                      variables: [],
-                      calculation: "",
-                      whyThisResult: "",
-                      formulaDetailCards: b.formulaDetailCards,
-                      formulaSectionFooter: b.formulaSectionFooter,
-                    }}
-                  />
+            {formulaBlock ? (
+              isSalesTempoExplain ? (
+                <div className="mt-4">
+                  <ExplainCollapsibleSection title="Формулы">
+                    {formulaBlock}
+                  </ExplainCollapsibleSection>
                 </div>
-              </section>
-            ) : b.formulaLines.length > 0 ? (
-              <section className="mt-4">
-                <h3 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Формулы</h3>
-                <ol className="mt-2 list-inside list-decimal space-y-1.5 font-mono text-xs text-slate-400">
-                  {b.formulaLines.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ol>
-              </section>
+              ) : (
+                <section className="mt-4">
+                  <h3 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    {hasFormulaCards ? "Формулы и расчёты" : "Формулы"}
+                  </h3>
+                  <div className="mt-2">{formulaBlock}</div>
+                </section>
+              )
             ) : null}
 
             <section className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/50 p-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-wide text-emerald-400/90">Числа (текущий срез)</h3>
               {b.id === "rootCauseDeviation" && chartExplainBundle && dashboardExplainContext ? (
-                <div className="mt-3 space-y-0">
-                  <SalesPlanExplainRootCauseWaterfall snapshot={dashboardExplainContext.rootCauseSnapshot} />
-                  <ExplainMetricBlock content={chartExplainBundle.rootCauseDeviation} />
-                </div>
-              ) : null}
-              {b.id === "salesTempo" && chartExplainBundle && !(b.formulaDetailCards && b.formulaDetailCards.length > 0) ? (
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Числа и расшифровка — в блоках непосредственно под каждым графиком ниже.
-                </p>
+                <>
+                  <h3 className="text-[10px] font-bold uppercase tracking-wide text-emerald-400/90">Числа (текущий срез)</h3>
+                  <div className="mt-3 space-y-0">
+                    <SalesPlanExplainRootCauseWaterfall snapshot={dashboardExplainContext.rootCauseSnapshot} />
+                    <ExplainMetricBlock content={chartExplainBundle.rootCauseDeviation} />
+                  </div>
+                </>
+              ) : isSalesTempoExplain ? (
+                <>
+                  <ExplainCollapsibleSection title="Расчёты">
+                    <p className={`mb-2 ${explainSectionTitleNeutral}`}>Текущий срез</p>
+                    {calculationsBlock}
+                  </ExplainCollapsibleSection>
+                  {b.interactive ? (
+                    <div className="mt-4">
+                      <SalesPlanExplainInteractiveSection
+                        block={b}
+                        chartExplainBundle={chartExplainBundle}
+                        dashboardExplainContext={dashboardExplainContext}
+                      />
+                    </div>
+                  ) : null}
+                </>
               ) : (
-                <ul className="mt-2 space-y-1.5 font-mono text-[11px] leading-relaxed text-slate-300">
-                  {b.calculationLines.map((line, i) => (
-                    <li key={`${b.id}-calc-${i}`} className="border-l-2 border-emerald-500/30 pl-2">
-                      {line}
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <h3 className="text-[10px] font-bold uppercase tracking-wide text-emerald-400/90">Числа (текущий срез)</h3>
+                  {calculationsBlock}
+                  {b.interactive ? (
+                    <SalesPlanExplainInteractiveSection
+                      block={b}
+                      chartExplainBundle={chartExplainBundle}
+                      dashboardExplainContext={dashboardExplainContext}
+                    />
+                  ) : null}
+                </>
               )}
-              {b.interactive ? (
-                <SalesPlanExplainInteractiveSection
-                  block={b}
-                  chartExplainBundle={chartExplainBundle}
-                  dashboardExplainContext={dashboardExplainContext}
-                />
-              ) : null}
             </section>
 
             {!(b.id === "salesTempo" && chartExplainBundle) ? (
@@ -218,7 +288,8 @@ export function SalesPlanPresentationExplainView({
               </>
             ) : null}
           </article>
-        ))}
+          );
+        })}
       </div>
     </main>
   );
