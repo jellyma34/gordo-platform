@@ -20,7 +20,7 @@ export default function EditEntry() {
     {
       title: "Маркетинг",
       description: "Рабочий режим плана: сценарии, таблица план/факт по категориям и журнал изменений; отчёт и рассрочка — в разделе «Маркетинг».",
-      href: "/marketing/plan/edit",
+      href: "/marketing/sales-plan/work",
     },
     {
       title: "Экономика и финансы",

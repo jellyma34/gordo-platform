@@ -1,4 +1,8 @@
-import { analyzeUpsellDiagnostic, type SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
+import {
+  analyzeUpsellDiagnostic,
+  type SalesPlanExplainInteractivePoint,
+  type SalesPlanPresentationExplainBlock,
+} from "@/lib/buildSalesPlanPresentationExplain";
 import { marketingSalesReportMock } from "@/lib/marketingSalesReportData";
 import { SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS } from "@/lib/salesPlanPresentationExplainConfig";
 import type { SalesPlanExplainSessionPayload } from "@/lib/salesPlanExplainSession";
@@ -55,6 +59,19 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
   const cumPctU = sumPlanCumU > 0 ? Math.round((sumFactCumU / sumPlanCumU) * 100) : 0;
   const cumPctR = sumPlanCumR > 0 ? Math.round((sumFactCumR / sumPlanCumR) * 100) : 0;
 
+  const tempoWorkPoints: SalesPlanExplainInteractivePoint[] = SALES_PLAN_CATEGORY_IDS.map((id) => {
+    const u = slice.units[id];
+    const du = deriveSalesPlanRow(u);
+    const dev = u.factMonth - u.planMonth;
+    return {
+      pointId: `work-tempo:${id}`,
+      label: SALES_PLAN_CATEGORY_LABELS[id],
+      plan: u.planMonth,
+      fact: u.factMonth,
+      detailLine: `${SALES_PLAN_CATEGORY_LABELS[id]} (шт.): план мес. ${numFmt.format(u.planMonth)}, факт мес. ${numFmt.format(u.factMonth)}, план нак. ${numFmt.format(u.planCumulative)}, факт нак. ${numFmt.format(du.factCumulative)}; Δ мес. ${numFmt.format(dev)}`,
+    };
+  });
+
   const salesTempo: SalesPlanPresentationExplainBlock = {
     id: "salesTempo",
     title: "Темп продаж",
@@ -69,6 +86,7 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
       "Накопительно: Σ fact_cum / Σ plan_cum × 100% (по шт. и по выручке)",
       ...cfg.salesTempo.formulas.slice(1),
     ],
+    interactive: { valueKind: "deals", points: tempoWorkPoints },
     calculationLines: [
       `Сценарий: ${scenarioLabel} (${scenario}). Активная метрика в таблице при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`,
       `Снимок: ${savedAt} (черновик, без кэша сервера).`,
@@ -76,11 +94,6 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
       `Шт.: Σ plan_нак. = ${numFmt.format(sumPlanCumU)}, Σ fact_нак. = ${numFmt.format(sumFactCumU)} → ${cumPctU}% выполнения.`,
       `Выручка: Σ plan_month = ${compactRub(sumPlanMonthR)}, Σ fact_month = ${compactRub(sumFactMonthR)} → ${monthRatioR}%.`,
       `Выручка: Σ plan_нак. = ${compactRub(sumPlanCumR)}, Σ fact_нак. = ${compactRub(sumFactCumR)} → ${cumPctR}% выполнения.`,
-      ...SALES_PLAN_CATEGORY_IDS.map((id) => {
-        const u = slice.units[id];
-        const du = deriveSalesPlanRow(u);
-        return `${SALES_PLAN_CATEGORY_LABELS[id]} (шт.): план мес. ${numFmt.format(u.planMonth)}, факт мес. ${numFmt.format(u.factMonth)}, план нак. ${numFmt.format(u.planCumulative)}, факт нак. ${numFmt.format(du.factCumulative)}`;
-      }),
     ],
     howSection:
       "В рабочем режиме нет помесячного ряда как на слайде презентации: темп показывается как сумма по категориям за «текущий месяц» в таблице (plan_month / fact_month) и накопительные итоги по штукам и выручке после формулы факта.",
@@ -119,11 +132,13 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     };
   });
 
-  for (const row of structureRows) {
-    structLines.push(
-      `${row.label}: план ${compactRub(row.planRub)} → факт ${compactRub(row.factRub)} (Δ ${row.deltaRub >= 0 ? "+" : "−"}${compactRub(Math.abs(row.deltaRub))}), ${row.pct.toFixed(1)}% · шт. ${numFmt.format(row.pu)} → ${numFmt.format(row.fu)}`,
-    );
-  }
+  const structureWorkPoints: SalesPlanExplainInteractivePoint[] = structureRows.map((row) => ({
+    pointId: `work-struct:${row.id}`,
+    label: row.label,
+    plan: row.planRub,
+    fact: row.factRub,
+    detailLine: `${row.label}: план ${compactRub(row.planRub)} → факт ${compactRub(row.factRub)} (Δ ${row.deltaRub >= 0 ? "+" : "−"}${compactRub(Math.abs(row.deltaRub))}), ${row.pct.toFixed(1)}% · шт. ${numFmt.format(row.pu)} → ${numFmt.format(row.fu)}`,
+  }));
 
   const worst = [...structureRows].sort((a, b) => a.deltaRub - b.deltaRub)[0];
   const best = [...structureRows].sort((a, b) => b.deltaRub - a.deltaRub)[0];
@@ -136,6 +151,7 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
       `grid[${scenario}].units[*]: те же периоды в штуках для сопоставления микса.`,
     ],
     formulaLines: cfg.structure.formulas,
+    interactive: { valueKind: "rub", points: structureWorkPoints },
     calculationLines: structLines,
     howSection:
       "Каждая строка рабочей таблицы — отдельная линейка (1к … коммерция). Отклонение по деньгам: факт накопительно минус план накопительно по выручке; штуки показывают объём сделок по линейке.",
@@ -157,9 +173,16 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     apartmentDealsFact: aptF,
   };
   const up = analyzeUpsellDiagnostic(upModel);
-  const wLines = up.rows.map((r, i) => {
+  const upsellWorkPoints: SalesPlanExplainInteractivePoint[] = up.rows.map((r, i) => {
     const w = up.totalPlan > 0 ? r.planRevenueRub / up.totalPlan : 0;
-    return `${r.name}: w${i + 1} = ${compactRub(r.planRevenueRub)} / ${compactRub(up.totalPlan)} = ${(w * 100).toFixed(1)}%`;
+    const detailLine = `${r.name}: план ${compactRub(r.planRevenueRub)}, факт ${compactRub(r.actualRevenueRub)}, Δ ${r.revDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(r.revDelta))}; вес w${i + 1} = ${compactRub(r.planRevenueRub)} / ${compactRub(up.totalPlan)} = ${(w * 100).toFixed(1)}%`;
+    return {
+      pointId: `upsell-${r.id}`,
+      label: r.name,
+      plan: r.planRevenueRub,
+      fact: r.actualRevenueRub,
+      detailLine,
+    };
   });
 
   const upsell: SalesPlanPresentationExplainBlock = {
@@ -170,10 +193,10 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
       "Планы/факты выручки и конверсии по паркингу и кладовым — из отчёта marketingSalesReportMock.upsellDiagnostic (как в презентации), с пересчётом весов от вашей базы квартир.",
     ],
     formulaLines: cfg.upsell.formulas,
+    interactive: { valueKind: "rub", points: upsellWorkPoints },
     calculationLines: [
       `База квартир (рабочая таблица, сценарий ${scenarioLabel}): план ${numFmt.format(aptP)} шт., факт ${numFmt.format(aptF)} шт. → ${up.aptExecPct.toFixed(1)}%.`,
       `Сумма плановой выручки upsell (mock): ${compactRub(up.totalPlan)}; факт: ${compactRub(up.totalActual)}; Δ = ${up.totalRevDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(up.totalRevDelta))}.`,
-      ...wLines,
       `Сводная конверсия (план): ${dec1.format(up.totalConvPlan)}%; факт: ${dec1.format(up.totalConvFact)}%; Δ ${up.totalConvDeltaPP >= 0 ? "+" : ""}${dec1.format(up.totalConvDeltaPP)} п.п.`,
       `Масштаб плана под фактическую базу: ${compactRub(up.scaledPlanTotal)}.`,
       `Недобор базы (к полному плану upsell): ${compactRub(up.volumePenaltyRub)}; недобор конверсии: ${compactRub(up.convPenaltyRub)}.`,

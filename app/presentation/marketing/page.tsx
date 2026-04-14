@@ -1,24 +1,18 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-import { useAppMode } from "@/components/mode/ModeProvider";
-import { MarketingWorkspace } from "@/components/marketing/MarketingWorkspace";
-
-export default function PresentationMarketingPage() {
-  const { setMode } = useAppMode();
-  const router = useRouter();
-
-  useEffect(() => {
-    setMode("presentation");
-  }, [setMode]);
-
-  return (
-    <MarketingWorkspace
-      presentation
-      modeLabel="Презентация"
-      onBackToBlocks={() => router.push("/presentation")}
-    />
-  );
+/** Совместимость: старый путь презентации маркетинга → канонический SPA-маршрут. */
+export default async function LegacyPresentationMarketingPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const q = new URLSearchParams();
+  for (const [key, val] of Object.entries(sp)) {
+    if (val === undefined) continue;
+    if (Array.isArray(val)) val.forEach((v) => q.append(key, v));
+    else q.set(key, val);
+  }
+  const tail = q.toString();
+  redirect(tail ? `/marketing/sales-plan/presentation?${tail}` : "/marketing/sales-plan/presentation");
 }

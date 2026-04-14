@@ -20,7 +20,7 @@ export default function PresentationEntry() {
     {
       title: "Маркетинг",
       description: "План продаж, динамика, воронка и рассрочка по ДДУ — в едином стиле с разделом «Строительство».",
-      href: "/presentation/marketing",
+      href: "/marketing/sales-plan/presentation",
     },
     {
       title: "Финансы",

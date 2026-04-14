@@ -3,18 +3,27 @@
 import Link from "next/link";
 
 import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
+import { SalesPlanExplainInteractiveSection } from "@/components/marketing/SalesPlanExplainInteractiveSection";
 
 type Props = {
   backHref: string;
   blocks: SalesPlanPresentationExplainBlock[];
   introLead: string;
   metaLine?: string | null;
+  /** Переход к слайдам презентации с сохранением контекста (query). */
+  presentationHref?: string | null;
 };
 
 const card =
   "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-slate-950/95 p-4 shadow-lg ring-1 ring-white/5 sm:p-5";
 
-export function SalesPlanPresentationExplainView({ backHref, blocks, introLead, metaLine }: Props) {
+export function SalesPlanPresentationExplainView({
+  backHref,
+  blocks,
+  introLead,
+  metaLine,
+  presentationHref,
+}: Props) {
   return (
     <main className="min-h-screen bg-[#0f172a] px-3 py-6 text-slate-100 sm:px-4 md:px-6">
       <div className="mx-auto w-full max-w-[900px] space-y-6">
@@ -25,12 +34,22 @@ export function SalesPlanPresentationExplainView({ backHref, blocks, introLead, 
               <h1 className="mt-1 text-xl font-bold text-white sm:text-2xl">Пояснение к презентации</h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">{introLead}</p>
             </div>
-            <Link
-              href={backHref}
-              className="shrink-0 rounded-lg border border-slate-600 bg-slate-950/80 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
-            >
-              ← Назад
-            </Link>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Link
+                href={backHref}
+                className="rounded-lg border border-slate-600 bg-slate-950/80 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
+              >
+                ← Назад
+              </Link>
+              {presentationHref ? (
+                <Link
+                  href={presentationHref}
+                  className="rounded-lg border border-amber-400/60 bg-amber-500/15 px-3 py-2 text-sm font-semibold text-amber-100 shadow-sm hover:bg-amber-500/25"
+                >
+                  Режим презентации →
+                </Link>
+              ) : null}
+            </div>
           </div>
           {metaLine ? (
             <p className="mt-3 text-xs text-slate-500">
@@ -70,6 +89,9 @@ export function SalesPlanPresentationExplainView({ backHref, blocks, introLead, 
                   </li>
                 ))}
               </ul>
+              {b.interactive ? (
+                <SalesPlanExplainInteractiveSection blockId={b.id} interactive={b.interactive} />
+              ) : null}
             </section>
 
             <section className="mt-4 border-t border-slate-700/50 pt-4">

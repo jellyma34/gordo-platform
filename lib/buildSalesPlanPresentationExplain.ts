@@ -205,6 +205,23 @@ export function analyzeUpsellDiagnostic(up: UpsellDiagnosticModel) {
   };
 }
 
+export type SalesPlanExplainInteractiveValueKind = "deals" | "rub";
+
+/** Общий идентификатор точки графика и строки пояснения (например период `2026-03` или категория `apt-1`). */
+export type SalesPlanExplainInteractivePoint = {
+  pointId: string;
+  /** Подпись оси X / период в тултипе */
+  label: string;
+  plan: number;
+  fact: number;
+  detailLine: string;
+};
+
+export type SalesPlanExplainInteractive = {
+  valueKind: SalesPlanExplainInteractiveValueKind;
+  points: SalesPlanExplainInteractivePoint[];
+};
+
 export type SalesPlanPresentationExplainBlock = {
   id: SalesPlanPresentationExplainChartId;
   title: string;
@@ -213,6 +230,8 @@ export type SalesPlanPresentationExplainBlock = {
   calculationLines: string[];
   howSection: string;
   whySection: string;
+  /** Связка «график ↔ строки»: один pointId на столбец и на строку. */
+  interactive?: SalesPlanExplainInteractive;
 };
 
 export function buildSalesPlanPresentationExplainBlocks(
@@ -247,9 +266,16 @@ export function buildSalesPlanPresentationExplainBlocks(
   const factAvgDealRub = baseRev.factCumulative / Math.max(1, report.salesData.units.factCumulative);
 
   const up = analyzeUpsellDiagnostic(report.upsellDiagnostic);
-  const wLines = up.rows.map((r, i) => {
+  const upsellInteractivePoints: SalesPlanExplainInteractivePoint[] = up.rows.map((r, i) => {
     const w = up.totalPlan > 0 ? r.planRevenueRub / up.totalPlan : 0;
-    return `${r.name}: w${i + 1} = ${compactRub(r.planRevenueRub)} / ${compactRub(up.totalPlan)} = ${(w * 100).toFixed(1)}%`;
+    const detailLine = `${r.name}: план ${compactRub(r.planRevenueRub)}, факт ${compactRub(r.actualRevenueRub)}, Δ ${r.revDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(r.revDelta))}; вес w${i + 1} = ${compactRub(r.planRevenueRub)} / ${compactRub(up.totalPlan)} = ${(w * 100).toFixed(1)}%`;
+    return {
+      pointId: `upsell-${r.id}`,
+      label: r.name,
+      plan: r.planRevenueRub,
+      fact: r.actualRevenueRub,
+      detailLine,
+    };
   });
 
   const filterNote =
@@ -257,11 +283,20 @@ export function buildSalesPlanPresentationExplainBlocks(
       ? `Фильтры: объект «${objectId}», тип сделки «${dealTypeId}» — ряд план/факт по месяцам берётся из marketingMockData с отбором.`
       : "Фильтры «все объекты / все типы» — полный помесячный ряд из marketingMockData.";
 
+  const tempoInteractivePoints: SalesPlanExplainInteractivePoint[] = monthlyPlanExecutionData.map((r) => ({
+    pointId: r.periodKey,
+    label: r.label,
+    plan: r.plan,
+    fact: r.fact,
+    detailLine: `${r.label} (${r.periodKey}): plan ${numFmt.format(r.plan)}, fact ${numFmt.format(r.fact)}, Δ ${numFmt.format(r.deviation)}`,
+  }));
+
   const salesTempo: SalesPlanPresentationExplainBlock = {
     id: "salesTempo",
     title: "Темп продаж",
     dataSources: cfg.salesTempo.sources,
     formulaLines: cfg.salesTempo.formulas,
+    interactive: { valueKind: "deals", points: tempoInteractivePoints },
     calculationLines: [
       filterNote,
       `Горизонт: N = ${totalMonths} мес., учтено прошедших месяцев для факта: ${monthsPassed}.`,
@@ -270,9 +305,6 @@ export function buildSalesPlanPresentationExplainBlocks(
       `Накопленный факт за прошедшие периоды = ${numFmt.format(currentFact)} → actualPerMonth = ${numFmt.format(currentFact)} / ${monthsPassed} = ${dec1.format(actualPerMonth)} сделок/мес.`,
       `Текущий месяц (отчётная дата): fact_month = ${numFmt.format(monthFact)} (ключ периода ${monthlyPlanExecutionData[currentMonthIdx]?.periodKey ?? "—"}).`,
       `Индикатор карточки: ${dec1.format(actualPerMonth)} / ${dec1.format(planPerMonth)} ≈ ${velocityCompletionPct}% к норме.`,
-      ...monthlyPlanExecutionData.map(
-        (r) => `${r.label}: plan ${numFmt.format(r.plan)}, fact ${numFmt.format(r.fact)}, Δ ${numFmt.format(r.deviation)}`,
-      ),
     ],
     howSection:
       "Графики «Темп по месяцам» и «Факт vs план» строятся из помесячного merge плана и факта сделок (кол-во сделок). Норма месяца — равномерное распределение суммарного плана по горизонту; скользящий факт — среднее по уже прошедшим месяцам. Отдельно показывается факт последнего отчётного месяца к норме.",
@@ -287,20 +319,25 @@ export function buildSalesPlanPresentationExplainBlocks(
   const worstStruct = [...structureRows].sort((a, b) => a.deltaRub - b.deltaRub)[0];
   const bestStruct = [...structureRows].sort((a, b) => b.deltaRub - a.deltaRub)[0];
 
+  const structureInteractivePoints: SalesPlanExplainInteractivePoint[] = structureRows.map((r) => ({
+    pointId: r.key,
+    label: r.label,
+    plan: r.planRub,
+    fact: r.factRub,
+    detailLine: `${r.label}: plan ${compactRub(r.planRub)} → ${r.planUnits} экв.шт.; fact ${compactRub(r.factRub)} → ${r.factUnits} экв.шт.; Δ₽ ${r.deltaRub >= 0 ? "+" : "−"}${compactRub(Math.abs(r.deltaRub))}; выполнение ${r.percent.toFixed(1)}%`,
+  }));
+
   const structure: SalesPlanPresentationExplainBlock = {
     id: "structure",
     title: "Структура продаж",
     dataSources: cfg.structure.sources,
     formulaLines: cfg.structure.formulas,
+    interactive: { valueKind: "rub", points: structureInteractivePoints },
     calculationLines: [
       `План выручки проекта (накопит., сценарий ×1): ${compactRub(rev.planCumulative)}; факт выручки: ${compactRub(baseRev.factCumulative)}.`,
       `Средний чек план: planRevenue/planUnits = ${compactRub(rev.planCumulative)} / ${numFmt.format(report.salesData.units.planCumulative)} = ${compactRub(planAvgDealRub)}.`,
       `Средний чек факт: ${compactRub(baseRev.factCumulative)} / ${numFmt.format(report.salesData.units.factCumulative)} = ${compactRub(factAvgDealRub)}.`,
       `Σ planUnits (экв.) = ${numFmt.format(totalPlanUnits)}; Σ factUnits = ${numFmt.format(totalFactUnits)}.`,
-      ...structureRows.map(
-        (r) =>
-          `${r.label}: plan ${compactRub(r.planRub)} → ${r.planUnits} экв.шт.; fact ${compactRub(r.factRub)} → ${r.factUnits} экв.шт.; Δ₽ ${r.deltaRub >= 0 ? "+" : "−"}${compactRub(Math.abs(r.deltaRub))}; выполнение ${r.percent.toFixed(1)}%`,
-      ),
     ],
     howSection:
       "Таблица «Выполнение структуры» и баланс долей используют выручку по линейкам радара (с корректировкой планов по сценарию) и перевод в эквивалент штук через средние чеки плана и факта по проекту. Так сопоставляются микс сделок и деньги.",
@@ -319,10 +356,10 @@ export function buildSalesPlanPresentationExplainBlocks(
     title: "Конверсия · монетизация (upsell)",
     dataSources: cfg.upsell.sources,
     formulaLines: cfg.upsell.formulas,
+    interactive: { valueKind: "rub", points: upsellInteractivePoints },
     calculationLines: [
       `База квартир: факт ${numFmt.format(up.aptF)} / план ${numFmt.format(up.aptP)} → выполнение базы ${up.aptExecPct.toFixed(1)}%.`,
       `Сумма плановой выручки upsell: ${compactRub(up.totalPlan)}; факт: ${compactRub(up.totalActual)}; Δ = ${up.totalRevDelta >= 0 ? "+" : "−"}${compactRub(Math.abs(up.totalRevDelta))}.`,
-      ...wLines,
       `Сводная конверсия (план): ${dec1.format(up.totalConvPlan)}% = Σ (план_конверсия_i × w_i).`,
       `Сводная конверсия (факт): ${dec1.format(up.totalConvFact)}% = Σ (факт_конверсия_i × w_i).`,
       `Разница: ${up.totalConvDeltaPP >= 0 ? "+" : ""}${dec1.format(up.totalConvDeltaPP)} п.п.`,

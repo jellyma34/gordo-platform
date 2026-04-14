@@ -11,11 +11,21 @@ import { marketingSalesReportMock } from "@/lib/marketingSalesReportData";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY, parseSalesPlanExplainSession } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanExplainSessionPayload } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
+import {
+  SALES_PLAN_SPA,
+  parsePresentationScenarioQuery,
+  workScenarioToPresentationScenario,
+} from "@/lib/salesPlanSpaRoutes";
 import { SALES_PLAN_METRIC_LABELS, SALES_PLAN_SCENARIO_LABELS } from "@/lib/salesPlanWorkModel";
 
 function pick(v: string | null, fallback: string) {
   if (!v || v.trim() === "") return fallback;
   return v;
+}
+
+function parsePeriodForPresentation(v: string | null): string {
+  if (v === "quarter" || v === "month") return v;
+  return "month";
 }
 
 function SalesPlanPresentationExplainPageInner() {
@@ -25,13 +35,28 @@ function SalesPlanPresentationExplainPageInner() {
   const dealTypeId = pick(sp.get("dealTypeId"), "all");
   const from = sp.get("from");
   const backHref =
-    source === "work" && from === "plan_edit"
-      ? "/marketing/plan/edit"
+    source === "work" && (from === "work" || from === "plan_edit")
+      ? SALES_PLAN_SPA.work
       : from === "marketing_edit"
         ? "/edit/marketing"
         : from === "edit"
-          ? "/marketing/plan/edit"
-          : "/presentation/marketing";
+          ? SALES_PLAN_SPA.work
+          : SALES_PLAN_SPA.presentation;
+
+  const periodParam = sp.get("period");
+  const scenarioParam = sp.get("scenario");
+  const dashboardPresentationHref = useMemo(() => {
+    const scen = parsePresentationScenarioQuery(scenarioParam);
+    const q = new URLSearchParams({
+      from: "explain",
+      source: "dashboard",
+      objectId,
+      dealTypeId,
+      scenario: scen,
+      period: parsePeriodForPresentation(periodParam),
+    });
+    return `${SALES_PLAN_SPA.presentation}?${q.toString()}`;
+  }, [objectId, dealTypeId, periodParam, scenarioParam]);
 
   const dashboardBlocks = useMemo(
     () => buildSalesPlanPresentationExplainBlocks(marketingSalesReportMock, objectId, dealTypeId),
@@ -83,12 +108,22 @@ function SalesPlanPresentationExplainPageInner() {
     const scenarioLabel = SALES_PLAN_SCENARIO_LABELS[p.scenario];
     const metricLabel = SALES_PLAN_METRIC_LABELS[p.metricTab];
     const metaLine = `Сценарий: ${scenarioLabel} · Вкладка метрик: ${metricLabel} · Снимок: ${new Date(p.savedAt).toLocaleString("ru-RU")}`;
+    const planScen = workScenarioToPresentationScenario(p.scenario);
+    const presentationQ = new URLSearchParams({
+      from: "explain",
+      source: "work",
+      scenario: planScen,
+      workScenario: p.scenario,
+      return: "work",
+    });
+    const presentationHref = `${SALES_PLAN_SPA.presentation}?${presentationQ.toString()}`;
     return (
       <SalesPlanPresentationExplainView
         backHref={backHref}
         blocks={blocks}
         introLead="Данные текущего рабочего режима на момент нажатия кнопки, включая несохранённые правки. Сценарий и сетка совпадают с тем, что вы редактировали."
         metaLine={metaLine}
+        presentationHref={presentationHref}
       />
     );
   }
@@ -99,6 +134,7 @@ function SalesPlanPresentationExplainPageInner() {
       blocks={dashboardBlocks}
       introLead="Те же данные, что и в дашборде презентации: отчёт marketingSalesReportMock и помесячный план/факт сделок из marketingMockData с учётом фильтров."
       metaLine={`Объект: ${objectId} · Тип сделки: ${dealTypeId}`}
+      presentationHref={dashboardPresentationHref}
     />
   );
 }

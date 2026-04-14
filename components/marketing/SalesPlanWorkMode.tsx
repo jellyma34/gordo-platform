@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
+import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import {
   SALES_PLAN_CATEGORY_IDS,
   SALES_PLAN_CATEGORY_LABELS,
@@ -172,7 +173,7 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
       savedAt: new Date().toISOString(),
     };
     sessionStorage.setItem(SALES_PLAN_EXPLAIN_SESSION_KEY, JSON.stringify(payload));
-    router.push("/marketing/sales-plan/explain?source=work&from=plan_edit");
+    router.push(`${SALES_PLAN_SPA.explain}?source=work&from=work`);
   }, [scenario, draft, metric, router]);
 
   const toggleEditing = (next: boolean) => {

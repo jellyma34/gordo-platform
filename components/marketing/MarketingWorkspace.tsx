@@ -6,7 +6,8 @@ import { useState } from "react";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { InstallmentDduPanel } from "./InstallmentDduPanel";
 import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFilters";
-import { SalesPlanPanel } from "./SalesPlanPanel";
+import { SalesPlanPanel, type PlanScenario } from "./SalesPlanPanel";
+import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 
 type MarketingTab = "sales" | "installment";
 
@@ -14,6 +15,11 @@ type Props = {
   modeLabel: string;
   presentation: boolean;
   onBackToBlocks: () => void;
+  /** Синхронизация с URL при открытии из пояснения. */
+  initialPeriod?: MarketingPeriodGranularity;
+  initialObjectId?: string;
+  initialDealTypeId?: string;
+  initialPlanScenario?: PlanScenario;
 };
 
 function TabButton({
@@ -53,11 +59,19 @@ function TabButton({
   );
 }
 
-export function MarketingWorkspace({ modeLabel, presentation, onBackToBlocks }: Props) {
+export function MarketingWorkspace({
+  modeLabel,
+  presentation,
+  onBackToBlocks,
+  initialPeriod,
+  initialObjectId,
+  initialDealTypeId,
+  initialPlanScenario,
+}: Props) {
   const [tab, setTab] = useState<MarketingTab>("sales");
-  const [period, setPeriod] = useState<MarketingPeriodGranularity>("month");
-  const [objectId, setObjectId] = useState("all");
-  const [dealTypeId, setDealTypeId] = useState("all");
+  const [period, setPeriod] = useState<MarketingPeriodGranularity>(initialPeriod ?? "month");
+  const [objectId, setObjectId] = useState(initialObjectId ?? "all");
+  const [dealTypeId, setDealTypeId] = useState(initialDealTypeId ?? "all");
 
   const outer = presentation
     ? "mx-auto w-full min-w-0 max-w-[1400px] space-y-6"
@@ -113,7 +127,7 @@ export function MarketingWorkspace({ modeLabel, presentation, onBackToBlocks }: 
           </TabButton>
           {!presentation ? (
             <Link
-              href="/marketing/plan/edit"
+              href={SALES_PLAN_SPA.work}
               className="ml-auto inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
             >
               Рабочий режим таблицы
@@ -148,6 +162,7 @@ export function MarketingWorkspace({ modeLabel, presentation, onBackToBlocks }: 
               period={period}
               objectId={objectId}
               dealTypeId={dealTypeId}
+              initialPlanScenario={initialPlanScenario}
             />
           ) : (
             <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />

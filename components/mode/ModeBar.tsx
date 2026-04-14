@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import { useAppMode, type AppMode } from "./ModeProvider";
 
 function modeLabel(mode: AppMode) {
@@ -27,6 +28,26 @@ export function ModeBar() {
       ? pathname.replace("/edit", "")
       : pathname;
 
+  /** План продаж живёт вне /edit и /presentation; иначе ModeBar собирает неверные URL вида /presentation/marketing/... */
+  const isSalesPlanSpa =
+    pathname.startsWith("/marketing/sales-plan") || pathname.startsWith("/marketing/plan/edit");
+
+  const presentationTarget = (() => {
+    if (isSalesPlanSpa) {
+      if (pathname.startsWith(SALES_PLAN_SPA.presentation)) return pathname;
+      return SALES_PLAN_SPA.presentation;
+    }
+    return `/presentation${restPath}`;
+  })();
+
+  const editTarget = (() => {
+    if (isSalesPlanSpa) {
+      if (pathname.startsWith(SALES_PLAN_SPA.work)) return pathname;
+      return SALES_PLAN_SPA.work;
+    }
+    return `/edit${restPath}`;
+  })();
+
   return (
     <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 py-3 sm:gap-3">
@@ -38,7 +59,7 @@ export function ModeBar() {
             type="button"
             onClick={() => {
               setMode("presentation");
-              router.push(`/presentation${restPath}`);
+              router.push(presentationTarget);
             }}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               mode === "presentation"
@@ -52,7 +73,7 @@ export function ModeBar() {
             type="button"
             onClick={() => {
               setMode("edit");
-              router.push(`/edit${restPath}`);
+              router.push(editTarget);
             }}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               mode === "edit"

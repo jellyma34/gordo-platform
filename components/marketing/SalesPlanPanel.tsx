@@ -81,7 +81,7 @@ function executionRevenueConflictMeta(row: {
 
 type ChartMetric = "revenue" | "units" | "area";
 type PlanMode = "view" | "edit";
-type PlanScenario = "optimistic" | "realistic" | "pessimistic";
+export type PlanScenario = "optimistic" | "realistic" | "pessimistic";
 
 const SCENARIO_FACTOR: Record<PlanScenario, number> = {
   optimistic: 1.08,
@@ -1066,15 +1066,17 @@ type Props = {
   period: MarketingPeriodGranularity;
   objectId: string;
   dealTypeId: string;
+  /** Начальный сценарий слайда (из query при переходе из пояснения). */
+  initialPlanScenario?: PlanScenario;
 };
 
-export function SalesPlanPanel({ presentation, period, objectId, dealTypeId }: Props) {
+export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, initialPlanScenario }: Props) {
   const isPresentationMode = presentation;
   const card = presentation ? CARD : CARD_EDIT;
   const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
   const sub = presentation ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
   const [mode, setMode] = useState<PlanMode>("view");
-  const [scenario, setScenario] = useState<PlanScenario>("realistic");
+  const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
   const salesVelocityUid = useId().replace(/:/g, "");
 
   const report = marketingSalesReportMock;
