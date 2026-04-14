@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
 
 import type {
   ExplainMetricDescription,
@@ -30,36 +29,6 @@ type Props = {
 
 const card =
   "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-slate-950/95 p-4 shadow-lg ring-1 ring-white/5 sm:p-5";
-const explainSectionTitleNeutral = "text-[10px] font-bold uppercase tracking-wide text-slate-400";
-
-/** Секция с локальным состоянием: по умолчанию свёрнута (только explain «Темп продаж»). */
-function ExplainCollapsibleSection({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-600/45 bg-slate-950/35 ring-1 ring-white/[0.04]">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 rounded-t-xl px-3 py-2.5 text-left transition-colors hover:bg-slate-800/45"
-      >
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{title}</span>
-        <span
-          className={`select-none text-[11px] leading-none text-slate-500 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
-          aria-hidden
-        >
-          {"\u25BC"}
-        </span>
-      </button>
-      <div
-        className={`overflow-hidden transition-[max-height] duration-300 ease-in-out motion-reduce:transition-none ${open ? "max-h-[min(10000px,200vh)]" : "max-h-0"}`}
-      >
-        <div className="border-t border-slate-700/45 px-3 pb-3 pt-2">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 const kpiSectionIntro: ExplainMetricDescription = {
   whatItIs:
     "Четыре показателя на одном срезе: накопительное и месячное выполнение плана, отклонение за месяц и накопительное отклонение (сделки и выручка). Визуально те же карточки KPI, что на экране плана продаж.",
@@ -179,11 +148,7 @@ export function SalesPlanPresentationExplainView({
             ) : null;
 
           const calculationsBlock =
-            b.id === "salesTempo" && chartExplainBundle && !hasFormulaCards ? (
-              <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                Числа и расшифровка — в блоках непосредственно под каждым графиком ниже.
-              </p>
-            ) : (
+            isSalesTempoExplain ? null : (
               <ul className="mt-2 space-y-1.5 font-mono text-[11px] leading-relaxed text-slate-300">
                 {b.calculationLines.map((line, i) => (
                   <li key={`${b.id}-calc-${i}`} className="border-l-2 border-emerald-500/30 pl-2">
@@ -236,21 +201,13 @@ export function SalesPlanPresentationExplainView({
                   </div>
                 </>
               ) : isSalesTempoExplain ? (
-                <>
-                  <ExplainCollapsibleSection title="Расчёты">
-                    <p className={`mb-2 ${explainSectionTitleNeutral}`}>Текущий срез</p>
-                    {calculationsBlock}
-                  </ExplainCollapsibleSection>
-                  {b.interactive ? (
-                    <div className="mt-4">
-                      <SalesPlanExplainInteractiveSection
-                        block={b}
-                        chartExplainBundle={chartExplainBundle}
-                        dashboardExplainContext={dashboardExplainContext}
-                      />
-                    </div>
-                  ) : null}
-                </>
+                b.interactive ? (
+                  <SalesPlanExplainInteractiveSection
+                    block={b}
+                    chartExplainBundle={chartExplainBundle}
+                    dashboardExplainContext={dashboardExplainContext}
+                  />
+                ) : null
               ) : (
                 <>
                   <h3 className="text-[10px] font-bold uppercase tracking-wide text-emerald-400/90">Числа (текущий срез)</h3>

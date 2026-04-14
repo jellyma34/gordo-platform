@@ -16,8 +16,6 @@ import {
   velocityFooterFromMonthly,
 } from "@/lib/salesPlanVelocityChartData";
 
-import { dec1Fmt } from "@/lib/salesPlanChartFormat";
-
 import { FactVsPlanChart, SalesTempoChart } from "@/components/marketing/salesPlanCharts";
 import { ExplainMetricBlock } from "@/components/marketing/ExplainMetricBlock";
 
@@ -71,31 +69,6 @@ function TempoChartFormulasRow({
   );
 }
 
-function SalesTempoNormFooterStrip({
-  velocityCompletionPct,
-  actualPerMonth,
-  onExplainMetricHover,
-}: {
-  velocityCompletionPct: number;
-  actualPerMonth: number;
-  onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
-}) {
-  return (
-    <div
-      className={`flex min-h-[40px] items-center justify-center gap-x-3 rounded-lg border border-cyan-500/25 bg-slate-950/40 px-3 py-2 text-[10px] font-medium leading-tight text-slate-600 ${onExplainMetricHover ? "cursor-help transition-colors hover:border-cyan-400/40 hover:bg-slate-950/60" : ""}`}
-      onMouseEnter={() => onExplainMetricHover?.("tempoNorm")}
-      onMouseLeave={() => onExplainMetricHover?.(null)}
-    >
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-slate-500" />
-        <span>Факт</span>
-      </span>
-      <span aria-hidden>—</span>
-      <span className="tabular-nums">{velocityCompletionPct}%</span>
-      <span className="font-semibold tabular-nums text-amber-700">{dec1Fmt.format(actualPerMonth)} сделок</span>
-    </div>
-  );
-}
 import {
   SalesPlanExplainStructureBalance,
   SalesPlanExplainUpsellConvChart,
@@ -231,14 +204,6 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
                 </li>
               </ul>
             </div>
-            <div className="mt-3 border-t border-white/10 pt-3">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-sky-200/85">Темп к норме</div>
-              <SalesTempoNormFooterStrip
-                velocityCompletionPct={velocityCompletionPct}
-                actualPerMonth={actualPerMonth}
-                onExplainMetricHover={setActiveMetricId}
-              />
-            </div>
             <TempoChartFormulasRow cards={lineFormulaCards} activeMetricId={activeMetricId} onHoverMetric={setActiveMetricId} />
           </div>
 
@@ -252,10 +217,10 @@ export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, 
               mode="explain"
               rows={barRows}
               valueKind="deals"
-              velocityCompletionPct={velocityCompletionPct}
               activePointId={activeId}
               onPointHover={setActiveId}
               onExplainMetricHover={setActiveMetricId}
+              showBottomLegend={false}
             />
             <div className="mt-3">
               <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Что на графике:</h4>

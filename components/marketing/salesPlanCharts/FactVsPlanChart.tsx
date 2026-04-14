@@ -245,6 +245,8 @@ export type FactVsPlanChartProps = {
   /** Explain «Темп продаж»: связь столбцов/легенды с карточками формул. */
   onExplainMetricHover?: (id: SalesTempoExplainMetricId | null) => void;
   blockExplain?: { dataSources: string[]; formulaLines: string[]; howSection?: string };
+  /** Строка легенды под графиком (факт / % / план). На explain «Темп продаж» отключают — там отдельный текст «Что на графике». */
+  showBottomLegend?: boolean;
   className?: string;
   chartHeightClass?: string;
 };
@@ -259,6 +261,7 @@ export function FactVsPlanChart({
   onPointHover,
   onExplainMetricHover,
   blockExplain,
+  showBottomLegend = true,
   className = "",
   chartHeightClass = "h-[300px]",
 }: FactVsPlanChartProps) {
@@ -592,45 +595,47 @@ export function FactVsPlanChart({
         </aside>
       ) : null}
       </div>
-      <div
-        role="group"
-        aria-label="Легенда графика: факт и план"
-        className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
-      >
+      {showBottomLegend ? (
         <div
-          className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
-          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
-          onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+          role="group"
+          aria-label="Легенда графика: факт и план"
+          className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
         >
-          <span
-            className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
-            style={{
-              background: presentation
-                ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
-                : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
-            }}
-          />
-          <span>{legendFactLabel}</span>
-        </div>
-        {velocityCompletionPct != null ? (
-          <span
-            className={`inline-flex items-center gap-1 tabular-nums ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
-            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("tempoNorm")}
+          <div
+            className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
             onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
           >
-            <span aria-hidden>—</span>
-            <span>{velocityCompletionPct}%</span>
-          </span>
-        ) : null}
-        <div
-          className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
-          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
-          onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
-        >
-          <span className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`} />
-          <span>План</span>
+            <span
+              className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
+              style={{
+                background: presentation
+                  ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
+                  : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
+              }}
+            />
+            <span>{legendFactLabel}</span>
+          </div>
+          {velocityCompletionPct != null ? (
+            <span
+              className={`inline-flex items-center gap-1 tabular-nums ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+              onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("tempoNorm")}
+              onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+            >
+              <span aria-hidden>—</span>
+              <span>{velocityCompletionPct}%</span>
+            </span>
+          ) : null}
+          <div
+            className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
+            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
+            onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
+          >
+            <span className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`} />
+            <span>План</span>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
