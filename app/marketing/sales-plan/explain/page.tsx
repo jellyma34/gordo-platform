@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { SalesPlanPresentationExplainView } from "@/components/marketing/SalesPlanPresentationExplainView";
-import { buildSalesPlanPresentationExplainBlocks } from "@/lib/buildSalesPlanPresentationExplain";
+import {
+  buildSalesPlanChartExplainBundle,
+  buildSalesPlanPresentationExplainBlocks,
+  computeSalesPlanDashboardExplainContext,
+} from "@/lib/buildSalesPlanPresentationExplain";
 import { buildSalesPlanWorkModeExplainBlocks } from "@/lib/buildSalesPlanWorkModeExplain";
 import { marketingSalesReportMock } from "@/lib/marketingSalesReportData";
 import {
@@ -72,9 +76,17 @@ function SalesPlanPresentationExplainPageInner() {
     return `${SALES_PLAN_SPA.presentation}?${q.toString()}`;
   }, [objectId, dealTypeId, periodParam, scenarioParam]);
 
+  const dashboardExplainContext = useMemo(
+    () => computeSalesPlanDashboardExplainContext(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
+    [objectId, dealTypeId, kpiGranularity],
+  );
+  const dashboardChartExplainBundle = useMemo(
+    () => buildSalesPlanChartExplainBundle(dashboardExplainContext),
+    [dashboardExplainContext],
+  );
   const dashboardBlocks = useMemo(
-    () => buildSalesPlanPresentationExplainBlocks(marketingSalesReportMock, objectId, dealTypeId),
-    [objectId, dealTypeId],
+    () => buildSalesPlanPresentationExplainBlocks(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
+    [objectId, dealTypeId, kpiGranularity],
   );
 
   const [workReady, setWorkReady] = useState<{
@@ -139,6 +151,8 @@ function SalesPlanPresentationExplainPageInner() {
         metaLine={metaLine}
         presentationHref={presentationHref}
         kpiItems={explainKpiItems}
+        dashboardExplainContext={null}
+        chartExplainBundle={null}
       />
     );
   }
@@ -151,6 +165,8 @@ function SalesPlanPresentationExplainPageInner() {
       metaLine={`Объект: ${objectId} · Тип сделки: ${dealTypeId}`}
       presentationHref={dashboardPresentationHref}
       kpiItems={explainKpiItems}
+      dashboardExplainContext={dashboardExplainContext}
+      chartExplainBundle={dashboardChartExplainBundle}
     />
   );
 }

@@ -3,7 +3,11 @@
  * Используется страницей пояснений и документацией; расчёты — в buildSalesPlanPresentationExplain.
  */
 
-export type SalesPlanPresentationExplainChartId = "salesTempo" | "structure" | "upsell";
+export type SalesPlanPresentationExplainChartId =
+  | "salesTempo"
+  | "structure"
+  | "upsell"
+  | "rootCauseDeviation";
 
 export const SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS: Record<
   SalesPlanPresentationExplainChartId,
@@ -42,6 +46,19 @@ export const SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS: Record<
       "Экв. шт.: planUnits = planRub / (planRevenue/planUnits_total), factUnits аналогично по факту",
       "Выполнение % = factUnits / planUnits × 100",
       "Доли: planShare_i = planUnits_i / Σ planUnits; deltaShare = factShare − planShare",
+    ],
+  },
+  rootCauseDeviation: {
+    id: "rootCauseDeviation",
+    sources: [
+      "report.rootCauseWaterfall.drivers[] — базовые вклады драйверов (₽), масштабируются к rev.deviationCumulative",
+      "report.series.month|quarter — накопительное отклонение выручки по периодам (тренд)",
+      "Те же расчёты, что в блоке «Разложение отклонения» презентации",
+    ],
+    formulas: [
+      "Δ выручки проекта = factCumulative − planCumulative (накопит.)",
+      "Водопад: runningEnd_i = runningStart_i + impact_i; impact_i — вклад драйвера i в ₽",
+      "Топ структуры: сортировка линеек по Δ ₽ (как в таблице структуры)",
     ],
   },
   upsell: {

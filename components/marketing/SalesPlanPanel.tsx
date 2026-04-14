@@ -16,7 +16,6 @@ import {
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import {
   FactVsPlanChart,
-  FormulaVariablesLegend,
   rechartsPresentationMiniTooltip,
   SalesTempoChart,
   type FormulaVariableEntry,
@@ -51,9 +50,6 @@ const ReferenceDot = dynamic(() => import("recharts").then((m) => m.ReferenceDot
 
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
-
-/** Пояснение для Σ в легендах формул (режим презентации). */
-const PRESENTATION_SIGMA_LEGEND = "сумма по выбранным категориям или периодам";
 
 /** Выполнение по шт. высокое, а выручка ниже плана — типичный конфликт цены/микса. */
 function executionRevenueConflictMeta(row: {
@@ -1190,65 +1186,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     return { rows, maxDelta, axisMaxPp, scaleTicks, maxAbsRub };
   }, [salesStructureBalanceRows]);
   const chartMode: SalesPlanChartMode = presentation ? "presentation" : "work";
-  const velocityLineData = useMemo(() => {
-    const rows = buildVelocityLineRows(monthlyPlanExecutionData);
-    const n = Math.max(1, monthlyPlanExecutionData.length);
-    const totalPlan = monthlyPlanExecutionData.reduce((s, r) => s + r.plan, 0);
-    return rows.map((row, i) => {
-      const passed = i + 1;
-      const factRun = monthlyPlanExecutionData.slice(0, passed).reduce((s, r) => s + r.fact, 0);
-      return {
-        ...row,
-        presentationDetail: {
-          formula:
-            "Плановый темп = сумма плана по всем месяцам периода / число месяцев. Фактический темп = накопленный факт по прошедшим месяцам / число этих месяцев. Отклонение темпов = фактический − плановый; % к плану = отклонение / плановый темп × 100%.",
-          variables: [
-            { symbol: "sum_plan", description: "сумма плановых сделок по всем месяцам горизонта" },
-            { symbol: "N", description: "число месяцев в горизонте плана" },
-            { symbol: "sum_fact_1..k", description: "накопленный факт по сделкам с 1-го по k-й месяц включительно" },
-            { symbol: "k", description: "число прошедших месяцев до выбранной точки включительно" },
-            { symbol: "T_план", description: "плановый темп — sum_plan / N (сделок в месяц)" },
-            { symbol: "T_факт", description: "фактический темп — sum_fact_1..k / k (сделок в месяц)" },
-            { symbol: "Δ_T", description: "отклонение темпов: T_факт − T_план (сделок в месяц)" },
-            { symbol: "%_к_плану", description: "относительное отклонение темпа к плановому: Δ_T / T_план × 100%" },
-          ],
-          sigmaNote: PRESENTATION_SIGMA_LEGEND,
-          calculation: `Накоп. факт ${factRun} за ${passed} мес. → факт. темп ${dec1Fmt.format(row.actualRate)} сделок/мес. Плановый темп ${dec1Fmt.format(row.plannedRate)} (${totalPlan} / ${n}). Δ ${dec1Fmt.format(row.rateDelta)} (${row.rateDeltaPct >= 0 ? "+" : ""}${row.rateDeltaPct.toFixed(1)}%).`,
-          explanation:
-            "Темп — среднее число сделок в месяц: по факту с начала периода до выбранного месяца включительно; плановый темп — равномерная норма из суммарного плана.",
-          interpretation:
-            row.rateDelta >= 0
-              ? "На выбранной дате средний фактический темп не ниже планового."
-              : "На выбранной дате средний фактический темп ниже планового — динамика отстаёт от нормы.",
-        },
-      };
-    });
-  }, [monthlyPlanExecutionData]);
-  const velocityMonthlyBarsData = useMemo(
-    () =>
-      buildVelocityMonthlyBars(monthlyPlanExecutionData).map((row) => {
-        const dev = row.deviation;
-        return {
-          ...row,
-          presentationDetail: {
-            formula: "Отклонение за месяц = факт сделок − план сделок в том же месяце.",
-            variables: [
-              { symbol: "fact_month", description: "фактическое число сделок в выбранном месяце" },
-              { symbol: "plan_month", description: "плановое число сделок в том же месяце" },
-            ],
-            calculation: `Факт ${numFmt.format(row.fact)}, план ${numFmt.format(row.plan)} → отклонение ${dev >= 0 ? "+" : "−"}${numFmt.format(Math.abs(dev))} сделок.`,
-            explanation: "Столбец сравнивает выполнение плана в этом календарном месяце, без накопления по периоду.",
-            interpretation:
-              dev > 0
-                ? "Месяц закрыт с перевыполнением по сделкам."
-                : dev < 0
-                  ? "Месяц закрыт с недовыполнением по сделкам."
-                  : "Факт совпал с планом в этом месяце.",
-          },
-        };
-      }),
-    [monthlyPlanExecutionData],
-  );
+  const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
+  const velocityMonthlyBarsData = useMemo(() => buildVelocityMonthlyBars(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
     return Math.round((velocityMetrics.actualPerMonth / velocityMetrics.planPerMonth) * 100);
@@ -2085,49 +2024,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         </div>
 
         {presentation ? (
-          <div className="mt-4 rounded-xl border border-sky-500/30 bg-slate-950/50 p-3 text-[10px] leading-snug text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-200/85">Темп продаж к норме</div>
-            <p className="mt-0.5 text-[9px] text-slate-500">
-              Тот же показатель, что под графиками: <span className="font-mono text-slate-400">actualPerMonth / planPerMonth</span>.
-            </p>
-            <div className="mt-2">
-              <div className="text-[9px] font-bold uppercase text-slate-500">Формула</div>
-              <p className="mt-0.5 font-mono text-[9px] text-slate-400">actualPerMonth / planPerMonth</p>
-              <FormulaVariablesLegend
-                presentation={presentation}
-                sigmaNote={PRESENTATION_SIGMA_LEGEND}
-                variables={[
-                  {
-                    symbol: "actualPerMonth",
-                    description: "средний фактический темп — сумма факта по прошедшим месяцам, делённая на их число",
-                  },
-                  {
-                    symbol: "planPerMonth",
-                    description: "равномерная норма — сумма плана по горизонту, делённая на число месяцев в горизонте",
-                  },
-                ]}
-              />
-            </div>
-            <div className="mt-2 space-y-1">
-              <div>
-                <span className="font-semibold text-slate-400">Как считается: </span>
-                {velocityMetrics.planPerMonth > 0
-                  ? `${dec1Fmt.format(velocityMetrics.actualPerMonth)} / ${dec1Fmt.format(velocityMetrics.planPerMonth)} \u2248 ${velocityCompletionPct}%`
-                  : `actualPerMonth = ${dec1Fmt.format(velocityMetrics.actualPerMonth)} сделок/мес.; норма месяца не задана (planPerMonth = 0).`}
-              </div>
-              <div>
-                <span className="font-semibold text-slate-400">Почему эта формула: </span>
-                Показывает, соответствует ли текущий средний темп продаж (по уже прошедшим месяцам) равномерной норме, нужной для выполнения суммарного
-                плана по сделкам.
-              </div>
-              <div>
-                <span className="font-semibold text-slate-400">Вывод: </span>
-                {velocityCompletionPct >= 100
-                  ? "Темп достаточный или опережающий."
-                  : "Темп недостаточный, есть риск невыполнения плана при сохранении текущей динамики."}
-              </div>
-            </div>
-          </div>
+          <p className="mt-3 max-w-3xl text-[11px] leading-snug text-slate-400">
+            Скользящий темп к норме месяца: <span className="font-semibold tabular-nums text-slate-200">{velocityCompletionPct}%</span>
+            {velocityCompletionPct >= 100
+              ? " — средний факт по прошедшим месяцам не ниже равномерной нормы по сделкам."
+              : " — при сохранении текущего ритма возможен недобор к суммарному плану по сделкам."}
+          </p>
         ) : null}
 
         <div

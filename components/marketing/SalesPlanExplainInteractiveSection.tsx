@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 
-import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
+import type {
+  SalesPlanChartExplainBundle,
+  SalesPlanDashboardExplainContext,
+  SalesPlanPresentationExplainBlock,
+} from "@/lib/buildSalesPlanPresentationExplain";
 import {
   buildVelocityLineRows,
   buildVelocityMonthlyBars,
@@ -11,8 +15,21 @@ import {
 } from "@/lib/salesPlanVelocityChartData";
 
 import { FactVsPlanChart, SalesTempoChart } from "@/components/marketing/salesPlanCharts";
+import { SalesPlanChartExplainBlock } from "@/components/marketing/SalesPlanChartExplainBlock";
+import {
+  SalesPlanExplainStructureBalance,
+  SalesPlanExplainUpsellConvChart,
+} from "@/components/marketing/SalesPlanExplainDashboardCharts";
 
-export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlanPresentationExplainBlock }) {
+type Props = {
+  block: SalesPlanPresentationExplainBlock;
+  /** Дашборд: пояснения под каждым графиком (те же числа, что в bundle / презентации). */
+  chartExplainBundle?: SalesPlanChartExplainBundle | null;
+  /** Дашборд: контекст расчётов для визуалов баланса и upsell-конверсии. */
+  dashboardExplainContext?: SalesPlanDashboardExplainContext | null;
+};
+
+export function SalesPlanExplainInteractiveSection({ block, chartExplainBundle, dashboardExplainContext }: Props) {
   const interactive = block.interactive;
   const [activeId, setActiveId] = useState<string | null>(null);
   const hasActive = activeId != null;
@@ -34,6 +51,8 @@ export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlan
       : hasActive
         ? "cursor-default rounded-lg border border-transparent px-2 py-2 font-mono text-[11px] leading-relaxed text-slate-400 opacity-30"
         : "cursor-default rounded-lg border border-transparent px-2 py-2 font-mono text-[11px] leading-relaxed text-slate-300";
+
+  const showChartExplains = chartExplainBundle != null;
 
   if (block.id === "salesTempo") {
     const monthlyInputs = interactive.points.map((p) => ({
@@ -81,6 +100,7 @@ export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlan
               onPointHover={setActiveId}
               blockExplain={explainMeta}
             />
+            {showChartExplains ? <SalesPlanChartExplainBlock content={chartExplainBundle.salesTempo} /> : null}
           </div>
           <div
             className={
@@ -96,6 +116,7 @@ export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlan
               onPointHover={setActiveId}
               blockExplain={explainMeta}
             />
+            {showChartExplains ? <SalesPlanChartExplainBlock content={chartExplainBundle.factVsPlanDeals} /> : null}
           </div>
         </div>
 
@@ -124,6 +145,10 @@ export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlan
     detailLine: p.detailLine,
   }));
 
+  const isStructure = block.id === "structure";
+  const isUpsell = block.id === "upsell";
+  const balanceDiagnostic = dashboardExplainContext?.structureBalanceDiagnostic;
+
   return (
     <div className="mt-4 space-y-4" onMouseLeave={() => setActiveId(null)}>
       <p className="text-[11px] leading-snug text-slate-500">
@@ -143,7 +168,26 @@ export function SalesPlanExplainInteractiveSection({ block }: { block: SalesPlan
           onPointHover={setActiveId}
           blockExplain={explainMeta}
         />
+        {showChartExplains ? (
+          <SalesPlanChartExplainBlock
+            content={isStructure ? chartExplainBundle.structureFactVsPlanRub : chartExplainBundle.upsellCategoriesRub}
+          />
+        ) : null}
       </div>
+
+      {isStructure && showChartExplains && balanceDiagnostic ? (
+        <div className="space-y-0">
+          <SalesPlanExplainStructureBalance diagnostic={balanceDiagnostic} />
+          <SalesPlanChartExplainBlock content={chartExplainBundle.structureBalance} />
+        </div>
+      ) : null}
+
+      {isUpsell && showChartExplains && dashboardExplainContext ? (
+        <div className="space-y-0">
+          <SalesPlanExplainUpsellConvChart rows={dashboardExplainContext.up.convCompare} yMax={dashboardExplainContext.up.convChartYMax} />
+          <SalesPlanChartExplainBlock content={chartExplainBundle.upsellConversion} />
+        </div>
+      ) : null}
 
       <div>
         <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">По каждой точке</h4>

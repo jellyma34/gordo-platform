@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 
-import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
+import type {
+  SalesPlanChartExplainBundle,
+  SalesPlanDashboardExplainContext,
+  SalesPlanPresentationExplainBlock,
+} from "@/lib/buildSalesPlanPresentationExplain";
+import { SalesPlanChartExplainBlock } from "@/components/marketing/SalesPlanChartExplainBlock";
 import { SalesPlanExplainInteractiveSection } from "@/components/marketing/SalesPlanExplainInteractiveSection";
+import { SalesPlanExplainRootCauseWaterfall } from "@/components/marketing/SalesPlanExplainDashboardCharts";
 import { KpiDashboard, type KpiDashboardItem } from "@/components/marketing/SalesPlanKpiDashboard";
 
 type Props = {
@@ -14,6 +20,9 @@ type Props = {
   /** Переход к слайдам презентации с сохранением контекста (query). */
   presentationHref?: string | null;
   kpiItems: KpiDashboardItem[];
+  /** Дашборд: единый контекст расчётов (графики + пояснения). */
+  dashboardExplainContext?: SalesPlanDashboardExplainContext | null;
+  chartExplainBundle?: SalesPlanChartExplainBundle | null;
 };
 
 const card =
@@ -26,6 +35,8 @@ export function SalesPlanPresentationExplainView({
   metaLine,
   presentationHref,
   kpiItems,
+  dashboardExplainContext = null,
+  chartExplainBundle = null,
 }: Props) {
   return (
     <main className="min-h-screen bg-[#0f172a] px-3 py-6 text-slate-100 sm:px-4 md:px-6">
@@ -124,6 +135,12 @@ export function SalesPlanPresentationExplainView({
 
             <section className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/50 p-3">
               <h3 className="text-[10px] font-bold uppercase tracking-wide text-emerald-400/90">Числа (текущий срез)</h3>
+              {b.id === "rootCauseDeviation" && chartExplainBundle && dashboardExplainContext ? (
+                <div className="mt-3 space-y-0">
+                  <SalesPlanExplainRootCauseWaterfall snapshot={dashboardExplainContext.rootCauseSnapshot} />
+                  <SalesPlanChartExplainBlock content={chartExplainBundle.rootCauseDeviation} />
+                </div>
+              ) : null}
               <ul className="mt-2 space-y-1.5 font-mono text-[11px] leading-relaxed text-slate-300">
                 {b.calculationLines.map((line, i) => (
                   <li key={`${b.id}-calc-${i}`} className="border-l-2 border-emerald-500/30 pl-2">
@@ -131,7 +148,13 @@ export function SalesPlanPresentationExplainView({
                   </li>
                 ))}
               </ul>
-              {b.interactive ? <SalesPlanExplainInteractiveSection block={b} /> : null}
+              {b.interactive ? (
+                <SalesPlanExplainInteractiveSection
+                  block={b}
+                  chartExplainBundle={chartExplainBundle}
+                  dashboardExplainContext={dashboardExplainContext}
+                />
+              ) : null}
             </section>
 
             <section className="mt-4 border-t border-slate-700/50 pt-4">
