@@ -45,10 +45,19 @@ function TempoChartFormulasRow({
   onHoverMetric: (id: SalesTempoExplainMetricId | null) => void;
 }) {
   if (cards.length === 0) return null;
+  const n = cards.length;
+  const gridClass =
+    n === 1
+      ? "grid grid-cols-1 gap-4"
+      : n === 2
+        ? "grid grid-cols-1 gap-4 md:grid-cols-2"
+        : n === 3
+          ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+          : "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4";
   return (
     <div className="mt-3">
       <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Формулы на этом графике</h4>
-      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-3 sm:overflow-x-auto sm:pb-2">
+      <div className={`mt-2 ${gridClass}`}>
         {cards.map((card, i) => {
           const active = activeMetricId != null && card.metricId === activeMetricId;
           const cardVars =
@@ -61,7 +70,7 @@ function TempoChartFormulasRow({
           return (
             <div
               key={`${card.metricId ?? `card-${i}`}`}
-              className={`min-w-0 flex-1 rounded-lg border border-slate-700/50 bg-slate-950/55 px-3 py-2.5 sm:min-w-[min(100%,300px)] sm:max-w-[340px] sm:shrink-0 ${
+              className={`min-w-0 h-full rounded-lg border border-slate-700/50 bg-slate-950/55 px-3 py-2.5 ${
                 active ? "ring-2 ring-sky-400/75 ring-offset-2 ring-offset-[#0f172a]" : ""
               } ${card.metricId ? "cursor-default" : ""}`}
               onMouseEnter={() => card.metricId != null && onHoverMetric(card.metricId)}
