@@ -8,6 +8,7 @@ import {
   mergeInstallmentPlanFact,
 } from "@/lib/marketingMockData";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
+import { rechartsPresentationMiniTooltip } from "@/components/marketing/salesPlanCharts";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
@@ -99,14 +100,26 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
                 tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}M`}
               />
               <Tooltip
-                formatter={(value: number, name: string) => [moneyFmt.format(value), name === "plan" ? "План" : "Факт"]}
-                contentStyle={{
-                  background: "#0f172a",
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "#e2e8f0" }}
+                cursor={presentation ? { fill: "rgba(148,163,184,0.08)" } : undefined}
+                content={
+                  presentation ? rechartsPresentationMiniTooltip((n) => moneyFmt.format(n), { dataKey: "fact" }) : undefined
+                }
+                formatter={
+                  presentation
+                    ? undefined
+                    : (value, name) => [moneyFmt.format(Number(value)), String(name) === "plan" ? "План" : "Факт"]
+                }
+                contentStyle={
+                  presentation
+                    ? undefined
+                    : {
+                        background: "#0f172a",
+                        border: "1px solid rgba(148,163,184,0.35)",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }
+                }
+                labelStyle={presentation ? undefined : { color: "#e2e8f0" }}
               />
               <Bar dataKey="plan" name="plan" fill={PLAN_FILL} radius={[4, 4, 0, 0]} maxBarSize={40} />
               <Bar dataKey="fact" name="fact" radius={[4, 4, 0, 0]} maxBarSize={40}>

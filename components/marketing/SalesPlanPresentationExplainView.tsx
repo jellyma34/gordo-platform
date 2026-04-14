@@ -89,9 +89,7 @@ export function SalesPlanPresentationExplainView({
                   </li>
                 ))}
               </ul>
-              {b.interactive ? (
-                <SalesPlanExplainInteractiveSection blockId={b.id} interactive={b.interactive} />
-              ) : null}
+              {b.interactive ? <SalesPlanExplainInteractiveSection block={b} /> : null}
             </section>
 
             <section className="mt-4 border-t border-slate-700/50 pt-4">

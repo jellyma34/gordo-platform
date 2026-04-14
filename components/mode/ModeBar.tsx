@@ -48,11 +48,30 @@ export function ModeBar() {
     return `/edit${restPath}`;
   })();
 
+  /** Эти страницы в корневом layout с тёмным UI — шапка режима должна совпадать с презентацией. */
+  const isDarkPresentationChrome =
+    pathname === SALES_PLAN_SPA.presentation || pathname === SALES_PLAN_SPA.explain;
+
+  const barShell = isDarkPresentationChrome
+    ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] backdrop-blur-sm"
+    : "sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur";
+
+  const labelMuted = isDarkPresentationChrome ? "text-slate-300" : "text-slate-700";
+  const labelStrong = isDarkPresentationChrome ? "text-slate-50" : "text-slate-900";
+
+  const btnIdle = isDarkPresentationChrome
+    ? "bg-white/5 text-slate-200 hover:bg-white/10 border border-white/10"
+    : "bg-slate-100 text-slate-700 hover:bg-slate-200";
+
+  const btnActive = isDarkPresentationChrome
+    ? "bg-sky-600 text-white shadow border border-sky-500/50"
+    : "bg-slate-900 text-white shadow";
+
   return (
-    <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
+    <div className={barShell}>
       <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 py-3 sm:gap-3">
-        <div className="text-sm text-slate-700">
-          Режим: <span className="font-semibold text-slate-900">{modeLabel(mode)}</span>
+        <div className={`text-sm ${labelMuted}`}>
+          Режим: <span className={`font-semibold ${labelStrong}`}>{modeLabel(mode)}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -62,9 +81,7 @@ export function ModeBar() {
               router.push(presentationTarget);
             }}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              mode === "presentation"
-                ? "bg-slate-900 text-white shadow"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              mode === "presentation" ? btnActive : btnIdle
             }`}
           >
             Презентация
@@ -76,14 +93,18 @@ export function ModeBar() {
               router.push(editTarget);
             }}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              mode === "edit"
-                ? "bg-slate-900 text-white shadow"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              mode === "edit" ? btnActive : btnIdle
             }`}
           >
             Редактирование
           </button>
-          <UserMenu />
+          <UserMenu
+            className={
+              isDarkPresentationChrome
+                ? "[&_a]:border-white/10 [&_a]:bg-white/5 [&_a]:text-slate-200 [&_a]:hover:bg-white/10 [&_button]:border-white/10 [&_button]:bg-white/5 [&_button]:text-slate-200 [&_button]:hover:bg-white/10"
+                : undefined
+            }
+          />
         </div>
       </div>
     </div>
