@@ -16,8 +16,10 @@ import {
   velocityFooterFromMonthly,
 } from "@/lib/salesPlanVelocityChartData";
 
-import { FactVsPlanChart, SalesTempoChart } from "@/components/marketing/salesPlanCharts";
+import { FactVsPlanChart, FormulaVariablesLegend, SalesTempoChart } from "@/components/marketing/salesPlanCharts";
 import { ExplainMetricBlock } from "@/components/marketing/ExplainMetricBlock";
+
+const tempoCardSectionTitle = "text-[9px] font-bold uppercase tracking-wide text-slate-500";
 
 const TEMPO_LINE_FORMULA_ORDER: readonly SalesTempoExplainMetricId[] = ["sumPlanFact", "planPerMonth", "actualPerMonth", "tempoNorm"];
 const TEMPO_BAR_FORMULA_ORDER: readonly SalesTempoExplainMetricId[] = ["monthlyCompare", "monthlyRatio"];
@@ -46,21 +48,53 @@ function TempoChartFormulasRow({
   return (
     <div className="mt-3">
       <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Формулы на этом графике</h4>
-      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-nowrap sm:gap-3 sm:overflow-x-auto sm:pb-1">
+      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:flex-nowrap sm:items-stretch sm:gap-3 sm:overflow-x-auto sm:pb-2">
         {cards.map((card, i) => {
           const active = activeMetricId != null && card.metricId === activeMetricId;
+          const cardVars =
+            card.variables.length > 0
+              ? card.variables.map((v) => ({
+                  symbol: v.symbol,
+                  description: v.value ? `${v.label} — ${v.value}` : v.label,
+                }))
+              : [{ symbol: "—", description: "Обозначения для этой формулы не требуются." }];
           return (
             <div
               key={`${card.metricId ?? `card-${i}`}`}
-              className={`min-w-0 flex-1 rounded-lg border border-slate-700/50 bg-slate-950/55 px-2.5 py-2 sm:min-w-[168px] sm:shrink-0 ${
+              className={`min-w-0 flex-1 rounded-lg border border-slate-700/50 bg-slate-950/55 px-3 py-2.5 sm:min-w-[min(100%,300px)] sm:max-w-[340px] sm:shrink-0 ${
                 active ? "ring-2 ring-sky-400/75 ring-offset-2 ring-offset-[#0f172a]" : ""
               } ${card.metricId ? "cursor-default" : ""}`}
               onMouseEnter={() => card.metricId != null && onHoverMetric(card.metricId)}
               onMouseLeave={() => onHoverMetric(null)}
             >
               <div className="text-[10px] font-semibold leading-tight text-slate-200">{card.name}</div>
-              <p className="mt-1.5 font-mono text-[9px] leading-snug text-slate-400">{card.formula}</p>
-              <p className="mt-1.5 text-[9px] leading-snug text-slate-300">{card.calculation}</p>
+
+              <div className="mt-2.5">
+                <h5 className={tempoCardSectionTitle}>ФОРМУЛА</h5>
+                <p className="mt-1 font-mono text-[10px] leading-relaxed text-slate-300">{card.formula}</p>
+              </div>
+
+              <div className="mt-2.5">
+                <h5 className={tempoCardSectionTitle}>ОБОЗНАЧЕНИЯ</h5>
+                <div className="mt-1">
+                  <FormulaVariablesLegend variables={cardVars} presentation />
+                </div>
+              </div>
+
+              <div className="mt-2.5">
+                <h5 className={tempoCardSectionTitle}>КАК СЧИТАЕТСЯ</h5>
+                <p className="mt-1 font-mono text-[10px] leading-relaxed text-slate-200">{card.calculation}</p>
+              </div>
+
+              <div className="mt-2.5">
+                <h5 className={tempoCardSectionTitle}>ПОЧЕМУ ЭТА ФОРМУЛА</h5>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{card.whyThisFormula}</p>
+              </div>
+
+              <div className="mt-2.5">
+                <h5 className={tempoCardSectionTitle}>ИНТЕРПРЕТАЦИЯ</h5>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{card.interpretation}</p>
+              </div>
             </div>
           );
         })}

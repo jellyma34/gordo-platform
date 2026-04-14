@@ -112,22 +112,26 @@ function buildWorkModeSalesTempoFormulaDetailCards(
     {
       name: "Сравнение факта и плана по столбцам",
       metricId: "monthlyCompare",
-      formula: "На каждом столбце: отклонение Δ = fact − plan в штуках сделок.",
+      formula:
+        "На каждой колонке графика «Факт vs план» в штуках: рядом отображаются fact_month и plan_month по категории/шагу ряда; совокупное отклонение по снимку Δ = Σ fact_month − Σ plan_month.",
       variables: [
-        { symbol: "Σ fact_month − Σ plan_month", label: "совокупно по ряду", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
+        { symbol: "Σ fact_month", label: "сумма факта по строкам", value: numFmt.format(sumFactMonthU) },
+        { symbol: "Σ plan_month", label: "сумма плана по строкам", value: numFmt.format(sumPlanMonthU) },
+        { symbol: "Δ", label: "Σ факт − Σ план", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
       ],
-      calculation: `Совокупно по таблице: ${numFmt.format(sumFactMonthU)} − ${numFmt.format(sumPlanMonthU)} = ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
+      calculation: `Совокупно по таблице: ${numFmt.format(sumFactMonthU)} − ${numFmt.format(sumPlanMonthU)} = ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. На каждом столбце то же сравнение в паре «серый план / жёлтый факт» для своей категории. ${sliceNote}`,
       whyThisFormula:
-        "Столбчатый график сравнивает пару «план / факт» на каждом шаге — так видно, где именно отставание или перевыполнение.",
+        "Помесячное (покатегорийное) сравнение показывает, где именно «просели» или перевыполнили план, в отличие от одной средней линии темпа по всему ряду.",
       interpretation:
         monthDevU >= 0
-          ? "Совокупно факт не ниже плана — отдельные столбцы всё равно могут проседать; смотрите максимальные минусы."
-          : "Совокупно факт ниже плана — приоритет на столбцы с наибольшим отрицательным отклонением.",
+          ? "Совокупно факт не ниже плана — отдельные столбцы всё равно могут проседать; смотрите категории с наибольшим отрицательным зазором."
+          : "Совокупно факт ниже плана — приоритет на категории и периоды с наибольшим отрицательным отклонением на столбцах.",
     },
     {
       name: "Доля факта к плану (совокупно)",
       metricId: "monthlyRatio",
-      formula: "Доля (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0.",
+      formula:
+        "Совокупная доля выполнения в штуках (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0; по одному столбцу в отчёте аналогично: fact_month / plan_month × 100%.",
       variables: [
         {
           symbol: "Σ fact / Σ plan",
