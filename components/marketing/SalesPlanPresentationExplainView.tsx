@@ -217,21 +217,13 @@ export function SalesPlanPresentationExplainView({
               </section>
             ) : null}
 
-            {formulaBlock ? (
-              isSalesTempoExplain ? (
-                <div className="mt-4">
-                  <ExplainCollapsibleSection title="Формулы">
-                    {formulaBlock}
-                  </ExplainCollapsibleSection>
-                </div>
-              ) : (
-                <section className="mt-4">
-                  <h3 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    {hasFormulaCards ? "Формулы и расчёты" : "Формулы"}
-                  </h3>
-                  <div className="mt-2">{formulaBlock}</div>
-                </section>
-              )
+            {formulaBlock && !isSalesTempoExplain ? (
+              <section className="mt-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  {hasFormulaCards ? "Формулы и расчёты" : "Формулы"}
+                </h3>
+                <div className="mt-2">{formulaBlock}</div>
+              </section>
             ) : null}
 
             <section className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/50 p-3">

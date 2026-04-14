@@ -834,39 +834,23 @@ export function buildSalesPlanChartExplainBundle(ctx: SalesPlanDashboardExplainC
       interpretation: "",
       formulaSectionFooter:
         velocityCompletionPct >= 100
-          ? "Итог по линии: скользящий средний темп не ниже ровной нормы — контролируйте провалы по отдельным месяцам, чтобы не сорвать запас."
-          : "Итог по линии: скользящий темп ниже нормы — усиливайте закрытие в слабых месяцах на графике «Факт vs план».",
+          ? "Итог по линии: средний факт по графику не ниже ровной нормы — следите за слабыми месяцами на столбиках «Факт vs план»."
+          : "Итог по линии: средний факт ниже нормы — усиливайте закрытие там, где столбцы факта отстают от плана.",
       formulaDetailCards: [
         {
-          name: "Суммы плана и факта по помесячному ряду",
+          name: "Суммы по помесячному ряду (сделки)",
           metricId: "sumPlanFact",
-          formula: "Σ plan = Σ (план сделок по каждому месяцу горизонта); Σ fact = Σ (факт сделок по каждому месяцу).",
+          formula: "Σ plan_month = сумма плановых сделок по всем месяцам горизонта; Σ fact_month = сумма фактических сделок по тем же месяцам.",
           variables: [
-            { symbol: "Σ plan", label: "сумма планов по всем месяцам ряда", value: numFmt.format(sumPlan) },
-            { symbol: "Σ fact", label: "сумма фактов по всем месяцам ряда", value: numFmt.format(sumFact) },
-            { symbol: "N", label: "число месяцев в горизонте", value: String(totalMonths) },
+            { symbol: "Σ plan_month", label: "сумма планов по месяцам", value: numFmt.format(sumPlan) },
+            { symbol: "Σ fact_month", label: "сумма фактов по месяцам", value: numFmt.format(sumFact) },
+            { symbol: "N", label: "число месяцев в ряду", value: String(totalMonths) },
           ],
-          calculation: `По текущему срезу: Σ plan = ${numFmt.format(sumPlan)} сделок, Σ fact = ${numFmt.format(sumFact)} сделок (сумма столбцов помесячного ряда). ${sliceNote}`,
+          calculation: `Σ plan_month = ${numFmt.format(sumPlan)} сделок, Σ fact_month = ${numFmt.format(sumFact)} сделок (как сумма столбцов на графике «Факт vs план»). ${sliceNote}`,
           whyThisFormula:
-            "Без сумм по ряду нельзя ни сравнить год в целом, ни вывести равномерную норму месяца и сводный процент выполнения — это база для линии темпа и столбчатого графика.",
+            "Эти суммы задают масштаб года по сделкам и нужны, чтобы построить ровную норму месяца и линию скользящего факта на графике «Темп по месяцам».",
           interpretation:
-            "Если Σ fact заметно ниже Σ plan, год «в целом» недобирает; отдельные сильные месяцы могут маскировать слабые — смотрите и свод, и помесячные столбцы.",
-        },
-        {
-          name: "Сводное выполнение за горизонт (кумулятив)",
-          metricId: "ratio",
-          formula: "Выполнение по сумме столбцов (%) = Σ fact / Σ plan × 100%.",
-          variables: [
-            { symbol: "Σ fact / Σ plan", label: "свод по ряду", value: `${numFmt.format(sumFact)} / ${numFmt.format(sumPlan)}` },
-            { symbol: "Свод, %", label: "отношение суммы фактов к сумме планов", value: `${ratioSum}%` },
-          ],
-          calculation: `Σ fact / Σ plan = ${numFmt.format(sumFact)} / ${numFmt.format(sumPlan)} = ${ratioSum}% — одна цифра «за весь ряд» рядом с анализом темпа. ${sliceNote}`,
-          whyThisFormula:
-            "Кумулятивный процент показывает, закрываем ли суммарный помесячный план по сделкам за весь горизонт, не усредняя искусственно по времени.",
-          interpretation:
-            Number(ratioSum) >= 100
-              ? "Свод не ниже 100%: суммарный факт по месяцам не проигрывает сумме планов — «штучный» объём года в целом выдержан."
-              : `Свод ${ratioSum}%: до полной суммы планов не хватает закрытий по месяцам — это согласуется с линией скользящего темпа, если он ниже нормы.`,
+            "Сравнивайте помесячные столбцы: где факт стабильно ниже плана, там формируется отставание, даже если отдельные месяцы сильные.",
         },
         {
           name: "Норма месяца (ровный темп)",
@@ -941,9 +925,9 @@ export function buildSalesPlanChartExplainBundle(ctx: SalesPlanDashboardExplainC
       whyThisResult: "",
       interpretation: "",
       formulaSectionFooter:
-        Number(ratioSum) >= 100
-          ? "Итог по столбцам: суммарно факт не ниже суммы планов — контролируйте месяцы с минусом, чтобы не потерять запас."
-          : `Итог по столбцам: свод ${ratioSum}% — закрывайте отставание в самых слабых месяцах.`,
+        monthDeviation >= 0
+          ? "Итог по столбцам: в отчётном месяце факт не ниже плана — держите этот уровень в следующих периодах."
+          : "Итог по столбцам: в отчётном месяце факт ниже плана — усильте закрытие в периодах с наибольшим отставанием столбцов.",
       formulaDetailCards: [
         {
           name: "Помесячное сравнение (столбцы)",
@@ -965,7 +949,7 @@ export function buildSalesPlanChartExplainBundle(ctx: SalesPlanDashboardExplainC
           interpretation:
             monthDeviation >= 0
               ? "В выбранном отчётном месяце факт не ниже плана — локально план по штукам выдержан или перевыполнен."
-              : "В отчётном месяце факт ниже плана — это вклад в отставание по году, даже если свод по году ещё зелёный.",
+              : "В отчётном месяце факт ниже плана — это сигнал усилить закрытие в этом и соседних периодах на графике столбцов.",
         },
         {
           name: "Месячное выполнение в процентах",
@@ -988,36 +972,6 @@ export function buildSalesPlanChartExplainBundle(ctx: SalesPlanDashboardExplainC
               : Number(reportMonthExecPct) >= 100
                 ? "Месяц не ниже 100% к плану — оперативный результат по штукам в норме или лучше."
                 : `Месяц ${reportMonthExecPct}% к плану — локальный недобор по сделкам в этом календарном месяце.`,
-        },
-        {
-          name: "Свод Σ fact / Σ plan по всему ряду",
-          metricId: "ratio",
-          formula: "Свод (%) = Σ fact / Σ plan × 100% — отношение сумм по всем месяцам столбчатого графика.",
-          variables: [
-            { symbol: "Σ fact", label: "сумма фактов", value: numFmt.format(sumFact) },
-            { symbol: "Σ plan", label: "сумма планов", value: numFmt.format(sumPlan) },
-            { symbol: "Свод, %", label: "исполнение по сумме столбцов", value: `${ratioSum}%` },
-          ],
-          calculation: `Σ fact / Σ plan = ${numFmt.format(sumFact)} / ${numFmt.format(sumPlan)} = ${ratioSum}%. ${sliceNote}`,
-          whyThisFormula:
-            "Столбчатый график по месяцам и этот свод отвечают на разные вопросы: «где провалы» vs «что в сумме за год» — оба нужны для решений.",
-          interpretation:
-            Number(ratioSum) >= 100
-              ? "Суммарно по столбцам план по сделкам не проигран — но отдельные слабые месяцы всё равно требуют действий."
-              : `Свод ${ratioSum}%: сумма фактов отстаёт от суммы планов — усиливайте закрытие в месяцах с наибольшим отрицательным Δ.`,
-        },
-        {
-          name: "Как читать пару столбцов на графике",
-          metricId: "barRead",
-          formula: "Два столбца на месяц: план (опорная высота) и факт (фактическое закрытие); визуально сравниваются высоты.",
-          variables: [
-            { symbol: "Высоты", label: "смысл", value: "факт выше плана — перевыполнение месяца; ниже — недобор по штукам" },
-          ],
-          calculation: `Для ${monthlyPlanExecutionData[currentMonthIdx]?.label ?? "отчётного месяца"} сопоставьте высоту столбца факта (${numFmt.format(monthFact)}) с планом (${numFmt.format(planReportMonth)}). ${sliceNote}`,
-          whyThisFormula:
-            "Бар-чарт заточен под быстрый менеджерский взгляд: где план и факт расходятся больше всего — там оперативный фокус.",
-          interpretation:
-            "Используйте столбцы для тактики (какой месяц «лечить»), а линию темпа — для стратегии года (держим ли средний темп относительно нормы).",
         },
       ],
     },
@@ -1213,7 +1167,7 @@ export function buildSalesPlanPresentationExplainBlocks(
       `Суммарный план по сделкам: ${numFmt.format(sumPlan)}; накопленный факт на дату отчёта: ${numFmt.format(currentFact)}.`,
       `Ровная норма: ${dec1.format(planPerMonth)} сделок/мес.; скользящий средний факт: ${dec1.format(actualPerMonth)} сделок/мес.; к норме: ${velocityCompletionPct}%.`,
       `Отчётный месяц: факт ${numFmt.format(monthFact)}, план ${numFmt.format(monthlyPlanExecutionData[currentMonthIdx]?.plan ?? 0)} (${monthlyPlanExecutionData[currentMonthIdx]?.periodKey ?? "—"}).`,
-      `Свод по столбцам года: ${numFmt.format(sumFact)} к ${numFmt.format(sumPlan)} → ${ratioSum}% к сумме планов.`,
+      `По помесячному ряду (столбцы): Σ plan_month = ${numFmt.format(sumPlan)}; Σ fact_month = ${numFmt.format(sumFact)} сделок.`,
     ],
     howSection:
       "Слева — линия темпа по месяцам (ровная норма из годового плана и скользящий средний факт) и блок «темп к норме» под графиком. Справа — помесячное сравнение факта и плана по числу сделок. Под каждым графиком — пояснение в той же структуре, что у KPI.",

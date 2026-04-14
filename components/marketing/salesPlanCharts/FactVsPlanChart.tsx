@@ -599,7 +599,7 @@ export function FactVsPlanChart({
       >
         <div
           className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
-          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("barRead")}
+          onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
           onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
         >
           <span
@@ -615,7 +615,7 @@ export function FactVsPlanChart({
         {velocityCompletionPct != null ? (
           <span
             className={`inline-flex items-center gap-1 tabular-nums ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
-            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("ratio")}
+            onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("tempoNorm")}
             onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
           >
             <span aria-hidden>—</span>

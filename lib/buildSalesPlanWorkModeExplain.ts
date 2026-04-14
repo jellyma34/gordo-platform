@@ -32,111 +32,122 @@ function buildWorkModeSalesTempoFormulaDetailCards(
   sumPlanMonthU: number,
   sumFactMonthU: number,
   monthRatioU: string,
-  sumPlanCumU: number,
-  sumFactCumU: number,
-  cumPctU: number,
-  sumPlanMonthR: number,
-  sumFactMonthR: number,
-  monthRatioR: string,
-  sumPlanCumR: number,
-  sumFactCumR: number,
-  cumPctR: number,
   tempoWorkPoints: SalesPlanExplainInteractivePoint[],
 ): { formulaDetailCards: ExplainFormulaDetailCard[]; formulaSectionFooter: string } {
   const { scenario, savedAt, metricTab } = payload;
   const sliceNote = `Сценарий: ${scenarioLabel} (${scenario}). Снимок: ${savedAt}. Вкладка метрик при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`;
   const monthDevU = sumFactMonthU - sumPlanMonthU;
-  const first = tempoWorkPoints[0];
+  const n = Math.max(1, tempoWorkPoints.length);
+  const planPerMonth = sumPlanMonthU / n;
+  const actualPerMonth = sumFactMonthU / n;
+  const velocityCompletionPct = planPerMonth > 0 ? Math.round((actualPerMonth / planPerMonth) * 100) : 0;
 
   const formulaDetailCards: ExplainFormulaDetailCard[] = [
     {
-      name: "Суммы плана и факта по таблице (текущий месяц, шт.)",
-      formula: "Σ plan_month = сумма planMonth по всем категориям (1к … коммерция); Σ fact_month = сумма factMonth по тем же строкам.",
+      name: "Суммы плана и факта (штуки, таблица)",
+      metricId: "sumPlanFact",
+      formula: "Σ plan_month = сумма planMonth по строкам таблицы; Σ fact_month = сумма factMonth по тем же строкам.",
       variables: [
-        { symbol: "Σ plan_month", label: "план текущего месяца, шт.", value: numFmt.format(sumPlanMonthU) },
-        { symbol: "Σ fact_month", label: "факт текущего месяца, шт.", value: numFmt.format(sumFactMonthU) },
-        { symbol: "Δ мес.", label: "факт − план", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
+        { symbol: "Σ plan_month", label: "план, шт.", value: numFmt.format(sumPlanMonthU) },
+        { symbol: "Σ fact_month", label: "факт, шт.", value: numFmt.format(sumFactMonthU) },
+        { symbol: "Δ", label: "факт − план", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
       ],
-      calculation: `По снимку: Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → отклонение ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
+      calculation: `Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → Δ ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
       whyThisFormula:
-        "В рабочем режиме нет календарного помесячного ряда отчёта — оперативный «темп месяца» в штуках задаётся суммой строк вашей таблицы по выбранному сценарию.",
+        "Сумма по строкам таблицы задаёт масштаб сделок на снимке — те же величины, что складываются в столбцы «Факт vs план» в этом блоке.",
       interpretation:
         monthDevU >= 0
-          ? "По сумме категорий факт месяца не ниже плана в штуках — базовый оперативный сигнал неотрицательный."
-          : "По сумме категорий факт месяца ниже плана в штуках — смотрите линейки с наибольшим отставанием в списке точек ниже.",
+          ? "Совокупный факт не ниже совокупного плана по штукам — базовый сигнал по объёму неотрицательный."
+          : "Совокупный факт ниже плана по штукам — смотрите столбцы графика, где отставание больше всего.",
     },
     {
-      name: "Доля выполнения месяца (шт.)",
-      formula: "Месяц (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0.",
+      name: "Ровная норма на шаг ряда (план)",
+      metricId: "planPerMonth",
+      formula: "planPerMonth = Σ plan_month / N — равномерная норма сделок на один шаг ряда (здесь N = число строк/столбцов в графике).",
+      variables: [
+        { symbol: "Σ plan_month", label: "сумма плана", value: numFmt.format(sumPlanMonthU) },
+        { symbol: "N", label: "число шагов", value: String(n) },
+        { symbol: "planPerMonth", label: "норма, сделок/шаг", value: dec1.format(planPerMonth) },
+      ],
+      calculation: `planPerMonth = ${numFmt.format(sumPlanMonthU)} / ${n} = ${dec1.format(planPerMonth)} сделок. ${sliceNote}`,
+      whyThisFormula:
+        "Горизонталь на графике «Темп по месяцам» — это ровная норма: к чему сравнивается скользящий факт по шагам ряда.",
+      interpretation:
+        "Если столбцы часто ниже этой логики нормы по шагам, линия факта обычно окажется под пунктиром нормы.",
+    },
+    {
+      name: "Скользящий средний факт по шагам",
+      metricId: "actualPerMonth",
+      formula: "actualPerMonth = (сумма факта с 1-го по k-й шаг) / k; на последнем шаге k = N совпадает с Σ fact_month / N при полном ряду.",
+      variables: [
+        { symbol: "Σ fact_month", label: "сумма факта", value: numFmt.format(sumFactMonthU) },
+        { symbol: "N", label: "число шагов", value: String(n) },
+        { symbol: "actualPerMonth", label: "средний факт", value: dec1.format(actualPerMonth) },
+      ],
+      calculation: `На полном ряду: ${numFmt.format(sumFactMonthU)} / ${n} = ${dec1.format(actualPerMonth)} сделок. ${sliceNote}`,
+      whyThisFormula:
+        "Цветная линия на графике показывает накопленный средний факт — насколько вы тянете плановую планку по мере прохождения ряда.",
+      interpretation:
+        actualPerMonth >= planPerMonth * 0.995
+          ? "Средний факт у нормы или выше — линия держится у горизонтали плана."
+          : "Средний факт ниже нормы — без усиления закрытия общий план по штукам под угрозой.",
+    },
+    {
+      name: "Темп к норме",
+      metricId: "tempoNorm",
+      formula: "tempo = actualPerMonth / planPerMonth × 100% (округление до целого в индикаторе).",
+      variables: [
+        { symbol: "actualPerMonth", label: "средний факт", value: dec1.format(actualPerMonth) },
+        { symbol: "planPerMonth", label: "норма", value: dec1.format(planPerMonth) },
+        { symbol: "% к норме", label: "темп", value: `${velocityCompletionPct}%` },
+      ],
+      calculation: `${dec1.format(actualPerMonth)} / ${dec1.format(planPerMonth)} × 100% = ${velocityCompletionPct}%. ${sliceNote}`,
+      whyThisFormula:
+        "Один процент отвечает на вопрос: «в среднем дотягиваем ли до плановой планки на шаг ряда».",
+      interpretation:
+        velocityCompletionPct >= 100
+          ? "Не ниже 100% к норме — средний темп не проигрывает ровному плану."
+          : `Ниже 100% — средний темп отстаёт; усильте закрытие на слабых столбцах «Факт vs план».`,
+    },
+    {
+      name: "Сравнение факта и плана по столбцам",
+      metricId: "monthlyCompare",
+      formula: "На каждом столбце: отклонение Δ = fact − plan в штуках сделок.",
+      variables: [
+        { symbol: "Σ fact_month − Σ plan_month", label: "совокупно по ряду", value: `${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))}` },
+      ],
+      calculation: `Совокупно по таблице: ${numFmt.format(sumFactMonthU)} − ${numFmt.format(sumPlanMonthU)} = ${monthDevU >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDevU))} шт. ${sliceNote}`,
+      whyThisFormula:
+        "Столбчатый график сравнивает пару «план / факт» на каждом шаге — так видно, где именно отставание или перевыполнение.",
+      interpretation:
+        monthDevU >= 0
+          ? "Совокупно факт не ниже плана — отдельные столбцы всё равно могут проседать; смотрите максимальные минусы."
+          : "Совокупно факт ниже плана — приоритет на столбцы с наибольшим отрицательным отклонением.",
+    },
+    {
+      name: "Доля факта к плану (совокупно)",
+      metricId: "monthlyRatio",
+      formula: "Доля (%) = Σ fact_month / Σ plan_month × 100% при Σ plan_month > 0.",
       variables: [
         {
-          symbol: "Σ fact / Σ план",
-          label: "штуки за месяц",
+          symbol: "Σ fact / Σ plan",
+          label: "штуки",
           value: `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)}`,
         },
-        { symbol: "Месяц, %", label: "факт к плану", value: `${monthRatioU}%` },
+        { symbol: "%", label: "факт к плану", value: `${monthRatioU}%` },
       ],
       calculation:
         sumPlanMonthU > 0
           ? `${numFmt.format(sumFactMonthU)} / ${numFmt.format(sumPlanMonthU)} × 100% = ${monthRatioU}%. ${sliceNote}`
-          : `План месяца в штуках = 0 — долю не считаем. ${sliceNote}`,
+          : `План в штуках = 0 — долю не считаем. ${sliceNote}`,
       whyThisFormula:
-        "Процент даёт тот же смысл, что и на презентации: один взгляд — закрыли ли месяц относительно суммарного плана строк таблицы.",
+        "Процент по совокупным штукам даёт быстрый ответ: закрыли ли вы объём относительно суммарного плана строк.",
       interpretation:
         sumPlanMonthU <= 0
-          ? "Нулевой план в штуках на месяц — ориентируйтесь на абсолютный факт и на выручку."
+          ? "Нулевой план — ориентируйтесь на абсолютный факт и на отдельные столбцы."
           : Number(monthRatioU) >= 100
-            ? "Не ниже 100% по сумме категорий — месячный темп в штуках выдержан или перевыполнен."
-            : `Месяц ${monthRatioU}% к суммарному плану — оперативный недобор по штукам в таблице.`,
-    },
-    {
-      name: "Накопительно по штукам (все категории)",
-      formula: "Свод (нак., %) = Σ fact_cum / Σ plan_cum × 100% — накопительные поля по строкам после формулы факта в таблице.",
-      variables: [
-        { symbol: "Σ plan_нак.", label: "план нарастающим", value: numFmt.format(sumPlanCumU) },
-        { symbol: "Σ fact_нак.", label: "факт нарастающим", value: numFmt.format(sumFactCumU) },
-        { symbol: "Свод, %", label: "исполнение", value: `${cumPctU}%` },
-      ],
-      calculation: `Σ fact_нак. / Σ plan_нак. = ${numFmt.format(sumFactCumU)} / ${numFmt.format(sumPlanCumU)} = ${cumPctU}%. ${sliceNote}`,
-      whyThisFormula:
-        "Накопительный процент отвечает на вопрос «как идёт год к плану по штукам» на дату снимка, даже без слайда презентации.",
-      interpretation:
-        cumPctU >= 100
-          ? "Накопительно по штукам не ниже плана в сумме строк — задел по «штукам» на дату черновика выдержан."
-          : `Свод ${cumPctU}%: накопленный факт отстаёт от суммарного плана категорий — нужен догон по месяцам или слабым линейкам.`,
-    },
-    {
-      name: "Выручка: месяц и накопительно",
-      formula: "Те же суммы и отношения для revenue[*].planMonth / factMonth и накопительных план/факт по выручке.",
-      variables: [
-        { symbol: "Месяц, % (руб.)", label: "факт/план по выручке", value: `${monthRatioR}%` },
-        { symbol: "Σ plan_нак. (руб.)", label: "план накопительно", value: compactRub(sumPlanCumR) },
-        { symbol: "Σ fact_нак. (руб.)", label: "факт накопительно", value: compactRub(sumFactCumR) },
-        { symbol: "Свод (руб.), %", label: "исполнение", value: `${cumPctR}%` },
-      ],
-      calculation: `Месяц: ${compactRub(sumFactMonthR)} / ${compactRub(sumPlanMonthR)} → ${monthRatioR}%. Накопительно: ${compactRub(sumFactCumR)} / ${compactRub(sumPlanCumR)} → ${cumPctR}%. ${sliceNote}`,
-      whyThisFormula:
-        "Штуки и рубли могут расходиться из‑за микса и среднего чека — дублируем логику для выручки, как в подсказках рабочего плана.",
-      interpretation:
-        cumPctR >= 100 && cumPctU >= 100
-          ? "И по рублям, и по штукам накопительно не хуже плана — темп согласован с деньгами."
-          : `Накопительно выручка ${cumPctR}% при штуках ${cumPctU}% — проверьте структуру и средний чек в таблице.`,
-    },
-    {
-      name: "Строки категорий (сравнение план / факт)",
-      formula: "В каждой строке: planMonth и factMonth как пара «план / факт»; наведение в explain подсвечивает ту же пару на упрощённом графике.",
-      variables: first
-        ? [
-            { symbol: "Пример", label: first.label, value: `план ${numFmt.format(first.plan)}, факт ${numFmt.format(first.fact)}` },
-          ]
-        : [],
-      calculation: first
-        ? `${first.detailLine}. Всего категорий в блоке: ${tempoWorkPoints.length}. ${sliceNote}`
-        : `Нет строк категорий. ${sliceNote}`,
-      whyThisFormula:
-        "Интерактив explain повторяет логику «факт vs план», но строит ряд из строк таблицы, а не календарных месяцев отчёта.",
-      interpretation:
-        "Ищите категории, где factMonth заметно ниже planMonth — они формируют оперативный недобор по сумме строк.",
+            ? "Не ниже 100% — совокупный факт не проигрывает плану."
+            : `Меньше 100% — совокупный недобор; усиливайте закрытие.`,
     },
   ];
 
@@ -179,20 +190,16 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
   }
 
   const monthRatioU = sumPlanMonthU > 0 ? ((sumFactMonthU / sumPlanMonthU) * 100).toFixed(1) : "—";
-  const monthRatioR = sumPlanMonthR > 0 ? ((sumFactMonthR / sumPlanMonthR) * 100).toFixed(1) : "—";
-  const cumPctU = sumPlanCumU > 0 ? Math.round((sumFactCumU / sumPlanCumU) * 100) : 0;
-  const cumPctR = sumPlanCumR > 0 ? Math.round((sumFactCumR / sumPlanCumR) * 100) : 0;
 
   const tempoWorkPoints: SalesPlanExplainInteractivePoint[] = SALES_PLAN_CATEGORY_IDS.map((id) => {
     const u = slice.units[id];
-    const du = deriveSalesPlanRow(u);
     const dev = u.factMonth - u.planMonth;
     return {
       pointId: `work-tempo:${id}`,
       label: SALES_PLAN_CATEGORY_LABELS[id],
       plan: u.planMonth,
       fact: u.factMonth,
-      detailLine: `${SALES_PLAN_CATEGORY_LABELS[id]} (шт.): план мес. ${numFmt.format(u.planMonth)}, факт мес. ${numFmt.format(u.factMonth)}, план нак. ${numFmt.format(u.planCumulative)}, факт нак. ${numFmt.format(du.factCumulative)}; Δ мес. ${numFmt.format(dev)}`,
+      detailLine: `${SALES_PLAN_CATEGORY_LABELS[id]}: план ${numFmt.format(u.planMonth)} шт., факт ${numFmt.format(u.factMonth)} шт., Δ ${dev >= 0 ? "+" : "−"}${numFmt.format(Math.abs(dev))} шт.`,
     };
   });
 
@@ -202,15 +209,6 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     sumPlanMonthU,
     sumFactMonthU,
     monthRatioU,
-    sumPlanCumU,
-    sumFactCumU,
-    cumPctU,
-    sumPlanMonthR,
-    sumFactMonthR,
-    monthRatioR,
-    sumPlanCumR,
-    sumFactCumR,
-    cumPctR,
     tempoWorkPoints,
   );
 
@@ -230,19 +228,16 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     calculationLines: [
       `Сценарий: ${scenarioLabel} (${scenario}). Активная метрика в таблице при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}.`,
       `Снимок: ${savedAt} (черновик, без кэша сервера).`,
-      `Шт.: Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → ${monthRatioU}% (факт/план месяца).`,
-      `Шт.: Σ plan_нак. = ${numFmt.format(sumPlanCumU)}, Σ fact_нак. = ${numFmt.format(sumFactCumU)} → ${cumPctU}% выполнения.`,
-      `Выручка: Σ plan_month = ${compactRub(sumPlanMonthR)}, Σ fact_month = ${compactRub(sumFactMonthR)} → ${monthRatioR}%.`,
-      `Выручка: Σ plan_нак. = ${compactRub(sumPlanCumR)}, Σ fact_нак. = ${compactRub(sumFactCumR)} → ${cumPctR}% выполнения.`,
+      `Шт.: Σ plan_month = ${numFmt.format(sumPlanMonthU)}, Σ fact_month = ${numFmt.format(sumFactMonthU)} → ${monthRatioU}% (факт/план по сумме строк).`,
     ],
     howSection:
       "В рабочем режиме нет помесячного ряда как на слайде презентации: темп показывается как сумма по категориям за «текущий месяц» в таблице (plan_month / fact_month) и накопительные итоги по штукам и выручке после формулы факта.",
     whySection:
       Number(monthRatioU) >= 100
-        ? "По сумме категорий факт месяца не ниже плана — темп месяца выдержан; накопительный % показывает, тянется ли весь объём к плану на дату."
+        ? "По сумме строк таблицы факт не ниже плана в штуках — оперативный объём выдержан."
         : Number(monthRatioU) >= 95
-          ? "Небольшой недобор по сумме plan_month категорий — темп близок к целевому; проверьте отдельные линейки в таблице."
-          : "Факт месяца по сумме категорий ниже плана — это тот же сигнал, что и «просадка темпа» на презентации, но на уровне агрегата рабочей таблицы.",
+          ? "Небольшой недобор по сумме plan_month — темп близок к целевому; проверьте столбцы с отставанием на графике."
+          : "Факт по сумме строк ниже плана — усильте закрытие там, где столбцы «Факт vs план» дают наибольший минус.",
   };
 
   const planAvgDeal = sumPlanCumR / Math.max(1, sumPlanCumU);
