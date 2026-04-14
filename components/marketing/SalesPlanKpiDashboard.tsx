@@ -338,28 +338,6 @@ export function KpiDashboard({
                 >
                   {kpi.description}
                 </p>
-                {mode === "presentation" ? (
-                  <div className="mt-3 space-y-1.5 border-t border-white/10 pt-2.5 text-[10px] leading-snug text-slate-300/90">
-                    <div className="text-[10px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
-                    <FormulaVariablesLegend
-                      variables={kpi.tooltip.variables}
-                      sigmaNote={kpi.tooltip.sigmaNote}
-                      presentation={presentationLike}
-                    />
-                    <div>
-                      <span className="font-semibold text-slate-400">Как считается: </span>
-                      {kpi.tooltip.calculation}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-slate-400">Почему эта формула: </span>
-                      {kpi.tooltip.explanation}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-slate-400">Вывод: </span>
-                      {kpi.tooltip.interpretation}
-                    </div>
-                  </div>
-                ) : null}
               </div>
               {mode !== "explain" ? (
                 <div
@@ -371,26 +349,30 @@ export function KpiDashboard({
                 >
                   <div className="text-[12px] font-semibold leading-tight">{kpi.title}</div>
                   <div className="mt-1 text-[12px] leading-snug text-slate-300">{kpi.tooltip.metricMeaning}</div>
-                  <div className="mt-1 text-[11px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
-                  <FormulaVariablesLegend
-                    variables={kpi.tooltip.variables}
-                    sigmaNote={kpi.tooltip.sigmaNote}
-                    presentation={presentationLike}
-                  />
-                  <div className="mt-2 space-y-1 text-[11px] leading-snug text-slate-300">
-                    <div>
-                      <span className="font-semibold text-slate-400">Как считается: </span>
-                      {kpi.tooltip.calculation}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-slate-400">Почему эта формула: </span>
-                      {kpi.tooltip.explanation}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-slate-400">Вывод: </span>
-                      {kpi.tooltip.interpretation}
-                    </div>
-                  </div>
+                  {mode === "work" ? (
+                    <>
+                      <div className="mt-1 text-[11px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
+                      <FormulaVariablesLegend
+                        variables={kpi.tooltip.variables}
+                        sigmaNote={kpi.tooltip.sigmaNote}
+                        presentation={presentationLike}
+                      />
+                      <div className="mt-2 space-y-1 text-[11px] leading-snug text-slate-300">
+                        <div>
+                          <span className="font-semibold text-slate-400">Как считается: </span>
+                          {kpi.tooltip.calculation}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-slate-400">Почему эта формула: </span>
+                          {kpi.tooltip.explanation}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-slate-400">Вывод: </span>
+                          {kpi.tooltip.interpretation}
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                   <div className="mt-2 space-y-1 text-[12px] tabular-nums">
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Факт</span>
@@ -405,8 +387,14 @@ export function KpiDashboard({
                       <span>{kpi.tooltip.deviation}</span>
                     </div>
                   </div>
-                  <div className="mt-2 text-[11px] leading-snug text-slate-300">Mini chart: {kpi.tooltip.miniChart}</div>
-                  <div className="mt-1 text-[12px] leading-snug text-slate-100">Вывод: {kpi.tooltip.conclusion}</div>
+                  {mode === "work" ? (
+                    <>
+                      <div className="mt-2 text-[11px] leading-snug text-slate-300">Mini chart: {kpi.tooltip.miniChart}</div>
+                      <div className="mt-1 text-[12px] leading-snug text-slate-100">Вывод: {kpi.tooltip.conclusion}</div>
+                    </>
+                  ) : (
+                    <div className="mt-2 border-t border-slate-600/40 pt-2 text-[12px] leading-snug text-slate-100">{kpi.tooltip.conclusion}</div>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -421,9 +409,18 @@ export function KpiDashboard({
                   </div>
                 ) : null}
                 <div className="mt-2">
-                  <span className="font-semibold text-slate-400">Пример расчёта: </span>
+                  <span className="font-semibold text-slate-400">Как считается: </span>
                   <span className="font-mono text-[10px] text-slate-200">{kpi.tooltip.calculation}</span>
                 </div>
+                <p className="mt-2">
+                  <span className="font-semibold text-slate-400">Почему эта формула: </span>
+                  {kpi.tooltip.explanation}
+                </p>
+                <p className="mt-2">
+                  <span className="font-semibold text-slate-400">Интерпретация: </span>
+                  {kpi.tooltip.interpretation}
+                </p>
+                <p className="mt-2 text-[10px] text-slate-500">Мини-график: {kpi.tooltip.miniChart}</p>
                 <p className="mt-2 border-t border-white/10 pt-2 text-[11px] font-medium text-slate-200">{kpi.tooltip.conclusion}</p>
               </div>
             ) : null}
