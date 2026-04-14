@@ -8,6 +8,11 @@ import { SalesPlanPresentationExplainView } from "@/components/marketing/SalesPl
 import { buildSalesPlanPresentationExplainBlocks } from "@/lib/buildSalesPlanPresentationExplain";
 import { buildSalesPlanWorkModeExplainBlocks } from "@/lib/buildSalesPlanWorkModeExplain";
 import { marketingSalesReportMock } from "@/lib/marketingSalesReportData";
+import {
+  buildDynamicsKpiInputFromReport,
+  buildDynamicsKpiItems,
+  type SalesPlanKpiPeriod,
+} from "@/lib/salesPlanDynamicsKpi";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY, parseSalesPlanExplainSession } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanExplainSessionPayload } from "@/lib/salesPlanExplainSession";
 import type { SalesPlanPresentationExplainBlock } from "@/lib/buildSalesPlanPresentationExplain";
@@ -23,7 +28,7 @@ function pick(v: string | null, fallback: string) {
   return v;
 }
 
-function parsePeriodForPresentation(v: string | null): string {
+function parsePeriodForPresentation(v: string | null): SalesPlanKpiPeriod {
   if (v === "quarter" || v === "month") return v;
   return "month";
 }
@@ -45,6 +50,15 @@ function SalesPlanPresentationExplainPageInner() {
 
   const periodParam = sp.get("period");
   const scenarioParam = sp.get("scenario");
+  const kpiGranularity = parsePeriodForPresentation(periodParam);
+  const explainKpiItems = useMemo(
+    () =>
+      buildDynamicsKpiItems(
+        buildDynamicsKpiInputFromReport(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
+        true,
+      ),
+    [objectId, dealTypeId, kpiGranularity],
+  );
   const dashboardPresentationHref = useMemo(() => {
     const scen = parsePresentationScenarioQuery(scenarioParam);
     const q = new URLSearchParams({
@@ -124,6 +138,7 @@ function SalesPlanPresentationExplainPageInner() {
         introLead="Данные текущего рабочего режима на момент нажатия кнопки, включая несохранённые правки. Сценарий и сетка совпадают с тем, что вы редактировали."
         metaLine={metaLine}
         presentationHref={presentationHref}
+        kpiItems={explainKpiItems}
       />
     );
   }
@@ -135,6 +150,7 @@ function SalesPlanPresentationExplainPageInner() {
       introLead="Те же данные, что и в дашборде презентации: отчёт marketingSalesReportMock и помесячный план/факт сделок из marketingMockData с учётом фильтров."
       metaLine={`Объект: ${objectId} · Тип сделки: ${dealTypeId}`}
       presentationHref={dashboardPresentationHref}
+      kpiItems={explainKpiItems}
     />
   );
 }

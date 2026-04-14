@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   filterByObjectAndDealType,
   mergeSalesPlanFact,
@@ -23,7 +23,13 @@ import {
   type SalesPlanChartMode,
 } from "@/components/marketing/salesPlanCharts";
 import { compactRub, dec1Fmt, numFmt, rubFmt, structureBalanceBarLabelLine } from "@/lib/salesPlanChartFormat";
+import {
+  buildDynamicsKpiItems,
+  formatSalesPlanAsOfKpiSub,
+  type DynamicsKpiInput,
+} from "@/lib/salesPlanDynamicsKpi";
 import { buildVelocityLineRows, buildVelocityMonthlyBars } from "@/lib/salesPlanVelocityChartData";
+import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
@@ -293,395 +299,6 @@ type MonthlyExecutionInsights = {
   forecastEndMonthly: number;
   planAchievableAtMonthlyTempo: boolean;
 };
-
-type KpiCardTone = "green" | "yellow" | "red";
-function miniLineColorByTone(tone: KpiCardTone, presentation: boolean): string {
-  if (tone === "green") return presentation ? "#d1fae5" : "#047857";
-  if (tone === "yellow") return presentation ? "#fffbeb" : "#b45309";
-  return presentation ? "#ffe4e6" : "#b91c1c";
-}
-
-type KpiDashboardItem = {
-  key: string;
-  title: string;
-  value: ReactNode;
-  sub: string;
-  description: string;
-  tone: KpiCardTone;
-  surfaceTone?: KpiCardTone;
-  hideRadialOverlay?: boolean;
-  hover: string;
-  sparkline?: number[];
-  sparkBars?: number[];
-  sparkLine?: number[];
-  sparkMode?: "combo" | "bars" | "line";
-  sparkBarsFromBottom?: boolean;
-  sparkHideBaseline?: boolean;
-  sparkBaselineStroke?: string;
-  sparkBaselineDasharray?: string;
-  sparkBaselineWidth?: number;
-  sparkLineStroke?: string;
-  sparkTone?: KpiCardTone;
-  tooltip: {
-    metricMeaning: string;
-    formula: string;
-    /** Расшифровка обозначений под формулой («где:») — только презентация / подсказка */
-    variables?: FormulaVariableEntry[];
-    sigmaNote?: string;
-    /** Числовая подстановка: «7 / 10 = 70%» */
-    calculation: string;
-    /** Зачем используется формула */
-    explanation: string;
-    /** Управленческий вывод по текущим данным */
-    interpretation: string;
-    fact: string;
-    plan: string;
-    deviation: string;
-    miniChart: string;
-    conclusion: string;
-  };
-};
-
-function KpiDashboard({
-  presentation,
-  items,
-  className = "",
-}: {
-  presentation: boolean;
-  items: KpiDashboardItem[];
-  className?: string;
-}) {
-  const toneStyles = (tone: KpiCardTone) =>
-    tone === "green"
-      ? {
-          value: presentation ? "text-emerald-300" : "text-emerald-700",
-          miniBar: presentation ? "#34d399" : "#10b981",
-          miniLine: presentation ? "#d1fae5" : "#047857",
-          glow: presentation ? "shadow-[0_14px_36px_rgba(16,185,129,0.26)]" : "shadow-[0_12px_30px_rgba(16,185,129,0.18)]",
-          insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(16,185,129,0.15)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(16,185,129,0.10)]",
-          radial:
-            presentation
-              ? "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.28), transparent 52%)"
-              : "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.24), transparent 55%)",
-          card: presentation
-            ? "bg-gradient-to-br from-emerald-900/42 via-slate-900/38 to-slate-900/60"
-            : "bg-gradient-to-br from-emerald-100/85 via-white to-emerald-50/70",
-        }
-      : tone === "yellow"
-        ? {
-            value: presentation ? "text-amber-300" : "text-amber-700",
-            miniBar: presentation ? "#fbbf24" : "#f59e0b",
-            miniLine: presentation ? "#fffbeb" : "#b45309",
-            glow: presentation ? "shadow-[0_14px_36px_rgba(245,158,11,0.24)]" : "shadow-[0_12px_30px_rgba(245,158,11,0.16)]",
-            insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(245,158,11,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(245,158,11,0.10)]",
-            radial:
-              presentation
-                ? "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.30), transparent 52%)"
-                : "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.26), transparent 55%)",
-            card: presentation
-              ? "bg-gradient-to-br from-amber-900/40 via-slate-900/38 to-slate-900/60"
-              : "bg-gradient-to-br from-amber-100/85 via-white to-amber-50/70",
-          }
-        : {
-            value: presentation ? "text-red-300" : "text-red-700",
-            miniBar: presentation ? "#fb7185" : "#ef4444",
-            miniLine: presentation ? "#ffe4e6" : "#b91c1c",
-            glow: presentation ? "shadow-[0_14px_36px_rgba(239,68,68,0.26)]" : "shadow-[0_12px_30px_rgba(239,68,68,0.16)]",
-            insetGlow: presentation ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(239,68,68,0.14)]" : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(239,68,68,0.10)]",
-            radial:
-              presentation
-                ? "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.30), transparent 52%)"
-                : "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.24), transparent 55%)",
-            card: presentation
-              ? "bg-gradient-to-br from-red-900/40 via-slate-900/38 to-slate-900/60"
-              : "bg-gradient-to-br from-red-100/85 via-white to-red-50/70",
-          };
-
-  return (
-    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
-      {items.map((kpi) => {
-        const valueStyle = toneStyles(kpi.tone);
-        const surfaceStyle = toneStyles(kpi.surfaceTone ?? kpi.tone);
-        const sparkStyle = toneStyles(kpi.sparkTone ?? kpi.tone);
-        const rawBars = kpi.sparkBars ?? kpi.sparkline ?? [];
-        const rawLine = kpi.sparkLine ?? kpi.sparkline ?? [];
-        const mode = kpi.sparkMode ?? "combo";
-        const isBarsOnly = mode === "bars";
-        const isLineOnly = mode === "line";
-        const barsFromBottom = isBarsOnly && !!kpi.sparkBarsFromBottom;
-        const pairCount = isBarsOnly
-          ? rawLine.length > 0
-            ? Math.min(rawBars.length, rawLine.length)
-            : rawBars.length
-          : Math.min(rawBars.length, rawLine.length);
-        const bars = rawBars.slice(rawBars.length - pairCount);
-        const line = rawLine.slice(rawLine.length - pairCount);
-        const hasSpark = pairCount >= 2;
-        const barMin = hasSpark ? Math.min(...bars) : 0;
-        const barMax = hasSpark ? Math.max(...bars) : 1;
-        const barRange = Math.max(1e-6, barMax - barMin);
-        const lineMin = line.length ? Math.min(...line) : 0;
-        const lineMax = line.length ? Math.max(...line) : 1;
-        const lineRange = Math.max(1e-6, lineMax - lineMin);
-        const w = 172;
-        const h = isBarsOnly && !barsFromBottom ? 56 : 40;
-        const absMax = Math.max(1, Math.abs(barMin), Math.abs(barMax));
-        const zeroY = isBarsOnly ? (barsFromBottom ? h : h * 0.5) : h - ((0 - lineMin) / lineRange) * h;
-        const n = pairCount;
-        const gap = isBarsOnly ? 6 : 4;
-        const barW = n > 0 ? (w - gap * Math.max(0, n - 1)) / Math.max(1, n) : w;
-        const rx = Math.min(6, Math.max(0, barW / 2));
-        const pts = hasSpark && line.length
-          ? line.map((v, i) => {
-              const x = i * (barW + gap) + barW / 2;
-              const y = isBarsOnly
-                ? barsFromBottom
-                  ? h - ((v - barMin) / barRange) * h
-                  : v >= 0
-                  ? zeroY - (Math.abs(v) / absMax) * (h / 2)
-                  : zeroY + (Math.abs(v) / absMax) * (h / 2)
-                : h - ((v - lineMin) / lineRange) * h;
-              return { x, y };
-            })
-          : [];
-        const linePath =
-          pts.length >= 2
-            ? (() => {
-                let d = `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
-                for (let i = 1; i < pts.length; i++) {
-                  const p0 = pts[i - 1]!;
-                  const p1 = pts[i]!;
-                  const mx = (p0.x + p1.x) / 2;
-                  const my = (p0.y + p1.y) / 2;
-                  d += ` Q ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} ${mx.toFixed(2)} ${my.toFixed(2)}`;
-                }
-                const last = pts[pts.length - 1]!;
-                d += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
-                return d;
-              })()
-            : "";
-        const lastPt = pts.length ? pts[pts.length - 1]! : null;
-        return (
-          <div key={kpi.key} className={`group relative overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}`} title={kpi.hover}>
-            {!kpi.hideRadialOverlay ? (
-              <div className="pointer-events-none absolute inset-0" style={{ background: surfaceStyle.radial }} />
-            ) : null}
-            <div className="relative p-3 sm:p-3.5">
-              <div className={`text-[11px] uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-500"}`}>{kpi.title}</div>
-              {typeof kpi.value === "string" ? (
-                <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${valueStyle.value}`}>{kpi.value}</div>
-              ) : (
-                <div className={`mt-1.5 ${valueStyle.value}`}>{kpi.value}</div>
-              )}
-              {hasSpark ? (
-                <div className="mt-2">
-                  <svg
-                    viewBox={`0 0 ${w} ${h}`}
-                    className={`${isBarsOnly && !barsFromBottom ? "h-14" : "h-10"} w-full overflow-visible`}
-                    preserveAspectRatio="none"
-                    aria-hidden
-                  >
-                    {isBarsOnly && !kpi.sparkHideBaseline ? (
-                      <line
-                        x1={0}
-                        y1={zeroY}
-                        x2={w}
-                        y2={zeroY}
-                        stroke={kpi.sparkBaselineStroke ?? (presentation ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.45)")}
-                        strokeDasharray={kpi.sparkBaselineDasharray}
-                        strokeWidth={kpi.sparkBaselineWidth ?? 1}
-                      />
-                    ) : null}
-                    {/* bars: background layer */}
-                    {!isLineOnly
-                      ? bars.map((_, i) => {
-                          const x = i * (barW + gap);
-                          return (
-                            <rect
-                              key={`bg-${kpi.key}-${i}`}
-                              x={x}
-                              y={0}
-                              width={barW}
-                              height={h}
-                              rx={rx}
-                              fill={sparkStyle.miniBar}
-                              opacity={isBarsOnly ? 0.12 : 0.2}
-                            />
-                          );
-                        })
-                      : null}
-                    {/* bars: main layer */}
-                    {!isLineOnly
-                      ? bars.map((v, i) => {
-                          const x = i * (barW + gap);
-                          const hh = isBarsOnly
-                            ? barsFromBottom
-                              ? ((v - barMin) / barRange) * h
-                              : (Math.abs(v) / absMax) * (h / 2)
-                            : ((v - barMin) / barRange) * h;
-                          const y = isBarsOnly ? (barsFromBottom ? h - hh : (v >= 0 ? zeroY - hh : zeroY)) : h - hh;
-                          const neutralBand = absMax * 0.06;
-                          const toneForBar = isBarsOnly
-                            ? Math.abs(v) <= neutralBand
-                              ? "neutral"
-                              : v > 0
-                                ? "positive"
-                                : "negative"
-                            : null;
-                          const fill = isBarsOnly
-                            ? toneForBar === "positive"
-                              ? "rgba(52, 211, 153, 0.82)"
-                              : toneForBar === "negative"
-                                ? "rgba(251, 113, 133, 0.82)"
-                                : "rgba(148, 163, 184, 0.62)"
-                            : sparkStyle.miniBar;
-                          const isLastBar = i === bars.length - 1;
-                          const scaleBoost = isBarsOnly && isLastBar ? 1.06 : 1;
-                          const activeGlow =
-                            toneForBar === "positive"
-                              ? "rgba(52, 211, 153, 0.38)"
-                              : toneForBar === "negative"
-                                ? "rgba(251, 113, 133, 0.4)"
-                                : "rgba(148, 163, 184, 0.28)";
-                          const activeGlowWide =
-                            toneForBar === "positive"
-                              ? "rgba(52, 211, 153, 0.15)"
-                              : toneForBar === "negative"
-                                ? "rgba(251, 113, 133, 0.15)"
-                                : "rgba(148, 163, 184, 0.12)";
-                          const glowFilter = isBarsOnly && isLastBar
-                            ? `drop-shadow(0 0 12px ${activeGlow}) drop-shadow(0 0 24px ${activeGlowWide})`
-                            : undefined;
-                          return (
-                            <rect
-                              key={`main-${kpi.key}-${i}`}
-                              x={x}
-                              y={y}
-                              width={barW}
-                              height={hh}
-                              rx={rx}
-                              fill={fill}
-                              opacity={isBarsOnly ? (isLastBar ? 0.98 : 0.5) : 0.7}
-                              style={
-                                isBarsOnly
-                                  ? {
-                                      transformBox: "fill-box",
-                                      transformOrigin: "center",
-                                      transform: `scale(${scaleBoost})`,
-                                      filter: glowFilter,
-                                    }
-                                  : undefined
-                              }
-                            />
-                          );
-                        })
-                      : null}
-                    {/* line overlay */}
-                    {linePath ? (
-                      <path
-                        d={linePath}
-                        fill="none"
-                        stroke={kpi.sparkLineStroke ?? sparkStyle.miniLine}
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    ) : null}
-                    {lastPt ? (
-                      <>
-                        <circle cx={lastPt.x} cy={lastPt.y} r="2.75" fill={kpi.sparkLineStroke ?? sparkStyle.miniLine} />
-                        <circle cx={lastPt.x} cy={lastPt.y} r="5.5" fill={kpi.sparkLineStroke ?? sparkStyle.miniLine} opacity={0.14} />
-                      </>
-                    ) : null}
-                  </svg>
-                </div>
-              ) : null}
-              <div className={`mt-1 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
-              <p
-                className={`mt-2 text-[12px] leading-tight ${presentation ? "text-slate-300/70" : "text-slate-700/70"}`}
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {kpi.description}
-              </p>
-              {presentation ? (
-                <div className="mt-3 space-y-1.5 border-t border-white/10 pt-2.5 text-[10px] leading-snug text-slate-300/90">
-                  <div className="text-[10px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
-                  <FormulaVariablesLegend
-                    variables={kpi.tooltip.variables}
-                    sigmaNote={kpi.tooltip.sigmaNote}
-                    presentation={presentation}
-                  />
-                  <div>
-                    <span className="font-semibold text-slate-400">Как считается: </span>
-                    {kpi.tooltip.calculation}
-                  </div>
-                  <div>
-                    <span className="font-semibold text-slate-400">Почему эта формула: </span>
-                    {kpi.tooltip.explanation}
-                  </div>
-                  <div>
-                    <span className="font-semibold text-slate-400">Вывод: </span>
-                    {kpi.tooltip.interpretation}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            <div
-              className={`pointer-events-none absolute left-2 right-2 top-[calc(100%+8px)] z-20 rounded-xl px-3 py-3 opacity-0 backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 sm:left-auto sm:right-0 sm:w-[320px] ${
-                presentation
-                  ? "border border-slate-500/45 bg-[#0b1220]/90 text-slate-200 shadow-[0_16px_40px_rgba(15,23,42,0.65)]"
-                  : "border border-slate-200/80 bg-slate-900/92 text-slate-100 shadow-[0_14px_34px_rgba(15,23,42,0.28)]"
-              }`}
-            >
-              <div className="text-[12px] font-semibold leading-tight">{kpi.title}</div>
-              <div className="mt-1 text-[12px] leading-snug text-slate-300">
-                {kpi.tooltip.metricMeaning}
-              </div>
-              <div className="mt-1 text-[11px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
-              <FormulaVariablesLegend
-                variables={kpi.tooltip.variables}
-                sigmaNote={kpi.tooltip.sigmaNote}
-                presentation={presentation}
-              />
-              <div className="mt-2 space-y-1 text-[11px] leading-snug text-slate-300">
-                <div>
-                  <span className="font-semibold text-slate-400">Как считается: </span>
-                  {kpi.tooltip.calculation}
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-400">Почему эта формула: </span>
-                  {kpi.tooltip.explanation}
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-400">Вывод: </span>
-                  {kpi.tooltip.interpretation}
-                </div>
-              </div>
-
-              <div className="mt-2 space-y-1 text-[12px] tabular-nums">
-                <div className="flex justify-between gap-3"><span className="text-slate-400">Факт</span><span>{kpi.tooltip.fact}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-400">План</span><span>{kpi.tooltip.plan}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-400">Отклонение</span><span>{kpi.tooltip.deviation}</span></div>
-              </div>
-
-              <div className="mt-2 text-[11px] leading-snug text-slate-300">
-                Mini chart: {kpi.tooltip.miniChart}
-              </div>
-              <div className="mt-1 text-[12px] leading-snug text-slate-100">
-                Вывод: {kpi.tooltip.conclusion}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function monthlyDeviationTone(deviation: number): "green" | "yellow" | "red" {
   if (deviation >= 0) return "green";
@@ -1389,8 +1006,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const cumulativeExecTone: "green" | "yellow" | "red" =
     forecastPercentAdjusted >= 100 ? "green" : forecastPercentAdjusted >= 90 ? "yellow" : "red";
   const monthExecTone: "green" | "yellow" | "red" = monthExecPct >= 100 ? "green" : monthExecPct >= 95 ? "yellow" : "red";
-  const monthDevTone: "green" | "yellow" | "red" = monthDeviationDeals >= 0 ? "green" : monthDeviationDeals >= -5 ? "yellow" : "red";
-  const cumulativeDevTone: "green" | "yellow" | "red" = currentDeviation >= 0 ? "green" : currentDeviation >= -5 ? "yellow" : "red";
   const weakSegment = topWeakRadar?.name ?? "сегменты";
   const lagSegment = topNegativeContribution?.name ?? weakSegment;
   const firstLagMonth = monthlyExecutionInsights.firstNegative?.label ?? "последние месяцы";
@@ -1403,15 +1018,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         : monthlyExecutionInsights.trend === "stable"
           ? "тренд стабильный"
           : "тренд пока нечитабелен";
-  const cumulativeLineTone: KpiCardTone = (() => {
-    const n = cumulativeDeviationSeries.length;
-    if (n < 2) return "yellow";
-    const last = cumulativeDeviationSeries[n - 1] ?? 0;
-    const prev = cumulativeDeviationSeries[n - 2] ?? 0;
-    if (last < 0 && last < prev) return "red";
-    return "yellow";
-  })();
-  const cumulativeDeviationHeader = `${currentDeviation > 0 ? "+" : currentDeviation < 0 ? "−" : ""}${numFmt.format(Math.abs(currentDeviation))} / ${cumulativeDeviationRevenue > 0 ? "+" : cumulativeDeviationRevenue < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(cumulativeDeviationRevenue) / 1_000_000))} млн`;
   const velocityMetrics = useMemo(() => {
     const totalMonths = Math.max(1, monthlyPlanExecutionData.length);
     const monthsPassed = Math.max(1, Math.min(totalMonths, currentMonthIdx + 1));
@@ -2218,168 +1824,71 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     lagSegment,
   ]);
 
-  const dynamicsKpiItems: KpiDashboardItem[] = [
-    {
-      key: "cum-exec",
-      title: "Выполнение плана (накопительно)",
-      value: `${rev.percentComplete.toFixed(1)}%`,
-      sub: `Прогноз к концу: ${forecastPercentAdjusted.toFixed(1)}%`,
-      description:
-        forecastPercentAdjusted < 90
-          ? `Основное отставание дает ${lagSegment}; заметный недобор начался с ${firstLagMonth}.`
-          : forecastPercentAdjusted < 100
-            ? `Риск связан с ${lagSegment}, но ${trendShort} и просадка частично компенсируется.`
-            : `План закрывается за счет ускорения в последних месяцах; ${lagSegment} уже не критичен.`,
-      tone: cumulativeExecTone,
-      hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
-      sparkline: cumulativeExecSeriesPct,
-      tooltip: {
-        metricMeaning: "Показывает, какую долю накопительного плана уже закрыли по факту.",
-        formula: "Формула: накопительный факт / накопительный план × 100%.",
-        variables: [
-          { symbol: "R_нак_факт", description: "накопительная фактическая выручка к отчётной дате" },
-          { symbol: "R_нак_план", description: "накопительный плановый объём выручки к той же дате" },
-        ],
-        sigmaNote: PRESENTATION_SIGMA_LEGEND,
-        calculation: `${compactRub(rev.factCumulative)} / ${compactRub(rev.planCumulative)} = ${rev.percentComplete.toFixed(1)}%`,
-        explanation:
-          "Формула используется для оценки выполнения плана — показывает, какую долю от запланированного объёма выручки (накопительно) составляет факт.",
-        interpretation:
-          rev.percentComplete >= 100
-            ? "План по накопительной выручке выполнен или перевыполнен."
-            : `План по накопительной выручке не выполнен, отставание ${(100 - rev.percentComplete).toFixed(1)} п.п.`,
-        fact: `${compactRub(rev.factCumulative)}`,
-        plan: `${compactRub(rev.planCumulative)}`,
-        deviation: `${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
-        miniChart: "Столбцы и линия показывают динамику % выполнения по месяцам; точка — последний месяц.",
-        conclusion: forecastPercentAdjusted < 100 ? `Риск недовыполнения связан с ${lagSegment}.` : "Текущая динамика позволяет закрыть план.",
+  const dynamicsKpiInput = useMemo((): DynamicsKpiInput => {
+    return {
+      rev: {
+        planCumulative: rev.planCumulative,
+        factCumulative: rev.factCumulative,
+        deviationCumulative: rev.deviationCumulative,
+        percentComplete: rev.percentComplete,
       },
-    },
-    {
-      key: "month-exec",
-      title: "Выполнение за месяц",
-      value: `${monthExecPct.toFixed(1)}%`,
-      sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · факт/план`,
-      description:
-        monthExecPct < 90
-          ? `Месяц недовыполнен: слабее всего ${lagSegment}, а точка спада — ${worstLagMonth}.`
-          : monthExecPct < 100
-            ? `Почти в плане; отрыв дают ${lagSegment}, но ${trendShort}.`
-            : `Месяц компенсирует прошлый недобор, особенно в сегменте ${weakSegment}.`,
-      tone: monthExecTone,
-      hover: `План: ${numFmt.format(monthPlanDeals)} шт | Факт: ${numFmt.format(monthFactDeals)} шт | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
-      sparkBars: monthlyExecPctSeries,
-      sparkLine: monthlyExecPctSeries,
-      tooltip: {
-        metricMeaning: "Показывает выполнение плана именно за текущий месяц.",
-        formula: "Формула: факт месяца / план месяца × 100%.",
-        variables: [
-          { symbol: "fact_month", description: "фактическое число сделок в отчётном месяце" },
-          { symbol: "plan_month", description: "плановое число сделок в том же месяце" },
-        ],
-        calculation:
-          monthPlanDeals > 0
-            ? `${numFmt.format(monthFactDeals)} / ${numFmt.format(monthPlanDeals)} = ${monthExecPct.toFixed(1)}%`
-            : `${numFmt.format(monthFactDeals)} /0 — план месяца не задан, % не считается`,
-        explanation:
-          "Сравнивает фактические продажи (сделки) с планом за отчётный месяц, чтобы оценить выполнение периода, а не только накопительный итог.",
-        interpretation:
-          monthExecPct >= 100
-            ? "План за месяц выполнен или перевыполнен."
-            : `План за месяц не выполняется, отставание ${(100 - monthExecPct).toFixed(1)}%`,
-        fact: `${numFmt.format(monthFactDeals)} шт`,
-        plan: `${numFmt.format(monthPlanDeals)} шт`,
-        deviation: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
-        miniChart: "Столбцы — % выполнения по последним месяцам, линия — сглаженный тренд %, точка — текущее значение.",
-        conclusion: monthExecPct < 100 ? `Недобор формируется в ${lagSegment}.` : "Месяц отрабатывает план с запасом.",
-      },
-    },
-    {
-      key: "month-dev",
-      title: "Отклонение за месяц",
-      value: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт / ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
-      sub: `${currentMonthPoint?.label ?? "Текущий месяц"} · к плану`,
-      description:
-        monthDeviationDeals < 0
-          ? `Минус месяца формируют ${lagSegment}; худший период — ${worstLagMonth}.`
-          : `Плюс месяца частично компенсирует провал с ${firstLagMonth}, динамика: ${trendShort}.`,
-      tone: monthDevTone,
-      hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)} | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт, ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
-      sparkBars: monthlyDeviationSeries,
-      sparkMode: "bars",
-      sparkBaselineStroke: miniLineColorByTone(monthExecTone, presentation),
-      sparkBaselineDasharray: "6 4",
-      sparkBaselineWidth: 1.75,
-      tooltip: {
-        metricMeaning: "Показывает отклонение текущего месяца в штуках и выручке.",
-        formula: "Формула: факт месяца − план месяца.",
-        variables: [
-          { symbol: "fact_month", description: "фактическое число сделок в отчётном месяце" },
-          { symbol: "plan_month", description: "плановое число сделок в том же месяце" },
-          { symbol: "R_мес_факт", description: "фактическая выручка за тот же месяц" },
-          { symbol: "R_мес_план", description: "плановая выручка за тот же месяц" },
-        ],
-        calculation: `${numFmt.format(monthFactDeals)} − ${numFmt.format(monthPlanDeals)} = ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт; выручка: ${compactRub(monthFactRevenue)} − ${compactRub(monthPlanRevenue)} = ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
-        explanation:
-          "Показывает абсолютный разрыв между фактом и планом за месяц в тех же единицах, что и план (сделки и выручка), без приведения к процентам.",
-        interpretation:
-          monthDeviationDeals >= 0
-            ? "Месяц даёт не меньше сделок, чем запланировано — недобор по штукам за период отсутствует."
-            : `Месяц недобран на ${numFmt.format(Math.abs(monthDeviationDeals))} сделок — это прямой вклад в отставание от плана.`,
-        fact: `${numFmt.format(monthFactDeals)} шт / ${compactRub(monthFactRevenue)}`,
-        plan: `${numFmt.format(monthPlanDeals)} шт / ${compactRub(monthPlanRevenue)}`,
-        deviation: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт / ${monthDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(monthDeviationRevenue))}`,
-        miniChart: "Столбцы вверх/вниз показывают отклонение по месяцам; зеленый — плюс, красный — минус.",
-        conclusion: monthDeviationDeals < 0 ? `Минус месяца усиливает отставание, особенно в ${lagSegment}.` : "Плюс месяца частично компенсирует предыдущий недобор.",
-      },
-    },
-    {
-      key: "cum-dev",
-      title: "Отклонение накопительное",
-      value: cumulativeDeviationHeader,
-      sub: "К 31 мар. 2026",
-      description:
-        currentDeviation < 0
-          ? "Накопленное отставание растёт с окт. 2025; ключевой источник — квартиры."
-          : `Накопительное отклонение сокращается; ключевой драйвер — ${weakSegment}.`,
-      tone: cumulativeDevTone,
-      hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт | Отклонение: ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт`,
-      sparkBars: cumulativeDeviationSeries,
-      sparkLine: cumulativeDeviationSeries,
-      sparkMode: "bars",
-      sparkBarsFromBottom: true,
-      sparkTone: currentDeviation < 0 ? "red" : cumulativeLineTone,
-      surfaceTone: monthExecTone,
-      hideRadialOverlay: true,
-      sparkBaselineStroke: "rgba(255,255,255,0.8)",
-      sparkBaselineDasharray: "6 4",
-      sparkBaselineWidth: 2,
-      sparkLineStroke: "rgba(255,255,255,0.92)",
-      tooltip: {
-        metricMeaning: "Показывает суммарное отклонение от плана к текущей дате.",
-        formula: "Формула: накопительный факт − накопительный план.",
-        variables: [
-          { symbol: "N_нак_факт", description: "накопительное число сделок (факт) к отчётной дате" },
-          { symbol: "N_нак_план", description: "накопительное число сделок (план) к той же дате" },
-          { symbol: "R_нак_факт", description: "накопительная фактическая выручка к отчётной дате" },
-          { symbol: "R_нак_план", description: "накопительный плановый объём выручки к той же дате" },
-        ],
-        sigmaNote: PRESENTATION_SIGMA_LEGEND,
-        calculation: `${numFmt.format(currentFactCum)} − ${numFmt.format(currentPlanCum)} = ${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт; выручка: ${compactRub(rev.factCumulative)} − ${compactRub(rev.planCumulative)} = ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
-        explanation:
-          "Суммирует все месяцы до отчётной даты: сколько сделок и выручки не дотянуто или сделано сверху относительно накопительного плана.",
-        interpretation:
-          currentDeviation >= 0
-            ? "Накопительно сделок не меньше плана — в штуках отставания по горизонту нет."
-            : `Накопительный недобор ${numFmt.format(Math.abs(currentDeviation))} сделок — запас по времени и темпу нужно наращивать, иначе риск невыполнения годового плана.`,
-        fact: `${numFmt.format(currentFactCum)} шт / ${compactRub(rev.factCumulative)}`,
-        plan: `${numFmt.format(currentPlanCum)} шт / ${compactRub(rev.planCumulative)}`,
-        deviation: `${currentDeviation >= 0 ? "+" : "−"}${numFmt.format(Math.abs(currentDeviation))} шт / ${cumulativeDeviationRevenue >= 0 ? "+" : "−"}${compactRub(Math.abs(cumulativeDeviationRevenue))}`,
-        miniChart: "Линия показывает накопительное отклонение по месяцам; выделенная точка — текущее накопленное значение.",
-        conclusion: currentDeviation < 0 ? `Отставание накоплено с ${firstLagMonth}; ключевой вклад — ${lagSegment}.` : "Накопительное отклонение компенсируется текущим ростом.",
-      },
-    },
-  ];
+      forecastPercentAdjusted,
+      cumulativeExecSeriesPct,
+      monthlyExecPctSeries,
+      monthlyDeviationSeries,
+      cumulativeDeviationSeries,
+      monthPlanDeals,
+      monthFactDeals,
+      monthExecPct,
+      monthDeviationDeals,
+      monthPlanRevenue,
+      monthFactRevenue,
+      monthDeviationRevenue,
+      currentPlanCum,
+      currentFactCum,
+      currentDeviation,
+      cumulativeDeviationRevenue: rev.deviationCumulative,
+      lagSegment,
+      firstLagMonth,
+      worstLagMonth,
+      trendShort,
+      weakSegment,
+      currentMonthLabel: currentMonthPoint?.label ?? "Текущий месяц",
+      cumulativeDealsSubLabel: formatSalesPlanAsOfKpiSub(report.asOf),
+    };
+  }, [
+    rev.planCumulative,
+    rev.factCumulative,
+    rev.deviationCumulative,
+    rev.percentComplete,
+    forecastPercentAdjusted,
+    cumulativeExecSeriesPct,
+    monthlyExecPctSeries,
+    monthlyDeviationSeries,
+    cumulativeDeviationSeries,
+    monthPlanDeals,
+    monthFactDeals,
+    monthExecPct,
+    monthDeviationDeals,
+    monthPlanRevenue,
+    monthFactRevenue,
+    monthDeviationRevenue,
+    currentPlanCum,
+    currentFactCum,
+    currentDeviation,
+    lagSegment,
+    firstLagMonth,
+    worstLagMonth,
+    trendShort,
+    weakSegment,
+    currentMonthPoint?.label,
+    report.asOf,
+  ]);
+
+  const dynamicsKpiItems = useMemo(
+    () => buildDynamicsKpiItems(dynamicsKpiInput, presentation),
+    [dynamicsKpiInput, presentation],
+  );
 
   const segmentedBtn = (active: boolean) =>
     presentation
@@ -2533,7 +2042,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       </p>
 
       {/* KPI summary */}
-      <KpiDashboard presentation={presentation} items={dynamicsKpiItems} className="mb-7" />
+      <KpiDashboard mode={presentation ? "presentation" : "work"} items={dynamicsKpiItems} className="mb-7" />
 
       {/* Sales Velocity */}
       <div className={card}>
@@ -3384,6 +2893,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       content={
                         presentation
                           ? rechartsPresentationMiniTooltip((n) => `${n.toFixed(1)}%`, { dataKey: "conversionPct" })
+
                           : undefined
                       }
                       formatter={presentation ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "Эскроу/ДДУ"]}
@@ -3437,6 +2947,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       content={
                         presentation
                           ? rechartsPresentationMiniTooltip((n) => rubFmt.format(n), { dataKey: "gapCumulative" })
+
                           : undefined
                       }
                       formatter={presentation ? undefined : (v) => rubFmt.format(Number(v))}
@@ -3501,6 +3012,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       content={
                         presentation
                           ? rechartsPresentationMiniTooltip((n) => `${n.toFixed(1)}%`, { dataKey: "execPct" })
+
                           : undefined
                       }
                       formatter={presentation ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "%"]}
@@ -4224,6 +3736,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 content={
                   presentation
                     ? rechartsPresentationMiniTooltip((n) => `${dec1Fmt.format(n)}%`, { dataKey: "factConv" })
+
                     : undefined
                 }
                 formatter={presentation ? undefined : (v) => [`${dec1Fmt.format(Number(v))}%`, ""]}
