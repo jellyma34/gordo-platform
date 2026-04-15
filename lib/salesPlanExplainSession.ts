@@ -27,6 +27,8 @@ const METRICS: SalesPlanMetricKind[] = [
   "area_weighted",
   "revenue_ddu",
   "cashflow_escrow",
+  "avg_price_total_m2",
+  "avg_price_weighted_m2",
 ];
 
 function normalizeMetricTab(m: string): SalesPlanMetricKind {

@@ -16,6 +16,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import {
+  SALES_PLAN_AVG_AUTO_TOLERANCE,
+  SALES_PLAN_AVG_PRICE_METRICS,
   SALES_PLAN_CATEGORY_IDS,
   SALES_PLAN_CATEGORY_LABELS,
   SALES_PLAN_MAX_PERCENT_EXECUTION,
@@ -31,17 +33,19 @@ import {
   type SalesPlanScenarioId,
   type SalesPlanTerminationId,
   type SalesPlanWorkGrid,
-  avgPricePerM2Total,
-  avgPricePerM2Weighted,
   buildDefaultSalesPlanWorkGrid,
   cloneGrid,
+  computeAvgPriceFromRevenueArea,
   deriveSalesPlanRow,
   diffGridsToHistory,
   gapDduVsEscrow,
+  getEffectiveCategoryValues,
   loadSalesPlanWorkPersisted,
   percentOfTotalFact,
   persistSalesPlanWork,
   sumFactCumulativeForMetric,
+  syncAutoAvgPriceRows,
+  validateAvgPriceAutoVsComputed,
   validateSalesPlanCategoryValues,
 } from "@/lib/salesPlanWorkModel";
 
@@ -69,6 +73,7 @@ function formatCell(metric: SalesPlanMetricKind, n: number): string {
   if (metric === "quantity") return numFmt.format(Math.round(n));
   if (metric === "area_total" || metric === "area_weighted") return numFmt.format(Math.round(n * 100) / 100);
   if (metric === "revenue_ddu" || metric === "cashflow_escrow") return compactRub(n);
+  if (metric === "avg_price_total_m2" || metric === "avg_price_weighted_m2") return compactRub(n);
   return numFmt.format(n);
 }
 
@@ -92,7 +97,8 @@ function historyFieldLabel(f: SalesPlanHistoryField): string {
   if (f === "planMonth") return "План (мес.)";
   if (f === "factMonth") return "Факт (мес.)";
   if (f === "planCumulative") return "План (накопит.)";
-  return "Факт (накопит.)";
+  if (f === "factCumulative") return "Факт (накопит.)";
+  return "Режим ввода (0=авто, 1=вручную)";
 }
 
 function gridsEqual(a: SalesPlanWorkGrid, b: SalesPlanWorkGrid) {
@@ -182,22 +188,71 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
     [editingEnabled, scenario, termination, metric],
   );
 
+  const setAvgCell = useCallback(
+    (
+      avgMetric: (typeof SALES_PLAN_AVG_PRICE_METRICS)[number],
+      categoryId: SalesPlanCategoryId,
+      field: keyof SalesPlanCategoryValues,
+      raw: string,
+    ) => {
+      if (!editingEnabled) return;
+      const v = Number(raw.replace(/\s/g, "").replace(",", "."));
+      if (Number.isNaN(v)) return;
+      const value = NON_NEGATIVE_FIELDS.has(field) ? Math.max(0, v) : v;
+      setDraft((prev) => {
+        const next = cloneGrid(prev);
+        const row = next[scenario][termination][avgMetric][categoryId];
+        if (row.isManualOverride !== true) return prev;
+        next[scenario][termination][avgMetric][categoryId] = { ...row, [field]: value };
+        return next;
+      });
+    },
+    [editingEnabled, scenario, termination],
+  );
+
+  const setAvgManualOverride = useCallback(
+    (
+      avgMetric: (typeof SALES_PLAN_AVG_PRICE_METRICS)[number],
+      categoryId: SalesPlanCategoryId,
+      manual: boolean,
+    ) => {
+      if (!editingEnabled) return;
+      setDraft((prev) => {
+        const next = cloneGrid(prev);
+        const slice = next[scenario][termination];
+        if (manual) {
+          const eff = getEffectiveCategoryValues(slice, avgMetric, categoryId);
+          slice[avgMetric][categoryId] = { ...eff, isManualOverride: true };
+        } else {
+          const rev = slice.revenue_ddu[categoryId];
+          const area =
+            avgMetric === "avg_price_total_m2" ? slice.area_total[categoryId] : slice.area_weighted[categoryId];
+          slice[avgMetric][categoryId] = { ...computeAvgPriceFromRevenueArea(rev, area), isManualOverride: false };
+        }
+        return next;
+      });
+    },
+    [editingEnabled, scenario, termination],
+  );
+
   const save = useCallback(async () => {
     if (saveLockRef.current) return;
     saveLockRef.current = true;
     try {
+      const synced = syncAutoAvgPriceRows(draft);
       const changes = diffGridsToHistory({
         before: committed,
-        after: draft,
+        after: synced,
         userLabel,
-        fields: ["planProject", "planMonth", "factMonth", "planCumulative", "factCumulative"],
+        fields: ["planProject", "planMonth", "factMonth", "planCumulative", "factCumulative", "isManualOverride"],
       });
       setHistory((prev) => {
         const nextHistory = [...changes, ...prev];
-        persistSalesPlanWork(draft, nextHistory);
+        persistSalesPlanWork(synced, nextHistory);
         return nextHistory;
       });
-      setCommitted(cloneGrid(draft));
+      setCommitted(cloneGrid(synced));
+      setDraft(cloneGrid(synced));
     } finally {
       saveLockRef.current = false;
     }
@@ -235,7 +290,9 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
   };
 
   const gridCols =
-    "grid grid-cols-[minmax(6.5rem,1fr)_minmax(3.5rem,0.75fr)_repeat(9,minmax(3.75rem,1fr))] gap-x-1 gap-y-1 text-[11px] sm:text-xs";
+    "grid grid-cols-[minmax(6.5rem,1fr)_repeat(9,minmax(3.65rem,1fr))] gap-x-1 gap-y-1 text-[11px] sm:text-xs";
+  const gridColsAvg =
+    "grid grid-cols-[minmax(6.5rem,1fr)_minmax(4.25rem,0.9fr)_repeat(9,minmax(3.65rem,1fr))] gap-x-1 gap-y-1 text-[11px] sm:text-xs";
 
   const totals = useMemo(() => {
     let planProject = 0;
@@ -471,49 +528,213 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
         </div>
         <p className="text-xs text-slate-500">
           Выполнение % = факт накопит. / план накопит. «% итого» — доля факта накопит. строки в сумме по категориям (текущая
-          метрика). Средние ₽/м² и разрыв ДДУ−эскроу — в блоке ниже (по факту накопит.).
+          метрика). Средняя стоимость ₽/м² — отдельный блок ниже; сводка ДДУ − эскроу — внизу.
         </p>
       </section>
 
       <section className={panelClass}>
-        <h3 className="text-sm font-semibold text-slate-900">Расчётные показатели (факт накопит.)</h3>
+        <h3 className="text-base font-semibold text-slate-900">Средняя стоимость</h3>
         <p className="text-xs text-slate-500">
-          avg ₽/м² (общ.) = выручка ДДУ / общая площадь; avg ₽/м² (привед.) = ДДУ / приведённая площадь; разрыв = ДДУ − эскроу.
+          Две метрики: по общей и по приведённой площади. Режим «Авто» — значения из продаж ДДУ и м²; «Вручную» — как в PDF.
+          При авто проверяется согласованность с ДДУ/м² (допуск {Math.round(SALES_PLAN_AVG_AUTO_TOLERANCE * 100)}%).
         </p>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-2 pr-2 font-semibold">Линейка</th>
-                <th className="py-2 pr-2 font-semibold">₽/м² (общ.)</th>
-                <th className="py-2 pr-2 font-semibold">₽/м² (привед.)</th>
-                <th className="py-2 font-semibold">ДДУ − эскроу</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SALES_PLAN_CATEGORY_IDS.map((catId) => {
-                const r = dataSlice.revenue_ddu[catId];
-                const at = dataSlice.area_total[catId];
-                const aw = dataSlice.area_weighted[catId];
-                const esc = dataSlice.cashflow_escrow[catId];
-                const revF = r.factCumulative;
-                const aTot = at.factCumulative;
-                const aW = aw.factCumulative;
-                const escF = esc.factCumulative;
-                const p1 = avgPricePerM2Total(revF, aTot);
-                const p2 = avgPricePerM2Weighted(revF, aW);
-                const gap = gapDduVsEscrow(revF, escF);
-                return (
-                  <tr key={catId} className="border-b border-slate-100">
-                    <td className="py-2 font-medium text-slate-900">{SALES_PLAN_CATEGORY_LABELS[catId]}</td>
-                    <td className="py-2 tabular-nums text-slate-800">{p1 == null ? "—" : compactRub(p1)}</td>
-                    <td className="py-2 tabular-nums text-slate-800">{p2 == null ? "—" : compactRub(p2)}</td>
-                    <td className="py-2 tabular-nums text-slate-800">{compactRub(gap)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+        {(
+          [
+            { metric: "avg_price_total_m2" as const, subtitle: "По общей площади" },
+            { metric: "avg_price_weighted_m2" as const, subtitle: "По приведённой площади" },
+          ] as const
+        ).map(({ metric: avgMetric, subtitle }) => {
+          const sumFactAvg = sumFactCumulativeForMetric(dataSlice, avgMetric);
+          let tPlanProject = 0;
+          let tPlanMonth = 0;
+          let tFactMonth = 0;
+          let tPlanCumulative = 0;
+          let tFactCumulative = 0;
+          for (const id of SALES_PLAN_CATEGORY_IDS) {
+            const v = getEffectiveCategoryValues(dataSlice, avgMetric, id);
+            tPlanProject += v.planProject;
+            tPlanMonth += v.planMonth;
+            tFactMonth += v.factMonth;
+            tPlanCumulative += v.planCumulative;
+            tFactCumulative += v.factCumulative;
+          }
+          const tDerived = deriveSalesPlanRow({
+            planProject: tPlanProject,
+            planMonth: tPlanMonth,
+            planCumulative: tPlanCumulative,
+            factMonth: tFactMonth,
+            factCumulative: tFactCumulative,
+          });
+          return (
+            <div key={avgMetric} className="space-y-2 border-t border-slate-100 pt-4 first:border-t-0 first:pt-0">
+              <h4 className="text-sm font-semibold text-slate-800">{subtitle}</h4>
+              <p className="text-[11px] text-slate-500">{SALES_PLAN_METRIC_LABELS[avgMetric]}</p>
+              <div className="overflow-x-auto">
+                <div className={`min-w-[980px] ${gridColsAvg} border-b border-slate-200 pb-2 font-semibold text-slate-500`}>
+                  <div className="py-1 uppercase tracking-wide">Категория</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Режим</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Проект</div>
+                  <div className="py-1 text-center uppercase tracking-wide">План мес.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Факт мес.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Δ мес.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">План нак.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Факт нак.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Δ нак.</div>
+                  <div className="py-1 text-center uppercase tracking-wide">Вып. %</div>
+                  <div className="py-1 text-center uppercase tracking-wide">% итого</div>
+                </div>
+                {SALES_PLAN_CATEGORY_IDS.map((catId) => {
+                  const stored = dataSlice[avgMetric][catId];
+                  const manual = stored.isManualOverride === true;
+                  const display = manual ? stored : getEffectiveCategoryValues(dataSlice, avgMetric, catId);
+                  const d = deriveSalesPlanRow(display);
+                  const valBase = validateSalesPlanCategoryValues(display, d);
+                  const valAuto = manual ? { errors: [] as string[], warnings: [] as string[] } : validateAvgPriceAutoVsComputed(dataSlice, avgMetric, catId);
+                  const val = {
+                    errors: [...valBase.errors],
+                    warnings: [...valBase.warnings, ...valAuto.warnings],
+                  };
+                  const pctTotal = percentOfTotalFact(display.factCumulative, sumFactAvg);
+                  const execDisplay = d.percentExecution == null ? "—" : `${pctFmt.format(d.percentExecution)}%`;
+                  const modeCol = (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex gap-0.5">
+                        <button
+                          type="button"
+                          disabled={!editingEnabled}
+                          onClick={() => setAvgManualOverride(avgMetric, catId, false)}
+                          className={`flex-1 rounded px-1 py-0.5 text-[10px] font-medium ${
+                            !manual ? "bg-indigo-600 text-white" : "border border-slate-300 bg-white text-slate-600"
+                          } disabled:opacity-50`}
+                        >
+                          Авто
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!editingEnabled}
+                          onClick={() => setAvgManualOverride(avgMetric, catId, true)}
+                          className={`flex-1 rounded px-1 py-0.5 text-[10px] font-medium ${
+                            manual ? "bg-indigo-600 text-white" : "border border-slate-300 bg-white text-slate-600"
+                          } disabled:opacity-50`}
+                        >
+                          Вручную
+                        </button>
+                      </div>
+                    </div>
+                  );
+                  return (
+                    <div key={catId} className="space-y-0.5">
+                      <div
+                        className={`${gridColsAvg} items-center border-b border-slate-100 py-1.5 last:border-b-0 hover:bg-slate-50/80`}
+                      >
+                        <div className="font-medium text-slate-900">{SALES_PLAN_CATEGORY_LABELS[catId]}</div>
+                        {modeCol}
+                        <input
+                          className={INPUT_ROW}
+                          disabled={!editingEnabled || !manual}
+                          value={Number.isFinite(display.planProject) ? display.planProject : 0}
+                          onChange={(e) => setAvgCell(avgMetric, catId, "planProject", e.target.value)}
+                        />
+                        <input
+                          className={INPUT_ROW}
+                          disabled={!editingEnabled || !manual}
+                          value={Number.isFinite(display.planMonth) ? display.planMonth : 0}
+                          onChange={(e) => setAvgCell(avgMetric, catId, "planMonth", e.target.value)}
+                        />
+                        <input
+                          className={INPUT_ROW}
+                          disabled={!editingEnabled || !manual}
+                          value={Number.isFinite(display.factMonth) ? display.factMonth : 0}
+                          onChange={(e) => setAvgCell(avgMetric, catId, "factMonth", e.target.value)}
+                        />
+                        <div className="text-center tabular-nums text-slate-700">{formatCell(avgMetric, d.deviationMonth)}</div>
+                        <input
+                          className={INPUT_ROW}
+                          disabled={!editingEnabled || !manual}
+                          value={Number.isFinite(display.planCumulative) ? display.planCumulative : 0}
+                          onChange={(e) => setAvgCell(avgMetric, catId, "planCumulative", e.target.value)}
+                        />
+                        <input
+                          className={INPUT_ROW}
+                          disabled={!editingEnabled || !manual}
+                          value={Number.isFinite(display.factCumulative) ? display.factCumulative : 0}
+                          onChange={(e) => setAvgCell(avgMetric, catId, "factCumulative", e.target.value)}
+                        />
+                        <div className="text-center tabular-nums text-slate-700">{formatCell(avgMetric, d.deviationCumulative)}</div>
+                        <div
+                          className={`text-center tabular-nums ${
+                            d.percentExecution != null && d.percentExecution > SALES_PLAN_MAX_PERCENT_EXECUTION
+                              ? "text-amber-800"
+                              : "text-slate-800"
+                          }`}
+                        >
+                          {execDisplay}
+                        </div>
+                        <div className="text-center tabular-nums text-slate-700">
+                          {pctTotal == null ? "—" : `${pctFmt.format(pctTotal)}%`}
+                        </div>
+                      </div>
+                      {(val.errors.length > 0 || val.warnings.length > 0) && (
+                        <ul className="mb-1 ml-2 list-inside list-disc text-[10px] text-amber-900">
+                          {val.errors.map((x) => (
+                            <li key={`e-${avgMetric}-${catId}-${x}`}>{x}</li>
+                          ))}
+                          {val.warnings.map((x) => (
+                            <li key={`w-${avgMetric}-${catId}-${x}`}>{x}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+                <div
+                  className={`${gridColsAvg} items-center border-t-2 border-slate-300 bg-slate-50 py-2 font-semibold text-slate-800`}
+                >
+                  <div>Итого</div>
+                  <div className="text-center text-[10px] text-slate-500">—</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tPlanProject)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tPlanMonth)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tFactMonth)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tDerived.deviationMonth)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tPlanCumulative)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tFactCumulative)}</div>
+                  <div className="text-center tabular-nums">{formatCell(avgMetric, tDerived.deviationCumulative)}</div>
+                  <div className="text-center tabular-nums">
+                    {tDerived.percentExecution == null ? "—" : `${pctFmt.format(tDerived.percentExecution)}%`}
+                  </div>
+                  <div className="text-center tabular-nums">100%</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="border-t border-slate-200 pt-4">
+          <h4 className="text-sm font-semibold text-slate-800">Сводка: ДДУ − эскроу (факт накопит.)</h4>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[480px] border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="py-2 pr-2 font-semibold">Линейка</th>
+                  <th className="py-2 font-semibold">Разрыв, ₽</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SALES_PLAN_CATEGORY_IDS.map((catId) => {
+                  const r = dataSlice.revenue_ddu[catId];
+                  const esc = dataSlice.cashflow_escrow[catId];
+                  const gap = gapDduVsEscrow(r.factCumulative, esc.factCumulative);
+                  return (
+                    <tr key={catId} className="border-b border-slate-100">
+                      <td className="py-2 font-medium text-slate-900">{SALES_PLAN_CATEGORY_LABELS[catId]}</td>
+                      <td className="py-2 tabular-nums text-slate-800">{compactRub(gap)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -538,8 +759,17 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
                     · {SALES_PLAN_CATEGORY_LABELS[h.categoryId]}
                   </span>
                   <span className="text-slate-700">
-                    {historyFieldLabel(h.field)}: {formatHistoryCell(String(h.metric), h.oldValue)} →{" "}
-                    {formatHistoryCell(String(h.metric), h.newValue)}
+                    {h.field === "isManualOverride" ? (
+                      <>
+                        {historyFieldLabel(h.field)}: {h.oldValue ? "вручную" : "авто"} →{" "}
+                        {h.newValue ? "вручную" : "авто"}
+                      </>
+                    ) : (
+                      <>
+                        {historyFieldLabel(h.field)}: {formatHistoryCell(String(h.metric), h.oldValue)} →{" "}
+                        {formatHistoryCell(String(h.metric), h.newValue)}
+                      </>
+                    )}
                   </span>
                 </li>
               ))}

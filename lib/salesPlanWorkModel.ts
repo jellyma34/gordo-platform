@@ -399,7 +399,12 @@ function migrateLegacyToV3(legacy: LegacyGrid): SalesPlanWorkGrid {
         }
       }
     }
-    if (!u || !r) continue;
+    if (!u || !r) {
+      for (const t of TERMINATIONS) {
+        fillAvgMetricsForSlice(next[s][t]);
+      }
+      continue;
+    }
     for (const t of TERMINATIONS) {
       for (const c of SALES_PLAN_CATEGORY_IDS) {
         const uv = fromLegacy(u[c] ?? { planMonth: 0, factMonth: 0, planCumulative: 0 });
@@ -430,10 +435,9 @@ function migrateLegacyToV3(legacy: LegacyGrid): SalesPlanWorkGrid {
           planCumulative: Math.round(rv.planCumulative * 0.88),
           factMonth: Math.round(rv.factMonth * 0.88),
           factCumulative: escrowFact,
-          isManualOverride: false,
         };
-        fillAvgMetricsForSlice(next[s][t]);
       }
+      fillAvgMetricsForSlice(next[s][t]);
     }
   }
   return next;
@@ -449,6 +453,7 @@ function coerceCategoryValues(row: unknown): SalesPlanCategoryValues {
     planCumulative: n("planCumulative"),
     factMonth: n("factMonth"),
     factCumulative: n("factCumulative"),
+    isManualOverride: typeof o.isManualOverride === "boolean" ? o.isManualOverride : false,
   };
 }
 
@@ -471,6 +476,11 @@ export function normalizeWorkGridFromStorage(parsed: unknown): SalesPlanWorkGrid
             out[s][t][m][c] = coerceCategoryValues(g[s]?.[t]?.[m]?.[c]);
           }
         }
+      }
+    }
+    for (const s of SCENARIOS) {
+      for (const t of TERMINATIONS) {
+        refreshAutoAvgPriceInSlice(out[s][t]);
       }
     }
     return out;
@@ -580,7 +590,7 @@ export function buildDefaultSalesPlanWorkGrid(): SalesPlanWorkGrid {
       area_weighted: {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>,
       revenue_ddu: {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>,
       cashflow_escrow: {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>,
-    };
+    } as Record<SalesPlanMetricKind, Record<SalesPlanCategoryId, SalesPlanCategoryValues>>;
     for (const c of SALES_PLAN_CATEGORY_IDS) {
       const fn = t === "without_terminations" ? (x: SalesPlanCategoryValues) => withoutTermAdjust(x, k) : (x: SalesPlanCategoryValues) => ({ ...x });
       out.quantity[c] = fn({ ...q[c]! });
@@ -589,6 +599,13 @@ export function buildDefaultSalesPlanWorkGrid(): SalesPlanWorkGrid {
       out.revenue_ddu[c] = fn({ ...revT[c]! });
       out.cashflow_escrow[c] = fn({ ...esc[c]! });
     }
+    for (const m of SALES_PLAN_AVG_PRICE_METRICS) {
+      out[m] = {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>;
+      for (const c of SALES_PLAN_CATEGORY_IDS) {
+        out[m][c] = emptyValues();
+      }
+    }
+    fillAvgMetricsForSlice(out);
     return out;
   };
 
@@ -600,12 +617,19 @@ export function buildDefaultSalesPlanWorkGrid(): SalesPlanWorkGrid {
     fn: (v: SalesPlanCategoryValues) => SalesPlanCategoryValues,
   ): Record<SalesPlanMetricKind, Record<SalesPlanCategoryId, SalesPlanCategoryValues>> => {
     const o = {} as Record<SalesPlanMetricKind, Record<SalesPlanCategoryId, SalesPlanCategoryValues>>;
-    for (const m of METRICS) {
+    for (const m of BASE_METRICS) {
       o[m] = {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>;
       for (const c of SALES_PLAN_CATEGORY_IDS) {
         o[m][c] = fn({ ...src[m][c]! });
       }
     }
+    for (const m of SALES_PLAN_AVG_PRICE_METRICS) {
+      o[m] = {} as Record<SalesPlanCategoryId, SalesPlanCategoryValues>;
+      for (const c of SALES_PLAN_CATEGORY_IDS) {
+        o[m][c] = emptyValues();
+      }
+    }
+    fillAvgMetricsForSlice(o);
     return o;
   };
 
@@ -656,8 +680,28 @@ export function diffGridsToHistory(args: {
           const b = before[s][term][m][c];
           const a = after[s][term][m][c];
           for (const f of fields) {
-            const oldValue = b[f];
-            const newValue = a[f];
+            if (f === "isManualOverride") {
+              const ob = b.isManualOverride === true ? 1 : 0;
+              const oa = a.isManualOverride === true ? 1 : 0;
+              if (ob !== oa) {
+                seq += 1;
+                out.push({
+                  id: `${at}-${seq}`,
+                  at,
+                  userLabel,
+                  scenario: s,
+                  termination: term,
+                  metric: m,
+                  categoryId: c,
+                  field: f,
+                  oldValue: ob,
+                  newValue: oa,
+                });
+              }
+              continue;
+            }
+            const oldValue = b[f] as number;
+            const newValue = a[f] as number;
             if (oldValue !== newValue) {
               seq += 1;
               out.push({
@@ -717,5 +761,8 @@ export function sumFactCumulativeForMetric(
   slice: Record<SalesPlanMetricKind, Record<SalesPlanCategoryId, SalesPlanCategoryValues>>,
   metric: SalesPlanMetricKind,
 ): number {
-  return SALES_PLAN_CATEGORY_IDS.reduce((s, c) => s + slice[metric][c].factCumulative, 0);
+  return SALES_PLAN_CATEGORY_IDS.reduce(
+    (s, c) => s + getEffectiveCategoryValues(slice, metric, c).factCumulative,
+    0,
+  );
 }
