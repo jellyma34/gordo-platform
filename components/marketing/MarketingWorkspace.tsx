@@ -1,20 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { marketingMockData } from "@/lib/marketingMockData";
 import { InstallmentDduPanel } from "./InstallmentDduPanel";
 import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFilters";
+import { MarketingPresentationTabs } from "./MarketingPresentationTabs";
 import { SalesPlanPanel, type PlanScenario } from "./SalesPlanPanel";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 
-type MarketingTab = "sales" | "installment";
+export type MarketingTab = "sales" | "installment";
 
 type Props = {
   modeLabel: string;
   presentation: boolean;
   onBackToBlocks: () => void;
+  /** В презентации по маршруту /presentation/marketing/* — какой блок показать. */
+  presentationActiveTab?: MarketingTab;
   /** Синхронизация с URL при открытии из пояснения. */
   initialPeriod?: MarketingPeriodGranularity;
   initialObjectId?: string;
@@ -63,15 +67,34 @@ export function MarketingWorkspace({
   modeLabel,
   presentation,
   onBackToBlocks,
+  presentationActiveTab,
   initialPeriod,
   initialObjectId,
   initialDealTypeId,
   initialPlanScenario,
 }: Props) {
-  const [tab, setTab] = useState<MarketingTab>("sales");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const [editTab, setEditTab] = useState<MarketingTab>("sales");
   const [period, setPeriod] = useState<MarketingPeriodGranularity>(initialPeriod ?? "month");
   const [objectId, setObjectId] = useState(initialObjectId ?? "all");
   const [dealTypeId, setDealTypeId] = useState(initialDealTypeId ?? "all");
+
+  const activeTab = presentation ? (presentationActiveTab ?? "sales") : editTab;
+
+  useEffect(() => {
+    if (!presentation) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("period", period);
+    next.set("objectId", objectId);
+    next.set("dealTypeId", dealTypeId);
+    const newQs = next.toString();
+    if (newQs !== searchParams.toString()) {
+      router.replace(newQs ? `${pathname}?${newQs}` : pathname, { scroll: false });
+    }
+  }, [presentation, period, objectId, dealTypeId, pathname, router, searchParams]);
 
   const outer = presentation
     ? "mx-auto w-full min-w-0 max-w-[1400px] space-y-6"
@@ -111,20 +134,30 @@ export function MarketingWorkspace({
         <div
           className={
             presentation
-              ? "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-600/40 pt-4"
+              ? "mt-4 border-t border-slate-600/40 pt-4"
               : "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4"
           }
         >
-          <TabButton presentation={presentation} active={tab === "sales"} onClick={() => setTab("sales")}>
-            План продаж
-          </TabButton>
-          <TabButton
-            presentation={presentation}
-            active={tab === "installment"}
-            onClick={() => setTab("installment")}
-          >
-            Рассрочка ДДУ
-          </TabButton>
+          {presentation ? (
+            <MarketingPresentationTabs />
+          ) : (
+            <>
+              <TabButton
+                presentation={presentation}
+                active={editTab === "sales"}
+                onClick={() => setEditTab("sales")}
+              >
+                План продаж
+              </TabButton>
+              <TabButton
+                presentation={presentation}
+                active={editTab === "installment"}
+                onClick={() => setEditTab("installment")}
+              >
+                Рассрочка ДДУ
+              </TabButton>
+            </>
+          )}
           {!presentation ? (
             <Link
               href={SALES_PLAN_SPA.work}
@@ -156,7 +189,7 @@ export function MarketingWorkspace({
         />
 
         <div className="mt-5 min-w-0">
-          {tab === "sales" ? (
+          {activeTab === "sales" ? (
             <SalesPlanPanel
               presentation={presentation}
               period={period}

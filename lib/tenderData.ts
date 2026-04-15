@@ -15,10 +15,12 @@ export type Tender = {
   name: string;
   /** Этап ГПР (корневой код): 2.04, 2.05, 2.06, 2.07 */
   stage: string;
-  planStart: string;
-  factStart?: string;
-  planContractDate: string;
-  factContractDate?: string;
+  /** План: начало работ (может отсутствовать). */
+  planStart: string | null;
+  factStart?: string | null;
+  /** План: дата договора (может отсутствовать). */
+  planContractDate: string | null;
+  factContractDate?: string | null;
   cost?: number;
   contractor?: string;
   status?: TenderProcurementStatus;
@@ -42,9 +44,21 @@ export function inferPartIdFromStage(stage: string): number {
 
 /** Отклонение по договору: факт − план (дней). Положительное — просрочка заключения. */
 export function contractDeviationDays(t: Tender): number | null {
-  if (!t.factContractDate) return null;
-  const d = daysBetween(t.planContractDate, t.factContractDate);
+  const pc = t.planContractDate?.trim();
+  const fc = t.factContractDate?.trim();
+  if (!pc || !fc) return null;
+  const d = daysBetween(pc, fc);
   return Number.isFinite(d) ? d : null;
+}
+
+/** Жизненный цикл закупки по датам (не путать со «светофором» договора). */
+export function tenderLifecycleLabel(t: Tender): string {
+  const hasPlan = Boolean(t.planStart?.trim() || t.planContractDate?.trim());
+  const hasFact = Boolean(t.factStart?.trim() || t.factContractDate?.trim());
+  if (!hasPlan) return "Не запланировано";
+  if (!hasFact) return "Не начато";
+  if (t.status === "completed") return "Завершено";
+  return "В работе";
 }
 
 /** Синоним ТЗ: отклонение даты договора (факт − план), дни. */
@@ -368,27 +382,37 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
 
+function coerceIsoOrNull(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
 function coerceTender(row: Record<string, unknown>): Tender | null {
   const id = row.id;
   const code = row.code;
   const name = row.name;
-  const planStart = row.planStart;
-  const planContractDate = row.planContractDate;
-  if (
-    typeof id !== "string" ||
-    typeof code !== "string" ||
-    typeof name !== "string" ||
-    typeof planStart !== "string" ||
-    typeof planContractDate !== "string"
-  ) {
+  if (typeof id !== "string" || typeof code !== "string" || typeof name !== "string") {
     return null;
   }
+  const planStart = coerceIsoOrNull(row.planStart);
+  const planContractDate = coerceIsoOrNull(row.planContractDate);
   const stageRaw = typeof row.stage === "string" ? row.stage.trim() : "";
   const stage = stageRaw || getGprStageFromTenderCode(code) || "";
   if (!stage) return null;
   const partId = typeof row.partId === "number" && Number.isFinite(row.partId) ? row.partId : inferPartIdFromStage(stage);
-  const factStart = typeof row.factStart === "string" ? row.factStart : undefined;
-  const factContractDate = typeof row.factContractDate === "string" ? row.factContractDate : undefined;
+  const factStartRaw = row.factStart;
+  const factContractRaw = row.factContractDate;
+  const factStart =
+    factStartRaw === null || factStartRaw === undefined || factStartRaw === ""
+      ? undefined
+      : coerceIsoOrNull(factStartRaw) ?? undefined;
+  const factContractDate =
+    factContractRaw === null || factContractRaw === undefined || factContractRaw === ""
+      ? undefined
+      : coerceIsoOrNull(factContractRaw) ?? undefined;
   const cost = typeof row.cost === "number" && Number.isFinite(row.cost) ? row.cost : undefined;
   const contractor = typeof row.contractor === "string" ? row.contractor : undefined;
   const comment = typeof row.comment === "string" ? row.comment : undefined;

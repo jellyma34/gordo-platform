@@ -411,3 +411,111 @@ export function sortGprTasksByCode(tasks: GPRTask[]): GPRTask[] {
     return a.id.localeCompare(b.id);
   });
 }
+
+export function isIsoDateString(s: string | null | undefined): s is string {
+  return Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(s));
+}
+
+export function isoDayMs(s: string): number {
+  return new Date(`${s}T00:00:00`).getTime();
+}
+
+/** Родительский шифр: «2.05.01.2» → «2.05.01». */
+export function gprParentCode(code: string): string | null {
+  const parts = code.trim().split(".").filter((p) => p.length > 0);
+  if (parts.length <= 1) return null;
+  return parts.slice(0, -1).join(".");
+}
+
+/**
+ * Следующий дочерний шифр при прямых потомках вида `parent.N` (N — целое).
+ * `parent === null` → корневой уровень (`1`, `2`, …).
+ */
+export function suggestNextCodeUnderParent(existingCodes: string[], parent: string | null): string {
+  const directChildNumbers = existingCodes
+    .map((c) => c.trim())
+    .filter((code) => {
+      if (parent === null) return !code.includes(".");
+      if (!code.startsWith(`${parent}.`)) return false;
+      const rest = code.slice(parent.length + 1);
+      return /^\d+$/.test(rest);
+    })
+    .map((code) => Number(code.split(".").pop() ?? "0"))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  const next = (directChildNumbers.length > 0 ? Math.max(...directChildNumbers) : 0) + 1;
+  return parent ? `${parent}.${next}` : `${next}`;
+}
+
+export type FourPlanFactDates = {
+  planStart?: string | null;
+  planEnd?: string | null;
+  factStart?: string | null;
+  factEnd?: string | null;
+};
+
+export function analyzeFourPlanFactDates(d: FourPlanFactDates): {
+  errors: string[];
+  warnings: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const ps = d.planStart;
+  const pe = d.planEnd;
+  const fs = d.factStart;
+  const fe = d.factEnd;
+
+  if (isIsoDateString(ps) && isIsoDateString(pe) && isoDayMs(ps) > isoDayMs(pe)) {
+    errors.push("План: начало позже окончания");
+  }
+  if (isIsoDateString(fs) && isIsoDateString(fe) && isoDayMs(fs) > isoDayMs(fe)) {
+    errors.push("Факт: начало позже окончания");
+  }
+  if (isIsoDateString(fs) && isIsoDateString(ps) && isoDayMs(fs) < isoDayMs(ps)) {
+    warnings.push("Фактическое начало раньше планового");
+  }
+  if (isIsoDateString(fe) && isIsoDateString(pe) && isoDayMs(fe) < isoDayMs(pe)) {
+    warnings.push("Фактическое окончание раньше планового");
+  }
+  return { errors, warnings };
+}
+
+export type GprCodeRowIssue = { errors: string[]; warnings: string[] };
+
+/** Ошибки/предупреждения по шифру и иерархии в списке (дубли, формат, родитель). */
+export function analyzeGprCodeInList<T extends { id: string; code: string }>(
+  row: T,
+  allRows: T[],
+): GprCodeRowIssue {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const codeTrim = row.code.trim();
+
+  if (!codeTrim) {
+    errors.push("Пустой шифр");
+  } else if (!GPR_CODE_FORMAT_RE.test(codeTrim)) {
+    errors.push("Шифр: только цифры и точки (например 2.05.03.1)");
+  }
+
+  const dup = allRows.filter((r) => r.id !== row.id && r.code.trim() === codeTrim);
+  if (codeTrim && dup.length > 0) {
+    errors.push("Дублирующийся шифр в списке");
+  }
+
+  const p = gprParentCode(codeTrim);
+  if (p && !allRows.some((x) => x.code.trim() === p)) {
+    warnings.push(`Нет строки с родительским шифром «${p}»`);
+  }
+
+  return { errors, warnings };
+}
+
+export function mergeGprRowIssues(...parts: GprCodeRowIssue[]): GprCodeRowIssue {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  for (const p of parts) {
+    errors.push(...p.errors);
+    warnings.push(...p.warnings);
+  }
+  return { errors, warnings };
+}

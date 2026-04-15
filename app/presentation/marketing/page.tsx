@@ -14,5 +14,5 @@ export default async function LegacyPresentationMarketingPage({ searchParams }: 
     else q.set(key, val);
   }
   const tail = q.toString();
-  redirect(tail ? `/marketing/sales-plan/presentation?${tail}` : "/marketing/sales-plan/presentation");
+  redirect(tail ? `/presentation/marketing/sales-plan?${tail}` : "/presentation/marketing/sales-plan");
 }

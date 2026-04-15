@@ -38,7 +38,7 @@ import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDep
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
 import { gprStageDisplayTitle, gprStageGroupKeysForProjectPart } from "@/lib/gprTmcDependency";
-import type { TMCItem } from "@/lib/tmcData";
+import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import { filterTmcByProjectPart, getTmcData, mergeTmcSnapshotWithSeed } from "@/lib/tmcData";
 import {
   buildTenderStageInsight,
@@ -408,9 +408,11 @@ function computeTmcProblemSignals(
     for (const tmcId of task.relatedTmcIds ?? []) {
       const item = tmcById.get(tmcId);
       if (!item) continue;
-      const planMs = new Date(`${item.planDate}T00:00:00`).getTime();
-      const factMs = item.factDate ? new Date(`${item.factDate}T00:00:00`).getTime() : null;
-      if (!item.factDate && Number.isFinite(planMs) && planMs < todayMs) notPurchased = true;
+      const planRef = tmcPlanReferenceDate(item);
+      const factRef = tmcFactReferenceDate(item);
+      const planMs = planRef ? new Date(`${planRef}T00:00:00`).getTime() : NaN;
+      const factMs = factRef ? new Date(`${factRef}T00:00:00`).getTime() : null;
+      if (!factRef && Number.isFinite(planMs) && planMs < todayMs) notPurchased = true;
       if (factMs !== null && Number.isFinite(planMs) && factMs > planMs) overdueDelivery = true;
     }
   }

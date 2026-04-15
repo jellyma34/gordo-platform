@@ -1,14 +1,30 @@
 "use client";
 
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from "react";
-import { getStatusByDeviation, partIdToProjectPartKey, type ProjectPartKey } from "@/lib/gprUtils";
+import {
+  analyzeFourPlanFactDates,
+  analyzeGprCodeInList,
+  compareGprCodesByNumericPath,
+  getStatusByDeviation,
+  GPR_CODE_FORMAT_RE,
+  mergeGprRowIssues,
+  normalizeGprCodeFinal,
+  partIdToProjectPartKey,
+  sanitizeGprCodeTyping,
+  type ProjectPartKey,
+} from "@/lib/gprUtils";
 import {
   mergeTmcSnapshotWithSeed,
+  suggestNextTmcItemCode,
   TMC_DATA,
+  tmcFactReferenceDate,
+  tmcLifecycleLabel,
+  tmcPlanReferenceDate,
   type TMCItem,
 } from "@/lib/tmcData";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
-import { RuDateInput } from "@/components/ui/RuDateInput";
+import { GprDateField } from "@/components/ui/GprDateField";
+import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
 
 type Traffic = "green" | "yellow" | "red" | "gray" | "overdue_not_started";
 
@@ -20,23 +36,28 @@ const COLORS = {
   overdue_not_started: "#dc2626",
 } as const;
 
-function ms(iso: string | null) {
-  if (!iso) return null;
-  const value = new Date(`${iso}T00:00:00`).getTime();
+function ms(iso: string | null | undefined) {
+  if (!iso?.trim()) return null;
+  const value = new Date(`${iso.trim()}T00:00:00`).getTime();
   return Number.isNaN(value) ? null : value;
 }
 
 function deviationDays(item: TMCItem): number | null {
-  const p = ms(item.planDate);
-  if (p === null) return null;
-  const f = ms(item.factDate);
-  if (f === null) return null;
+  const pr = tmcPlanReferenceDate(item);
+  const fr = tmcFactReferenceDate(item);
+  if (!pr || !fr) return null;
+  const p = ms(pr);
+  const f = ms(fr);
+  if (p === null || f === null) return null;
   return Math.round((f - p) / (1000 * 60 * 60 * 24));
 }
 
 function statusOf(item: TMCItem): Traffic {
-  if (!item.factDate) {
-    const p = ms(item.planDate);
+  const factRef = tmcFactReferenceDate(item);
+  if (!factRef) {
+    const planRef = tmcPlanReferenceDate(item);
+    if (!planRef) return "gray";
+    const p = ms(planRef);
     const today = new Date();
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     if (p !== null && p < todayStart) return "overdue_not_started";
@@ -49,21 +70,27 @@ function statusOf(item: TMCItem): Traffic {
 
 type EditableTmc = {
   id: string;
+  itemCode: string;
   name: string;
   gprStage: string;
-  planDate: string;
+  planStart: string;
+  planEnd: string;
+  factStart: string;
+  factEnd: string;
   planCost: string;
-  factDate: string;
   factCost: string;
 };
 
 const EMPTY_FORM: EditableTmc = {
   id: "",
+  itemCode: "",
   name: "",
   gprStage: "",
-  planDate: "",
+  planStart: "",
+  planEnd: "",
+  factStart: "",
+  factEnd: "",
   planCost: "",
-  factDate: "",
   factCost: "",
 };
 
@@ -73,9 +100,7 @@ export type TmcTableHandle = {
 };
 
 type TmcTableProps = {
-  /** Внутри EditLayout: без заголовка и внешней «карточки» */
   embedded?: boolean;
-  /** Текущая часть проекта: новые ТМЦ и список привязываются к ней. */
   activePartId: number;
 };
 
@@ -88,6 +113,21 @@ function readStoredTmcSnapshot(): unknown {
   } catch {
     return undefined;
   }
+}
+
+function sortTmcInPart(items: TMCItem[], part: ProjectPartKey): TMCItem[] {
+  const rest = items.filter((x) => x.projectPart !== part);
+  const partRows = items.filter((x) => x.projectPart === part);
+  const sorted = [...partRows].sort(
+    (a, b) =>
+      compareGprCodesByNumericPath(a.itemCode, b.itemCode) || a.id.localeCompare(b.id),
+  );
+  return [...rest, ...sorted];
+}
+
+function isoOrEmptyOk(s: string): boolean {
+  const t = s.trim();
+  return !t || /^\d{4}-\d{2}-\d{2}$/.test(t);
 }
 
 export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTable(
@@ -118,17 +158,56 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   );
 
   const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return rows.filter((row) => {
-      const byQuery = row.name.toLowerCase().includes(query.trim().toLowerCase());
+      const byQuery =
+        !q ||
+        row.name.toLowerCase().includes(q) ||
+        row.itemCode.toLowerCase().includes(q) ||
+        row.gprStage.toLowerCase().includes(q);
       const byStatus = statusFilter === "all" ? true : row.status === statusFilter;
       return byQuery && byStatus;
     });
   }, [rows, query, statusFilter]);
 
+  const sortedFilteredRows = useMemo(() => {
+    return [...filteredRows].sort(
+      (a, b) =>
+        compareGprCodesByNumericPath(a.itemCode, b.itemCode) || a.id.localeCompare(b.id),
+    );
+  }, [filteredRows]);
+
+  const tmcRowIssues = useMemo(() => {
+    const m = new Map<string, { errors: string[]; warnings: string[] }>();
+    const peers = items.filter((t) => t.projectPart === activeProjectPart);
+    for (const row of sortedFilteredRows) {
+      const rowAsCode = { id: row.id, code: row.itemCode };
+      const peersAsCode = peers.map((t) => ({ id: t.id, code: t.itemCode }));
+      const merged = mergeGprRowIssues(
+        analyzeGprCodeInList(rowAsCode, peersAsCode),
+        analyzeFourPlanFactDates({
+          planStart: row.planStart,
+          planEnd: row.planEnd,
+          factStart: row.factStart,
+          factEnd: row.factEnd,
+        }),
+      );
+      if (merged.errors.length > 0 || merged.warnings.length > 0) m.set(row.id, merged);
+    }
+    return m;
+  }, [sortedFilteredRows, items, activeProjectPart]);
+
   const openCreate = () => {
     setEditingId(null);
     const prefix = activeProjectPart === "parking" ? "tmc-p-" : "tmc-";
-    setForm({ ...EMPTY_FORM, id: `${prefix}${Date.now()}` });
+    const id = `${prefix}${Date.now()}`;
+    const suggested = suggestNextTmcItemCode(items, activeProjectPart, "Строительство зданий и сооружений");
+    setForm({
+      ...EMPTY_FORM,
+      id,
+      itemCode: suggested,
+      gprStage: "Строительство зданий и сооружений",
+    });
     setIsModalOpen(true);
   };
 
@@ -136,11 +215,14 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     setEditingId(row.id);
     setForm({
       id: row.id,
+      itemCode: row.itemCode,
       name: row.name,
       gprStage: row.gprStage,
-      planDate: row.planDate,
+      planStart: row.planStart ?? "",
+      planEnd: row.planEnd ?? "",
+      factStart: row.factStart ?? "",
+      factEnd: row.factEnd ?? "",
       planCost: String(row.planCost),
-      factDate: row.factDate ?? "",
       factCost: row.factCost === null ? "" : String(row.factCost),
     });
     setIsModalOpen(true);
@@ -153,12 +235,29 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   };
 
   const persist = useCallback(() => {
+    const peers = items.filter((t) => t.projectPart === activeProjectPart);
+    const asCodes = peers.map((t) => ({ id: t.id, code: t.itemCode }));
+    for (const t of peers) {
+      const merged = mergeGprRowIssues(
+        analyzeGprCodeInList({ id: t.id, code: t.itemCode }, asCodes),
+        analyzeFourPlanFactDates({
+          planStart: t.planStart,
+          planEnd: t.planEnd,
+          factStart: t.factStart,
+          factEnd: t.factEnd,
+        }),
+      );
+      if (merged.errors.length > 0) {
+        window.alert(`Исправьте ошибки перед сохранением: ${t.itemCode} — ${merged.errors.join("; ")}`);
+        return;
+      }
+    }
     try {
       localStorage.setItem("gordo_tmc_snapshot", JSON.stringify(items));
     } catch {
       /* ignore */
     }
-  }, [items]);
+  }, [items, activeProjectPart]);
 
   const resetToSeed = useCallback(() => {
     setItems((prev) => {
@@ -171,25 +270,66 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   useImperativeHandle(ref, () => ({ save: persist, cancel: resetToSeed }), [persist, resetToSeed]);
 
   const saveForm = () => {
-    if (!form.name.trim() || !form.gprStage.trim() || !form.planDate || !form.planCost.trim()) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.planDate)) return;
-    if (form.factDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factDate.trim())) return;
-    const payload: TMCItem = {
-      id: form.id || `tmc-${Date.now()}`,
+    if (!form.name.trim() || !form.gprStage.trim() || !form.planCost.trim()) return;
+    const itemCode = normalizeGprCodeFinal(form.itemCode);
+    if (!itemCode || !GPR_CODE_FORMAT_RE.test(itemCode)) {
+      window.alert("Укажите корректный код позиции (цифры и точки).");
+      return;
+    }
+    if (
+      !isoOrEmptyOk(form.planStart) ||
+      !isoOrEmptyOk(form.planEnd) ||
+      !isoOrEmptyOk(form.factStart) ||
+      !isoOrEmptyOk(form.factEnd)
+    ) {
+      window.alert("Даты должны быть пустыми или в формате ГГГГ-ММ-ДД.");
+      return;
+    }
+
+    const probeId = form.id || `tmc-${Date.now()}`;
+    const peers = items.filter((x) => x.projectPart === activeProjectPart && x.id !== editingId);
+    const probeRow: TMCItem = {
+      id: probeId,
+      itemCode,
       name: form.name.trim(),
       gprStage: form.gprStage.trim(),
-      planDate: form.planDate,
       planCost: Number(form.planCost) || 0,
-      factDate: form.factDate.trim() || null,
       factCost: form.factCost.trim() ? Number(form.factCost) || 0 : null,
+      planStart: form.planStart.trim() || null,
+      planEnd: form.planEnd.trim() || null,
+      factStart: form.factStart.trim() || null,
+      factEnd: form.factEnd.trim() || null,
       projectPart: editingId
         ? items.find((x) => x.id === editingId)?.projectPart ?? activeProjectPart
         : activeProjectPart,
     };
 
-    setItems((prev) =>
-      editingId ? prev.map((x) => (x.id === editingId ? payload : x)) : [payload, ...prev],
+    const peersAsCode = peers.map((t) => ({ id: t.id, code: t.itemCode }));
+    const merged = mergeGprRowIssues(
+      analyzeGprCodeInList({ id: probeRow.id, code: probeRow.itemCode }, [
+        ...peersAsCode,
+        { id: probeRow.id, code: probeRow.itemCode },
+      ]),
+      analyzeFourPlanFactDates({
+        planStart: probeRow.planStart,
+        planEnd: probeRow.planEnd,
+        factStart: probeRow.factStart,
+        factEnd: probeRow.factEnd,
+      }),
     );
+    if (merged.errors.length > 0) {
+      window.alert(merged.errors.join("\n"));
+      return;
+    }
+
+    const payload: TMCItem = { ...probeRow, id: editingId ?? probeId };
+
+    setItems((prev) => {
+      const next = editingId
+        ? prev.map((x) => (x.id === editingId ? payload : x))
+        : [payload, ...prev];
+      return sortTmcInPart(next, payload.projectPart);
+    });
     setIsModalOpen(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -223,7 +363,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по названию"
+            placeholder="Поиск: код, название, этап"
             className="h-10 min-w-[220px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
           />
           <select
@@ -245,19 +385,23 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         <table className="min-w-full border-separate border-spacing-y-2 text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500">
+              <th className="px-3 py-2">Код</th>
               <th className="px-3 py-2">Название</th>
               <th className="px-3 py-2">Этап ГПР</th>
-              <th className="px-3 py-2">План дата</th>
-              <th className="px-3 py-2">Факт дата</th>
-              <th className="px-3 py-2">План стоимость</th>
-              <th className="px-3 py-2">Факт стоимость</th>
+              <th className="px-3 py-2">Цикл</th>
+              <th className="px-3 py-2">План нач.</th>
+              <th className="px-3 py-2">План кон.</th>
+              <th className="px-3 py-2">Факт нач.</th>
+              <th className="px-3 py-2">Факт кон.</th>
+              <th className="px-3 py-2">План ₽</th>
+              <th className="px-3 py-2">Факт ₽</th>
               <th className="px-3 py-2">Отклонение</th>
               <th className="px-3 py-2">Статус</th>
               <th className="px-3 py-2 text-right">Действия</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row) => {
+            {sortedFilteredRows.map((row) => {
               const statusColor = COLORS[row.status];
               const statusLabel =
                 row.status === "green"
@@ -266,38 +410,43 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                     ? "Риск"
                     : row.status === "overdue_not_started"
                       ? "Не закуплено"
-                    : row.status === "red"
-                      ? "Отставание"
-                      : "Нет данных";
-              const statusNote =
-                row.status === "overdue_not_started"
-                  ? "Срок закупки истёк, фактическая дата отсутствует"
-                  : null;
+                      : row.status === "red"
+                        ? "Отставание"
+                        : "Нет данных";
+              const rowIssues = tmcRowIssues.get(row.id);
+              const statusTitle = gprIssueStatusTitle(rowIssues);
               return (
-                <tr key={row.id} className="rounded-lg border border-slate-200 bg-white text-slate-800 shadow-sm">
-                  <td className="rounded-l-lg px-3 py-3 font-medium">{row.name}</td>
+                <tr
+                  key={row.id}
+                  className="rounded-lg border border-slate-200 bg-white text-slate-800 shadow-sm"
+                >
+                  <td className="rounded-l-lg px-3 py-3 font-mono text-xs">{row.itemCode}</td>
+                  <td className="px-3 py-3 font-medium">{row.name}</td>
                   <td className="px-3 py-3 text-slate-600">{row.gprStage}</td>
-                  <td className="px-3 py-3">{formatStoredDateForUi(row.planDate)}</td>
-                  <td className="px-3 py-3">{formatStoredDateForUi(row.factDate)}</td>
+                  <td className="px-3 py-3 text-xs text-slate-700">{tmcLifecycleLabel(row)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.planStart)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.planEnd)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.factStart)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.factEnd)}</td>
                   <td className="px-3 py-3 tabular-nums">{(row.planCost / 1_000_000).toFixed(2)} млн</td>
-                  <td className="px-3 py-3 tabular-nums">{row.factCost === null ? "—" : `${(row.factCost / 1_000_000).toFixed(2)} млн`}</td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {row.factCost === null ? "—" : `${(row.factCost / 1_000_000).toFixed(2)} млн`}
+                  </td>
                   <td className="px-3 py-3 tabular-nums" style={{ color: statusColor }}>
                     {row.deviation === null ? "—" : row.deviation > 0 ? `+${row.deviation} дн` : `${row.deviation} дн`}
                   </td>
                   <td className="px-3 py-3">
                     <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                        row.status === "overdue_not_started" ? "ring-1 ring-red-300" : ""
-                      }`}
+                      className="inline-flex cursor-default rounded-full px-2 py-1 text-xs font-medium"
                       style={{
                         backgroundColor: `${statusColor}22`,
                         color: statusColor,
-                        fontWeight: row.status === "overdue_not_started" ? 700 : 500,
+                        fontWeight: 500,
                       }}
+                      title={statusTitle}
                     >
                       {statusLabel}
                     </span>
-                    {statusNote ? <div className="mt-1 text-[11px] text-red-700">{statusNote}</div> : null}
                   </td>
                   <td className="rounded-r-lg px-3 py-3 text-right">
                     <div className="inline-flex items-center gap-1">
@@ -332,6 +481,13 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
             </h3>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <input
+                value={form.itemCode}
+                onChange={(e) => setForm((p) => ({ ...p, itemCode: sanitizeGprCodeTyping(e.target.value) }))}
+                onBlur={() => setForm((p) => ({ ...p, itemCode: normalizeGprCodeFinal(p.itemCode) }))}
+                placeholder="Код позиции (2.05.01.1)"
+                className="h-10 rounded-lg border border-slate-300 px-3 font-mono text-sm text-slate-900"
+              />
+              <input
                 value={form.name}
                 onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Название"
@@ -339,23 +495,40 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
               />
               <input
                 value={form.gprStage}
-                onChange={(e) => setForm((p) => ({ ...p, gprStage: e.target.value }))}
-                placeholder="Этап ГПР"
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                onChange={(e) => {
+                  const gprStage = e.target.value;
+                  setForm((p) => {
+                    if (editingId) return { ...p, gprStage };
+                    const sugg = suggestNextTmcItemCode(items, activeProjectPart, gprStage);
+                    return { ...p, gprStage, itemCode: sugg };
+                  });
+                }}
+                placeholder="Этап ГПР (подпись)"
+                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 md:col-span-2"
               />
-              <RuDateInput
-                value={form.planDate}
-                onChange={(iso) => setForm((p) => ({ ...p, planDate: iso }))}
-                allowEmpty={false}
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
-                title="Плановая дата закупки"
+              <GprDateField
+                value={form.planStart}
+                onIso={(iso) => setForm((p) => ({ ...p, planStart: iso }))}
+                title="План: начало"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
-              <RuDateInput
-                value={form.factDate}
-                onChange={(iso) => setForm((p) => ({ ...p, factDate: iso }))}
-                allowEmpty
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
-                title="Фактическая дата (опц.)"
+              <GprDateField
+                value={form.planEnd}
+                onIso={(iso) => setForm((p) => ({ ...p, planEnd: iso }))}
+                title="План: окончание"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              />
+              <GprDateField
+                value={form.factStart}
+                onIso={(iso) => setForm((p) => ({ ...p, factStart: iso }))}
+                title="Факт: начало"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              />
+              <GprDateField
+                value={form.factEnd}
+                onIso={(iso) => setForm((p) => ({ ...p, factEnd: iso }))}
+                title="Факт: окончание"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <input
                 value={form.planCost}
@@ -396,4 +569,3 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     </section>
   );
 });
-

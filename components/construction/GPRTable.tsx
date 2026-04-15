@@ -13,14 +13,18 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  analyzeFourPlanFactDates,
+  analyzeGprCodeInList,
   calculateDeviation,
   durationDays,
   GPR_CODE_FORMAT_RE,
+  gprParentCode,
   gprTaskFromApiItem,
   gprTaskToApiWritePayload,
   getStatus,
   getStatusByDeviation,
   getStatusLabel,
+  mergeGprRowIssues,
   normalizeGprCodeFinal,
   PROJECT_PARTS,
   partIdToProjectPartKey,
@@ -31,7 +35,7 @@ import {
 import { filterTaskTree, useTaskFilter, type TaskStatusFilter } from "@/lib/filters/useTaskFilter";
 import { getRelatedDeviations, type RelatedDeviation } from "@/lib/gprRelatedDeviations";
 import type { GprWorkCatalogItem } from "@/lib/gprWorkCatalog";
-import { getTmcData } from "@/lib/tmcData";
+import { getTmcData, tmcPlanReferenceDate } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
@@ -46,7 +50,8 @@ import {
 } from "@/lib/auth";
 import { historyDetailToVersionDetail, historyRowsToVersionListItems } from "@/lib/gprHistoryMap";
 import { isoToRuDmy, toIsoDateOnly } from "@/lib/ruIsoDate";
-import { RuDateInput } from "@/components/ui/RuDateInput";
+import { GprDateField } from "@/components/ui/GprDateField";
+import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
 
 type FlatTask = GPRTask & { level: number; parentId?: string };
 
@@ -114,14 +119,6 @@ function statusPillStyle(status: ReturnType<typeof getStatus>): CSSProperties {
 const INPUT_ROW =
   "h-8 w-full min-w-[130px] shrink-0 rounded-lg border border-slate-300 bg-white px-[10px] py-[6px] text-xs text-slate-900";
 
-function isIsoDateString(s: string | null | undefined): s is string {
-  return Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(s));
-}
-
-function dayMs(iso: string): number {
-  return new Date(`${iso}T00:00:00`).getTime();
-}
-
 function analyzeGprDraft(tasks: GPRTask[]): {
   byId: Map<string, { errors: string[]; warnings: string[] }>;
   blocking: boolean;
@@ -132,47 +129,19 @@ function analyzeGprDraft(tasks: GPRTask[]): {
     return byId.get(id)!;
   };
 
-  const codeToIds = new Map<string, string[]>();
-  for (const t of tasks) {
-    const c = t.code.trim();
-    if (!codeToIds.has(c)) codeToIds.set(c, []);
-    codeToIds.get(c)!.push(t.id);
-  }
-
   for (const t of tasks) {
     const rec = touch(t.id);
-    const codeTrim = t.code.trim();
-
-    if (!codeTrim) {
-      rec.errors.push("Пустой шифр");
-    } else if (!GPR_CODE_FORMAT_RE.test(codeTrim)) {
-      rec.errors.push("Шифр: только цифры и точки (например 2.05.03.1)");
-    }
-
-    const dupIds = codeToIds.get(codeTrim) ?? [];
-    if (codeTrim && dupIds.length > 1) {
-      rec.errors.push("Дублирующийся шифр в списке");
-    }
-
-    const p = parentCode(codeTrim);
-    if (p && !tasks.some((x) => x.code.trim() === p)) {
-      rec.warnings.push(`Нет строки с родительским шифром «${p}»`);
-    }
-
-    const ps = t.planStart;
-    const pe = t.planEnd;
-    const fs = t.factStart;
-    const fe = t.factEnd;
-
-    if (isIsoDateString(ps) && isIsoDateString(pe) && dayMs(ps) > dayMs(pe)) {
-      rec.errors.push("План: начало позже окончания");
-    }
-    if (isIsoDateString(fs) && isIsoDateString(fe) && dayMs(fs) > dayMs(fe)) {
-      rec.errors.push("Факт: начало позже окончания");
-    }
-    if (isIsoDateString(fs) && isIsoDateString(ps) && dayMs(fs) < dayMs(ps)) {
-      rec.warnings.push("Фактическое начало раньше планового");
-    }
+    const merged = mergeGprRowIssues(
+      analyzeGprCodeInList(t, tasks),
+      analyzeFourPlanFactDates({
+        planStart: t.planStart,
+        planEnd: t.planEnd,
+        factStart: t.factStart,
+        factEnd: t.factEnd,
+      }),
+    );
+    rec.errors.push(...merged.errors);
+    rec.warnings.push(...merged.warnings);
   }
 
   let blocking = false;
@@ -180,38 +149,6 @@ function analyzeGprDraft(tasks: GPRTask[]): {
     if (v.errors.length > 0) blocking = true;
   }
   return { byId, blocking };
-}
-
-function GprDateField({
-  value,
-  onIso,
-  title,
-  fieldClassName = INPUT_ROW,
-}: {
-  value: string | null | undefined;
-  onIso: (iso: string) => void;
-  title: string;
-  fieldClassName?: string;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <RuDateInput
-        value={value ?? ""}
-        onChange={onIso}
-        allowEmpty
-        className={`${fieldClassName} min-w-0 flex-1`}
-        title={title}
-      />
-      <button
-        type="button"
-        className="h-8 shrink-0 rounded border border-slate-300 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
-        title="Очистить дату"
-        onClick={() => onIso("")}
-      >
-        ✕
-      </button>
-    </div>
-  );
 }
 
 const XL_TASK_GRID_TEMPLATE =
@@ -332,11 +269,6 @@ function createId() {
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function parentCode(code: string) {
-  const parts = code.split(".");
-  if (parts.length <= 1) return null;
-  return parts.slice(0, -1).join(".");
-}
 
 function nextChildIndex(tasks: GPRTask[], parent: string | null) {
   const directChildNumbers = tasks
@@ -592,9 +524,11 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       for (const tmcId of task.relatedTmcIds ?? []) {
         const item = tmcById.get(tmcId);
         if (!item) continue;
-        const planMs = new Date(`${item.planDate}T00:00:00`).getTime();
-        const factMs = item.factDate ? new Date(`${item.factDate}T00:00:00`).getTime() : null;
-        const notPurchasedOverdue = !item.factDate && Number.isFinite(planMs) && planMs < todayMs;
+        const planRef = tmcPlanReferenceDate(item);
+        const factRef = item.factEnd?.trim() || item.factStart?.trim() || null;
+        const planMs = planRef ? new Date(`${planRef}T00:00:00`).getTime() : NaN;
+        const factMs = factRef ? new Date(`${factRef}T00:00:00`).getTime() : null;
+        const notPurchasedOverdue = !factRef && Number.isFinite(planMs) && planMs < todayMs;
         const overdue = factMs !== null && Number.isFinite(planMs) && factMs > planMs;
         if (notPurchasedOverdue || overdue) reasons.push(item.name);
       }
@@ -786,7 +720,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   };
 
   const addLevel = (task: FlatTask) => {
-    const parent = parentCode(task.code);
+    const parent = gprParentCode(task.code);
     const nextIndex = nextChildIndex(allRows, parent);
     const code = parent ? `${parent}.${nextIndex}` : `${nextIndex}`;
     const newTask: GPRTask = {
@@ -1080,6 +1014,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               const treePad = Math.max(0, task.level - 1) * 16;
               const relatedDeviations = getRelatedDeviations(task.globalTaskId);
 
+              const rowIssueBundle = draftAnalysis.byId.get(task.id);
               return (
                 <div
                   key={task.id}
@@ -1118,20 +1053,6 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                               : "text-xs font-normal text-slate-600"
                           }`}
                         />
-                        {(() => {
-                          const issue = draftAnalysis.byId.get(task.id);
-                          if (!issue?.errors.length && !issue?.warnings.length) return null;
-                          return (
-                            <div className="space-y-0.5">
-                              {issue.errors.length > 0 ? (
-                                <div className="text-[11px] text-red-600">{issue.errors.join(" · ")}</div>
-                              ) : null}
-                              {issue.warnings.length > 0 ? (
-                                <div className="text-[11px] text-amber-800">{issue.warnings.join(" · ")}</div>
-                              ) : null}
-                            </div>
-                          );
-                        })()}
                         <GPRWorkTypeCombobox
                           taskId={task.id}
                           name={task.name}
@@ -1224,8 +1145,9 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                     </div>
                     <div className="flex justify-center">
                       <span
-                        className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
+                        className="inline-flex cursor-default rounded-full px-2 py-1 text-xs font-medium"
                         style={statusPillStyle(status)}
+                        title={gprIssueStatusTitle(rowIssueBundle)}
                       >
                         {getStatusLabel(status)}
                       </span>

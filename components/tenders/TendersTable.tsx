@@ -6,6 +6,7 @@ import {
   mergeTenderSnapshotWithSeed,
   readTenderSnapshotFromStorage,
   TENDER_DATA,
+  tenderLifecycleLabel,
   tenderTrafficFromContract,
   tenderTrafficLabel,
   type Tender,
@@ -13,8 +14,33 @@ import {
   type TenderTraffic,
 } from "@/lib/tenderData";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
-import { RuDateInput } from "@/components/ui/RuDateInput";
-import { compareGprCodesByNumericPath, gprCodeTreeIndentLevel } from "@/lib/gprUtils";
+import { GprDateField } from "@/components/ui/GprDateField";
+import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
+import {
+  analyzeFourPlanFactDates,
+  analyzeGprCodeInList,
+  compareGprCodesByNumericPath,
+  GPR_CODE_FORMAT_RE,
+  gprCodeTreeIndentLevel,
+  mergeGprRowIssues,
+  normalizeGprCodeFinal,
+  sanitizeGprCodeTyping,
+  suggestNextCodeUnderParent,
+} from "@/lib/gprUtils";
+
+function sortTendersInPart(items: Tender[], partId: number): Tender[] {
+  const rest = items.filter((t) => t.partId !== partId);
+  const partRows = items.filter((t) => t.partId === partId);
+  const sorted = [...partRows].sort(
+    (a, b) => compareGprCodesByNumericPath(a.code, b.code) || a.id.localeCompare(b.id),
+  );
+  return [...rest, ...sorted];
+}
+
+function isoOrEmptyOk(s: string): boolean {
+  const t = s.trim();
+  return !t || /^\d{4}-\d{2}-\d{2}$/.test(t);
+}
 
 const COLORS: Record<TenderTraffic, string> = {
   green: "#22c55e",
@@ -138,8 +164,42 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     return hasChild;
   }, [sortedFilteredRows]);
 
+  const tenderRowIssues = useMemo(() => {
+    const m = new Map<string, { errors: string[]; warnings: string[] }>();
+    const partPeers = items.filter((t) => t.partId === activePartId);
+    for (const row of sortedFilteredRows) {
+      const merged = mergeGprRowIssues(
+        analyzeGprCodeInList(row, partPeers),
+        analyzeFourPlanFactDates({
+          planStart: row.planStart,
+          planEnd: row.planContractDate,
+          factStart: row.factStart ?? null,
+          factEnd: row.factContractDate ?? null,
+        }),
+      );
+      if (merged.errors.length > 0 || merged.warnings.length > 0) m.set(row.id, merged);
+    }
+    return m;
+  }, [sortedFilteredRows, items, activePartId]);
+
   const persist = useCallback(() => {
     if (typeof window === "undefined") return;
+    for (const t of items) {
+      const partPeers = items.filter((x) => x.partId === t.partId);
+      const merged = mergeGprRowIssues(
+        analyzeGprCodeInList(t, partPeers),
+        analyzeFourPlanFactDates({
+          planStart: t.planStart,
+          planEnd: t.planContractDate,
+          factStart: t.factStart ?? null,
+          factEnd: t.factContractDate ?? null,
+        }),
+      );
+      if (merged.errors.length > 0) {
+        window.alert(`Исправьте ошибки перед сохранением: ${t.code} — ${merged.errors.join("; ")}`);
+        return;
+      }
+    }
     try {
       window.localStorage.setItem("gordo_tenders_snapshot", JSON.stringify(items));
       window.dispatchEvent(new Event("gordo-tenders-saved"));
@@ -160,11 +220,15 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
 
   const openCreate = () => {
     setEditingId(null);
+    const stage = activePartId === 2 ? "2.06" : "2.05";
+    const codes = items.filter((t) => t.partId === activePartId).map((t) => t.code);
+    const suggested = suggestNextCodeUnderParent(codes, stage);
     setForm({
       ...EMPTY_FORM,
       id: `tender-${Date.now()}`,
       partId: String(activePartId),
-      stage: activePartId === 2 ? "2.06" : "2.05",
+      stage,
+      code: suggested,
     });
     setIsModalOpen(true);
   };
@@ -177,9 +241,9 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       code: row.code,
       name: row.name,
       stage: row.stage,
-      planStart: row.planStart,
+      planStart: row.planStart ?? "",
       factStart: row.factStart ?? "",
-      planContractDate: row.planContractDate,
+      planContractDate: row.planContractDate ?? "",
       factContractDate: row.factContractDate ?? "",
       cost: row.cost != null ? String(row.cost) : "",
       contractor: row.contractor ?? "",
@@ -195,34 +259,61 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   };
 
   const saveForm = () => {
-    if (!form.code.trim() || !form.name.trim() || !form.stage.trim() || !form.planStart || !form.planContractDate) {
+    if (!form.name.trim() || !form.stage.trim()) return;
+    const code = normalizeGprCodeFinal(form.code);
+    if (!code || !GPR_CODE_FORMAT_RE.test(code)) {
+      window.alert("Укажите корректный шифр (цифры и точки).");
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.planStart) || !/^\d{4}-\d{2}-\d{2}$/.test(form.planContractDate)) {
+    if (
+      !isoOrEmptyOk(form.planStart) ||
+      !isoOrEmptyOk(form.planContractDate) ||
+      !isoOrEmptyOk(form.factStart) ||
+      !isoOrEmptyOk(form.factContractDate)
+    ) {
+      window.alert("Даты должны быть пустыми или в формате ГГГГ-ММ-ДД.");
       return;
     }
-    if (form.factStart.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factStart.trim())) return;
-    if (form.factContractDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factContractDate.trim())) return;
     const partId = Number(form.partId) === 2 ? 2 : 1;
-    const payload: Tender = {
-      id: form.id || `tender-${Date.now()}`,
+    const probeId = form.id || `tender-${Date.now()}`;
+    const peers = items.filter((t) => t.partId === partId && t.id !== editingId);
+    const probeRow: Tender = {
+      id: probeId,
       partId,
-      code: form.code.trim(),
+      code,
       name: form.name.trim(),
       stage: form.stage.trim(),
-      planStart: form.planStart,
-      factStart: form.factStart.trim() || undefined,
-      planContractDate: form.planContractDate,
-      factContractDate: form.factContractDate.trim() || undefined,
+      planStart: form.planStart.trim() || null,
+      factStart: form.factStart.trim() || null,
+      planContractDate: form.planContractDate.trim() || null,
+      factContractDate: form.factContractDate.trim() || null,
       cost: form.cost.trim() ? Number(form.cost.replace(/\s/g, "")) || undefined : undefined,
       contractor: form.contractor.trim() || undefined,
       status: form.status || undefined,
       comment: form.comment.trim() || undefined,
     };
-
-    setItems((prev) =>
-      editingId ? prev.map((x) => (x.id === editingId ? payload : x)) : [payload, ...prev],
+    const merged = mergeGprRowIssues(
+      analyzeGprCodeInList(probeRow, [...peers, probeRow]),
+      analyzeFourPlanFactDates({
+        planStart: probeRow.planStart,
+        planEnd: probeRow.planContractDate,
+        factStart: probeRow.factStart,
+        factEnd: probeRow.factContractDate,
+      }),
     );
+    if (merged.errors.length > 0) {
+      window.alert(merged.errors.join("\n"));
+      return;
+    }
+
+    const payload: Tender = { ...probeRow, id: editingId ?? (form.id || probeId) };
+
+    setItems((prev) => {
+      const next = editingId
+        ? prev.map((x) => (x.id === editingId ? payload : x))
+        : [payload, ...prev];
+      return sortTendersInPart(next, partId);
+    });
     setIsModalOpen(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -289,6 +380,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
               <th className="px-2 py-2">Код</th>
               <th className="px-2 py-2">Наименование</th>
               <th className="px-2 py-2">Этап ГПР</th>
+              <th className="px-2 py-2">Цикл</th>
               <th className="px-2 py-2">План начала</th>
               <th className="px-2 py-2">Факт начала</th>
               <th className="px-2 py-2">План договора</th>
@@ -307,6 +399,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
               const codeTrim = row.code.trim();
               const indentPx = gprCodeTreeIndentLevel(row.code) * 16;
               const isParentRow = tenderCodesWithChildren.has(codeTrim);
+              const rowIssues = tenderRowIssues.get(row.id);
               return (
                 <tr
                   key={row.id}
@@ -329,6 +422,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                     </span>
                   </td>
                   <td className="px-2 py-2 font-mono text-xs text-slate-600">{row.stage}</td>
+                  <td className="px-2 py-2 text-xs text-slate-700">{tenderLifecycleLabel(row)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.planStart)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.factStart)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.planContractDate)}</td>
@@ -341,8 +435,9 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                   </td>
                   <td className="px-2 py-2">
                     <span
-                      className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
+                      className="inline-flex cursor-default rounded-full px-2 py-1 text-xs font-medium"
                       style={{ backgroundColor: `${statusColor}22`, color: statusColor }}
+                      title={gprIssueStatusTitle(rowIssues)}
                     >
                       {trafficLbl}
                     </span>
@@ -387,9 +482,10 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <input
                 value={form.code}
-                onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
-                placeholder="Код (напр. 2.05.05.1)"
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                onChange={(e) => setForm((p) => ({ ...p, code: sanitizeGprCodeTyping(e.target.value) }))}
+                onBlur={() => setForm((p) => ({ ...p, code: normalizeGprCodeFinal(p.code) }))}
+                placeholder="Шифр (2.05.05.1)"
+                className="h-10 rounded-lg border border-slate-300 px-3 font-mono text-sm text-slate-900"
               />
               <input
                 value={form.stage}
@@ -403,33 +499,29 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                 placeholder="Наименование работ"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 md:col-span-2"
               />
-              <RuDateInput
+              <GprDateField
                 value={form.planStart}
-                onChange={(iso) => setForm((p) => ({ ...p, planStart: iso }))}
-                allowEmpty={false}
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
-                title="План начала"
+                onIso={(iso) => setForm((p) => ({ ...p, planStart: iso }))}
+                title="План начала (необязательно)"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
-              <RuDateInput
+              <GprDateField
                 value={form.factStart}
-                onChange={(iso) => setForm((p) => ({ ...p, factStart: iso }))}
-                allowEmpty
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                onIso={(iso) => setForm((p) => ({ ...p, factStart: iso }))}
                 title="Факт начала (опц.)"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
-              <RuDateInput
+              <GprDateField
                 value={form.planContractDate}
-                onChange={(iso) => setForm((p) => ({ ...p, planContractDate: iso }))}
-                allowEmpty={false}
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
-                title="План даты договора"
+                onIso={(iso) => setForm((p) => ({ ...p, planContractDate: iso }))}
+                title="План даты договора (необязательно)"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
-              <RuDateInput
+              <GprDateField
                 value={form.factContractDate}
-                onChange={(iso) => setForm((p) => ({ ...p, factContractDate: iso }))}
-                allowEmpty
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                onIso={(iso) => setForm((p) => ({ ...p, factContractDate: iso }))}
                 title="Факт даты договора (опц.)"
+                fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <input
                 value={form.cost}

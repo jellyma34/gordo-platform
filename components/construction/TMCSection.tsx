@@ -6,7 +6,13 @@ import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
 import { getStatusByDeviation, partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
-import { getTmcData, mergeTmcSnapshotWithSeed, type TMCItem } from "@/lib/tmcData";
+import {
+  getTmcData,
+  mergeTmcSnapshotWithSeed,
+  tmcFactReferenceDate,
+  tmcPlanReferenceDate,
+  type TMCItem,
+} from "@/lib/tmcData";
 
 const ResponsiveContainer = dynamic(
   () => import("recharts").then((m) => m.ResponsiveContainer),
@@ -24,7 +30,7 @@ const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr
 const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
 const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
 
-type Traffic = "green" | "yellow" | "red" | "gray";
+type Traffic = "green" | "yellow" | "red" | "gray" | "overdue_not_started";
 type DrillKey = "completion" | "saving" | "delays" | "planned";
 
 const COLORS = {
@@ -32,6 +38,7 @@ const COLORS = {
   yellow: "#f59e0b",
   red: "#ef4444",
   gray: "#6b7280",
+  overdue_not_started: "#dc2626",
   card: "#1e293b",
 } as const;
 
@@ -42,15 +49,26 @@ function ms(iso: string | null) {
 }
 
 function deviationDays(item: TMCItem): number | null {
-  const p = ms(item.planDate);
-  if (p === null) return null;
-  const f = ms(item.factDate);
-  if (f === null) return null;
+  const pr = tmcPlanReferenceDate(item);
+  const fr = tmcFactReferenceDate(item);
+  if (!pr || !fr) return null;
+  const p = ms(pr);
+  const f = ms(fr);
+  if (p === null || f === null) return null;
   return Math.round((f - p) / (1000 * 60 * 60 * 24));
 }
 
 function statusOf(item: TMCItem): Traffic {
-  if (!item.factDate) return "gray";
+  const factRef = tmcFactReferenceDate(item);
+  if (!factRef) {
+    const planRef = tmcPlanReferenceDate(item);
+    if (!planRef) return "gray";
+    const p = ms(planRef);
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    if (p !== null && p < todayStart) return "overdue_not_started";
+    return "gray";
+  }
   const d = deviationDays(item);
   if (d === null) return "gray";
   return getStatusByDeviation(d) as Traffic;
@@ -141,7 +159,7 @@ export function TMCSection({
     const completionPct = plan > 0 ? Math.round((fact / plan) * 100) : 0;
     const saving = enriched.reduce((sum, i) => sum + (i.planCost - (i.factCost ?? 0)), 0);
     const delays = enriched.filter((i) => (i.deviation ?? -999) > 0).length;
-    const planned = enriched.filter((i) => !i.factDate).length;
+    const planned = enriched.filter((i) => !tmcFactReferenceDate(i)).length;
     const pie = {
       delivered: enriched.filter((i) => i.status === "green").length,
       risk: enriched.filter((i) => i.status === "yellow").length,
@@ -156,7 +174,7 @@ export function TMCSection({
     if (activeDrill === "completion") return enriched;
     if (activeDrill === "saving") return enriched.filter((i) => i.factCost !== null);
     if (activeDrill === "delays") return enriched.filter((i) => (i.deviation ?? 0) > 0);
-    return enriched.filter((i) => !i.factDate);
+    return enriched.filter((i) => !tmcFactReferenceDate(i));
   }, [activeDrill, enriched]);
 
   return (
@@ -184,7 +202,7 @@ export function TMCSection({
             key: "delays" as const,
             label: "Просрочки",
             value: totals.delays,
-            sub: "factDate > planDate",
+            sub: "факт позже плана",
             color: COLORS.red,
             traffic: (totals.delays > 0 ? "red" : "gray") as Traffic,
           },
@@ -279,7 +297,14 @@ export function TMCSection({
         ) : (
           <div className="mt-4 space-y-2">
             {drillRows.map((i) => {
-              const color = i.status === "green" ? COLORS.green : i.status === "yellow" ? COLORS.yellow : i.status === "red" ? COLORS.red : COLORS.gray;
+              const color =
+                i.status === "green"
+                  ? COLORS.green
+                  : i.status === "yellow"
+                    ? COLORS.yellow
+                    : i.status === "red" || i.status === "overdue_not_started"
+                      ? COLORS.red
+                      : COLORS.gray;
               return (
                 <div key={i.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-700/60 bg-slate-900/25 p-3">
                   <div className="min-w-0">
@@ -293,7 +318,15 @@ export function TMCSection({
                       {i.deviation === null ? "—" : i.deviation > 0 ? `+${i.deviation}` : i.deviation} дн
                     </div>
                     <div className="mt-1 rounded-full px-2 py-0.5 text-[11px] text-slate-900" style={{ backgroundColor: color }}>
-                      {i.status === "green" ? "поставлено" : i.status === "yellow" ? "риск" : i.status === "red" ? "просрочка" : "не закуплено"}
+                      {i.status === "green"
+                        ? "поставлено"
+                        : i.status === "yellow"
+                          ? "риск"
+                          : i.status === "red"
+                            ? "просрочка"
+                            : i.status === "overdue_not_started"
+                              ? "не закуплено"
+                              : "не закуплено"}
                     </div>
                   </div>
                 </div>

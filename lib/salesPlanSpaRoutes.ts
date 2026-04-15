@@ -4,7 +4,8 @@ import type { SalesPlanScenarioId } from "@/lib/salesPlanWorkModel";
 export const SALES_PLAN_SPA = {
   work: "/marketing/sales-plan/work",
   explain: "/marketing/sales-plan/explain",
-  presentation: "/marketing/sales-plan/presentation",
+  /** Каноническая презентация — в оболочке /presentation (см. marketingPresentationRoutes). */
+  presentation: "/presentation/marketing/sales-plan",
 } as const;
 
 /** Сценарий слайда презентации (план/факторы в SalesPlanPanel). */

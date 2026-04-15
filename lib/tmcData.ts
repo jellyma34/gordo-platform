@@ -1,89 +1,164 @@
-import type { ProjectPartKey } from "./gprUtils";
+import { gprCodeToNumericSegments, type ProjectPartKey } from "./gprUtils";
 
 export type TMCItem = {
   id: string;
+  /** Иерархический код позиции (как шифр ГПР). */
+  itemCode: string;
   name: string;
   gprStage: string;
   planCost: number;
   factCost: number | null;
-  planDate: string;
-  factDate: string | null;
+  planStart: string | null;
+  planEnd: string | null;
+  factStart: string | null;
+  factEnd: string | null;
   /** Часть проекта: жилой дом или автостоянка. */
   projectPart: ProjectPartKey;
 };
 
+/** Корневой шифр этапа по подписи из справочника ТМЦ. */
+export const TMC_GPR_STAGE_ROOT_CODE: Record<string, string> = {
+  "Подготовка территории": "2.04",
+  "Строительство зданий и сооружений": "2.05",
+  "Устройство сетей": "2.06",
+  "Благоустройство": "2.07",
+};
+
+export function tmcPlanReferenceDate(item: TMCItem): string | null {
+  return item.planStart?.trim() || item.planEnd?.trim() || null;
+}
+
+export function tmcFactReferenceDate(item: TMCItem): string | null {
+  return item.factEnd?.trim() || item.factStart?.trim() || null;
+}
+
+export function tmcLifecycleLabel(item: TMCItem): string {
+  const hasPlan = Boolean(tmcPlanReferenceDate(item));
+  const hasFact = Boolean(tmcFactReferenceDate(item));
+  if (!hasPlan) return "Не запланировано";
+  if (!hasFact) return "Не начато";
+  if (item.factCost != null && item.planCost > 0 && item.factCost >= item.planCost) return "Завершено";
+  return "В работе";
+}
+
+export function suggestNextTmcItemCode(items: TMCItem[], part: ProjectPartKey, gprStage: string): string {
+  const root = TMC_GPR_STAGE_ROOT_CODE[gprStage] ?? "2.05";
+  const rootSegs = gprCodeToNumericSegments(root);
+  const siblings = items.filter(
+    (x) => x.projectPart === part && x.gprStage === gprStage && x.itemCode.startsWith(`${root}.`),
+  );
+  let maxThird = 0;
+  for (const s of siblings) {
+    const segs = gprCodeToNumericSegments(s.itemCode);
+    if (
+      segs.length >= 3 &&
+      segs[0] === rootSegs[0] &&
+      segs[1] === rootSegs[1] &&
+      segs[2] !== undefined
+    ) {
+      maxThird = Math.max(maxThird, segs[2]);
+    }
+  }
+  const idx = maxThird + 1;
+  return `${root}.${String(idx).padStart(2, "0")}.1`;
+}
+
 const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
   {
     id: "tmc-01",
+    itemCode: "2.05.01.1",
     name: "Арматура А500С, 12 мм",
     gprStage: "Строительство зданий и сооружений",
-    planCost: 4200000,
-    factCost: 3980000,
-    planDate: "2025-09-10",
-    factDate: "2025-09-08",
+    planCost: 4_200_000,
+    factCost: 3_980_000,
+    planStart: "2025-09-10",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2025-09-08",
   },
   {
     id: "tmc-02",
+    itemCode: "2.05.02.1",
     name: "Цемент М500",
     gprStage: "Строительство зданий и сооружений",
-    planCost: 2500000,
-    factCost: 2710000,
-    planDate: "2025-10-01",
-    factDate: "2025-10-12",
+    planCost: 2_500_000,
+    factCost: 2_710_000,
+    planStart: "2025-10-01",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2025-10-12",
   },
   {
     id: "tmc-03",
+    itemCode: "2.06.01.1",
     name: "Кабель силовой ВВГнг 4x95",
     gprStage: "Устройство сетей",
-    planCost: 3100000,
-    factCost: 3550000,
-    planDate: "2025-11-05",
-    factDate: "2025-11-28",
+    planCost: 3_100_000,
+    factCost: 3_550_000,
+    planStart: "2025-11-05",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2025-11-28",
   },
   {
     id: "tmc-04",
+    itemCode: "2.06.02.1",
     name: "Трубы ПНД 315 мм",
     gprStage: "Устройство сетей",
-    planCost: 2800000,
+    planCost: 2_800_000,
     factCost: null,
-    planDate: "2025-11-20",
-    factDate: null,
+    planStart: "2025-11-20",
+    planEnd: null,
+    factStart: null,
+    factEnd: null,
   },
   {
     id: "tmc-05",
+    itemCode: "2.07.01.1",
     name: "Бордюрный камень",
     gprStage: "Благоустройство",
-    planCost: 980000,
-    factCost: 940000,
-    planDate: "2026-04-12",
-    factDate: "2026-04-10",
+    planCost: 980_000,
+    factCost: 940_000,
+    planStart: "2026-04-12",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2026-04-10",
   },
   {
     id: "tmc-06",
+    itemCode: "2.07.02.1",
     name: "Тротуарная плитка",
     gprStage: "Благоустройство",
-    planCost: 1670000,
-    factCost: 1695000,
-    planDate: "2026-04-25",
-    factDate: "2026-05-03",
+    planCost: 1_670_000,
+    factCost: 1_695_000,
+    planStart: "2026-04-25",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2026-05-03",
   },
   {
     id: "tmc-07",
+    itemCode: "2.04.01.1",
     name: "Щебень фракции 20-40",
     gprStage: "Подготовка территории",
-    planCost: 1250000,
-    factCost: 1210000,
-    planDate: "2025-08-15",
-    factDate: "2025-08-14",
+    planCost: 1_250_000,
+    factCost: 1_210_000,
+    planStart: "2025-08-15",
+    planEnd: null,
+    factStart: null,
+    factEnd: "2025-08-14",
   },
   {
     id: "tmc-08",
+    itemCode: "2.04.02.1",
     name: "Песок карьерный",
     gprStage: "Подготовка территории",
-    planCost: 890000,
+    planCost: 890_000,
     factCost: null,
-    planDate: "2025-08-20",
-    factDate: null,
+    planStart: "2025-08-20",
+    planEnd: null,
+    factStart: null,
+    factEnd: null,
   },
 ];
 
@@ -91,27 +166,24 @@ function withPart(rows: Omit<TMCItem, "projectPart">[], part: ProjectPartKey): T
   return rows.map((r) => ({ ...r, projectPart: part }));
 }
 
-/** Позиции автостоянки — отдельные id; часть фактов отличается от жилого дома (график ГПР—ТМЦ визуально разный). */
 const PARKING_SEED: Omit<TMCItem, "projectPart">[] = RESIDENTIAL_SEED.map((r) => ({
   ...r,
   id: `tmc-p-${r.id.replace("tmc-", "")}`,
 })).map((row) => {
   if (row.id === "tmc-p-04") {
-    return { ...row, factCost: 1_400_000, factDate: "2025-11-25" };
+    return { ...row, factCost: 1_400_000, factEnd: "2025-11-25" };
   }
   if (row.id === "tmc-p-08") {
-    return { ...row, factCost: 600_000, factDate: "2025-08-18" };
+    return { ...row, factCost: 600_000, factEnd: "2025-08-18" };
   }
   return row;
 });
 
-/** Полный справочник ТМЦ по всем частям проекта. */
 export const TMC_DATA: TMCItem[] = [
   ...withPart(RESIDENTIAL_SEED, "residential"),
   ...withPart(PARKING_SEED, "parking"),
 ];
 
-/** Только ТМЦ выбранной части; без `projectPart` в данных считаем residential, для parking такие строки отбрасываем. */
 export function filterTmcByProjectPart(
   items: TMCItem[],
   activeProjectPart: ProjectPartKey,
@@ -119,20 +191,42 @@ export function filterTmcByProjectPart(
   return items.filter((item) => (item.projectPart ?? "residential") === activeProjectPart);
 }
 
-/** ТМЦ только выбранной части проекта (для графиков, таблиц, API-совместимой логики). */
 export function getTmcData(projectPart: ProjectPartKey): TMCItem[] {
   return filterTmcByProjectPart(TMC_DATA, projectPart);
 }
 
-/** Разбор записи из localStorage; без `projectPart` → residential. */
+function coerceIsoNullable(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+/** Разбор записи из localStorage; поддержка старых полей planDate / factDate. */
 export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id : null;
   const name = typeof o.name === "string" ? o.name : null;
   const gprStage = typeof o.gprStage === "string" ? o.gprStage : null;
-  const planDate = typeof o.planDate === "string" ? o.planDate : null;
-  if (!id || !name || !gprStage || !planDate) return null;
+  const itemCodeRaw = typeof o.itemCode === "string" ? o.itemCode.trim() : "";
+  const legacyPlan = typeof o.planDate === "string" ? o.planDate.trim() : null;
+  const legacyFact = o.factDate === null || o.factDate === undefined ? null : coerceIsoNullable(o.factDate);
+
+  const planStart = coerceIsoNullable(o.planStart) ?? (legacyPlan && /^\d{4}-\d{2}-\d{2}$/.test(legacyPlan) ? legacyPlan : null);
+  const planEnd = coerceIsoNullable(o.planEnd);
+  const factStart = coerceIsoNullable(o.factStart);
+  const factEnd = coerceIsoNullable(o.factEnd) ?? legacyFact;
+
+  if (!id || !name || !gprStage) return null;
+
+  const itemCode =
+    itemCodeRaw ||
+    (id.startsWith("tmc-p-")
+      ? `2.05.99.${id.replace("tmc-p-", "")}`
+      : `2.05.99.${id.replace("tmc-", "")}`);
+
   const planCost = typeof o.planCost === "number" ? o.planCost : Number(o.planCost) || 0;
   const factCost =
     o.factCost === null || o.factCost === undefined
@@ -140,15 +234,23 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
       : typeof o.factCost === "number"
         ? o.factCost
         : Number(o.factCost) || 0;
-  const factDate =
-    o.factDate === null || o.factDate === undefined
-      ? null
-      : typeof o.factDate === "string"
-        ? o.factDate
-        : null;
+
   const projectPart: ProjectPartKey =
     o.projectPart === "parking" || o.projectPart === "residential" ? o.projectPart : "residential";
-  return { id, name, gprStage, planCost, factCost, planDate, factDate, projectPart };
+
+  return {
+    id,
+    itemCode,
+    name,
+    gprStage,
+    planCost,
+    factCost,
+    planStart,
+    planEnd,
+    factStart,
+    factEnd,
+    projectPart,
+  };
 }
 
 export function mergeTmcSnapshotWithSeed(stored: unknown): TMCItem[] {
