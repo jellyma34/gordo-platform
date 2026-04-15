@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { GPRSection } from "@/components/construction/GPRSection";
@@ -186,16 +187,35 @@ function ConstructionWorkspaceInner({
     };
   }, [hydrated, token, activeTab]);
 
+  const partIdParam = searchParams.get("partId");
+
+  useEffect(() => {
+    if (partIdParam === "2") setActiveGprPartId((p) => (p === 2 ? p : 2));
+    else if (partIdParam === "1") setActiveGprPartId((p) => (p === 1 ? p : 1));
+  }, [partIdParam]);
+
   useEffect(() => {
     if (!isPresentation && !sectionParam) return;
     const resolved = resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
+    const partQ = searchParams.get("partId");
+    const partForUrl = partQ === "2" ? 2 : 1;
     if (sectionParam !== resolved) {
-      router.replace(`${prefix}/construction?section=${resolved}`);
+      router.replace(`${prefix}/construction?section=${resolved}&partId=${partForUrl}`);
     }
-  }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router]);
+  }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router, searchParams]);
+
+  const commitPartId = useCallback(
+    (partId: number) => {
+      setActiveGprPartId(partId);
+      if (activeTab === "menu") return;
+      if (!isPresentation && !sectionParam) return;
+      router.replace(`${prefix}/construction?section=${activeTab}&partId=${partId}`);
+    },
+    [activeTab, isPresentation, sectionParam, prefix, router],
+  );
 
   function goSection(ui: UiConstructionSection) {
-    router.replace(`${prefix}/construction?section=${ui}`);
+    router.replace(`${prefix}/construction?section=${ui}&partId=${activeGprPartId}`);
   }
 
   function goMenu() {
@@ -265,14 +285,14 @@ function ConstructionWorkspaceInner({
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
-              onChangePart={setActiveGprPartId}
+              onChangePart={commitPartId}
             />
           )}
           {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
           )}
           {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
           )}
         </div>
       </section>
@@ -303,6 +323,25 @@ function ConstructionWorkspaceInner({
 
           {tabBar}
         </div>
+        {!isPresentation && activeTab !== "menu" ? (
+          <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/presentation/construction?section=${activeTab}&partId=${activeGprPartId}`)
+              }
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Сформировать презентацию
+            </button>
+            <Link
+              href={`/construction/explain?source=work&section=${activeTab}&partId=${activeGprPartId}`}
+              className="rounded-lg border border-sky-600/40 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+            >
+              Пояснение к показателям
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       {activeTab === "menu" ? (
@@ -367,14 +406,14 @@ function ConstructionWorkspaceInner({
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
-              onChangePart={setActiveGprPartId}
+              onChangePart={commitPartId}
             />
           )}
           {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
           )}
           {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
           )}
         </>
       )}

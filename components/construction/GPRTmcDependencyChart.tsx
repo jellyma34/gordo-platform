@@ -65,11 +65,14 @@ export function GPRTmcDependencyChart({
   tasks,
   tmcItems,
   activeProjectPart,
+  analyticDepth = "work",
 }: {
   tasks: GPRTask[];
   /** Может содержать все части (например после merge localStorage) — расчёт режет по activeProjectPart. */
   tmcItems: TMCItem[];
   activeProjectPart: ProjectPartKey;
+  /** Презентация: KPI без раскрывающихся пояснений (формулы — только в рабочем разборе). */
+  analyticDepth?: "work" | "presentation";
 }) {
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -139,6 +142,7 @@ export function GPRTmcDependencyChart({
   const toggleKpiExplain = (k: GprDepKpiExplainKey) => {
     setKpiExplain((prev) => (prev === k ? null : k));
   };
+  const kpiInteractive = analyticDepth !== "presentation";
 
   const avgExplainText = useMemo(
     () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
@@ -353,6 +357,7 @@ export function GPRTmcDependencyChart({
               cardKey="threshold"
               isOpen={kpiExplain === "threshold"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName="border border-slate-600/50 bg-slate-900/40"
               explanation={KPI_THRESHOLD_EXPLAIN}
               iconSlot={
@@ -374,6 +379,7 @@ export function GPRTmcDependencyChart({
               cardKey="avg"
               isOpen={kpiExplain === "avg"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName="border border-slate-600/50 bg-slate-900/40"
               explanation={avgExplainText}
               iconSlot={
@@ -398,6 +404,7 @@ export function GPRTmcDependencyChart({
               cardKey="risk"
               isOpen={kpiExplain === "risk"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName={riskCardUi.card}
               explanation={riskExplainText}
               iconSlot={

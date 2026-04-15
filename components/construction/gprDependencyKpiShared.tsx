@@ -98,6 +98,7 @@ export function GprDepKpiAccordionCard({
   iconSlot,
   children,
   explanation,
+  interactive = true,
 }: {
   cardKey: GprDepKpiExplainKey;
   isOpen: boolean;
@@ -106,7 +107,27 @@ export function GprDepKpiAccordionCard({
   iconSlot: ReactNode;
   children: ReactNode;
   explanation: string;
+  /** В режиме презентации — только значения KPI, без раскрытия с формулами и интерпретацией. */
+  interactive?: boolean;
 }) {
+  const body = (
+    <div className="flex flex-1 items-center gap-3 px-3 py-3">
+      {iconSlot}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+
+  if (!interactive) {
+    return (
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 flex-col rounded-xl text-left ${shellClassName}`}
+        aria-hidden
+      >
+        {body}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -114,10 +135,7 @@ export function GprDepKpiAccordionCard({
       aria-expanded={isOpen}
       onClick={() => onToggle(cardKey)}
     >
-      <div className="flex flex-1 items-center gap-3 px-3 py-3">
-        {iconSlot}
-        <div className="min-w-0 flex-1">{children}</div>
-      </div>
+      {body}
       <div
         className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${
           isOpen ? "max-h-48 opacity-100" : "max-h-0 opacity-0"

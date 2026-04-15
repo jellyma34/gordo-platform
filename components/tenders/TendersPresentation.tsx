@@ -506,7 +506,7 @@ export function TendersPresentation({
             </div>
           </div>
           <p className="mt-2 text-[11px] leading-snug text-slate-400">
-            Risk = (просроченные * 1 + в процессе * 0.5) / всего.
+            Выше при большей доле просроченных тендеров и процедур «в процессе».
           </p>
           <div className="mt-4">
             <AnalyticsLegendList>
@@ -528,6 +528,7 @@ export function TendersPresentation({
           tasks={gprTasksForPart}
           tenders={tenders}
           activeProjectPart={activeProjectPart}
+          analyticDepth="presentation"
         />
         <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-4 text-xs text-slate-300">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Выводы</div>

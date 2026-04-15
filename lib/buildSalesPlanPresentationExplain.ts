@@ -648,6 +648,13 @@ export type ExplainFormulaDetailCard = {
   interpretation: string;
 };
 
+/** Секция «Диагностика» (типовые проблемы, поиск причин, выводы). */
+export type ExplainMetricDiagnostics = {
+  typicalProblems: string[];
+  whereToLook: string[];
+  managementTakeaways: string[];
+};
+
 /** Полное пояснение метрики/графика (единая структура для explain). */
 export type ExplainMetricContent = {
   title: string;
@@ -665,10 +672,18 @@ export type ExplainMetricContent = {
   /**
    * Структурные карточки по формулам (explain «Темп продаж»).
    * Если задано без `description`, заменяет общий список формул и агрегированные секции полоски.
+   * При наличии `description` карточки выводятся вместо агрегированного списка `formulaLines`.
    */
   formulaDetailCards?: ExplainFormulaDetailCard[];
   /** Краткий итог под карточками формул (опционально). */
   formulaSectionFooter?: string;
+  /** Диагностика: после формул, перед выводом (если задан вывод). */
+  diagnostics?: ExplainMetricDiagnostics;
+  /**
+   * Без `description` и с `formulaDetailCards`: по умолчанию — компактная «полоска» под графиком.
+   * Если true — полноразмерная карточка (как блок формул в explain маркетинга), для отдельной страницы.
+   */
+  formulaPanelFullWidth?: boolean;
 };
 
 /** Блок статьи на странице explain (снимок дашборда или рабочей таблицы). */

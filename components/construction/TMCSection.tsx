@@ -194,7 +194,7 @@ export function TMCSection({
             key: "saving" as const,
             label: "Экономия / перерасход",
             value: `${totals.saving > 0 ? "+" : ""}${(totals.saving / 1_000_000).toFixed(1)} млн`,
-            sub: "Σ(план - факт)",
+            sub: "суммарно план − факт",
             color: totals.saving >= 0 ? COLORS.green : COLORS.red,
             traffic: (totals.saving > 0 ? "green" : totals.saving < 0 ? "red" : "gray") as Traffic,
           },

@@ -2,7 +2,6 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 
 import {
@@ -1238,8 +1237,9 @@ export function GPRAnalytics({
   /** Источник данных для «План vs Факт»: таблица ГПР или `kvartaly_gpr_quarterly.json`. */
   planFactDataSource?: "tasks" | "kvartaly";
 }) {
-  const pathname = usePathname();
-  const isPresentationRoute = pathname.startsWith("/presentation");
+  /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих разборов и раскрываемых KPI. */
+  const presentationAnalyticsSkin = mode === "view";
+  const dependencyAnalyticDepth = presentationAnalyticsSkin ? "presentation" : "work";
   const activeProjectPart = partIdToProjectPartKey(activePartId);
   const activePartLabel =
     PROJECT_PARTS.find((p) => p.id === activePartId)?.name ?? "Часть проекта";
@@ -1929,43 +1929,73 @@ export function GPRAnalytics({
             </div>
           );
         })}
-        <button
-          key="part-aggregate"
-          type="button"
-          ref={aggregateCardRef}
-          onClick={handleAggregateCardClick}
-          aria-expanded={aggregatePopoverOpen}
-          aria-haspopup="dialog"
-          title="Нажмите для пояснения расчёта"
-          data-traffic-card={statusAgg}
-          className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-        >
-          <div>
-            <div className="text-base font-semibold text-[#E6EDF3]">
-              {PART_SHORT_TITLE[activeProjectPart]}
-            </div>
-            <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
-            <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-              {aggPctDisplay}
-            </div>
-            <div className="mt-4">
-              <div className="h-1.5 w-full rounded-full bg-white/10">
-                <div
-                  className="h-1.5 rounded-full"
-                  style={{
-                    width: `${aggBarPct}%`,
-                    backgroundColor: accentAgg,
-                  }}
-                  aria-hidden
-                />
+        {presentationAnalyticsSkin ? (
+          <div
+            key="part-aggregate"
+            data-traffic-card={statusAgg}
+            className="top-card card relative w-full overflow-hidden p-6 text-left"
+          >
+            <div>
+              <div className="text-base font-semibold text-[#E6EDF3]">
+                {PART_SHORT_TITLE[activeProjectPart]}
+              </div>
+              <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
+              <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+                {aggPctDisplay}
+              </div>
+              <div className="mt-4">
+                <div className="h-1.5 w-full rounded-full bg-white/10">
+                  <div
+                    className="h-1.5 rounded-full"
+                    style={{
+                      width: `${aggBarPct}%`,
+                      backgroundColor: accentAgg,
+                    }}
+                    aria-hidden
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </button>
-        {aggregatePortalMounted &&
-          aggregatePopoverOpen &&
-          aggregatePopoverPos &&
-          createPortal(
+        ) : (
+          <>
+            <button
+              key="part-aggregate"
+              type="button"
+              ref={aggregateCardRef}
+              onClick={handleAggregateCardClick}
+              aria-expanded={aggregatePopoverOpen}
+              aria-haspopup="dialog"
+              title="Нажмите для пояснения расчёта"
+              data-traffic-card={statusAgg}
+              className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            >
+              <div>
+                <div className="text-base font-semibold text-[#E6EDF3]">
+                  {PART_SHORT_TITLE[activeProjectPart]}
+                </div>
+                <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
+                <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+                  {aggPctDisplay}
+                </div>
+                <div className="mt-4">
+                  <div className="h-1.5 w-full rounded-full bg-white/10">
+                    <div
+                      className="h-1.5 rounded-full"
+                      style={{
+                        width: `${aggBarPct}%`,
+                        backgroundColor: accentAgg,
+                      }}
+                      aria-hidden
+                    />
+                  </div>
+                </div>
+              </div>
+            </button>
+            {aggregatePortalMounted &&
+              aggregatePopoverOpen &&
+              aggregatePopoverPos &&
+              createPortal(
             <div
               ref={aggregatePopoverRef}
               role="dialog"
@@ -2025,7 +2055,9 @@ export function GPRAnalytics({
               </div>
             </div>,
             document.body,
-          )}
+              )}
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 items-stretch gap-4 min-w-0 lg:grid-cols-3">
@@ -2444,12 +2476,21 @@ export function GPRAnalytics({
         <>
           <button
             type="button"
-            ref={statusDistributionCardRef}
-            onClick={handleStatusDistributionClick}
-            aria-expanded={statusDistributionPopoverOpen}
-            aria-haspopup="dialog"
-            title="Нажмите для детализации по задачам"
-            className="flex h-full min-w-0 w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a] sm:p-6"
+            ref={presentationAnalyticsSkin ? undefined : statusDistributionCardRef}
+            onClick={presentationAnalyticsSkin ? undefined : handleStatusDistributionClick}
+            disabled={presentationAnalyticsSkin}
+            aria-expanded={presentationAnalyticsSkin ? undefined : statusDistributionPopoverOpen}
+            aria-haspopup={presentationAnalyticsSkin ? undefined : "dialog"}
+            title={
+              presentationAnalyticsSkin
+                ? undefined
+                : "Нажмите для детализации по задачам"
+            }
+            className={`flex h-full min-w-0 w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm sm:p-6 ${
+              presentationAnalyticsSkin
+                ? "cursor-default opacity-100"
+                : "cursor-pointer transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a]"
+            }`}
           >
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
@@ -2599,7 +2640,8 @@ export function GPRAnalytics({
               </AnalyticsLegendList>
             </div>
           </button>
-          {aggregatePortalMounted &&
+          {!presentationAnalyticsSkin &&
+            aggregatePortalMounted &&
             statusDistributionPopoverOpen &&
             statusDistributionPopoverPos &&
             createPortal(
@@ -2699,7 +2741,7 @@ export function GPRAnalytics({
         </>
       </div>
 
-      {!isPresentationRoute && (
+      {!presentationAnalyticsSkin && (
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
           <h3 className="text-lg font-semibold text-slate-50">Этапы / задачи</h3>
           <p className="mt-2 text-xs text-slate-300">
@@ -2989,11 +3031,13 @@ export function GPRAnalytics({
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
         activeProjectPart={activeProjectPart}
+        analyticDepth={dependencyAnalyticDepth}
       />
       <GPRTenderDependencyChart
         tasks={tasksForActivePart}
         tenders={tendersForActivePart}
         activeProjectPart={activeProjectPart}
+        analyticDepth={dependencyAnalyticDepth}
       />
       <GPRForecastChart
         tasks={tasksForActivePart}

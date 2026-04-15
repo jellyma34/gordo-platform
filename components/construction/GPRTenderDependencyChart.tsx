@@ -76,10 +76,12 @@ export function GPRTenderDependencyChart({
   tasks,
   tenders,
   activeProjectPart,
+  analyticDepth = "work",
 }: {
   tasks: GPRTask[];
   tenders: Tender[];
   activeProjectPart: ProjectPartKey;
+  analyticDepth?: "work" | "presentation";
 }) {
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -149,6 +151,7 @@ export function GPRTenderDependencyChart({
   const toggleKpiExplain = (k: GprDepKpiExplainKey) => {
     setKpiExplain((prev) => (prev === k ? null : k));
   };
+  const kpiInteractive = analyticDepth !== "presentation";
 
   const avgExplainText = useMemo(
     () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
@@ -385,6 +388,7 @@ export function GPRTenderDependencyChart({
               cardKey="threshold"
               isOpen={kpiExplain === "threshold"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName="border border-slate-600/50 bg-slate-900/40"
               explanation={KPI_THRESHOLD_EXPLAIN}
               iconSlot={
@@ -406,6 +410,7 @@ export function GPRTenderDependencyChart({
               cardKey="avg"
               isOpen={kpiExplain === "avg"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName="border border-slate-600/50 bg-slate-900/40"
               explanation={avgExplainText}
               iconSlot={
@@ -430,6 +435,7 @@ export function GPRTenderDependencyChart({
               cardKey="risk"
               isOpen={kpiExplain === "risk"}
               onToggle={toggleKpiExplain}
+              interactive={kpiInteractive}
               shellClassName={riskCardUi.card}
               explanation={riskExplainText}
               iconSlot={

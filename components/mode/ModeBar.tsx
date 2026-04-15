@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { Suspense } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import { useAppMode, type AppMode } from "./ModeProvider";
@@ -9,10 +10,11 @@ function modeLabel(mode: AppMode) {
   return mode === "presentation" ? "Презентация" : "Редактирование";
 }
 
-export function ModeBar() {
+function ModeBarInner() {
   const { mode, setMode } = useAppMode();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   if (pathname === "/login" || pathname?.startsWith("/admin")) return null;
 
@@ -32,7 +34,18 @@ export function ModeBar() {
   const isSalesPlanSpa =
     pathname.startsWith("/marketing/sales-plan") || pathname.startsWith("/marketing/plan/edit");
 
+  const constructionExplain =
+    pathname === "/construction/explain"
+      ? {
+          section: searchParams.get("section") ?? "gpr",
+          partId: searchParams.get("partId") === "2" ? "2" : "1",
+        }
+      : null;
+
   const presentationTarget = (() => {
+    if (constructionExplain) {
+      return `/presentation/construction?section=${constructionExplain.section}&partId=${constructionExplain.partId}`;
+    }
     if (isSalesPlanSpa) {
       if (pathname.startsWith(SALES_PLAN_SPA.presentation)) return pathname;
       return SALES_PLAN_SPA.presentation;
@@ -41,6 +54,9 @@ export function ModeBar() {
   })();
 
   const editTarget = (() => {
+    if (constructionExplain) {
+      return `/edit/construction?section=${constructionExplain.section}&partId=${constructionExplain.partId}`;
+    }
     if (isSalesPlanSpa) {
       if (pathname.startsWith(SALES_PLAN_SPA.work)) return pathname;
       return SALES_PLAN_SPA.work;
@@ -50,7 +66,9 @@ export function ModeBar() {
 
   /** Эти страницы в корневом layout с тёмным UI — шапка режима должна совпадать с презентацией. */
   const isDarkPresentationChrome =
-    pathname === SALES_PLAN_SPA.presentation || pathname === SALES_PLAN_SPA.explain;
+    pathname === SALES_PLAN_SPA.presentation ||
+    pathname === SALES_PLAN_SPA.explain ||
+    pathname === "/construction/explain";
 
   const barShell = isDarkPresentationChrome
     ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] backdrop-blur-sm"
@@ -108,6 +126,18 @@ export function ModeBar() {
         </div>
       </div>
     </div>
+  );
+}
+
+export function ModeBar() {
+  return (
+    <Suspense
+      fallback={
+        <div className="sticky top-0 z-40 h-[52px] border-b border-slate-200 bg-white/80 backdrop-blur" aria-hidden />
+      }
+    >
+      <ModeBarInner />
+    </Suspense>
   );
 }
 

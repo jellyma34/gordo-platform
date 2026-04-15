@@ -1,7 +1,11 @@
 "use client";
 
 import { FormulaVariablesLegend } from "@/components/marketing/salesPlanCharts";
-import type { ExplainMetricContent, ExplainMetricDescription } from "@/lib/buildSalesPlanPresentationExplain";
+import type {
+  ExplainMetricContent,
+  ExplainMetricDescription,
+  ExplainMetricDiagnostics,
+} from "@/lib/buildSalesPlanPresentationExplain";
 import type { SalesTempoExplainMetricId } from "@/lib/salesPlanExplainMetricIds";
 
 const descCell =
@@ -16,6 +20,41 @@ const blockShell =
 const chartStripShell =
   "mt-2 rounded-b-xl border border-t-0 border-white/10 bg-[#0f172a]/70 px-3 py-3 text-[10px] leading-snug text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 const stripHdr = "text-[9px] font-bold uppercase tracking-wide text-slate-500";
+
+function ExplainMetricDiagnosticsPanel({ diagnostics }: { diagnostics: ExplainMetricDiagnostics }) {
+  const listClass = "mt-2 list-inside list-disc space-y-1.5 text-xs leading-relaxed text-slate-300";
+  return (
+    <div className="mt-4 border-t border-slate-600/40 pt-4">
+      <h3 className={sectionLabel}>Диагностика</h3>
+      <div className="mt-3 grid gap-4 sm:grid-cols-1">
+        <div className="rounded-xl border border-slate-700/55 bg-slate-950/45 p-3">
+          <h4 className={`${descTitle} text-rose-300/90`}>Типовые проблемы</h4>
+          <ul className={listClass}>
+            {diagnostics.typicalProblems.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-xl border border-slate-700/55 bg-slate-950/45 p-3">
+          <h4 className={`${descTitle} text-sky-400/90`}>Где искать причину</h4>
+          <ul className={listClass}>
+            {diagnostics.whereToLook.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-xl border border-slate-700/55 bg-slate-950/45 p-3">
+          <h4 className={`${descTitle} text-emerald-400/90`}>Управленческие выводы</h4>
+          <ul className={listClass}>
+            {diagnostics.managementTakeaways.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function ExplainMetricDescriptionGrid({ description }: { description: ExplainMetricDescription }) {
   return (
@@ -72,61 +111,90 @@ export function ExplainMetricBlock({
   const detailWhyClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-emerald-400/90"}`;
   const detailInterpretationClass = `${descTitle} ${neutralSectionHeaders ? "text-slate-400" : "text-violet-300/85"}`;
 
+  const formulaCardsGrid = (
+    <div className="mt-3 grid gap-3">
+      {detailCards.map((card, i) => {
+        const cardVars =
+          card.variables.length > 0
+            ? card.variables.map((v) => ({
+                symbol: v.symbol,
+                description: v.value ? `${v.label} — ${v.value}` : v.label,
+              }))
+            : [{ symbol: "—", description: "Обозначения для этой формулы не требуются." }];
+
+        const active = activeMetricId != null && card.metricId === activeMetricId;
+        return (
+          <div
+            key={`${content.title}-fd-${i}`}
+            className={`${descCell} transition-shadow duration-150 ${
+              active ? "ring-2 ring-sky-400/80 ring-offset-2 ring-offset-[#0f172a] shadow-[0_0_20px_-4px_rgba(56,189,248,0.55)]" : ""
+            }`}
+          >
+            <div className={`${descTitle} text-slate-200`}>{card.name}</div>
+
+            <div className="mt-3">
+              <h4 className={detailSectionLabelClass}>Формула</h4>
+              <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-300">{card.formula}</p>
+            </div>
+
+            <div className="mt-3">
+              <h4 className={detailSectionLabelClass}>Обозначения</h4>
+              <div className="mt-1.5">
+                <FormulaVariablesLegend variables={cardVars} presentation />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <h4 className={detailHowClass}>Как считается</h4>
+              <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-200">{card.calculation}</p>
+            </div>
+
+            <div className="mt-3">
+              <h4 className={detailWhyClass}>Почему эта формула</h4>
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.whyThisFormula}</p>
+            </div>
+
+            <div className="mt-3">
+              <h4 className={detailInterpretationClass}>Интерпретация</h4>
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.interpretation}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  if (!hasDescription && detailCards.length > 0 && content.formulaPanelFullWidth) {
+    return (
+      <div className={blockShell}>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{content.title}</div>
+        <div className="mt-4 border-t border-slate-600/40 pt-4">
+          <h3 className={sectionLabel}>Формулы и расчёты</h3>
+          {formulaCardsGrid}
+          {content.formulaSectionFooter ? (
+            <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/40 p-2">
+              <div className={stripHdr}>Итог</div>
+              <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-100">{content.formulaSectionFooter}</p>
+            </div>
+          ) : null}
+        </div>
+        {content.diagnostics ? <ExplainMetricDiagnosticsPanel diagnostics={content.diagnostics} /> : null}
+        {content.conclusion ? (
+          <div className="mt-4 border-t border-white/10 pt-3">
+            <h3 className={sectionLabel}>Вывод</h3>
+            <p className="mt-2 text-[11px] font-medium leading-relaxed text-slate-100">{content.conclusion}</p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   if (!hasDescription && detailCards.length > 0) {
     return (
       <div className={chartStripShell}>
         <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{content.title}</div>
 
-        <div className="mt-3 grid gap-3">
-          {detailCards.map((card, i) => {
-            const cardVars =
-              card.variables.length > 0
-                ? card.variables.map((v) => ({
-                    symbol: v.symbol,
-                    description: v.value ? `${v.label} — ${v.value}` : v.label,
-                  }))
-                : [{ symbol: "—", description: "Обозначения для этой формулы не требуются." }];
-
-            const active = activeMetricId != null && card.metricId === activeMetricId;
-            return (
-              <div
-                key={`${content.title}-fd-${i}`}
-                className={`${descCell} transition-shadow duration-150 ${
-                  active ? "ring-2 ring-sky-400/80 ring-offset-2 ring-offset-[#0f172a] shadow-[0_0_20px_-4px_rgba(56,189,248,0.55)]" : ""
-                }`}
-              >
-                <div className={`${descTitle} text-slate-200`}>{card.name}</div>
-
-                <div className="mt-3">
-                  <h4 className={detailSectionLabelClass}>Формула</h4>
-                  <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-300">{card.formula}</p>
-                </div>
-
-                <div className="mt-3">
-                  <h4 className={detailSectionLabelClass}>Обозначения</h4>
-                  <div className="mt-1.5">
-                    <FormulaVariablesLegend variables={cardVars} presentation />
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <h4 className={detailHowClass}>Как считается</h4>
-                  <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-slate-200">{card.calculation}</p>
-                </div>
-
-                <div className="mt-3">
-                  <h4 className={detailWhyClass}>Почему эта формула</h4>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.whyThisFormula}</p>
-                </div>
-
-                <div className="mt-3">
-                  <h4 className={detailInterpretationClass}>Интерпретация</h4>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{card.interpretation}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {formulaCardsGrid}
 
         {content.formulaSectionFooter ? (
           <div className="mt-3 border-t border-white/10 pt-2">
@@ -134,6 +202,8 @@ export function ExplainMetricBlock({
             <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-100">{content.formulaSectionFooter}</p>
           </div>
         ) : null}
+
+        {content.diagnostics ? <ExplainMetricDiagnosticsPanel diagnostics={content.diagnostics} /> : null}
 
         {content.conclusion ? (
           <div className="mt-3 border-t border-white/10 pt-2">
@@ -181,6 +251,8 @@ export function ExplainMetricBlock({
           <p className="mt-1 leading-relaxed text-slate-300">{interpretationText}</p>
         </div>
 
+        {content.diagnostics ? <ExplainMetricDiagnosticsPanel diagnostics={content.diagnostics} /> : null}
+
         {content.conclusion ? (
           <div className="mt-3 border-t border-white/10 pt-2">
             <div className={stripHdr}>Вывод</div>
@@ -205,38 +277,55 @@ export function ExplainMetricBlock({
         </div>
       </div>
 
-      <div className="mt-4 border-t border-slate-600/40 pt-4">
-        <h3 className={sectionLabel}>Формула</h3>
-        <ol className="mt-2 list-inside list-decimal space-y-1 font-mono text-[10px] leading-relaxed text-slate-400">
-          {content.formulaLines.map((line, i) => (
-            <li key={`${content.title}-f-${i}`}>{line}</li>
-          ))}
-        </ol>
-      </div>
-
-      <div className="mt-4">
-        <h3 className={sectionLabel}>Обозначения</h3>
-        <div className="mt-2">
-          <FormulaVariablesLegend variables={variables} presentation />
+      {detailCards.length > 0 ? (
+        <div className="mt-4 border-t border-slate-600/40 pt-4">
+          <h3 className={sectionLabel}>Формулы и расчёты</h3>
+          {formulaCardsGrid}
+          {content.formulaSectionFooter ? (
+            <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/40 p-2">
+              <div className={stripHdr}>Итог</div>
+              <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-100">{content.formulaSectionFooter}</p>
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="mt-4 border-t border-slate-600/40 pt-4">
+            <h3 className={sectionLabel}>Формула</h3>
+            <ol className="mt-2 list-inside list-decimal space-y-1 font-mono text-[10px] leading-relaxed text-slate-400">
+              {content.formulaLines.map((line, i) => (
+                <li key={`${content.title}-f-${i}`}>{line}</li>
+              ))}
+            </ol>
+          </div>
 
-      <div className="mt-4">
-        <h3 className={sectionLabel}>Как считается</h3>
-        <p className="mt-2 font-mono text-[10px] leading-relaxed text-slate-200">{content.calculation}</p>
-      </div>
+          <div className="mt-4">
+            <h3 className={sectionLabel}>Обозначения</h3>
+            <div className="mt-2">
+              <FormulaVariablesLegend variables={variables} presentation />
+            </div>
+          </div>
 
-      <div className="mt-4">
-        <h3 className={sectionLabel}>Почему такой результат</h3>
-        <p className="mt-2 text-xs leading-relaxed text-slate-300">{content.whyThisResult}</p>
-      </div>
+          <div className="mt-4">
+            <h3 className={sectionLabel}>Как считается</h3>
+            <p className="mt-2 font-mono text-[10px] leading-relaxed text-slate-200">{content.calculation}</p>
+          </div>
 
-      {content.interpretation ? (
-        <div className="mt-4">
-          <h3 className={sectionLabel}>Интерпретация</h3>
-          <p className="mt-2 text-xs leading-relaxed text-slate-300">{content.interpretation}</p>
-        </div>
-      ) : null}
+          <div className="mt-4">
+            <h3 className={sectionLabel}>Почему такой результат</h3>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">{content.whyThisResult}</p>
+          </div>
+
+          {content.interpretation ? (
+            <div className="mt-4">
+              <h3 className={sectionLabel}>Интерпретация</h3>
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">{content.interpretation}</p>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {content.diagnostics ? <ExplainMetricDiagnosticsPanel diagnostics={content.diagnostics} /> : null}
 
       <div className="mt-4 border-t border-white/10 pt-3">
         <h3 className={sectionLabel}>Вывод</h3>
