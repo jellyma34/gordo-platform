@@ -25,7 +25,11 @@ import {
   parsePresentationScenarioQuery,
   workScenarioToPresentationScenario,
 } from "@/lib/salesPlanSpaRoutes";
-import { SALES_PLAN_METRIC_LABELS, SALES_PLAN_SCENARIO_LABELS } from "@/lib/salesPlanWorkModel";
+import {
+  SALES_PLAN_METRIC_LABELS,
+  SALES_PLAN_SCENARIO_LABELS,
+  SALES_PLAN_TERMINATION_LABELS,
+} from "@/lib/salesPlanWorkModel";
 
 function pick(v: string | null, fallback: string) {
   if (!v || v.trim() === "") return fallback;
@@ -133,7 +137,8 @@ function SalesPlanPresentationExplainPageInner() {
     const { payload: p, blocks } = workReady;
     const scenarioLabel = SALES_PLAN_SCENARIO_LABELS[p.scenario];
     const metricLabel = SALES_PLAN_METRIC_LABELS[p.metricTab];
-    const metaLine = `Сценарий: ${scenarioLabel} · Вкладка метрик: ${metricLabel} · Снимок: ${new Date(p.savedAt).toLocaleString("ru-RU")}`;
+    const termLabel = SALES_PLAN_TERMINATION_LABELS[p.termination ?? "with_terminations"];
+    const metaLine = `Сценарий: ${scenarioLabel} · ${termLabel} · Метрика: ${metricLabel} · Снимок: ${new Date(p.savedAt).toLocaleString("ru-RU")}`;
     const planScen = workScenarioToPresentationScenario(p.scenario);
     const presentationQ = new URLSearchParams({
       from: "explain",

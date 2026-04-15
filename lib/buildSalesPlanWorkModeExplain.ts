@@ -16,7 +16,7 @@ import {
   SALES_PLAN_CATEGORY_LABELS,
   SALES_PLAN_METRIC_LABELS,
   SALES_PLAN_SCENARIO_LABELS,
-  deriveSalesPlanRow,
+  SALES_PLAN_TERMINATION_LABELS,
 } from "@/lib/salesPlanWorkModel";
 
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
@@ -34,8 +34,9 @@ function buildWorkModeSalesTempoFormulaDetailCards(
   scenarioLabel: string,
   monthlyDealRows: SalesPlanMonthlyDealRow[],
 ): { formulaDetailCards: ExplainFormulaDetailCard[]; formulaSectionFooter: string } {
-  const { scenario, savedAt, metricTab } = payload;
-  const sliceNote = `Сценарий рабочей таблицы: ${scenarioLabel} (${scenario}). Снимок: ${savedAt}. Вкладка метрик при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. График темпа — те же помесячные точки, что в презентации (marketingMockData.salesPlan.month / salesFact.month, фильтр all/all).`;
+  const { scenario, savedAt, metricTab, termination } = payload;
+  const termLabel = SALES_PLAN_TERMINATION_LABELS[termination ?? "with_terminations"];
+  const sliceNote = `Сценарий: ${scenarioLabel} (${scenario}). Учёт расторжений: ${termLabel}. Снимок: ${savedAt}. Метрика при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. График темпа — те же помесячные точки, что в презентации (marketingMockData.salesPlan.month / salesFact.month, фильтр all/all).`;
   const monthKey = salesPlanPeriodKeyThisMonth();
   const currentMonthIdx = (() => {
     const idx = monthlyDealRows.findIndex((r) => r.periodKey === monthKey);
@@ -181,9 +182,11 @@ function buildWorkModeSalesTempoFormulaDetailCards(
 
 export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSessionPayload): SalesPlanPresentationExplainBlock[] {
   const cfg = SALES_PLAN_PRESENTATION_EXPLAIN_CHARTS;
-  const { scenario, grid, metricTab, savedAt } = payload;
-  const slice = grid[scenario];
+  const { scenario, grid, metricTab, savedAt, termination } = payload;
+  const term = termination ?? "with_terminations";
+  const slice = grid[scenario][term];
   const scenarioLabel = SALES_PLAN_SCENARIO_LABELS[scenario];
+  const termLabel = SALES_PLAN_TERMINATION_LABELS[term];
 
   let sumPlanCumU = 0;
   let sumFactCumU = 0;
@@ -193,16 +196,14 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
   let sumFactCumR = 0;
 
   for (const id of SALES_PLAN_CATEGORY_IDS) {
-    const u = slice.units[id];
-    const r = slice.revenue[id];
-    const du = deriveSalesPlanRow(u);
-    const dr = deriveSalesPlanRow(r);
+    const u = slice.quantity[id];
+    const r = slice.revenue_ddu[id];
     sumPlanCumU += u.planCumulative;
-    sumFactCumU += du.factCumulative;
+    sumFactCumU += u.factCumulative;
     sumPlanMonthR += r.planMonth;
     sumFactMonthR += r.factMonth;
     sumPlanCumR += r.planCumulative;
-    sumFactCumR += dr.factCumulative;
+    sumFactCumR += r.factCumulative;
   }
 
   /** Тот же помесячный ряд, что «Темп по месяцам» в презентации (mock month[], фильтр all/all). */
@@ -246,7 +247,7 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     formulaSectionFooter: workTempoFormulas.formulaSectionFooter,
     interactive: { valueKind: "deals", points: tempoWorkPoints },
     calculationLines: [
-      `Сценарий таблицы: ${scenarioLabel} (${scenario}). Метрика при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. Снимок: ${savedAt}.`,
+      `Сценарий таблицы: ${scenarioLabel} (${scenario}), ${termLabel}. Метрика при переходе: ${SALES_PLAN_METRIC_LABELS[metricTab]}. Снимок: ${savedAt}.`,
       `Горизонт темпа: ${tempoTotalMonths} мес.; в расчёте учтено ${tempoMonthsPassed} прошедших месяц(ев) (отчётный periodKey: ${monthlyDealRows[tempoCurrentMonthIdx]?.periodKey ?? "—"}).`,
       `Σ plan по ряду: ${numFmt.format(sumPlan)}; Σ fact: ${numFmt.format(sumFact)}; соотношение ${monthRatioU}%.`,
       `Ровная норма: ${dec1.format(planPerMonth)} сделок/мес.; скользящий средний факт: ${dec1.format(actualPerMonth)} сделок/мес.; к норме: ${velocityCompletionPct}%.`,
@@ -271,21 +272,19 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
   ];
 
   const structureRows = SALES_PLAN_CATEGORY_IDS.map((id) => {
-    const r = slice.revenue[id];
-    const u = slice.units[id];
-    const dr = deriveSalesPlanRow(r);
-    const du = deriveSalesPlanRow(u);
-    const deltaRub = dr.factCumulative - r.planCumulative;
-    const pct = r.planCumulative > 0 ? (dr.factCumulative / r.planCumulative) * 100 : 0;
+    const r = slice.revenue_ddu[id];
+    const u = slice.quantity[id];
+    const deltaRub = r.factCumulative - r.planCumulative;
+    const pct = r.planCumulative > 0 ? (r.factCumulative / r.planCumulative) * 100 : 0;
     return {
       id,
       label: SALES_PLAN_CATEGORY_LABELS[id],
       deltaRub,
       pct,
       planRub: r.planCumulative,
-      factRub: dr.factCumulative,
+      factRub: r.factCumulative,
       pu: u.planCumulative,
-      fu: du.factCumulative,
+      fu: u.factCumulative,
     };
   });
 
@@ -304,8 +303,8 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
     id: "structure",
     title: "Структура продаж",
     dataSources: [
-      `grid[${scenario}].revenue[*]: planCumulative, planMonth, factMonth → факт накопительно по выручке.`,
-      `grid[${scenario}].units[*]: те же периоды в штуках для сопоставления микса.`,
+      `grid[${scenario}][${term}].revenue_ddu[*]: план/факт по ДДУ (накопит. и помесячно).`,
+      `grid[${scenario}][${term}].quantity[*]: штуки по линейкам для микса.`,
     ],
     formulaLines: cfg.structure.formulas,
     interactive: { valueKind: "rub", points: structureWorkPoints },
@@ -318,11 +317,8 @@ export function buildSalesPlanWorkModeExplainBlocks(payload: SalesPlanExplainSes
         : "По всем линейкам в этом срезе нет отрицательного Δ по выручке — структура не тянет общий минус.",
   };
 
-  const aptP = Math.max(1, Math.round(APT_IDS.reduce((s, id) => s + slice.units[id].planCumulative, 0)));
-  const aptF = Math.max(
-    1,
-    Math.round(APT_IDS.reduce((s, id) => s + deriveSalesPlanRow(slice.units[id]).factCumulative, 0)),
-  );
+  const aptP = Math.max(1, Math.round(APT_IDS.reduce((s, id) => s + slice.quantity[id].planCumulative, 0)));
+  const aptF = Math.max(1, Math.round(APT_IDS.reduce((s, id) => s + slice.quantity[id].factCumulative, 0)));
 
   const upModel = {
     ...marketingSalesReportMock.upsellDiagnostic,
