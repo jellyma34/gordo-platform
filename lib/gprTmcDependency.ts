@@ -125,8 +125,11 @@ function groupKeyForTmcGprStage(gprStage: string): GprStageGroupKey | null {
 
 function plannedProgressBySchedule(task: GPRTask | null, todayIso: string): number | null {
   if (!task) return null;
-  const t0 = new Date(`${task.planStart}T00:00:00`).getTime();
-  const t1 = new Date(`${task.planEnd}T00:00:00`).getTime();
+  const ps = task.planStart?.trim();
+  const pe = task.planEnd?.trim();
+  if (!ps || !pe) return null;
+  const t0 = new Date(`${ps}T00:00:00`).getTime();
+  const t1 = new Date(`${pe}T00:00:00`).getTime();
   const now = new Date(`${todayIso}T00:00:00`).getTime();
   if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
   if (now <= t0) return 0;
@@ -457,8 +460,11 @@ function partPlanBounds(
   for (const code of PART_ROOT_CODES_FOR_FORECAST[part]) {
     const t = findRootByCode(tasks, code);
     if (!t) continue;
-    if (!minS || t.planStart < minS) minS = t.planStart;
-    if (!maxE || t.planEnd > maxE) maxE = t.planEnd;
+    const ps = t.planStart?.trim();
+    const pe = t.planEnd?.trim();
+    if (!ps || !pe) continue;
+    if (!minS || ps < minS) minS = ps;
+    if (!maxE || pe > maxE) maxE = pe;
   }
   if (!minS || !maxE) return null;
   return { startIso: minS, endIso: maxE };

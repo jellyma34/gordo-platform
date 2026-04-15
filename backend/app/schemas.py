@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class CreateUserRequest(BaseModel):
@@ -104,14 +104,39 @@ class GprTaskBase(BaseModel):
     global_task_id: str | None = None
     name: str
     level: int = 1
-    plan_start: str
-    plan_end: str
+    plan_start: str | None = None
+    plan_end: str | None = None
     fact_start: str | None = None
     fact_end: str | None = None
     completion: int = 0
     comment: str | None = None
     related_tmc_ids: list[str] = Field(default_factory=list)
     part_id: int
+
+    @field_validator("plan_start", "plan_end", "fact_start", "fact_end", mode="before")
+    @classmethod
+    def empty_date_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def validate_date_ranges(self) -> "GprTaskBase":
+        def _day(s: str | None):
+            if not s:
+                return None
+            try:
+                return date.fromisoformat(s)
+            except ValueError:
+                return None
+
+        ps, pe = _day(self.plan_start), _day(self.plan_end)
+        if ps is not None and pe is not None and ps > pe:
+            raise ValueError("plan_start не может быть позже plan_end")
+        fs, fe = _day(self.fact_start), _day(self.fact_end)
+        if fs is not None and fe is not None and fs > fe:
+            raise ValueError("fact_start не может быть позже fact_end")
+        return self
 
 
 class GprTaskCreate(GprTaskBase):

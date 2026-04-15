@@ -342,11 +342,12 @@ export function getGanttXWindow(
 }
 
 export function clampSerialRange(
-  isoStart: string,
-  isoEnd: string,
+  isoStart: string | null | undefined,
+  isoEnd: string | null | undefined,
   origin: Date,
   maxSerial: number,
 ): [number, number] | null {
+  if (!isoStart?.trim() || !isoEnd?.trim()) return null;
   let a = serialDayFromOrigin(isoStart, origin);
   let b = serialDayFromOrigin(isoEnd, origin);
   if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b)) return null;

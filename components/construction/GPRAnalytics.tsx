@@ -296,8 +296,17 @@ function rowVisibleInGanttWindow(task: GPRTask, origin: Date, maxSerial: number)
 
 function sortGanttTasks(tasks: GPRTask[]): GPRTask[] {
   return [...tasks].sort((a, b) => {
-    const sa = new Date(`${a.planStart}T00:00:00`).getTime();
-    const sb = new Date(`${b.planStart}T00:00:00`).getTime();
+    const sa = a.planStart?.trim()
+      ? new Date(`${a.planStart}T00:00:00`).getTime()
+      : NaN;
+    const sb = b.planStart?.trim()
+      ? new Date(`${b.planStart}T00:00:00`).getTime()
+      : NaN;
+    if (!Number.isFinite(sa) && !Number.isFinite(sb)) {
+      return a.code.localeCompare(b.code, undefined, { numeric: true });
+    }
+    if (!Number.isFinite(sa)) return 1;
+    if (!Number.isFinite(sb)) return -1;
     if (sa !== sb) return sa - sb;
     return a.code.localeCompare(b.code, undefined, { numeric: true });
   });
@@ -799,10 +808,12 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
           return r ? ([r[0], r[1]] as [number, number]) : null;
         }
         // Нет факта: если срок старта уже наступил, рисуем "полосу отставания" plan_start -> today.
+        const ps = t.planStart?.trim();
+        if (!ps) return null;
         const today = localTodayDate();
-        const planStart = new Date(`${t.planStart}T00:00:00`);
+        const planStart = new Date(`${ps}T00:00:00`);
         if (Number.isNaN(planStart.getTime()) || today < planStart) return null;
-        const lag = clampSerialRange(t.planStart, localTodayIso(), origin, maxSerial);
+        const lag = clampSerialRange(ps, localTodayIso(), origin, maxSerial);
         return lag ? ([lag[0], lag[1]] as [number, number]) : null;
       });
 

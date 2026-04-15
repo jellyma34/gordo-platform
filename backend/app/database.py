@@ -79,6 +79,23 @@ def ensure_gpr_global_task_id_column() -> None:
         conn.execute(text("UPDATE gpr_tasks SET global_task_id = code WHERE global_task_id IS NULL"))
 
 
+def ensure_gpr_plan_dates_nullable() -> None:
+    """Плановые даты могут отсутствовать: снять NOT NULL с plan_start/plan_end (PostgreSQL)."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("gpr_tasks"):
+            return
+    except Exception:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE gpr_tasks ALTER COLUMN plan_start DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE gpr_tasks ALTER COLUMN plan_end DROP NOT NULL"))
+    except Exception:
+        # Уже nullable или отличия движка — не блокируем старт приложения.
+        pass
+
+
 def ensure_gpr_related_tmc_ids_column() -> None:
     """Без Alembic: добавить колонку gpr_tasks.related_tmc_ids, если её ещё нет."""
     try:

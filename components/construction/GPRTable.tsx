@@ -15,13 +15,17 @@ import { usePathname } from "next/navigation";
 import {
   calculateDeviation,
   durationDays,
+  GPR_CODE_FORMAT_RE,
   gprTaskFromApiItem,
   gprTaskToApiWritePayload,
   getStatus,
   getStatusByDeviation,
   getStatusLabel,
+  normalizeGprCodeFinal,
   PROJECT_PARTS,
   partIdToProjectPartKey,
+  sanitizeGprCodeTyping,
+  sortGprTasksByCode,
   type GPRTask,
 } from "@/lib/gprUtils";
 import { filterTaskTree, useTaskFilter, type TaskStatusFilter } from "@/lib/filters/useTaskFilter";
@@ -41,8 +45,25 @@ import {
   type EntityVersionListItem,
 } from "@/lib/auth";
 import { historyDetailToVersionDetail, historyRowsToVersionListItems } from "@/lib/gprHistoryMap";
+import { isoToRuDmy, toIsoDateOnly } from "@/lib/ruIsoDate";
+import { RuDateInput } from "@/components/ui/RuDateInput";
 
 type FlatTask = GPRTask & { level: number; parentId?: string };
+
+function isGprDateApiKey(key: string): boolean {
+  return /^(planStart|planEnd|factStart|factEnd|plan_start|plan_end|fact_start|fact_end)$/.test(key);
+}
+
+function formatGprHistoryScalar(key: string, val: unknown): string {
+  if (val == null || val === "") return "—";
+  if (Array.isArray(val)) return val.join(", ");
+  const s = String(val);
+  if (isGprDateApiKey(key)) {
+    const day = toIsoDateOnly(s);
+    if (day) return isoToRuDmy(day);
+  }
+  return s;
+}
 
 function flattenTasks(tasks: GPRTask[]): FlatTask[] {
   const stack: FlatTask[] = [];
@@ -92,6 +113,106 @@ function statusPillStyle(status: ReturnType<typeof getStatus>): CSSProperties {
 
 const INPUT_ROW =
   "h-8 w-full min-w-[130px] shrink-0 rounded-lg border border-slate-300 bg-white px-[10px] py-[6px] text-xs text-slate-900";
+
+function isIsoDateString(s: string | null | undefined): s is string {
+  return Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(s));
+}
+
+function dayMs(iso: string): number {
+  return new Date(`${iso}T00:00:00`).getTime();
+}
+
+function analyzeGprDraft(tasks: GPRTask[]): {
+  byId: Map<string, { errors: string[]; warnings: string[] }>;
+  blocking: boolean;
+} {
+  const byId = new Map<string, { errors: string[]; warnings: string[] }>();
+  const touch = (id: string) => {
+    if (!byId.has(id)) byId.set(id, { errors: [], warnings: [] });
+    return byId.get(id)!;
+  };
+
+  const codeToIds = new Map<string, string[]>();
+  for (const t of tasks) {
+    const c = t.code.trim();
+    if (!codeToIds.has(c)) codeToIds.set(c, []);
+    codeToIds.get(c)!.push(t.id);
+  }
+
+  for (const t of tasks) {
+    const rec = touch(t.id);
+    const codeTrim = t.code.trim();
+
+    if (!codeTrim) {
+      rec.errors.push("Пустой шифр");
+    } else if (!GPR_CODE_FORMAT_RE.test(codeTrim)) {
+      rec.errors.push("Шифр: только цифры и точки (например 2.05.03.1)");
+    }
+
+    const dupIds = codeToIds.get(codeTrim) ?? [];
+    if (codeTrim && dupIds.length > 1) {
+      rec.errors.push("Дублирующийся шифр в списке");
+    }
+
+    const p = parentCode(codeTrim);
+    if (p && !tasks.some((x) => x.code.trim() === p)) {
+      rec.warnings.push(`Нет строки с родительским шифром «${p}»`);
+    }
+
+    const ps = t.planStart;
+    const pe = t.planEnd;
+    const fs = t.factStart;
+    const fe = t.factEnd;
+
+    if (isIsoDateString(ps) && isIsoDateString(pe) && dayMs(ps) > dayMs(pe)) {
+      rec.errors.push("План: начало позже окончания");
+    }
+    if (isIsoDateString(fs) && isIsoDateString(fe) && dayMs(fs) > dayMs(fe)) {
+      rec.errors.push("Факт: начало позже окончания");
+    }
+    if (isIsoDateString(fs) && isIsoDateString(ps) && dayMs(fs) < dayMs(ps)) {
+      rec.warnings.push("Фактическое начало раньше планового");
+    }
+  }
+
+  let blocking = false;
+  for (const v of byId.values()) {
+    if (v.errors.length > 0) blocking = true;
+  }
+  return { byId, blocking };
+}
+
+function GprDateField({
+  value,
+  onIso,
+  title,
+  fieldClassName = INPUT_ROW,
+}: {
+  value: string | null | undefined;
+  onIso: (iso: string) => void;
+  title: string;
+  fieldClassName?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <RuDateInput
+        value={value ?? ""}
+        onChange={onIso}
+        allowEmpty
+        className={`${fieldClassName} min-w-0 flex-1`}
+        title={title}
+      />
+      <button
+        type="button"
+        className="h-8 shrink-0 rounded border border-slate-300 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
+        title="Очистить дату"
+        onClick={() => onIso("")}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
 
 const XL_TASK_GRID_TEMPLATE =
   "grid-cols-1 gap-4 xl:grid-cols-[300px_200px_200px_200px_auto] xl:gap-x-16 xl:items-start";
@@ -244,6 +365,26 @@ function levelFromGprCode(code: string): number {
   return Math.max(1, n - 1);
 }
 
+function updateTaskCodeDraft(
+  tasks: GPRTask[],
+  id: string,
+  rawCode: string,
+  finalize: boolean,
+): GPRTask[] {
+  const code = finalize ? normalizeGprCodeFinal(rawCode) : sanitizeGprCodeTyping(rawCode);
+  const mapped = tasks.map((task) =>
+    task.id === id
+      ? {
+          ...task,
+          code,
+          level: levelFromGprCode(code || "1"),
+          globalTaskId: code || task.globalTaskId,
+        }
+      : task,
+  );
+  return finalize ? sortGprTasksByCode(mapped) : mapped;
+}
+
 function insertChild(tasks: GPRTask[], parentId: string, child: GPRTask): GPRTask[] {
   const parentIndex = tasks.findIndex((t) => t.id === parentId);
   if (parentIndex < 0) return tasks;
@@ -382,10 +523,28 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       setCreateError("Войдите в систему, чтобы создавать задачи.");
       return;
     }
-    const code = createCode.trim();
+    const code = normalizeGprCodeFinal(createCode.trim());
     const name = createName.trim();
-    if (!code || !name || !createPlanStart.trim() || !createPlanEnd.trim()) {
-      setCreateError("Укажите название, шифр, план начала и план окончания.");
+    if (!code || !name) {
+      setCreateError("Укажите название и шифр.");
+      return;
+    }
+    if (!GPR_CODE_FORMAT_RE.test(code)) {
+      setCreateError("Шифр: только цифры и точки (например 2.05.03.1).");
+      return;
+    }
+    const ps = createPlanStart.trim();
+    const pe = createPlanEnd.trim();
+    if (ps && !/^\d{4}-\d{2}-\d{2}$/.test(ps)) {
+      setCreateError("Дата начала плана должна быть полной (ДД-ММ-ГГГГ) или очищена.");
+      return;
+    }
+    if (pe && !/^\d{4}-\d{2}-\d{2}$/.test(pe)) {
+      setCreateError("Дата окончания плана должна быть полной (ДД-ММ-ГГГГ) или очищена.");
+      return;
+    }
+    if (ps && pe && new Date(`${ps}T00:00:00`).getTime() > new Date(`${pe}T00:00:00`).getTime()) {
+      setCreateError("План: начало не может быть позже окончания.");
       return;
     }
     const level = levelFromGprCode(code);
@@ -395,8 +554,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       code,
       name,
       partId: createPartId,
-      planStart: createPlanStart.trim(),
-      planEnd: createPlanEnd.trim(),
+      planStart: ps || null,
+      planEnd: pe || null,
       factStart: null,
       factEnd: null,
       completion: 0,
@@ -510,7 +669,11 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     const normalizedValue =
       field === "completion"
         ? Number(value) || 0
-        : (field === "factStart" || field === "factEnd") && value.trim() === ""
+        : (field === "factStart" ||
+            field === "factEnd" ||
+            field === "planStart" ||
+            field === "planEnd") &&
+            value.trim() === ""
           ? null
           : value;
     setDraftTasks((prev) => updateTaskField(prev, id, field, normalizedValue));
@@ -520,11 +683,43 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     setDraftTasks((prev) => updateTaskName(prev, id, value));
   };
 
-  const onSelectWorkTypeFromCatalog = (id: string, code: string, nameValue: string) => {
-    setDraftTasks((prev) => updateTaskNameAndCode(prev, id, nameValue, code));
+  const onGprCodeChange = (id: string, raw: string) => {
+    setDraftTasks((prev) => updateTaskCodeDraft(prev, id, raw, false));
   };
 
+  const onGprCodeBlur = (id: string, raw: string) => {
+    setDraftTasks((prev) => updateTaskCodeDraft(prev, id, raw, true));
+  };
+
+  const onSelectWorkTypeFromCatalog = (id: string, code: string, nameValue: string) => {
+    const norm = normalizeGprCodeFinal(code);
+    setDraftTasks((prev) => {
+      const named = updateTaskNameAndCode(prev, id, nameValue, norm);
+      const withMeta = named.map((t) =>
+        t.id === id ? { ...t, level: levelFromGprCode(norm), globalTaskId: norm } : t,
+      );
+      return sortGprTasksByCode(withMeta);
+    });
+  };
+
+  const draftAnalysis = useMemo(() => analyzeGprDraft(draftTasks), [draftTasks]);
+
   const saveDraft = useCallback(async () => {
+    const { blocking, byId } = analyzeGprDraft(draftTasks);
+    if (blocking) {
+      const lines: string[] = [];
+      for (const t of draftTasks) {
+        const issue = byId.get(t.id);
+        if (!issue?.errors.length) continue;
+        lines.push(`${t.code.trim() || t.id}: ${issue.errors.join("; ")}`);
+      }
+      window.alert(
+        lines.length > 0
+          ? `Исправьте ошибки перед сохранением:\n\n${lines.join("\n")}`
+          : "Исправьте ошибки перед сохранением.",
+      );
+      return;
+    }
     await onSaveTasks(cloneTasks(draftTasks));
   }, [draftTasks, onSaveTasks]);
 
@@ -577,8 +772,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       partId: parent.partId,
       relatedTmcIds: [],
       level: parent.level + 1,
-      planStart: todayIso,
-      planEnd: todayIso,
+      planStart: null,
+      planEnd: null,
       factStart: null,
       factEnd: null,
       completion: 0,
@@ -602,8 +797,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       partId: task.partId,
       relatedTmcIds: [],
       level: task.level,
-      planStart: todayIso,
-      planEnd: todayIso,
+      planStart: null,
+      planEnd: null,
       factStart: null,
       factEnd: null,
       completion: 0,
@@ -909,15 +1104,34 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                         <span className="mt-0.5 inline-flex h-8 w-8 shrink-0" aria-hidden />
                       )}
                       <div className="min-w-0 flex-1 space-y-2">
-                        <div
-                          className={`font-mono tabular-nums ${
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={task.code}
+                          onChange={(e) => onGprCodeChange(task.id, e.target.value)}
+                          onBlur={(e) => onGprCodeBlur(task.id, e.target.value)}
+                          title="Шифр ГПР (цифры и точки)"
+                          className={`${INPUT_ROW} font-mono tabular-nums ${
                             hasChildren
                               ? "text-sm font-bold text-slate-900"
                               : "text-xs font-normal text-slate-600"
                           }`}
-                        >
-                          {task.code}
-                        </div>
+                        />
+                        {(() => {
+                          const issue = draftAnalysis.byId.get(task.id);
+                          if (!issue?.errors.length && !issue?.warnings.length) return null;
+                          return (
+                            <div className="space-y-0.5">
+                              {issue.errors.length > 0 ? (
+                                <div className="text-[11px] text-red-600">{issue.errors.join(" · ")}</div>
+                              ) : null}
+                              {issue.warnings.length > 0 ? (
+                                <div className="text-[11px] text-amber-800">{issue.warnings.join(" · ")}</div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                         <GPRWorkTypeCombobox
                           taskId={task.id}
                           name={task.name}
@@ -955,17 +1169,15 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
 
                   <div className="rounded-xl bg-slate-50/90 p-3 ring-1 ring-slate-100">
                     <div className="flex flex-col gap-2">
-                      <input
+                      <GprDateField
                         value={task.planStart}
-                        onChange={(e) => onInput(task.id, "planStart", e.target.value)}
-                        className={INPUT_ROW}
-                        title="Начало (план)"
+                        onIso={(iso) => onInput(task.id, "planStart", iso)}
+                        title="Начало (план), ДД-ММ-ГГГГ"
                       />
-                      <input
+                      <GprDateField
                         value={task.planEnd}
-                        onChange={(e) => onInput(task.id, "planEnd", e.target.value)}
-                        className={INPUT_ROW}
-                        title="Окончание (план)"
+                        onIso={(iso) => onInput(task.id, "planEnd", iso)}
+                        title="Окончание (план), ДД-ММ-ГГГГ"
                       />
                     </div>
                     <p className="mt-2 text-center text-[11px] tabular-nums text-slate-500">
@@ -975,17 +1187,15 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
 
                   <div className="rounded-xl bg-slate-50/90 p-3 ring-1 ring-slate-100">
                     <div className="flex flex-col gap-2">
-                      <input
-                        value={task.factStart ?? ""}
-                        onChange={(e) => onInput(task.id, "factStart", e.target.value)}
-                        className={INPUT_ROW}
-                        title="Начало (факт)"
+                      <GprDateField
+                        value={task.factStart}
+                        onIso={(iso) => onInput(task.id, "factStart", iso)}
+                        title="Начало (факт), ДД-ММ-ГГГГ"
                       />
-                      <input
-                        value={task.factEnd ?? ""}
-                        onChange={(e) => onInput(task.id, "factEnd", e.target.value)}
-                        className={INPUT_ROW}
-                        title="Окончание (факт)"
+                      <GprDateField
+                        value={task.factEnd}
+                        onIso={(iso) => onInput(task.id, "factEnd", iso)}
+                        title="Окончание (факт), ДД-ММ-ГГГГ"
                       />
                     </div>
                     <p className="mt-2 text-center text-[11px] tabular-nums text-slate-500">
@@ -1177,7 +1387,12 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                 {historyError ? <p className="mb-2 text-sm text-red-600">{historyError}</p> : null}
                 <div className="grid grid-cols-1 gap-2">
                   {compareFields.map((f) => {
-                    const leftVal = f.current == null ? "—" : Array.isArray(f.current) ? f.current.join(", ") : String(f.current);
+                    const leftVal =
+                      f.current == null
+                        ? "—"
+                        : Array.isArray(f.current)
+                          ? f.current.join(", ")
+                          : formatGprHistoryScalar(String(f.key), f.current);
                     const src = historySelected?.data ?? {};
                     const rawKey =
                       f.key === "planStart"
@@ -1196,7 +1411,11 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                         ? (src as Record<string, unknown>)[rawKey]
                         : null;
                     const rightVal =
-                      rightRaw == null ? "—" : Array.isArray(rightRaw) ? rightRaw.join(", ") : String(rightRaw);
+                      rightRaw == null
+                        ? "—"
+                        : Array.isArray(rightRaw)
+                          ? rightRaw.join(", ")
+                          : formatGprHistoryScalar(rawKey, rightRaw);
                     const diff = leftVal !== rightVal;
                     return (
                       <div
@@ -1286,21 +1505,25 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                 </select>
               </label>
               <label>
-                <span className="mb-1 block text-xs font-medium text-slate-600">План начала</span>
-                <input
-                  type="date"
+                <span className="mb-1 block text-xs font-medium text-slate-600">
+                  План начала (ДД-ММ-ГГГГ, необязательно)
+                </span>
+                <GprDateField
                   value={createPlanStart}
-                  onChange={(e) => setCreatePlanStart(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                  onIso={setCreatePlanStart}
+                  title="План начала"
+                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 />
               </label>
               <label>
-                <span className="mb-1 block text-xs font-medium text-slate-600">План окончания</span>
-                <input
-                  type="date"
+                <span className="mb-1 block text-xs font-medium text-slate-600">
+                  План окончания (ДД-ММ-ГГГГ, необязательно)
+                </span>
+                <GprDateField
                   value={createPlanEnd}
-                  onChange={(e) => setCreatePlanEnd(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                  onIso={setCreatePlanEnd}
+                  title="План окончания"
+                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 />
               </label>
             </div>

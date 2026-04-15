@@ -15,6 +15,7 @@ from app.database import (
     ensure_entity_history_entity_id_fk_dropped,
     ensure_entity_history_table,
     ensure_gpr_global_task_id_column,
+    ensure_gpr_plan_dates_nullable,
     ensure_gpr_related_tmc_ids_column,
     ensure_users_status_columns,
     ensure_users_full_name_column,
@@ -41,6 +42,7 @@ async def lifespan(_: FastAPI):
     ensure_users_full_name_column()
     ensure_users_status_columns()
     ensure_gpr_global_task_id_column()
+    ensure_gpr_plan_dates_nullable()
     ensure_gpr_related_tmc_ids_column()
     ensure_entity_history_table()
     ensure_entity_history_entity_type_column()

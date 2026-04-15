@@ -182,7 +182,8 @@ export function validateSalesPlanCategoryValues(v: SalesPlanCategoryValues, d: S
     "factCumulative",
   ];
   for (const k of nonDeviationFields) {
-    if (v[k] < 0) errors.push(`${String(k)} не может быть отрицательным`);
+    const x = v[k];
+    if (typeof x === "number" && x < 0) errors.push(`${String(k)} не может быть отрицательным`);
   }
 
   if (v.factCumulative < v.factMonth) {

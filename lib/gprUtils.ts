@@ -9,8 +9,8 @@ export type GPRTask = {
   /** Часть проекта в терминах API / визуализации (`residential` — жилой дом, `parking` — автостоянка). */
   projectPartKey?: ProjectPartKey;
   relatedTmcIds?: string[];
-  planStart: string;
-  planEnd: string;
+  planStart?: string | null;
+  planEnd?: string | null;
   factStart?: string | null;
   factEnd?: string | null;
   completion: number;
@@ -71,14 +71,14 @@ export function parseDate(date?: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function daysBetween(start: string, end: string) {
+export function daysBetween(start: string | null | undefined, end: string | null | undefined) {
   const a = toDate(start);
   const b = toDate(end);
   if (!a || !b) return NaN;
   return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
 }
 
-export function durationDays(start: string, end: string) {
+export function durationDays(start: string | null | undefined, end: string | null | undefined) {
   const n = daysBetween(start, end);
   if (!Number.isFinite(n)) return NaN;
   return n + 1;
@@ -105,14 +105,14 @@ export function planFactEndDeviationDays(
 export function calculateDeviation(task: GPRTask, asOf: Date = new Date()): number | null {
   const hasAnyFact = Boolean(task.factStart?.trim() || task.factEnd?.trim());
   if (!hasAnyFact) {
-    const ps = parseDate(task.planStart);
+    const ps = parseDate(task.planStart ?? undefined);
     if (!ps) return null;
     const todayDay = startOfLocalDay(asOf);
     const planStartDay = startOfLocalDay(ps);
     if (todayDay < planStartDay) return null;
     return Math.round((todayDay - planStartDay) / MS_PER_DAY);
   }
-  return planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  return planFactEndDeviationDays(task.planEnd ?? null, task.factEnd, asOf);
 }
 
 export function getStatus(task: GPRTask): GPRStatus {
@@ -187,12 +187,12 @@ export function planStartCalendarMonth(planStart: string | null | undefined): nu
  * Пересечение планового интервала задачи с календарным отрезком [periodStart, periodEnd] (границы включительно по дням).
  */
 export function isTaskInPeriod(
-  task: { planStart: string; planEnd: string },
+  task: { planStart?: string | null; planEnd?: string | null },
   periodStart: Date,
   periodEnd: Date,
 ): boolean {
-  const start = parseDate(task.planStart);
-  const end = parseDate(task.planEnd);
+  const start = parseDate(task.planStart ?? undefined);
+  const end = parseDate(task.planEnd ?? undefined);
   if (!start || !end) return false;
   return start.getTime() <= periodEnd.getTime() && end.getTime() >= periodStart.getTime();
 }
@@ -224,12 +224,12 @@ function quarterPeriodBounds(
 
 /** Задача пересекает календарный месяц (1–12) хотя бы в одном году, охваченном планом. */
 export function taskOverlapsCalendarMonth(
-  task: { planStart: string; planEnd: string },
+  task: { planStart?: string | null; planEnd?: string | null },
   month: number,
 ): boolean {
   if (month < 1 || month > 12) return false;
-  const ts = parseDate(task.planStart);
-  const te = parseDate(task.planEnd);
+  const ts = parseDate(task.planStart ?? undefined);
+  const te = parseDate(task.planEnd ?? undefined);
   if (!ts || !te) return false;
   const y0 = ts.getFullYear();
   const y1 = te.getFullYear();
@@ -243,12 +243,12 @@ export function taskOverlapsCalendarMonth(
 
 /** Задача пересекает календарный квартал хотя бы в одном году плана (Q1: 01.01–31.03 и т.д.). */
 export function taskOverlapsCalendarQuarter(
-  task: { planStart: string; planEnd: string },
+  task: { planStart?: string | null; planEnd?: string | null },
   quarter: number,
 ): boolean {
   if (quarter < 1 || quarter > 4) return false;
-  const ts = parseDate(task.planStart);
-  const te = parseDate(task.planEnd);
+  const ts = parseDate(task.planStart ?? undefined);
+  const te = parseDate(task.planEnd ?? undefined);
   if (!ts || !te) return false;
   const y0 = ts.getFullYear();
   const y1 = te.getFullYear();
@@ -263,7 +263,7 @@ export function taskOverlapsCalendarQuarter(
  * Фильтрация по пересечению планового интервала с месяцем или кварталом.
  * `value` — месяц 1–12 или квартал 1–4.
  */
-export function filterByPeriod<T extends { planStart: string; planEnd: string }>(
+export function filterByPeriod<T extends { planStart?: string | null; planEnd?: string | null }>(
   data: T[],
   filterType: PlanFactPeriodFilterType,
   value?: number,
@@ -290,8 +290,8 @@ export type GprTaskApiItem = {
   global_task_id: string | null;
   name: string;
   level: number;
-  plan_start: string;
-  plan_end: string;
+  plan_start: string | null;
+  plan_end: string | null;
   fact_start: string | null;
   fact_end: string | null;
   completion: number;
@@ -310,8 +310,8 @@ export function gprTaskFromApiItem(row: GprTaskApiItem): GPRTask {
     name: row.name,
     partId: row.part_id,
     relatedTmcIds: row.related_tmc_ids ?? [],
-    planStart: row.plan_start,
-    planEnd: row.plan_end,
+    planStart: row.plan_start ?? null,
+    planEnd: row.plan_end ?? null,
     factStart: row.fact_start,
     factEnd: row.fact_end,
     completion: row.completion,
@@ -326,8 +326,8 @@ export type GprTaskWritePayload = {
   global_task_id: string | null;
   name: string;
   level: number;
-  plan_start: string;
-  plan_end: string;
+  plan_start: string | null;
+  plan_end: string | null;
   fact_start: string | null;
   fact_end: string | null;
   completion: number;
@@ -337,18 +337,41 @@ export type GprTaskWritePayload = {
 };
 
 export function gprTaskToApiWritePayload(task: GPRTask): GprTaskWritePayload {
+  const ps = task.planStart?.trim() || null;
+  const pe = task.planEnd?.trim() || null;
   return {
     code: task.code,
     global_task_id: task.globalTaskId || task.code,
     name: task.name,
     level: task.level ?? 1,
-    plan_start: task.planStart,
-    plan_end: task.planEnd,
-    fact_start: task.factStart ?? null,
-    fact_end: task.factEnd ?? null,
+    plan_start: ps,
+    plan_end: pe,
+    fact_start: task.factStart?.trim() ? task.factStart : null,
+    fact_end: task.factEnd?.trim() ? task.factEnd : null,
     completion: task.completion,
     comment: task.comment ?? null,
     related_tmc_ids: task.relatedTmcIds ?? [],
     part_id: task.partId,
   };
+}
+
+/** Допустимый нормализованный шифр ГПР: сегменты из цифр через точку (например 2.05.03.1). */
+export const GPR_CODE_FORMAT_RE = /^\d+(\.\d+)*$/;
+
+/** Во время ввода: только цифры и точки. */
+export function sanitizeGprCodeTyping(raw: string): string {
+  return raw.replace(/[^\d.]/g, "");
+}
+
+/** После blur / перед сохранением: убрать лишние точки и пустые сегменты. */
+export function normalizeGprCodeFinal(raw: string): string {
+  return raw
+    .replace(/[^\d.]/g, "")
+    .split(".")
+    .filter((p) => p.length > 0)
+    .join(".");
+}
+
+export function sortGprTasksByCode(tasks: GPRTask[]): GPRTask[] {
+  return [...tasks].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }

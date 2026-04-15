@@ -7,6 +7,8 @@ import {
   TMC_DATA,
   type TMCItem,
 } from "@/lib/tmcData";
+import { formatStoredDateForUi } from "@/lib/ruIsoDate";
+import { RuDateInput } from "@/components/ui/RuDateInput";
 
 type Traffic = "green" | "yellow" | "red" | "gray" | "overdue_not_started";
 
@@ -170,6 +172,8 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
 
   const saveForm = () => {
     if (!form.name.trim() || !form.gprStage.trim() || !form.planDate || !form.planCost.trim()) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.planDate)) return;
+    if (form.factDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factDate.trim())) return;
     const payload: TMCItem = {
       id: form.id || `tmc-${Date.now()}`,
       name: form.name.trim(),
@@ -273,8 +277,8 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                 <tr key={row.id} className="rounded-lg border border-slate-200 bg-white text-slate-800 shadow-sm">
                   <td className="rounded-l-lg px-3 py-3 font-medium">{row.name}</td>
                   <td className="px-3 py-3 text-slate-600">{row.gprStage}</td>
-                  <td className="px-3 py-3">{row.planDate}</td>
-                  <td className="px-3 py-3">{row.factDate ?? "—"}</td>
+                  <td className="px-3 py-3">{formatStoredDateForUi(row.planDate)}</td>
+                  <td className="px-3 py-3">{formatStoredDateForUi(row.factDate)}</td>
                   <td className="px-3 py-3 tabular-nums">{(row.planCost / 1_000_000).toFixed(2)} млн</td>
                   <td className="px-3 py-3 tabular-nums">{row.factCost === null ? "—" : `${(row.factCost / 1_000_000).toFixed(2)} млн`}</td>
                   <td className="px-3 py-3 tabular-nums" style={{ color: statusColor }}>
@@ -339,17 +343,19 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                 placeholder="Этап ГПР"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
               />
-              <input
+              <RuDateInput
                 value={form.planDate}
-                onChange={(e) => setForm((p) => ({ ...p, planDate: e.target.value }))}
-                placeholder="План дата (YYYY-MM-DD)"
+                onChange={(iso) => setForm((p) => ({ ...p, planDate: iso }))}
+                allowEmpty={false}
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="Плановая дата закупки"
               />
-              <input
+              <RuDateInput
                 value={form.factDate}
-                onChange={(e) => setForm((p) => ({ ...p, factDate: e.target.value }))}
-                placeholder="Факт дата (опц.)"
+                onChange={(iso) => setForm((p) => ({ ...p, factDate: iso }))}
+                allowEmpty
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="Фактическая дата (опц.)"
               />
               <input
                 value={form.planCost}

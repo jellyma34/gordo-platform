@@ -12,6 +12,8 @@ import {
   type TenderProcurementStatus,
   type TenderTraffic,
 } from "@/lib/tenderData";
+import { formatStoredDateForUi } from "@/lib/ruIsoDate";
+import { RuDateInput } from "@/components/ui/RuDateInput";
 
 const COLORS: Record<TenderTraffic, string> = {
   green: "#22c55e",
@@ -171,6 +173,11 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     if (!form.code.trim() || !form.name.trim() || !form.stage.trim() || !form.planStart || !form.planContractDate) {
       return;
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.planStart) || !/^\d{4}-\d{2}-\d{2}$/.test(form.planContractDate)) {
+      return;
+    }
+    if (form.factStart.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factStart.trim())) return;
+    if (form.factContractDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(form.factContractDate.trim())) return;
     const partId = Number(form.partId) === 2 ? 2 : 1;
     const payload: Tender = {
       id: form.id || `tender-${Date.now()}`,
@@ -277,10 +284,10 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                   <td className="rounded-l-lg px-2 py-2 font-mono text-xs">{row.code}</td>
                   <td className="max-w-[220px] px-2 py-2 font-medium break-words">{row.name}</td>
                   <td className="px-2 py-2 font-mono text-xs text-slate-600">{row.stage}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.planStart}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.factStart ?? "—"}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.planContractDate}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.factContractDate ?? "—"}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.planStart)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.factStart)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.planContractDate)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.factContractDate)}</td>
                   <td className="px-2 py-2 tabular-nums whitespace-nowrap" style={{ color: statusColor }}>
                     {row.deviation === null ? "—" : row.deviation > 0 ? `+${row.deviation}` : row.deviation}
                   </td>
@@ -351,29 +358,33 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                 placeholder="Наименование работ"
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 md:col-span-2"
               />
-              <input
+              <RuDateInput
                 value={form.planStart}
-                onChange={(e) => setForm((p) => ({ ...p, planStart: e.target.value }))}
-                placeholder="План начала (YYYY-MM-DD)"
+                onChange={(iso) => setForm((p) => ({ ...p, planStart: iso }))}
+                allowEmpty={false}
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="План начала"
               />
-              <input
+              <RuDateInput
                 value={form.factStart}
-                onChange={(e) => setForm((p) => ({ ...p, factStart: e.target.value }))}
-                placeholder="Факт начала (опц.)"
+                onChange={(iso) => setForm((p) => ({ ...p, factStart: iso }))}
+                allowEmpty
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="Факт начала (опц.)"
               />
-              <input
+              <RuDateInput
                 value={form.planContractDate}
-                onChange={(e) => setForm((p) => ({ ...p, planContractDate: e.target.value }))}
-                placeholder="План договора"
+                onChange={(iso) => setForm((p) => ({ ...p, planContractDate: iso }))}
+                allowEmpty={false}
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="План даты договора"
               />
-              <input
+              <RuDateInput
                 value={form.factContractDate}
-                onChange={(e) => setForm((p) => ({ ...p, factContractDate: e.target.value }))}
-                placeholder="Факт договора (опц.)"
+                onChange={(iso) => setForm((p) => ({ ...p, factContractDate: iso }))}
+                allowEmpty
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
+                title="Факт даты договора (опц.)"
               />
               <input
                 value={form.cost}

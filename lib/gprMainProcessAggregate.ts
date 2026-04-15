@@ -73,19 +73,20 @@ function isParkingRootOnlyDataset(works: GPRTask[]): boolean {
   return works.length > 0 && works.every((t) => t.code.trim() === "2.05");
 }
 
-function parseIsoDay(iso: string): number {
+function parseIsoDay(iso: string | null | undefined): number {
+  if (!iso?.trim()) return NaN;
   const ms = new Date(`${iso.trim()}T00:00:00`).getTime();
   return Number.isNaN(ms) ? NaN : ms;
 }
 
-function minIso(isos: string[]): string | null {
-  const ok = isos.filter((s) => s?.trim() && !Number.isNaN(parseIsoDay(s)));
+function minIso(isos: (string | null | undefined)[]): string | null {
+  const ok = isos.filter((s): s is string => Boolean(s?.trim()) && !Number.isNaN(parseIsoDay(s)));
   if (ok.length === 0) return null;
   return ok.reduce((a, b) => (parseIsoDay(a) <= parseIsoDay(b) ? a : b));
 }
 
-function maxIso(isos: string[]): string | null {
-  const ok = isos.filter((s) => s?.trim() && !Number.isNaN(parseIsoDay(s)));
+function maxIso(isos: (string | null | undefined)[]): string | null {
+  const ok = isos.filter((s): s is string => Boolean(s?.trim()) && !Number.isNaN(parseIsoDay(s)));
   if (ok.length === 0) return null;
   return ok.reduce((a, b) => (parseIsoDay(a) >= parseIsoDay(b) ? a : b));
 }
