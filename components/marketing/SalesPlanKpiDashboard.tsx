@@ -8,12 +8,16 @@ export type KpiCardTone = "green" | "yellow" | "red";
 
 export type KpiDashboardMode = "presentation" | "explain" | "work";
 
+export type KpiSignalLabel = "OK" | "Риск" | "Критично";
+
 export type KpiDashboardItem = {
   key: string;
   title: string;
   value: ReactNode;
   sub: string;
   description: string;
+  /** Бейдж в режиме презентации (OK / Риск / Критично) */
+  signalLabel?: KpiSignalLabel;
   tone: KpiCardTone;
   surfaceTone?: KpiCardTone;
   hideRadialOverlay?: boolean;
@@ -195,8 +199,23 @@ export function KpiDashboard({
                 <div className="pointer-events-none absolute inset-0" style={{ background: surfaceStyle.radial }} />
               ) : null}
               <div className="relative p-3 sm:p-3.5">
-                <div className={`text-[11px] uppercase tracking-wide ${presentationLike ? "text-slate-400" : "text-slate-500"}`}>
-                  {kpi.title}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className={`min-w-0 text-[11px] uppercase tracking-wide ${presentationLike ? "text-slate-400" : "text-slate-500"}`}>
+                    {kpi.title}
+                  </div>
+                  {mode === "presentation" && kpi.signalLabel ? (
+                    <span
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                        kpi.signalLabel === "OK"
+                          ? "bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/35"
+                          : kpi.signalLabel === "Риск"
+                            ? "bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/35"
+                            : "bg-rose-500/25 text-rose-100 ring-1 ring-rose-400/40"
+                      }`}
+                    >
+                      {kpi.signalLabel}
+                    </span>
+                  ) : null}
                 </div>
                 {typeof kpi.value === "string" ? (
                   <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${valueStyle.value}`}>
@@ -328,10 +347,10 @@ export function KpiDashboard({
                 ) : null}
                 <div className={`mt-1 text-[11px] ${presentationLike ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
                 <p
-                  className={`mt-2 text-[12px] leading-tight ${presentationLike ? "text-slate-300/70" : "text-slate-700/70"}`}
+                  className={`mt-2 text-[12px] leading-tight ${presentationLike ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" ? "line-clamp-4" : "line-clamp-2"}`}
                   style={{
                     display: "-webkit-box",
-                    WebkitLineClamp: 2,
+                    WebkitLineClamp: mode === "presentation" ? 4 : 2,
                     WebkitBoxOrient: "vertical",
                     overflow: "hidden",
                   }}

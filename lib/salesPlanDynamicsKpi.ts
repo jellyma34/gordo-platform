@@ -6,7 +6,7 @@ import { filterByObjectAndDealType, mergeSalesPlanFact, marketingMockData } from
 import type { SalesCategoryId, SalesReportPayload, SalesSeriesPoint } from "@/lib/marketingSalesReportData";
 import { compactRub, numFmt } from "@/lib/salesPlanChartFormat";
 
-import type { KpiDashboardItem } from "@/components/marketing/SalesPlanKpiDashboard";
+import type { KpiDashboardItem, KpiSignalLabel } from "@/components/marketing/SalesPlanKpiDashboard";
 
 const PRESENTATION_SIGMA_LEGEND = "сумма по выбранным категориям или периодам";
 
@@ -308,13 +308,317 @@ export function buildDynamicsKpiInputFromReport(
 
 type KpiCardTone = "green" | "yellow" | "red";
 
+/** Месячное выполнение: ≥100% OK, 90–100% Риск, <90% Критично (интерпретация для презентации). */
+function classifyMonthlySignal(pct: number): { tone: KpiCardTone; label: KpiSignalLabel } {
+  if (pct >= 100) return { tone: "green", label: "OK" };
+  if (pct >= 90) return { tone: "yellow", label: "Риск" };
+  return { tone: "red", label: "Критично" };
+}
+
+/** Накопительное выполнение: ≥95% OK, 85–95% Риск, <85% Критично. */
+function classifyCumulativeSignal(pct: number): { tone: KpiCardTone; label: KpiSignalLabel } {
+  if (pct >= 95) return { tone: "green", label: "OK" };
+  if (pct >= 85) return { tone: "yellow", label: "Риск" };
+  return { tone: "red", label: "Критично" };
+}
+
+function relPctOfPlan(delta: number, plan: number, digits = 0): string | null {
+  if (plan === 0) return null;
+  const p = (delta / plan) * 100;
+  const sign = p > 0 ? "+" : p < 0 ? "−" : "";
+  return `${sign}${Math.abs(p).toFixed(digits)}%`;
+}
+
+function dealsDeltaWithPct(delta: number, planDeals: number): string {
+  const sign = delta >= 0 ? "+" : "−";
+  const abs = `${sign}${numFmt.format(Math.abs(delta))} шт`;
+  const pct = relPctOfPlan(delta, planDeals);
+  return pct ? `${abs} (${pct})` : abs;
+}
+
+function rubDeltaWithPct(deltaRub: number, planRub: number): string {
+  const sign = deltaRub >= 0 ? "+" : "−";
+  const abs = `${sign}${compactRub(Math.abs(deltaRub))}`;
+  const pct = relPctOfPlan(deltaRub, planRub);
+  return pct ? `${abs} (${pct})` : abs;
+}
+
 function miniLineColorByTone(tone: KpiCardTone, presentationLike: boolean): string {
   if (tone === "green") return presentationLike ? "#d1fae5" : "#047857";
   if (tone === "yellow") return presentationLike ? "#fffbeb" : "#b45309";
   return presentationLike ? "#ffe4e6" : "#b91c1c";
 }
 
-export function buildDynamicsKpiItems(input: DynamicsKpiInput, presentationLikeForSparks: boolean): KpiDashboardItem[] {
+/** KPI презентации: те же входные величины и формулы, иной текст, Δ%, сигналы и расхождение шт / ₽. */
+function buildPresentationDynamicsKpiItems(
+  input: DynamicsKpiInput,
+  presentationLikeForSparks: boolean,
+): KpiDashboardItem[] {
+  const {
+    rev,
+    forecastPercentAdjusted,
+    cumulativeExecSeriesPct,
+    monthlyExecPctSeries,
+    monthlyDeviationSeries,
+    cumulativeDeviationSeries,
+    monthPlanDeals,
+    monthFactDeals,
+    monthExecPct,
+    monthDeviationDeals,
+    monthPlanRevenue,
+    monthFactRevenue,
+    monthDeviationRevenue,
+    currentPlanCum,
+    currentFactCum,
+    currentDeviation,
+    cumulativeDeviationRevenue,
+    lagSegment,
+    firstLagMonth,
+    worstLagMonth,
+    trendShort,
+    weakSegment,
+    currentMonthLabel,
+    cumulativeDealsSubLabel,
+  } = input;
+
+  const cumSig = classifyCumulativeSignal(rev.percentComplete);
+  const monthSig = classifyMonthlySignal(monthExecPct);
+
+  const trendRiskNote =
+    rev.percentComplete >= 80 && monthExecPct < 90
+      ? " Накопительный показатель пока держится, но текущий темп ухудшается — риск невыполнения плана."
+      : "";
+
+  const mixNoteMonth =
+    monthDeviationDeals < 0 && monthDeviationRevenue >= 0
+      ? " Рост выручки обеспечен ценой/миксом, а не спросом (по шт. — отставание)."
+      : "";
+
+  const mixNoteCum =
+    currentDeviation < 0 && cumulativeDeviationRevenue >= 0
+      ? " Накопительно выручка удерживается за счёт цены/микса при отставании по объёму сделок."
+      : "";
+
+  const monthDevValue = `${dealsDeltaWithPct(monthDeviationDeals, monthPlanDeals)} / ${rubDeltaWithPct(monthDeviationRevenue, monthPlanRevenue)}`;
+  const cumDevValue = `${dealsDeltaWithPct(currentDeviation, currentPlanCum)} / ${rubDeltaWithPct(cumulativeDeviationRevenue, rev.planCumulative)}`;
+
+  const tooltipDevMonth = `${dealsDeltaWithPct(monthDeviationDeals, monthPlanDeals)} / ${rubDeltaWithPct(monthDeviationRevenue, monthPlanRevenue)}`;
+  const tooltipDevCum = `${dealsDeltaWithPct(currentDeviation, currentPlanCum)} / ${rubDeltaWithPct(cumulativeDeviationRevenue, rev.planCumulative)}`;
+
+  const cumulativeLineTone: KpiCardTone = (() => {
+    const n = cumulativeDeviationSeries.length;
+    if (n < 2) return "yellow";
+    const last = cumulativeDeviationSeries[n - 1] ?? 0;
+    const prev = cumulativeDeviationSeries[n - 2] ?? 0;
+    if (last < 0 && last < prev) return "red";
+    return "yellow";
+  })();
+
+  const cumExecDescription =
+    (rev.percentComplete >= 95
+      ? `Выполнение в безопасной зоне: накопленная выручка закрывает согласованную долю плана — запас по темпу снижает риск срыва годовых KPI. Ключевой фактор динамики — ${weakSegment}.`
+      : rev.percentComplete >= 85
+        ? `Зона внимания: накопление отстаёт от целевого коридора — без усиления месячного темпа недобой может перенестись на конец горизонта. Основной вклад в разрыв — ${lagSegment}; ${trendShort}.`
+        : `Критическая зона: накопительное выполнение ниже допустимого порога — при сохранении динамики растёт вероятность невыполнения плана. Первично «тянет» ${lagSegment}, недобой закрепился с ${firstLagMonth}.`) + trendRiskNote;
+
+  const monthExecDescription =
+    monthExecPct >= 100
+      ? `Темп месяца в норме или с запасом — текущий период не усугубляет накопительный риск; драйвер структуры — ${weakSegment}.`
+      : monthExecPct >= 90
+        ? `Темп месяца на нижней границе нормы: небольшой недобор не компенсирует возможное накопительное отставание, если слабость повторится. Уязвимость — ${lagSegment}, ${trendShort}.`
+        : `Темп продаж ниже нормы: текущий месяц не компенсирует план — растёт риск накопительного отставания. Сегмент с наибольшим вкладом — ${lagSegment}, наихудшая точка динамики — ${worstLagMonth}.`;
+
+  const monthDevDescription =
+    (monthDeviationDeals < 0
+      ? `Минус месяца по сделкам усиливает давление на годовой план; разрыв концентрируется в ${lagSegment} (худший период — ${worstLagMonth}). По выручке сигнал отдельно: объём (шт.) отражает спрос, выручка (₽) — цену и микс.`
+      : `Плюс месяца по сделкам снижает накопительный риск; динамика: ${trendShort}. Шт. — спрос/объём, ₽ — цена и микс.`) + mixNoteMonth;
+
+  const cumDevDescription =
+    (currentDeviation < 0
+      ? `Накопленное отставание по сделкам растёт с ${firstLagMonth}; основной источник — ${lagSegment}. Это прямой риск для закрытия годового объёма, если темп не выровнять.`
+      : `Накопительное отклонение по сделкам не усугубляет план; опора на ${weakSegment}.`) + mixNoteCum;
+
+  return [
+    {
+      key: "cum-exec",
+      title: "Выполнение плана (накопительно)",
+      value: `${rev.percentComplete.toFixed(1)}%`,
+      sub: `Прогноз к концу: ${forecastPercentAdjusted.toFixed(1)}%`,
+      description: cumExecDescription,
+      signalLabel: cumSig.label,
+      tone: cumSig.tone,
+      hover: `План: ${compactRub(rev.planCumulative)} | Факт: ${compactRub(rev.factCumulative)} | Отклонение: ${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
+      sparkline: cumulativeExecSeriesPct,
+      tooltip: {
+        metricMeaning:
+          "Накопительная выручка к дате отчёта: доля закрытого плана (₽). Шт. на других карточках — отдельный сигнал спроса.",
+        formula: "Формула: накопительный факт / накопительный план × 100%.",
+        variables: [
+          { symbol: "R_нак_факт", description: "накопительная фактическая выручка к отчётной дате" },
+          { symbol: "R_нак_план", description: "накопительный плановый объём выручки к той же дате" },
+        ],
+        sigmaNote: PRESENTATION_SIGMA_LEGEND,
+        calculation: `${compactRub(rev.factCumulative)} / ${compactRub(rev.planCumulative)} = ${rev.percentComplete.toFixed(1)}%`,
+        explanation:
+          "Выручка (₽) отражает цену и микс; не подменяет показатель спроса в штуках на соседних карточках.",
+        interpretation:
+          rev.percentComplete >= 95
+            ? "Накопление в безопасном коридоре относительно годового плана по выручке."
+            : rev.percentComplete >= 85
+              ? "Накопление требует контроля: без усиления темпа возможен перенос недобоя."
+              : "Накопление в критичной зоне — высокий риск невыполнения плана по выручке.",
+        fact: `${compactRub(rev.factCumulative)}`,
+        plan: `${compactRub(rev.planCumulative)}`,
+        deviation: `${rev.deviationCumulative >= 0 ? "+" : "−"}${compactRub(Math.abs(rev.deviationCumulative))}`,
+        miniChart: "Столбцы и линия — динамика % выполнения по периодам.",
+        conclusion:
+          forecastPercentAdjusted < 100
+            ? `Прогноз ниже 100% — приоритет: выровнять темп в ${lagSegment}.`
+            : "Прогноз допускает закрытие плана при сохранении темпа.",
+      },
+    },
+    {
+      key: "month-exec",
+      title: "Выполнение за месяц",
+      value: `${monthExecPct.toFixed(1)}%`,
+      sub: `${currentMonthLabel} · факт/план · сделки (шт.)`,
+      description: monthExecDescription,
+      signalLabel: monthSig.label,
+      tone: monthSig.tone,
+      hover: `План: ${numFmt.format(monthPlanDeals)} шт | Факт: ${numFmt.format(monthFactDeals)} шт | Отклонение: ${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
+      sparkBars: monthlyExecPctSeries,
+      sparkLine: monthlyExecPctSeries,
+      tooltip: {
+        metricMeaning: "Месячное выполнение плана по сделкам (шт.) — сигнал спроса и объёма, не выручки.",
+        formula: "Формула: факт месяца / план месяца × 100%.",
+        variables: [
+          { symbol: "fact_month", description: "фактическое число сделок в отчётном месяце" },
+          { symbol: "plan_month", description: "плановое число сделок в том же месяце" },
+        ],
+        calculation:
+          monthPlanDeals > 0
+            ? `${numFmt.format(monthFactDeals)} / ${numFmt.format(monthPlanDeals)} = ${monthExecPct.toFixed(1)}%`
+            : `${numFmt.format(monthFactDeals)} / 0 — план месяца не задан`,
+        explanation: "Шт. показывают спрос/объём; расхождение со строкой по ₽ возможно из‑за цены и микса.",
+        interpretation:
+          monthExecPct >= 100
+            ? "Месяц закрывает план по объёму сделок или перевыполняет."
+            : monthExecPct >= 90
+              ? "Месяц на грани: малый недобор может накапливать риск по году."
+              : "Месяц материально недобирает объём — риск накопления отставания.",
+        fact: `${numFmt.format(monthFactDeals)} шт`,
+        plan: `${numFmt.format(monthPlanDeals)} шт`,
+        deviation: `${monthDeviationDeals >= 0 ? "+" : "−"}${numFmt.format(Math.abs(monthDeviationDeals))} шт`,
+        miniChart: "Последние периоды: % выполнения по сделкам.",
+        conclusion:
+          monthExecPct < 90
+            ? `Нужен восстановительный темп; слабое звено — ${lagSegment}.`
+            : "Текущий месяц не расширяет накопительный разрыв по шт.",
+      },
+    },
+    {
+      key: "month-dev",
+      title: "Отклонение за месяц",
+      value: monthDevValue,
+      sub: `${currentMonthLabel} · Δ и Δ% к плану · шт. / ₽`,
+      description: monthDevDescription,
+      signalLabel: monthSig.label,
+      tone: monthSig.tone,
+      hover: `План: ${numFmt.format(monthPlanDeals)} шт, ${compactRub(monthPlanRevenue)} | Факт: ${numFmt.format(monthFactDeals)} шт, ${compactRub(monthFactRevenue)}`,
+      sparkBars: monthlyDeviationSeries,
+      sparkMode: "bars",
+      sparkBaselineStroke: miniLineColorByTone(monthSig.tone, presentationLikeForSparks),
+      sparkBaselineDasharray: "6 4",
+      sparkBaselineWidth: 1.75,
+      tooltip: {
+        metricMeaning: "Абсолютное отклонение месяца: шт. (спрос) и ₽ (цена×микс).",
+        formula: "Формула: факт месяца − план месяца (отдельно по шт. и по выручке).",
+        variables: [
+          { symbol: "fact_month", description: "фактическое число сделок в отчётном месяце" },
+          { symbol: "plan_month", description: "плановое число сделок в том же месяце" },
+          { symbol: "R_мес_факт", description: "фактическая выручка за тот же месяц" },
+          { symbol: "R_мес_план", description: "плановая выручка за тот же месяц" },
+        ],
+        calculation: `${numFmt.format(monthFactDeals)} − ${numFmt.format(monthPlanDeals)}; выручка: ${compactRub(monthFactRevenue)} − ${compactRub(monthPlanRevenue)}`,
+        explanation:
+          "Если шт. хуже плана, а ₽ нет — выручку поддерживают цена/микс, а не объём; решения по спросу и по прайсу разделять.",
+        interpretation:
+          monthDeviationDeals < 0 && monthDeviationRevenue >= 0
+            ? "Дивергенция шт. и ₽: рост выручки за счёт цены/микса при слабом спросе."
+            : monthDeviationDeals >= 0
+              ? "Месяц не ухудшает план по объёму сделок."
+              : "Месяц ухудшает и объём — совпадает давление на выручку и спрос.",
+        fact: `${numFmt.format(monthFactDeals)} шт / ${compactRub(monthFactRevenue)}`,
+        plan: `${numFmt.format(monthPlanDeals)} шт / ${compactRub(monthPlanRevenue)}`,
+        deviation: tooltipDevMonth,
+        miniChart: "Столбцы — отклонение по месяцам в штуках.",
+        conclusion:
+          monthDeviationDeals < 0
+            ? `Усилить объём в ${lagSegment} или явно зафиксировать опору на цене/миксе.`
+            : "Отклонение месяца не добавляет угрозы по шт.",
+      },
+    },
+    {
+      key: "cum-dev",
+      title: "Отклонение накопительное",
+      value: cumDevValue,
+      sub: cumulativeDealsSubLabel,
+      description: cumDevDescription,
+      signalLabel: cumSig.label,
+      tone: cumSig.tone,
+      hover: `План: ${numFmt.format(currentPlanCum)} шт | Факт: ${numFmt.format(currentFactCum)} шт`,
+      sparkBars: cumulativeDeviationSeries,
+      sparkLine: cumulativeDeviationSeries,
+      sparkMode: "bars",
+      sparkBarsFromBottom: true,
+      sparkTone: currentDeviation < 0 ? "red" : cumulativeLineTone,
+      surfaceTone: cumSig.tone,
+      hideRadialOverlay: true,
+      sparkBaselineStroke: "rgba(255,255,255,0.8)",
+      sparkBaselineDasharray: "6 4",
+      sparkBaselineWidth: 2,
+      sparkLineStroke: "rgba(255,255,255,0.92)",
+      tooltip: {
+        metricMeaning: "Накопительно: отклонение по сделкам (шт.) и по выручке (₽) к дате отчёта.",
+        formula: "Формула: накопительный факт − накопительный план (шт. и ₽ отдельно).",
+        variables: [
+          { symbol: "N_нак_факт", description: "накопительное число сделок (факт)" },
+          { symbol: "N_нак_план", description: "накопительное число сделок (план)" },
+          { symbol: "R_нак_факт", description: "накопительная фактическая выручка" },
+          { symbol: "R_нак_план", description: "накопительный плановый объём выручки" },
+        ],
+        sigmaNote: PRESENTATION_SIGMA_LEGEND,
+        calculation: `${numFmt.format(currentFactCum)} − ${numFmt.format(currentPlanCum)} шт; выручка: ${compactRub(rev.factCumulative)} − ${compactRub(rev.planCumulative)}`,
+        explanation:
+          "Совокупный разрыв по шт. и ₽; расхождение знаков указывает на роль цены/микса против спроса.",
+        interpretation:
+          currentDeviation < 0 && cumulativeDeviationRevenue >= 0
+            ? "Накопительно объём отстаёт, выручка может держаться за счёт цены и микса."
+            : currentDeviation >= 0
+              ? "Накопительно объём сделок не хуже плана."
+              : "Накопительно просадка и по шт., и по выручке — синхронный риск.",
+        fact: `${numFmt.format(currentFactCum)} шт / ${compactRub(rev.factCumulative)}`,
+        plan: `${numFmt.format(currentPlanCum)} шт / ${compactRub(rev.planCumulative)}`,
+        deviation: tooltipDevCum,
+        miniChart: "Накопительное отклонение по периодам.",
+        conclusion:
+          currentDeviation < 0
+            ? `Перекрыть недобор: приоритет ${lagSegment}, иначе риск годового срыва по объёму.`
+            : "Накопление по шт. не создаёт дополнительной угрозы.",
+      },
+    },
+  ];
+}
+
+export function buildDynamicsKpiItems(
+  input: DynamicsKpiInput,
+  presentationLikeForSparks: boolean,
+  usePresentationInterpretation = false,
+): KpiDashboardItem[] {
+  if (usePresentationInterpretation) {
+    return buildPresentationDynamicsKpiItems(input, presentationLikeForSparks);
+  }
+
   const {
     rev,
     forecastPercentAdjusted,

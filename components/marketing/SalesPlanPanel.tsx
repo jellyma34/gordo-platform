@@ -1825,7 +1825,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   ]);
 
   const dynamicsKpiItems = useMemo(
-    () => buildDynamicsKpiItems(dynamicsKpiInput, presentation),
+    () => buildDynamicsKpiItems(dynamicsKpiInput, presentation, presentation),
     [dynamicsKpiInput, presentation],
   );
 
