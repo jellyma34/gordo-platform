@@ -1,4 +1,4 @@
-import { daysBetween } from "@/lib/gprUtils";
+import { compareGprCodesByNumericPath, daysBetween } from "@/lib/gprUtils";
 
 /**
  * Реестр тендеров (таблица из PDF закупок услуг).
@@ -145,17 +145,9 @@ export function tenderStageHasContractRisk(tenders: Tender[], stage: string): bo
   return delayed > 0 || risk > 0;
 }
 
-/** Лексикографическая сортировка кодов этапов вида 2.04, 2.05, … */
+/** Сортировка кодов этапов / шифров ГПР по числовым сегментам (родитель раньше потомка). */
 export function compareGprStageCodes(a: string, b: string): number {
-  const pa = a.split(".").map((x) => Number.parseInt(x, 10) || 0);
-  const pb = b.split(".").map((x) => Number.parseInt(x, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da !== db) return da - db;
-  }
-  return 0;
+  return compareGprCodesByNumericPath(a, b);
 }
 
 /**

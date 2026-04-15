@@ -14,6 +14,7 @@ import {
 } from "@/lib/tenderData";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
 import { RuDateInput } from "@/components/ui/RuDateInput";
+import { compareGprCodesByNumericPath, gprCodeTreeIndentLevel } from "@/lib/gprUtils";
 
 const COLORS: Record<TenderTraffic, string> = {
   green: "#22c55e",
@@ -96,7 +97,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   const stageOptions = useMemo(() => {
     const set = new Set(rows.map((r) => r.stage));
     TENDER_DATA.filter((t) => t.partId === activePartId).forEach((t) => set.add(t.stage));
-    return Array.from(set).sort();
+    return Array.from(set).sort(compareGprCodesByNumericPath);
   }, [rows, activePartId]);
 
   const filteredRows = useMemo(() => {
@@ -112,6 +113,30 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       return byQuery && byStage && byTraffic;
     });
   }, [rows, query, stageFilter, trafficFilter]);
+
+  const sortedFilteredRows = useMemo(() => {
+    const out = [...filteredRows];
+    out.sort((a, b) => {
+      const c = compareGprCodesByNumericPath(a.code, b.code);
+      if (c !== 0) return c;
+      return a.id.localeCompare(b.id);
+    });
+    return out;
+  }, [filteredRows]);
+
+  const tenderCodesWithChildren = useMemo(() => {
+    const codes = sortedFilteredRows.map((r) => r.code.trim());
+    const hasChild = new Set<string>();
+    for (const code of codes) {
+      for (const other of codes) {
+        if (other !== code && other.startsWith(`${code}.`)) {
+          hasChild.add(code);
+          break;
+        }
+      }
+    }
+    return hasChild;
+  }, [sortedFilteredRows]);
 
   const persist = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -276,13 +301,33 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row) => {
+            {sortedFilteredRows.map((row) => {
               const statusColor = COLORS[row.traffic];
               const trafficLbl = tenderTrafficLabel(row.traffic);
+              const codeTrim = row.code.trim();
+              const indentPx = gprCodeTreeIndentLevel(row.code) * 16;
+              const isParentRow = tenderCodesWithChildren.has(codeTrim);
               return (
-                <tr key={row.id} className="rounded-lg border border-slate-200 bg-white text-slate-800 shadow-sm">
-                  <td className="rounded-l-lg px-2 py-2 font-mono text-xs">{row.code}</td>
-                  <td className="max-w-[220px] px-2 py-2 font-medium break-words">{row.name}</td>
+                <tr
+                  key={row.id}
+                  className={`rounded-lg border text-slate-800 shadow-sm ${
+                    isParentRow
+                      ? "border-slate-300 bg-slate-50/95 font-semibold"
+                      : "border-slate-200 bg-white font-normal"
+                  }`}
+                >
+                  <td className="rounded-l-lg px-2 py-2 font-mono text-xs">
+                    <span className="inline-block tabular-nums" style={{ paddingLeft: indentPx }}>
+                      {row.code}
+                    </span>
+                  </td>
+                  <td className="max-w-[220px] px-2 py-2 break-words">
+                    <span className="inline-block" style={{ paddingLeft: indentPx }}>
+                      <span className={isParentRow ? "font-semibold text-slate-900" : "font-medium text-slate-800"}>
+                        {row.name}
+                      </span>
+                    </span>
+                  </td>
                   <td className="px-2 py-2 font-mono text-xs text-slate-600">{row.stage}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.planStart)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.factStart)}</td>

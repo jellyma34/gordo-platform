@@ -372,6 +372,42 @@ export function normalizeGprCodeFinal(raw: string): string {
     .join(".");
 }
 
+/**
+ * Шифр ГПР как массив целых сегментов: «2.05.01.2» → [2, 5, 1, 2].
+ * Нечисловые сегменты дают 0 (устойчивость к мусору).
+ */
+export function gprCodeToNumericSegments(code: string): number[] {
+  const parts = code.trim().split(".").filter((p) => p.length > 0);
+  return parts.map((p) => {
+    const n = Number.parseInt(p, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+/**
+ * Сравнение шифров для иерархии: по сегментам как числа; при общем префиксе короче (родитель) раньше.
+ * Корректно разводит ветки 2.04* и 2.05*.
+ */
+export function compareGprCodesByNumericPath(a: string, b: string): number {
+  const sa = gprCodeToNumericSegments(a);
+  const sb = gprCodeToNumericSegments(b);
+  const n = Math.min(sa.length, sb.length);
+  for (let i = 0; i < n; i++) {
+    if (sa[i] !== sb[i]) return sa[i]! - sb[i]!;
+  }
+  return sa.length - sb.length;
+}
+
+/** Уровень отступа в таблице: 2.04 → 0, 2.04.01 → 1, … */
+export function gprCodeTreeIndentLevel(code: string): number {
+  const parts = code.trim().split(".").filter((p) => p.length > 0);
+  return Math.max(0, parts.length - 2);
+}
+
 export function sortGprTasksByCode(tasks: GPRTask[]): GPRTask[] {
-  return [...tasks].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  return [...tasks].sort((a, b) => {
+    const c = compareGprCodesByNumericPath(a.code, b.code);
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
 }
