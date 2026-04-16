@@ -29,6 +29,7 @@ import {
 } from "@/lib/salesPlanDynamicsKpi";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
+import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
@@ -2710,6 +2711,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             </div>
           </div>
         </div>
+
+        <MarketingDealsDynamicsSection presentation={presentation} period={period} objectId={objectId} dealTypeId={dealTypeId} />
 
         <div
           className={

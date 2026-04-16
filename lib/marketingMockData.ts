@@ -27,6 +27,31 @@ export type SalesFactRow = {
   dealTypeId?: string;
 };
 
+/** Выручка по периоду (синхронно с salesFact по periodKey). */
+export type SalesRevenueRow = {
+  periodKey: string;
+  label: string;
+  revenueRub: number;
+  objectId?: string;
+  dealTypeId?: string;
+};
+
+/** Строка разреза drill-down по выбранному месяцу. */
+export type DealDrilldownSegmentRow = {
+  key: string;
+  label: string;
+  deals: number;
+  revenueRub: number;
+};
+
+/** Детализация сделок по месяцу / кварталу (мок). */
+export type DealsPeriodDrilldown = {
+  apartmentTypes: DealDrilldownSegmentRow[];
+  objects: DealDrilldownSegmentRow[];
+  managers: DealDrilldownSegmentRow[];
+  sources: DealDrilldownSegmentRow[];
+};
+
 export type SalesDynamicPoint = {
   date: string;
   deals: number;
@@ -74,6 +99,13 @@ export type MarketingMockBundle = {
     month: SalesFactRow[];
     quarter: SalesFactRow[];
   };
+  /** Фактическая выручка по тем же периодам, что и salesFact (для avgCheck = revenue / deals). */
+  salesRevenue: {
+    month: SalesRevenueRow[];
+    quarter: SalesRevenueRow[];
+  };
+  /** Детализация по periodKey для блока «Сделки» (презентация). */
+  dealsPeriodDrilldown: Record<string, DealsPeriodDrilldown>;
   salesDynamics: SalesDynamicPoint[];
   funnel: FunnelStageRow[];
   installment: {
@@ -130,6 +162,221 @@ export const marketingMockData: MarketingMockBundle = {
       { periodKey: "2026-Q1", label: "Q1 2026", units: 107, deals: 107, lagDays: 10, objectId: "gordo-main" },
       { periodKey: "2026-Q2", label: "Q2 2026", units: 95, deals: 95, lagDays: 21, objectId: "gordo-main" },
     ],
+  },
+  salesRevenue: {
+    month: [
+      { periodKey: "2025-10", label: "окт. 2025", revenueRub: 188_000_000, objectId: "gordo-main" },
+      { periodKey: "2025-11", label: "ноя. 2025", revenueRub: 249_600_000, objectId: "gordo-main" },
+      { periodKey: "2025-12", label: "дек. 2025", revenueRub: 225_600_000, objectId: "gordo-main" },
+      { periodKey: "2026-01", label: "янв. 2026", revenueRub: 147_000_000, objectId: "gordo-main" },
+      { periodKey: "2026-02", label: "фев. 2026", revenueRub: 198_000_000, objectId: "gordo-main" },
+      { periodKey: "2026-03", label: "мар. 2026", revenueRub: 169_200_000, objectId: "gordo-main" },
+    ],
+    quarter: [
+      { periodKey: "2025-Q4", label: "Q4 2025", revenueRub: 663_200_000, objectId: "gordo-main" },
+      { periodKey: "2026-Q1", label: "Q1 2026", revenueRub: 514_200_000, objectId: "gordo-main" },
+      { periodKey: "2026-Q2", label: "Q2 2026", revenueRub: 456_000_000, objectId: "gordo-main" },
+    ],
+  },
+  dealsPeriodDrilldown: {
+    "2025-10": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 9, revenueRub: 40_500_000 },
+        { key: "2k", label: "2-комн.", deals: 18, revenueRub: 90_000_000 },
+        { key: "3k", label: "3-комн.", deals: 8, revenueRub: 44_000_000 },
+        { key: "st", label: "Студии", deals: 5, revenueRub: 13_500_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 32, revenueRub: 150_400_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 8, revenueRub: 37_600_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 14, revenueRub: 65_800_000 },
+        { key: "m2", label: "Петров С.", deals: 12, revenueRub: 56_400_000 },
+        { key: "m3", label: "Сидорова М.", deals: 14, revenueRub: 65_800_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 16, revenueRub: 75_200_000 },
+        { key: "agency", label: "Агентства", deals: 11, revenueRub: 51_700_000 },
+        { key: "partner", label: "Партнёры", deals: 13, revenueRub: 61_100_000 },
+      ],
+    },
+    "2025-11": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 11, revenueRub: 49_500_000 },
+        { key: "2k", label: "2-комн.", deals: 24, revenueRub: 120_000_000 },
+        { key: "3k", label: "3-комн.", deals: 10, revenueRub: 55_000_000 },
+        { key: "st", label: "Студии", deals: 7, revenueRub: 25_100_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 44, revenueRub: 211_200_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 8, revenueRub: 38_400_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 18, revenueRub: 86_400_000 },
+        { key: "m2", label: "Петров С.", deals: 17, revenueRub: 81_600_000 },
+        { key: "m3", label: "Сидорова М.", deals: 17, revenueRub: 81_600_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 22, revenueRub: 105_600_000 },
+        { key: "agency", label: "Агентства", deals: 15, revenueRub: 72_000_000 },
+        { key: "call", label: "Звонок", deals: 15, revenueRub: 72_000_000 },
+      ],
+    },
+    "2025-12": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 10, revenueRub: 45_000_000 },
+        { key: "2k", label: "2-комн.", deals: 20, revenueRub: 100_000_000 },
+        { key: "3k", label: "3-комн.", deals: 12, revenueRub: 66_000_000 },
+        { key: "com", label: "Коммерция", deals: 6, revenueRub: 14_600_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 40, revenueRub: 192_000_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 8, revenueRub: 33_600_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 16, revenueRub: 76_800_000 },
+        { key: "m2", label: "Петров С.", deals: 16, revenueRub: 76_800_000 },
+        { key: "m3", label: "Сидорова М.", deals: 16, revenueRub: 72_000_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 20, revenueRub: 96_000_000 },
+        { key: "agency", label: "Агентства", deals: 14, revenueRub: 67_200_000 },
+        { key: "partner", label: "Партнёры", deals: 14, revenueRub: 62_400_000 },
+      ],
+    },
+    "2026-01": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 6, revenueRub: 27_000_000 },
+        { key: "2k", label: "2-комн.", deals: 14, revenueRub: 70_000_000 },
+        { key: "3k", label: "3-комн.", deals: 7, revenueRub: 38_500_000 },
+        { key: "st", label: "Студии", deals: 3, revenueRub: 11_500_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 26, revenueRub: 124_800_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 4, revenueRub: 22_200_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 10, revenueRub: 48_000_000 },
+        { key: "m2", label: "Петров С.", deals: 10, revenueRub: 48_000_000 },
+        { key: "m3", label: "Сидорова М.", deals: 10, revenueRub: 51_000_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 12, revenueRub: 57_600_000 },
+        { key: "agency", label: "Агентства", deals: 10, revenueRub: 48_000_000 },
+        { key: "call", label: "Звонок", deals: 8, revenueRub: 41_400_000 },
+      ],
+    },
+    "2026-02": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 9, revenueRub: 40_500_000 },
+        { key: "2k", label: "2-комн.", deals: 19, revenueRub: 95_000_000 },
+        { key: "3k", label: "3-комн.", deals: 9, revenueRub: 49_500_000 },
+        { key: "com", label: "Коммерция", deals: 4, revenueRub: 13_000_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 35, revenueRub: 168_000_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 6, revenueRub: 30_000_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 14, revenueRub: 67_200_000 },
+        { key: "m2", label: "Петров С.", deals: 14, revenueRub: 67_200_000 },
+        { key: "m3", label: "Сидорова М.", deals: 13, revenueRub: 63_600_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 17, revenueRub: 81_600_000 },
+        { key: "agency", label: "Агентства", deals: 12, revenueRub: 57_600_000 },
+        { key: "partner", label: "Партнёры", deals: 12, revenueRub: 58_800_000 },
+      ],
+    },
+    "2026-03": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 7, revenueRub: 31_500_000 },
+        { key: "2k", label: "2-комн.", deals: 16, revenueRub: 80_000_000 },
+        { key: "3k", label: "3-комн.", deals: 9, revenueRub: 49_500_000 },
+        { key: "st", label: "Студии", deals: 4, revenueRub: 8_200_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 31, revenueRub: 148_800_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 5, revenueRub: 20_400_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 12, revenueRub: 57_600_000 },
+        { key: "m2", label: "Петров С.", deals: 12, revenueRub: 57_600_000 },
+        { key: "m3", label: "Сидорова М.", deals: 12, revenueRub: 54_000_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 14, revenueRub: 67_200_000 },
+        { key: "agency", label: "Агентства", deals: 11, revenueRub: 52_800_000 },
+        { key: "call", label: "Звонок", deals: 11, revenueRub: 49_200_000 },
+      ],
+    },
+    "2025-Q4": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 30, revenueRub: 135_000_000 },
+        { key: "2k", label: "2-комн.", deals: 62, revenueRub: 310_000_000 },
+        { key: "3k", label: "3-комн.", deals: 30, revenueRub: 165_000_000 },
+        { key: "st", label: "Студии + прочее", deals: 18, revenueRub: 53_200_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 116, revenueRub: 553_600_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 24, revenueRub: 109_600_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 48, revenueRub: 230_400_000 },
+        { key: "m2", label: "Петров С.", deals: 45, revenueRub: 216_000_000 },
+        { key: "m3", label: "Сидорова М.", deals: 47, revenueRub: 216_800_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 58, revenueRub: 276_800_000 },
+        { key: "agency", label: "Агентства", deals: 40, revenueRub: 190_900_000 },
+        { key: "partner", label: "Партнёры / звонки", deals: 42, revenueRub: 195_500_000 },
+      ],
+    },
+    "2026-Q1": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 22, revenueRub: 99_000_000 },
+        { key: "2k", label: "2-комн.", deals: 49, revenueRub: 245_000_000 },
+        { key: "3k", label: "3-комн.", deals: 25, revenueRub: 137_500_000 },
+        { key: "com", label: "Коммерция", deals: 11, revenueRub: 32_700_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 92, revenueRub: 441_600_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 15, revenueRub: 72_600_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 36, revenueRub: 172_800_000 },
+        { key: "m2", label: "Петров С.", deals: 36, revenueRub: 172_800_000 },
+        { key: "m3", label: "Сидорова М.", deals: 35, revenueRub: 168_600_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 43, revenueRub: 206_400_000 },
+        { key: "agency", label: "Агентства", deals: 33, revenueRub: 158_400_000 },
+        { key: "call", label: "Звонок / партнёры", deals: 31, revenueRub: 149_400_000 },
+      ],
+    },
+    "2026-Q2": {
+      apartmentTypes: [
+        { key: "1k", label: "1-комн.", deals: 28, revenueRub: 126_000_000 },
+        { key: "2k", label: "2-комн.", deals: 40, revenueRub: 200_000_000 },
+        { key: "3k", label: "3-комн.", deals: 18, revenueRub: 99_000_000 },
+        { key: "com", label: "Коммерция", deals: 9, revenueRub: 31_000_000 },
+      ],
+      objects: [
+        { key: "gordo-main", label: "ЖК Гордо — основная", deals: 78, revenueRub: 374_400_000 },
+        { key: "gordo-park", label: "ЖК Гордо — паркинг", deals: 17, revenueRub: 81_600_000 },
+      ],
+      managers: [
+        { key: "m1", label: "Иванова А.", deals: 32, revenueRub: 153_600_000 },
+        { key: "m2", label: "Петров С.", deals: 32, revenueRub: 153_600_000 },
+        { key: "m3", label: "Сидорова М.", deals: 31, revenueRub: 148_800_000 },
+      ],
+      sources: [
+        { key: "site", label: "Сайт", deals: 38, revenueRub: 182_400_000 },
+        { key: "agency", label: "Агентства", deals: 30, revenueRub: 144_000_000 },
+        { key: "partner", label: "Партнёры", deals: 27, revenueRub: 129_600_000 },
+      ],
+    },
   },
   salesDynamics: [
     { date: "2025-10-05", deals: 2 },
