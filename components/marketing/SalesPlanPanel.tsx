@@ -15,9 +15,9 @@ import {
 } from "@/lib/marketingSalesReportData";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import {
-  FactVsPlanChart,
   rechartsPresentationMiniTooltip,
   SalesTempoChart,
+  SalesTempoCumulativeChart,
   type FormulaVariableEntry,
   type SalesPlanChartMode,
 } from "@/components/marketing/salesPlanCharts";
@@ -27,7 +27,7 @@ import {
   formatSalesPlanAsOfKpiSub,
   type DynamicsKpiInput,
 } from "@/lib/salesPlanDynamicsKpi";
-import { buildVelocityLineRows, buildVelocityMonthlyBars } from "@/lib/salesPlanVelocityChartData";
+import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -1187,7 +1187,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   }, [salesStructureBalanceRows]);
   const chartMode: SalesPlanChartMode = presentation ? "presentation" : "work";
   const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
-  const velocityMonthlyBarsData = useMemo(() => buildVelocityMonthlyBars(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
     return Math.round((velocityMetrics.actualPerMonth / velocityMetrics.planPerMonth) * 100);
@@ -2013,12 +2012,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               className={
                 presentation
-                  ? "rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  ? "rounded-xl border border-rose-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                   : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
               }
             >
-              <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>Факт по месяцам vs план</div>
-              <FactVsPlanChart mode={chartMode} rows={velocityMonthlyBarsData} valueKind="deals" />
+              <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-rose-200/85" : "text-slate-600"}`}>
+                Кумулятивное отклонение от плана
+              </div>
+              <p className={`mb-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-500"}`}>
+                Нарастающий итог (Σ факт − Σ план)
+              </p>
+              <SalesTempoCumulativeChart mode={chartMode} lineData={velocityLineData} />
             </div>
           </div>
         </div>
