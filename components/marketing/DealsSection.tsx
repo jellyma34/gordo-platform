@@ -1,10 +1,13 @@
 "use client";
 
 /**
- * Раздел «Сделки»: рабочий режим — только таблицы и цифры; графики — при mode="presentation".
+ * Раздел «Сделки»: рабочий режим — только таблицы и цифры; презентация — DealsPresentation.
  */
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+
+const DealsPresentationPanel = dynamic(() => import("./DealsPresentation"), { ssr: false });
 
 export const DEALS_EMPTY_LABEL = "нет данных";
 
@@ -504,23 +507,6 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       ? `${deltaCount >= 0 ? "+" : ""}${numFmt.format(deltaCount)} шт · ${deltaPct >= 0 ? "+" : ""}${pctFmt.format(deltaPct)}%`
       : DEALS_EMPTY_LABEL;
 
-  const chartLayout = useMemo(() => {
-    if (mode !== "presentation" || series.length === 0) return null;
-    const maxCount = Math.max(1, ...series.map((r) => r.count));
-    const maxAvg = Math.max(1, ...series.map((r) => r.avgCheck));
-    const maxSum = Math.max(1, ...series.map((r) => r.sum));
-    const linePts =
-      series.length >= 2
-        ? series.map((r, i) => {
-            const n = series.length;
-            const x = (i + 0.5) / n;
-            const y = 1 - r.avgCheck / maxAvg;
-            return { x, y };
-          })
-        : [];
-    return { maxCount, maxAvg, maxSum, linePts };
-  }, [mode, series]);
-
   const withDelta = useMemo(() => {
     return series.map((row, i) => {
       if (i === 0) {
@@ -554,6 +540,10 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
     [dealsByMonth],
   );
 
+  if (mode === "presentation") {
+    return <DealsPresentationPanel dealsByMonth={dealsByMonth} />;
+  }
+
   return (
     <div className="space-y-4">
       <section className={panelClass}>
@@ -561,10 +551,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Сделки — разведка данных</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Срез по выгрузке: все поля <span className="font-mono text-xs">deal.*</span> нормализуются в таблицах ниже.{" "}
-              {mode === "work"
-                ? "Рабочий режим: только таблицы и показатели, без графиков."
-                : "Режим презентации: внизу доступны графики по месяцам."}
+              Срез по выгрузке: все поля <span className="font-mono text-xs">deal.*</span> нормализуются в таблицах ниже.
+              Рабочий режим: только таблицы и показатели, без графиков.
             </p>
           </div>
           <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-900">
@@ -964,73 +952,6 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           </table>
         </div>
       </section>
-
-      {mode === "presentation" && chartLayout ? (
-        <>
-          <section className={panelClass}>
-            <h3 className="text-base font-semibold text-slate-900">График: сделки и средний чек</h3>
-            <p className="text-xs text-slate-500">Только режим презентации. Столбцы — шт., линия — средний чек.</p>
-            <div className="relative mt-4 h-[220px] rounded-xl border border-slate-200 bg-slate-50/80 px-3 pb-6 pt-6">
-              <div className="flex h-full items-end justify-center gap-1.5 sm:gap-2">
-                {series.map((r) => (
-                  <div key={r.monthKey} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
-                    <div
-                      className="w-full max-w-[3rem] rounded-t-md bg-slate-800/90"
-                      style={{
-                        height: `${(r.count / chartLayout.maxCount) * 100}%`,
-                        minHeight: r.count > 0 ? 6 : 0,
-                      }}
-                    />
-                    <span className="max-w-full truncate text-[9px] font-medium text-slate-500">{r.chartLabel}</span>
-                  </div>
-                ))}
-              </div>
-              {chartLayout.linePts.length >= 2 ? (
-                <svg
-                  className="pointer-events-none absolute inset-x-3 bottom-8 top-6 overflow-visible"
-                  viewBox="0 0 1 1"
-                  preserveAspectRatio="none"
-                  aria-hidden
-                >
-                  <polyline
-                    fill="none"
-                    stroke="rgb(14 165 233)"
-                    strokeWidth="0.004"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    points={chartLayout.linePts.map((p) => `${p.x},${p.y}`).join(" ")}
-                  />
-                  {chartLayout.linePts.map((p, i) => (
-                    <circle key={`${p.x}-${i}`} cx={p.x} cy={p.y} r="0.006" fill="rgb(14 165 233)" />
-                  ))}
-                </svg>
-              ) : null}
-              <p className="pointer-events-none absolute left-3 top-2 text-[10px] text-slate-500">
-                Линия: средний чек · Столбцы: шт.
-              </p>
-            </div>
-          </section>
-
-          <section className={panelClass}>
-            <h3 className="text-base font-semibold text-slate-900">График: выручка по месяцам</h3>
-            <p className="text-xs text-slate-500">Столбцы — сумма по месяцу (dealsPerMonth.sum).</p>
-            <div className="mt-4 flex h-[200px] items-end justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3 pb-6 pt-6 sm:gap-2">
-              {series.map((r) => (
-                <div key={`sum-${r.monthKey}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
-                  <div
-                    className="w-full max-w-[3rem] rounded-t-md bg-emerald-700/85"
-                    style={{
-                      height: `${(r.sum / chartLayout.maxSum) * 100}%`,
-                      minHeight: r.sum > 0 ? 6 : 0,
-                    }}
-                  />
-                  <span className="max-w-full truncate text-[9px] font-medium text-slate-500">{r.chartLabel}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </>
-      ) : null}
     </div>
   );
 }
