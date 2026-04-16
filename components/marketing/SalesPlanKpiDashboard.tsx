@@ -59,10 +59,13 @@ export function KpiDashboard({
   mode,
   items,
   className = "",
+  gridClassName = "grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4",
 }: {
   mode: KpiDashboardMode;
   items: KpiDashboardItem[];
   className?: string;
+  /** Сетка карточек (по умолчанию 4 в ряд на xl; например 5 KPI для «Сделок»). */
+  gridClassName?: string;
 }) {
   const presentationLike = mode === "presentation" || mode === "explain";
 
@@ -119,7 +122,7 @@ export function KpiDashboard({
           };
 
   return (
-    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
+    <div className={`grid ${gridClassName} ${className}`}>
       {items.map((kpi) => {
         const valueStyle = toneStyles(kpi.tone);
         const surfaceStyle = toneStyles(kpi.surfaceTone ?? kpi.tone);

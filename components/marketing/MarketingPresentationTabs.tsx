@@ -12,6 +12,7 @@ export type MarketingPresentationTabItem = {
 
 const DEFAULT_TABS: MarketingPresentationTabItem[] = [
   { id: "sales-plan", label: "План продаж", href: MARKETING_PRESENTATION.salesPlan },
+  { id: "deals", label: "Сделки", href: MARKETING_PRESENTATION.deals },
   { id: "installments", label: "Рассрочка ДДУ", href: MARKETING_PRESENTATION.installments },
 ];
 

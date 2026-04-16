@@ -68,7 +68,8 @@ function ModeBarInner() {
   const isDarkPresentationChrome =
     pathname === SALES_PLAN_SPA.presentation ||
     pathname === SALES_PLAN_SPA.explain ||
-    pathname === "/construction/explain";
+    pathname === "/construction/explain" ||
+    pathname?.startsWith("/presentation/marketing/");
 
   const barShell = isDarkPresentationChrome
     ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] backdrop-blur-sm"

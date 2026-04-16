@@ -8,10 +8,11 @@ import { marketingMockData } from "@/lib/marketingMockData";
 import { InstallmentDduPanel } from "./InstallmentDduPanel";
 import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFilters";
 import { MarketingPresentationTabs } from "./MarketingPresentationTabs";
+import { SalesDealsSection } from "./SalesDealsSection";
 import { SalesPlanPanel, type PlanScenario } from "./SalesPlanPanel";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 
-export type MarketingTab = "sales" | "installment";
+export type MarketingTab = "sales" | "deals" | "installment";
 
 type Props = {
   modeLabel: string;
@@ -151,6 +152,13 @@ export function MarketingWorkspace({
               </TabButton>
               <TabButton
                 presentation={presentation}
+                active={editTab === "deals"}
+                onClick={() => setEditTab("deals")}
+              >
+                Сделки
+              </TabButton>
+              <TabButton
+                presentation={presentation}
                 active={editTab === "installment"}
                 onClick={() => setEditTab("installment")}
               >
@@ -196,6 +204,13 @@ export function MarketingWorkspace({
               objectId={objectId}
               dealTypeId={dealTypeId}
               initialPlanScenario={initialPlanScenario}
+            />
+          ) : activeTab === "deals" ? (
+            <SalesDealsSection
+              presentation={presentation}
+              period={period}
+              objectId={objectId}
+              dealTypeId={dealTypeId}
             />
           ) : (
             <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />

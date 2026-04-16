@@ -13,6 +13,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { DealsSection } from "@/components/marketing/DealsSection";
+import { InstallmentsSection } from "@/components/marketing/InstallmentsSection";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import {
@@ -123,10 +125,13 @@ type Props = {
   dashboardHref?: string;
 };
 
+type WorkMarketingMainTab = "plan" | "deals" | "installments";
+
 export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(function SalesPlanWorkMode(
   { dashboardHref },
   ref,
 ) {
+  const [workMainTab, setWorkMainTab] = useState<WorkMarketingMainTab>("plan");
   const router = useRouter();
   const { hydrated: authHydrated, role, token } = useAuth();
   const saveLockRef = useRef(false);
@@ -328,6 +333,34 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
         </div>
       ) : null}
 
+      <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+        <span className="w-full py-1 text-xs font-medium uppercase tracking-wide text-slate-500 sm:hidden">
+          Раздел маркетинга
+        </span>
+        {(
+          [
+            { id: "plan" as const, label: "План продаж" },
+            { id: "deals" as const, label: "Сделки" },
+            { id: "installments" as const, label: "Рассрочка ДДУ" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setWorkMainTab(t.id)}
+            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+              workMainTab === t.id
+                ? "bg-slate-900 text-white shadow"
+                : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {workMainTab === "plan" ? (
+        <>
       <section className={panelClass}>
         <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
           <div>
@@ -777,6 +810,12 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
           )}
         </div>
       </section>
+        </>
+      ) : workMainTab === "deals" ? (
+        <DealsSection mode="work" />
+      ) : (
+        <InstallmentsSection />
+      )}
     </div>
   );
 });

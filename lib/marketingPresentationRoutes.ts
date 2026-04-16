@@ -2,6 +2,7 @@
 export const MARKETING_PRESENTATION = {
   salesPlan: "/presentation/marketing/sales-plan",
   installments: "/presentation/marketing/installments",
+  deals: "/presentation/marketing/deals",
 } as const;
 
 export type MarketingPresentationPath =
