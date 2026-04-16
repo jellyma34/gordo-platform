@@ -4,11 +4,11 @@
  * Раздел «Сделки»: рабочий режим — только таблицы и цифры; графики — при mode="presentation".
  */
 
-import { useMemo, useState } from "react";
-
-import dealsMock from "@/data/dealsMock.json";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 export const DEALS_EMPTY_LABEL = "нет данных";
+
+const DEALS_BY_MONTH_STORAGE_KEY = "dealsByMonth";
 
 const panelClass = "rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4";
 const tableWrapClass = "mt-4 w-full min-w-0 rounded-lg border border-slate-200";
@@ -43,8 +43,12 @@ export type DealRecord = {
 };
 
 export type DealExportRow = {
+  id?: string | number;
   deal?: DealRecord;
 };
+
+/** Сделки по месяцам (ключ YYYY-MM). */
+export type DealsByMonth = Record<string, DealExportRow[]>;
 
 export type DealsPerMonthGrouped = Record<string, { count: number; sum: number }>;
 
@@ -186,6 +190,23 @@ function bumpBucket(map: Record<string, SegmentBucket>, key: string, sum: number
   map[key].sum += sum;
 }
 
+function flattenDealsInput(data: unknown): DealExportRow[] {
+  if (Array.isArray(data)) return data as DealExportRow[];
+  if (data != null && typeof data === "object" && !Array.isArray(data)) {
+    const o = data as Record<string, unknown>;
+    const keys = Object.keys(o).sort((a, b) => a.localeCompare(b));
+    const rows: DealExportRow[] = [];
+    for (const k of keys) {
+      const v = o[k];
+      if (Array.isArray(v)) {
+        for (const item of v) rows.push(item as DealExportRow);
+      }
+    }
+    return rows;
+  }
+  return [];
+}
+
 export function computeDealMetrics(rows: NormalizedDealRow[]): DealMetrics {
   const dealsPerMonth: DealsPerMonthGrouped = {};
   const dealsByType: Record<string, SegmentBucket> = {};
@@ -228,8 +249,9 @@ export function computeDealMetrics(rows: NormalizedDealRow[]): DealMetrics {
   };
 }
 
+/** Плоский массив или {@link DealsByMonth} — месяцы склеиваются в порядке ключей. */
 export function transformDealsData(data: unknown): DealsAnalytics {
-  const normalizedDeals = extractNormalizedDeals(data);
+  const normalizedDeals = extractNormalizedDeals(flattenDealsInput(data));
   return {
     normalizedDeals,
     validDeals: normalizedDeals,
@@ -299,12 +321,67 @@ function bucketTableRows(map: Record<string, SegmentBucket>) {
     .sort((a, b) => b.sum - a.sum);
 }
 
-const fullBase = transformDealsData(dealsMock.data);
+function parseUploadedDealsJson(text: string): DealExportRow[] | null {
+  try {
+    const json: unknown = JSON.parse(text);
+    if (Array.isArray(json)) return json as DealExportRow[];
+    if (json != null && typeof json === "object" && Array.isArray((json as { data: unknown }).data)) {
+      return (json as { data: DealExportRow[] }).data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function monthKeyFromFileName(fileName: string): string | null {
+  const base = fileName.replace(/\.json$/i, "").trim();
+  return /^\d{4}-\d{2}$/.test(base) ? base : null;
+}
+
+/** «Файл за март 2026 добавлен» (без «г.»). */
+function uploadSuccessLabel(monthKey: string): string {
+  const [y, m] = monthKey.split("-");
+  const yi = Number(y);
+  const mi = Number(m);
+  if (!Number.isFinite(yi) || !Number.isFinite(mi)) return monthKey;
+  const monthWord = new Date(yi, mi - 1, 1).toLocaleDateString("ru-RU", { month: "long" });
+  return `Файл за ${monthWord} ${yi} добавлен`;
+}
 
 export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
+  const [dealsByMonth, setDealsByMonth] = useState<DealsByMonth>({});
+  const skipFirstPersist = useRef(true);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [filterMonth, setFilterMonth] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterObject, setFilterObject] = useState("");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DEALS_BY_MONTH_STORAGE_KEY);
+      const next = stored ? (JSON.parse(stored) as DealsByMonth) : {};
+      setDealsByMonth(next);
+      console.log("LOADED:", next);
+    } catch {
+      setDealsByMonth({});
+      console.log("LOADED:", {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (skipFirstPersist.current) {
+      skipFirstPersist.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(DEALS_BY_MONTH_STORAGE_KEY, JSON.stringify(dealsByMonth));
+    } catch {
+      /* quota / private mode */
+    }
+  }, [dealsByMonth]);
+
+  const fullBase = useMemo(() => transformDealsData(dealsByMonth), [dealsByMonth]);
 
   const filterOptions = useMemo(() => {
     const rows = fullBase.normalizedDeals;
@@ -312,7 +389,7 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
     const types = [...new Set(rows.map((r) => r.typeLabel))].sort((a, b) => a.localeCompare(b, "ru"));
     const objects = [...new Set(rows.map((r) => r.objectLabel))].sort((a, b) => a.localeCompare(b, "ru"));
     return { months, types, objects };
-  }, []);
+  }, [fullBase.normalizedDeals]);
 
   const filteredRows = useMemo(() => {
     return fullBase.normalizedDeals.filter((r) => {
@@ -321,9 +398,73 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       if (filterObject && r.objectLabel !== filterObject) return false;
       return true;
     });
-  }, [filterMonth, filterType, filterObject]);
+  }, [filterMonth, filterType, filterObject, fullBase.normalizedDeals]);
 
   const analytics = useMemo(() => computeDealMetrics(filteredRows), [filteredRows]);
+
+  const onDealsJsonSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadNotice(null);
+    try {
+      const text = await file.text();
+      const data = parseUploadedDealsJson(text);
+      if (!data || data.length === 0) {
+        setUploadNotice("Не удалось прочитать JSON: нужен массив или объект с полем data.");
+        event.target.value = "";
+        return;
+      }
+
+      let month = monthKeyFromFileName(file.name);
+      if (!month) {
+        const firstDeal = data[0]?.deal;
+        const dd = firstDeal?.deal_date;
+        if (typeof dd === "string" && dd.trim().length >= 7) {
+          month = monthKeyFromDate(dd.trim());
+        }
+      }
+      if (!month) {
+        setUploadNotice("Не удалось определить месяц: укажите имя файла вида 2026-03.json или deal_date в данных.");
+        event.target.value = "";
+        return;
+      }
+
+      const monthKey = month;
+
+      setDealsByMonth((prev) => {
+        const prevMonthRows = prev[monthKey] ?? [];
+        const existingIds = new Set(
+          prevMonthRows.map((i) => i.id).filter((id): id is string | number => id != null && id !== ""),
+        );
+        const newItems = data.filter((i) => {
+          if (i.id == null || i.id === "") return true;
+          return !existingIds.has(i.id);
+        });
+        const next: DealsByMonth = {
+          ...prev,
+          [monthKey]: [...prevMonthRows, ...newItems],
+        };
+        console.log("MONTH ADDED:", monthKey);
+        console.log("TOTAL MONTHS:", Object.keys(next));
+        return next;
+      });
+
+      setUploadNotice(uploadSuccessLabel(monthKey));
+    } catch {
+      setUploadNotice("Ошибка чтения или разбора JSON.");
+    }
+    event.target.value = "";
+  };
+
+  const handleResetDealsStorage = () => {
+    try {
+      localStorage.removeItem(DEALS_BY_MONTH_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setDealsByMonth({});
+    setUploadNotice(null);
+  };
 
   const series = useMemo(() => buildDealsMonthSeries(analytics.dealsPerMonth), [analytics.dealsPerMonth]);
 
@@ -476,7 +617,29 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           >
             Сбросить фильтры
           </button>
+          <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50">
+            Загрузить JSON
+            <input type="file" accept=".json" className="sr-only" onChange={onDealsJsonSelected} aria-label="Загрузить JSON сделок за месяц" />
+          </label>
+          <button
+            type="button"
+            onClick={handleResetDealsStorage}
+            className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-50"
+          >
+            Очистить данные
+          </button>
         </div>
+        {uploadNotice ? (
+          <p
+            className={
+              uploadNotice.startsWith("Ошибка") || uploadNotice.startsWith("Не удалось")
+                ? "text-sm text-red-700"
+                : "text-sm text-emerald-800"
+            }
+          >
+            {uploadNotice}
+          </p>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className={workKpiCard}>
