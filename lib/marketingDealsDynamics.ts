@@ -171,6 +171,47 @@ export function interpretDynamicsNarrative(row: DealsDynamicsChartRow): string[]
   return [...new Set(lines)];
 }
 
+/**
+ * Краткая интерпретация разложения Δ выручки ≈ (ΔDeals×AvgCheck_prev) + (Deals_prev×ΔAvgCheck).
+ * Формулировки про снижение — по ТЗ блока «Выручка + сделки»; про рост — зеркально.
+ */
+export function interpretRevenueDecompositionFactorSentence(row: DealsDynamicsChartRow): string | null {
+  const dr = row.deltaRevenue;
+  const vol = row.volPart;
+  const mix = row.mixPart;
+  if (dr == null || vol == null || mix == null) return null;
+  const absV = Math.abs(vol);
+  const absM = Math.abs(mix);
+
+  if (dr < 0) {
+    if (vol < 0 && mix < 0) {
+      return "Снижение вызвано одновременно падением объема и чека";
+    }
+    if (absV > absM) {
+      return "Снижение связано с падением количества сделок";
+    }
+    if (absM > absV) {
+      return "Снижение связано с уменьшением среднего чека";
+    }
+    return "Снижение выручки — сопоставимый вклад объёма сделок и среднего чека";
+  }
+
+  if (dr > 0) {
+    if (vol > 0 && mix > 0) {
+      return "Рост обеспечен одновременно объёмом сделок и средним чеком";
+    }
+    if (absV > absM) {
+      return "Рост связан с увеличением числа сделок";
+    }
+    if (absM > absV) {
+      return "Рост связан с ростом среднего чека";
+    }
+    return "Рост выручки — сопоставимый вклад объёма сделок и среднего чека";
+  }
+
+  return "Выручка без изменений к предыдущему периоду";
+}
+
 export type DealsDynamicsEnrichedRow = DealsDynamicsChartRow & {
   typeStructure: {
     buckets: {
@@ -233,14 +274,34 @@ export function buildStackedShareChartRows(enriched: DealsDynamicsEnrichedRow[])
   k1: number;
   k2: number;
   k3: number;
+  totalDeals: number;
+  studioDeals: number;
+  k1Deals: number;
+  k2Deals: number;
+  k3Deals: number;
+  hasTypeBreakdown: boolean;
 }> {
   return enriched.map((r) => {
     if (!r.typeStructure || r.typeStructure.sumDeals <= 0) {
-      return { label: r.label, periodKey: r.periodKey, studio: 0, k1: 0, k2: 0, k3: 0 };
+      return {
+        label: r.label,
+        periodKey: r.periodKey,
+        studio: 0,
+        k1: 0,
+        k2: 0,
+        k3: 0,
+        totalDeals: r.deals,
+        studioDeals: 0,
+        k1Deals: 0,
+        k2Deals: 0,
+        k3Deals: 0,
+        hasTypeBreakdown: false,
+      };
     }
     const { buckets, sumDeals } = r.typeStructure;
+    const dealsOf = (k: TypeBucketKey) => buckets.find((b) => b.key === k)?.deals ?? 0;
     const pct = (k: TypeBucketKey) => {
-      const d = buckets.find((b) => b.key === k)?.deals ?? 0;
+      const d = dealsOf(k);
       return (d / sumDeals) * 100;
     };
     return {
@@ -250,6 +311,12 @@ export function buildStackedShareChartRows(enriched: DealsDynamicsEnrichedRow[])
       k1: pct("k1"),
       k2: pct("k2"),
       k3: pct("k3"),
+      totalDeals: r.deals,
+      studioDeals: dealsOf("studio"),
+      k1Deals: dealsOf("k1"),
+      k2Deals: dealsOf("k2"),
+      k3Deals: dealsOf("k3"),
+      hasTypeBreakdown: true,
     };
   });
 }
