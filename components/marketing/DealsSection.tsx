@@ -466,6 +466,16 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
     setUploadNotice(null);
   };
 
+  const removeMonth = (month: string) => {
+    if (!confirm("Удалить данные за " + month + "?")) return;
+    setDealsByMonth((prev) => {
+      const updated = { ...prev };
+      delete updated[month];
+      return updated;
+    });
+    if (filterMonth === month) setFilterMonth("");
+  };
+
   const series = useMemo(() => buildDealsMonthSeries(analytics.dealsPerMonth), [analytics.dealsPerMonth]);
 
   const lastMonth = series.length > 0 ? series[series.length - 1] : null;
@@ -538,6 +548,11 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
   const bySourceRows = useMemo(() => bucketTableRows(analytics.dealsBySource), [analytics.dealsBySource]);
 
   const activeFilterCount = [filterMonth, filterType, filterObject].filter(Boolean).length;
+
+  const loadedMonthKeys = useMemo(
+    () => Object.keys(dealsByMonth).sort((a, b) => a.localeCompare(b)),
+    [dealsByMonth],
+  );
 
   return (
     <div className="space-y-4">
@@ -640,6 +655,28 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
             {uploadNotice}
           </p>
         ) : null}
+
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Загруженные месяцы</h3>
+          {loadedMonthKeys.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-600">Нет загруженных данных</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-slate-200">
+              {loadedMonthKeys.map((month) => (
+                <li key={month} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
+                  <span className="font-mono text-sm font-medium text-slate-900">{month}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeMonth(month)}
+                    className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-50"
+                  >
+                    Удалить
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className={workKpiCard}>
