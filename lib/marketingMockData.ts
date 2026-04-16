@@ -52,6 +52,12 @@ export type DealsPeriodDrilldown = {
   sources: DealDrilldownSegmentRow[];
 };
 
+/** Лиды по периоду для модели Deals ≈ Leads × Conversion (мок). */
+export type SalesFunnelMonthlyRow = {
+  periodKey: string;
+  leads: number;
+};
+
 export type SalesDynamicPoint = {
   date: string;
   deals: number;
@@ -106,6 +112,11 @@ export type MarketingMockBundle = {
   };
   /** Детализация по periodKey для блока «Сделки» (презентация). */
   dealsPeriodDrilldown: Record<string, DealsPeriodDrilldown>;
+  /** Лиды по месяцу/кварталу (мок) — конверсия считается как deals / leads. */
+  salesFunnelMonthly: {
+    month: SalesFunnelMonthlyRow[];
+    quarter: SalesFunnelMonthlyRow[];
+  };
   salesDynamics: SalesDynamicPoint[];
   funnel: FunnelStageRow[];
   installment: {
@@ -377,6 +388,21 @@ export const marketingMockData: MarketingMockBundle = {
         { key: "partner", label: "Партнёры", deals: 27, revenueRub: 129_600_000 },
       ],
     },
+  },
+  salesFunnelMonthly: {
+    month: [
+      { periodKey: "2025-10", leads: 980 },
+      { periodKey: "2025-11", leads: 1040 },
+      { periodKey: "2025-12", leads: 1010 },
+      { periodKey: "2026-01", leads: 920 },
+      { periodKey: "2026-02", leads: 960 },
+      { periodKey: "2026-03", leads: 940 },
+    ],
+    quarter: [
+      { periodKey: "2025-Q4", leads: 3030 },
+      { periodKey: "2026-Q1", leads: 2820 },
+      { periodKey: "2026-Q2", leads: 2750 },
+    ],
   },
   salesDynamics: [
     { date: "2025-10-05", deals: 2 },

@@ -8,9 +8,13 @@ import { filterByObjectAndDealType, marketingMockData } from "@/lib/marketingMoc
 import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 import {
   buildDealsDynamicsSeries,
+  buildStackedShareChartRows,
+  buildTypeBuckets,
   dealsDeltaTone,
   deltaToneClasses,
-  type DealsDynamicsChartRow,
+  enrichDealsDynamicsRow,
+  volumePriceMixWeights,
+  type DealsDynamicsEnrichedRow,
 } from "@/lib/marketingDealsDynamics";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -44,7 +48,7 @@ function DealsTooltipBody({
   row,
   presentation,
 }: {
-  row: DealsDynamicsChartRow;
+  row: DealsDynamicsEnrichedRow;
   presentation: boolean;
 }) {
   const dDeal = deltaToneClasses(dealsDeltaTone(row.deltaDeals), presentation);
@@ -54,6 +58,9 @@ function DealsTooltipBody({
   const sumParts =
     row.volPart != null && row.mixPart != null ? row.volPart + row.mixPart : null;
   const approxDeltaRev = row.deltaRevenue;
+  const structWarn =
+    row.typeStructure &&
+    (!row.typeStructure.matchesOfficialDeals || !row.typeStructure.matchesOfficialRevenue);
 
   return (
     <div
@@ -114,6 +121,58 @@ function DealsTooltipBody({
             </div>
           </div>
         ) : null}
+
+        {row.funnel ? (
+          <div className={`mt-2 border-t pt-2 text-[10px] ${presentation ? "border-slate-600 text-slate-400" : "border-slate-200 text-slate-600"}`}>
+            <div className={`font-semibold ${presentation ? "text-cyan-300" : "text-cyan-800"}`}>Воронка</div>
+            <div className="mt-0.5 flex justify-between gap-4 tabular-nums">
+              <span>Лиды</span>
+              <span>{numFmt.format(row.funnel.leads)}</span>
+            </div>
+            <div className="flex justify-between gap-4 tabular-nums">
+              <span>Конверсия в сделку</span>
+              <span>{numFmt.format(Math.round(row.funnel.conversionPct * 10) / 10)}%</span>
+            </div>
+            <div className="mt-0.5 opacity-90">Сделки ≈ лиды × конверсия</div>
+          </div>
+        ) : null}
+
+        {row.typeStructure ? (
+          <div className={`mt-2 border-t pt-2 text-[10px] ${presentation ? "border-slate-600 text-slate-400" : "border-slate-200 text-slate-600"}`}>
+            <div className={`font-semibold ${presentation ? "text-violet-300" : "text-violet-800"}`}>Структура по типам</div>
+            {structWarn ? (
+              <div className={`mb-1 rounded px-1 py-0.5 text-[9px] ${presentation ? "bg-amber-500/15 text-amber-200" : "bg-amber-50 text-amber-900"}`}>
+                Σ по типам ≠ официальные сделки/выручка — проверьте срез.
+              </div>
+            ) : null}
+            <div className="mt-1 space-y-0.5">
+              {row.typeStructure.buckets.map((b) => (
+                <div key={b.key} className="flex justify-between gap-2 tabular-nums">
+                  <span className="truncate">{b.label}</span>
+                  <span>
+                    {numFmt.format(b.deals)} шт · {numFmt.format(Math.round(b.shareDealsPct))}% ·{" "}
+                    {b.avgPrice != null ? rubFmt.format(Math.round(b.avgPrice)) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 opacity-90">
+              Выручка = Σ (сделки<sub>i</sub> × цена<sub>i</sub>) · Σ типов:{" "}
+              {rubFmt.format(Math.round(row.typeStructure.sumRevenue))}
+            </div>
+          </div>
+        ) : null}
+
+        {row.narrative.length > 0 ? (
+          <div className={`mt-2 border-t pt-2 text-[10px] leading-snug ${presentation ? "border-slate-600 text-slate-300" : "border-slate-200 text-slate-700"}`}>
+            <div className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-900"}`}>Интерпретация</div>
+            <ul className="mt-1 list-inside list-disc space-y-0.5">
+              {row.narrative.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -125,7 +184,7 @@ function SharedTooltip({
   presentation,
 }: {
   active?: boolean;
-  payload?: ReadonlyArray<{ payload?: DealsDynamicsChartRow }>;
+  payload?: ReadonlyArray<{ payload?: DealsDynamicsEnrichedRow }>;
   presentation: boolean;
 }) {
   if (!active || !payload?.length) return null;
@@ -149,9 +208,25 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
     return buildDealsDynamicsSeries(factRows, revenueRows);
   }, [period, objectId, dealTypeId]);
 
+  const enrichedChartData = useMemo(() => {
+    const funnelSrc =
+      period === "month" ? marketingMockData.salesFunnelMonthly.month : marketingMockData.salesFunnelMonthly.quarter;
+    const leadsByKey = new Map(funnelSrc.map((r) => [r.periodKey, r.leads]));
+    return chartData.map((row) =>
+      enrichDealsDynamicsRow(
+        row,
+        marketingMockData.dealsPeriodDrilldown[row.periodKey]?.apartmentTypes,
+        leadsByKey.get(row.periodKey),
+      ),
+    );
+  }, [chartData, period]);
+
+  const stackedShareData = useMemo(() => buildStackedShareChartRows(enrichedChartData), [enrichedChartData]);
+
   const selectedRow = useMemo(
-    () => (selectedPeriodKey ? chartData.find((r) => r.periodKey === selectedPeriodKey) ?? null : null),
-    [chartData, selectedPeriodKey],
+    () =>
+      selectedPeriodKey ? enrichedChartData.find((r) => r.periodKey === selectedPeriodKey) ?? null : null,
+    [enrichedChartData, selectedPeriodKey],
   );
 
   const drillSlice =
@@ -161,7 +236,12 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
     if (!drillSlice) return [];
     switch (drillTab) {
       case "types":
-        return drillSlice.apartmentTypes;
+        return buildTypeBuckets(drillSlice.apartmentTypes).buckets.map((b) => ({
+          key: b.key,
+          label: b.label,
+          deals: b.deals,
+          revenueRub: b.revenueRub,
+        }));
       case "objects":
         return drillSlice.objects;
       case "managers":
@@ -175,7 +255,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
 
   const maxDrillDeals = useMemo(() => Math.max(1, ...drillRows.map((r) => r.deals)), [drillRows]);
 
-  const onBarSelect = useCallback((row: DealsDynamicsChartRow | undefined) => {
+  const onBarSelect = useCallback((row: DealsDynamicsEnrichedRow | undefined) => {
     if (row?.periodKey) setSelectedPeriodKey(row.periodKey);
   }, []);
 
@@ -201,9 +281,8 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
       <div className="mb-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">Сделки</div>
         <p className="mt-1 max-w-3xl text-[10px] leading-snug text-slate-500">
-          Динамика сделок и выручки по данным мока: <span className="font-mono">salesFact</span> +{" "}
-          <span className="font-mono">salesRevenue</span>. Средний чек = выручка / сделки. Наведите на месяц — все Δ и разложение
-          выручки; клик по столбцу — детализация по разрезам.
+          Причинный разбор: разложение Δ выручки на объём и средний чек, структура по типам (студии / 1к / 2к / 3к), воронка
+          лид → сделка. Наведите на период — полный набор метрик; клик — детализация и интерпретация.
         </p>
       </div>
 
@@ -214,7 +293,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
           </div>
           <div className="h-[220px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+              <BarChart data={enrichedChartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
                 <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={28} tickFormatter={(v) => numFmt.format(v)} />
@@ -227,11 +306,11 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
                   name="Сделки"
                   radius={[4, 4, 0, 0]}
                   onClick={(_, idx) => {
-                    if (typeof idx === "number" && chartData[idx]) onBarSelect(chartData[idx]);
+                    if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
                   }}
                 >
-                  {chartData.map((entry, i) => {
-                    const fill = deltaToneClasses(dealsDeltaTone(entry.deltaDeals), true).fill;
+                  {enrichedChartData.map((entry) => {
+                    const fill = deltaToneClasses(dealsDeltaTone(entry.deltaRevenue), true).fill;
                     return <Cell key={entry.periodKey} fill={fill} cursor="pointer" />;
                   })}
                 </Bar>
@@ -244,7 +323,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200/80">Выручка + сделки</div>
           <div className="h-[220px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+              <ComposedChart data={enrichedChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
                 <YAxis yAxisId="left" tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`} />
@@ -258,10 +337,23 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
                   fill="url(#revGradDeals)"
                   radius={[4, 4, 0, 0]}
                   onClick={(_, idx) => {
-                    if (typeof idx === "number" && chartData[idx]) onBarSelect(chartData[idx]);
+                    if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
                   }}
                 />
-                <Line yAxisId="right" type="linear" dataKey="deals" name="Сделки" stroke="#fbbf24" strokeWidth={2} dot={{ r: 3, fill: "#fbbf24" }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                <Line
+                  yAxisId="right"
+                  type="linear"
+                  dataKey="deals"
+                  name="Сделки"
+                  stroke="#fbbf24"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "#fbbf24", cursor: "pointer" }}
+                  activeDot={{ r: 5, cursor: "pointer" }}
+                  onClick={(_, idx) => {
+                    if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                  }}
+                  isAnimationActive={false}
+                />
                 <defs>
                   <linearGradient id="revGradDeals" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.95} />
@@ -277,7 +369,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200/80">Средний чек</div>
           <div className="h-[220px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+              <ComposedChart data={enrichedChartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
                 <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} tickFormatter={(v) => `${(v / 1_000_000).toFixed(1)}M`} />
@@ -289,12 +381,84 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
                   stroke="#a78bfa"
                   strokeWidth={2}
                   connectNulls={false}
-                  dot={{ r: 3, strokeWidth: 1, fill: "#c4b5fd", stroke: "#1e293b" }}
+                  dot={{
+                    r: 3,
+                    strokeWidth: 1,
+                    fill: "#c4b5fd",
+                    stroke: "#1e293b",
+                    cursor: "pointer",
+                  }}
+                  activeDot={{ r: 5, cursor: "pointer" }}
+                  onClick={(_, idx) => {
+                    if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                  }}
                   isAnimationActive={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-600/50 bg-slate-950/40 p-2">
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200/80">
+          Доли сделок по типам (100% стек)
+        </div>
+        <div className="h-[200px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stackedShareData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
+              <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={32} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const p = payload[0]?.payload as (typeof stackedShareData)[0] | undefined;
+                  if (!p) return null;
+                  const full = enrichedChartData.find((r) => r.periodKey === p.periodKey);
+                  if (!full) return null;
+                  return <DealsTooltipBody row={full} presentation />;
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 9 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
+              <Bar
+                dataKey="studio"
+                name="Студии"
+                stackId="mix"
+                fill="#475569"
+                onClick={(_, idx) => {
+                  if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                }}
+              />
+              <Bar
+                dataKey="k1"
+                name="1к"
+                stackId="mix"
+                fill="#38bdf8"
+                onClick={(_, idx) => {
+                  if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                }}
+              />
+              <Bar
+                dataKey="k2"
+                name="2к"
+                stackId="mix"
+                fill="#a78bfa"
+                onClick={(_, idx) => {
+                  if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                }}
+              />
+              <Bar
+                dataKey="k3"
+                name="3к"
+                stackId="mix"
+                fill="#fbbf24"
+                onClick={(_, idx) => {
+                  if (typeof idx === "number" && enrichedChartData[idx]) onBarSelect(enrichedChartData[idx]);
+                }}
+              />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -315,6 +479,79 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
             {tabBtn("sources", "Источники")}
           </div>
         </div>
+
+        {selectedRow ? (
+          <div className="mt-3 rounded-lg border border-slate-600/50 bg-slate-900/50 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-200/90">Причина изменения выручки</div>
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">
+              Доля факторов в масштабе |Δ выручки|: объём (Δ сделок × чек прошлого периода) и «чек» (сделок прошлого × Δ чек).
+            </p>
+            {(() => {
+              const w = volumePriceMixWeights(selectedRow);
+              const dRev = selectedRow.deltaRevenue;
+              const tone = dealsDeltaTone(dRev);
+              const toneCls = deltaToneClasses(tone, true);
+              if (!w || dRev == null) {
+                return <p className="mt-2 text-[11px] text-slate-500">Нет предыдущего периода для сравнения.</p>;
+              }
+              return (
+                <div className="mt-2 space-y-2">
+                  <div className="flex justify-between gap-4 text-[11px] tabular-nums">
+                    <span className="text-slate-400">Δ выручки</span>
+                    <span className={toneCls.text}>
+                      {dRev > 0 ? "+" : dRev < 0 ? "−" : ""}
+                      {rubFmt.format(Math.abs(dRev))}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 flex justify-between text-[10px] text-slate-400">
+                      <span>Объём</span>
+                      <span>{numFmt.format(Math.round(w.volumePct))}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                      <div className="h-full rounded-full bg-emerald-500/80" style={{ width: `${w.volumePct}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 flex justify-between text-[10px] text-slate-400">
+                      <span>Средний чек / структура</span>
+                      <span>{numFmt.format(Math.round(w.pricePct))}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                      <div className="h-full rounded-full bg-violet-500/80" style={{ width: `${w.pricePct}%` }} />
+                    </div>
+                  </div>
+                  {selectedRow.volPart != null && selectedRow.mixPart != null ? (
+                    <div className="flex flex-wrap gap-x-3 text-[10px] tabular-nums text-slate-400">
+                      <span>
+                        Вклад объёма:{" "}
+                        <span className={deltaToneClasses(dealsDeltaTone(selectedRow.volPart), true).text}>
+                          {selectedRow.volPart >= 0 ? "+" : "−"}
+                          {rubFmt.format(Math.abs(Math.round(selectedRow.volPart)))}
+                        </span>
+                      </span>
+                      <span>
+                        Вклад чека:{" "}
+                        <span className={deltaToneClasses(dealsDeltaTone(selectedRow.mixPart), true).text}>
+                          {selectedRow.mixPart >= 0 ? "+" : "−"}
+                          {rubFmt.format(Math.abs(Math.round(selectedRow.mixPart)))}
+                        </span>
+                      </span>
+                    </div>
+                  ) : null}
+                  {selectedRow.narrative.length > 0 ? (
+                    <ul className="list-inside list-disc space-y-0.5 border-t border-slate-600/40 pt-2 text-[10px] leading-snug text-slate-300">
+                      {selectedRow.narrative.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })()}
+          </div>
+        ) : null}
+
         {!selectedPeriodKey || !drillSlice ? (
           <p className="mt-3 text-center text-[11px] text-slate-500">Выберите месяц на графике «Сделки» или «Выручка + сделки».</p>
         ) : drillRows.length === 0 ? (
