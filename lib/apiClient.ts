@@ -35,22 +35,46 @@ function getApiPrefix(): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
+/** Зарезервированный origin для сборки, когда `NEXT_PUBLIC_API_URL` не задан (без хардкода окружений). */
+const UNCONFIGURED_API_BASE = "https://unconfigured.invalid";
+
+let getApiUrlConfigWarned = false;
+
+function warnApiUrlConfigOnce(message: string): void {
+  if (getApiUrlConfigWarned) return;
+  getApiUrlConfigWarned = true;
+  if (typeof console !== "undefined" && console.warn) {
+    console.warn(`[gordo] ${message}`);
+  }
+}
+
 /**
- * База бэкенда: только абсолютный `NEXT_PUBLIC_API_URL` (`https://…` / `http://…`).
- * Без него в проде `fetch` превращается в относительный `/api/...` → Next.js отдаёт 404.
+ * База бэкенда: `NEXT_PUBLIC_API_URL` (`https://…` / `http://…`).
+ * При отсутствии или неверном формате не бросает на этапе `next build` / prerender — логирует и даёт placeholder
+ * (опционально переопределение через `NEXT_PUBLIC_API_FALLBACK_BASE` в Railway без правки кода).
  */
 export function getApiUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL;
   const url = (raw ?? "").trim();
+  const fallback = (process.env.NEXT_PUBLIC_API_FALLBACK_BASE ?? "").trim();
+
   if (!url) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL is not set. Set it to the FastAPI origin, e.g. https://gordo-platform-production.up.railway.app",
+    warnApiUrlConfigOnce(
+      "NEXT_PUBLIC_API_URL is not set. Set the FastAPI origin in Railway. Until then, API base is a placeholder; calls will fail until configured.",
     );
+    if (fallback && /^https?:\/\//i.test(fallback)) {
+      return fallback;
+    }
+    return UNCONFIGURED_API_BASE;
   }
   if (!/^https?:\/\//i.test(url)) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL must be an absolute URL with http:// or https:// (not a path like /api).",
+    warnApiUrlConfigOnce(
+      "NEXT_PUBLIC_API_URL must be an absolute URL with http:// or https:// (not a path like /api). Using placeholder.",
     );
+    if (fallback && /^https?:\/\//i.test(fallback)) {
+      return fallback;
+    }
+    return UNCONFIGURED_API_BASE;
   }
   if (isApiDebugLoggingEnabled() && typeof console !== "undefined" && console.debug) {
     console.debug("[gordo API] NEXT_PUBLIC_API_URL (base):", url);

@@ -2,6 +2,9 @@ import { Suspense } from "react";
 
 import { MarketingPresentationRouteBody } from "@/components/marketing/MarketingPresentationRouteBody";
 
+/** Не пререндерить страницу со статикой/поддеревом, которое может тянуть API на этапе сборки. */
+export const dynamic = "force-dynamic";
+
 export default function PresentationMarketingDealsPage() {
   return (
     <Suspense
