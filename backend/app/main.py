@@ -51,6 +51,10 @@ async def lifespan(_: FastAPI):
     bootstrap_admin_if_needed()
     print("Backend started", flush=True)
     print("DEPLOY CHECK v2", flush=True)
+    print(
+        "[API] Admin mounted: GET|POST /api/admin/users | GET /api/admin/logs | … (see ADMIN_API_ROUTES.md)",
+        flush=True,
+    )
     raw_db = (settings.database_url or "").strip()
     if raw_db:
         try:
