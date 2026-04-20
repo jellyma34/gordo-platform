@@ -24,6 +24,57 @@ const selectClass =
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 const pctFmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const rubFmt = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 });
+/** Доли сегмента относительно всего среза: 0.68 → «68%». */
+const sharePctFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 0 });
+
+function dealsCountRu(n: number): string {
+  const v = Math.floor(Math.abs(n));
+  const mod100 = v % 100;
+  const mod10 = v % 10;
+  const word =
+    mod100 > 10 && mod100 < 20 ? "сделок" : mod10 === 1 ? "сделка" : mod10 >= 2 && mod10 <= 4 ? "сделки" : "сделок";
+  return `${numFmt.format(n)} ${word}`;
+}
+
+/** Краткая сумма для KPI сегмента: крупные — «261 млн ₽», иначе обычный ₽. */
+function formatSumRubSegment(sumRub: number): string {
+  if (!Number.isFinite(sumRub)) return rubFmt.format(0);
+  if (Math.abs(sumRub) >= 1_000_000) {
+    const mln = sumRub / 1_000_000;
+    const dec = Math.abs(mln - Math.round(mln)) < 1e-9 ? 0 : 1;
+    const s = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: dec, minimumFractionDigits: 0 }).format(mln);
+    return `${s} млн ₽`;
+  }
+  return rubFmt.format(sumRub);
+}
+
+type SegmentKpiVisualVariant = "apartment" | "parking" | "commercial";
+
+function segmentKpiCardClass(variant: SegmentKpiVisualVariant): string {
+  switch (variant) {
+    case "apartment":
+      return "rounded-xl border-2 border-indigo-300 bg-gradient-to-b from-indigo-50/95 to-white p-4 shadow-md ring-1 ring-indigo-200/50";
+    case "parking":
+      return "rounded-xl border border-slate-200 bg-slate-50/50 p-4 shadow-sm";
+    case "commercial":
+      return "rounded-xl border border-amber-400/75 bg-gradient-to-b from-amber-50/95 to-white p-4 shadow-sm ring-1 ring-amber-200/45";
+    default:
+      return "";
+  }
+}
+
+function segmentKpiTitleClass(variant: SegmentKpiVisualVariant): string {
+  switch (variant) {
+    case "apartment":
+      return "text-base font-bold text-indigo-950";
+    case "parking":
+      return "text-sm font-semibold text-slate-800";
+    case "commercial":
+      return "text-base font-bold text-amber-950";
+    default:
+      return "";
+  }
+}
 
 export type DealRecord = {
   deal_date?: string;
@@ -473,24 +524,39 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
 
   const analytics = useMemo(() => computeDealMetrics(filteredRows), [filteredRows]);
 
-  /** Сегментация в текущем срезе фильтров — KPI по квартирам / паркингу / кладовкам. */
+  /** Сегментация в текущем срезе фильтров — KPI по квартирам / машино-местам / коммерции. */
   const dealsByNormalizedType = useMemo(
     () => groupDealsByNormalizedType(filteredRows),
     [filteredRows],
   );
 
-  const segmentKpiApartment = useMemo(
-    () => computeDealMetrics(dealsByNormalizedType.apartment),
-    [dealsByNormalizedType],
-  );
-  const segmentKpiParking = useMemo(
-    () => computeDealMetrics(dealsByNormalizedType.parking),
-    [dealsByNormalizedType],
-  );
-  const segmentKpiCommercial = useMemo(
-    () => computeDealMetrics(dealsByNormalizedType.commercial),
-    [dealsByNormalizedType],
-  );
+  const segmentKpiRows = useMemo(() => {
+    const totalCount = analytics.totalCount;
+    const totalSum = analytics.totalSum;
+    const defs: Array<{ key: "apartment" | "parking" | "commercial"; variant: SegmentKpiVisualVariant }> = [
+      { key: "apartment", variant: "apartment" },
+      { key: "parking", variant: "parking" },
+      { key: "commercial", variant: "commercial" },
+    ];
+    return defs
+      .map(({ key, variant }) => {
+        const m = computeDealMetrics(dealsByNormalizedType[key]);
+        const count = m.totalCount;
+        const sum = m.totalSum;
+        return {
+          key,
+          variant,
+          label: OBJECT_TYPE_LABEL_RU[key],
+          count,
+          sum,
+          avgCheck: count > 0 ? sum / count : 0,
+          shareCount: totalCount > 0 ? count / totalCount : 0,
+          shareSum: totalSum > 0 ? sum / totalSum : 0,
+        };
+      })
+      .filter((r) => r.count > 0)
+      .sort((a, b) => b.sum - a.sum);
+  }, [analytics.totalCount, analytics.totalSum, dealsByNormalizedType]);
 
   const onDealsJsonSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -784,87 +850,42 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
         </div>
 
         <div className="mt-4 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">KPI по сегментам</h3>
-          <p className="text-xs text-slate-500">Те же фильтры, что и у блока выше (месяц, тип объекта, объект).</p>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
-              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.apartment}</div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {numFmt.format(segmentKpiApartment.totalCount)}
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">КПИ по сегментам</h3>
+          <p className="text-xs text-slate-500">
+            Те же фильтры, что и у блока выше (месяц, тип объекта, объект). Доли: доля сделок и доля суммы от итого в срезе.
+          </p>
+          {segmentKpiRows.length === 0 ? (
+            <p className="text-sm text-slate-600">
+              Нет сделок в сегментах «Квартиры», «Машино-места» или «Коммерция» (проверьте фильтры и поле{" "}
+              <span className="font-mono">object.category</span>).
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {segmentKpiRows.map((row) => (
+                <div key={row.key} className={segmentKpiCardClass(row.variant)}>
+                  <div className={segmentKpiTitleClass(row.variant)}>{row.label}</div>
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
+                      <div className="mt-1 text-xl font-bold tabular-nums leading-snug text-slate-900">
+                        {dealsCountRu(row.count)} ({sharePctFmt.format(row.shareCount)})
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
+                      <div className="mt-1 text-xl font-bold tabular-nums leading-snug text-slate-900">
+                        {formatSumRubSegment(row.sum)} ({sharePctFmt.format(row.shareSum)})
+                      </div>
+                    </div>
+                    <div className={`rounded-lg border px-3 py-2 ${row.variant === "parking" ? "border-slate-200 bg-white" : "border-slate-200/80 bg-white/70"}`}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
+                      <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{rubFmt.format(row.avgCheck)}</div>
+                    </div>
                   </div>
                 </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(segmentKpiApartment.totalSum)}
-                  </div>
-                </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(
-                      segmentKpiApartment.totalCount > 0 ? segmentKpiApartment.totalSum / segmentKpiApartment.totalCount : 0,
-                    )}
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
-            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
-              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.parking}</div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {numFmt.format(segmentKpiParking.totalCount)}
-                  </div>
-                </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(segmentKpiParking.totalSum)}
-                  </div>
-                </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(
-                      segmentKpiParking.totalCount > 0 ? segmentKpiParking.totalSum / segmentKpiParking.totalCount : 0,
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
-              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.commercial}</div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {numFmt.format(segmentKpiCommercial.totalCount)}
-                  </div>
-                </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(segmentKpiCommercial.totalSum)}
-                  </div>
-                </div>
-                <div className={workKpiCard}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
-                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
-                    {rubFmt.format(
-                      segmentKpiCommercial.totalCount > 0
-                        ? segmentKpiCommercial.totalSum / segmentKpiCommercial.totalCount
-                        : 0,
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </section>
 
