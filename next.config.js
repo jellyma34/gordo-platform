@@ -1,7 +1,3 @@
-/** Публичный URL backend на Railway (без порта, HTTPS). */
-
-
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {

@@ -18,18 +18,11 @@ if (Get-NetTCPConnection -State Listen -LocalPort $backendPort -ErrorAction Sile
     }
 }
 
-# Локальный FastAPI: $env:GORDO_USE_LOCAL_API='1'
-# Удалённый API без хардкода в скрипте: $env:GORDO_PUBLIC_API_URL или $env:NEXT_PUBLIC_API_URL
-if ($env:GORDO_USE_LOCAL_API -eq "1") {
-    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort`nNEXT_PUBLIC_API_FORCE_LOCAL=1" -Encoding utf8
+# Локальный API по умолчанию. Удалённый: задайте только явно GORDO_PUBLIC_API_URL= (не используем NEXT_PUBLIC_API_URL из среды пользователя — иначе подставлялся Railway).
+if ($env:GORDO_PUBLIC_API_URL) {
+    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$($env:GORDO_PUBLIC_API_URL)" -Encoding utf8
 } else {
-    $publicApiUrl = $env:GORDO_PUBLIC_API_URL
-    if (-not $publicApiUrl) { $publicApiUrl = $env:NEXT_PUBLIC_API_URL }
-    if ($publicApiUrl) {
-        Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$publicApiUrl" -Encoding utf8
-    } else {
-        Write-Host "[gordo] Не задан GORDO_PUBLIC_API_URL / NEXT_PUBLIC_API_URL — Next.js возьмёт NEXT_PUBLIC_API_URL из .env.development (если есть)."
-    }
+    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort" -Encoding utf8
 }
 
 Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location '$backendPath'; uvicorn app.main:app --reload --host 127.0.0.1 --port $backendPort`""

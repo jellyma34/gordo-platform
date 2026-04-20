@@ -1,7 +1,9 @@
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SQLITE = "sqlite:///./dev.db"
 
 
 class Settings(BaseSettings):
@@ -12,8 +14,17 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
 
-    # Обязателен в окружении (Railway Variables), напр. postgresql://...
-    database_url: str = ""
+    # Пустое значение → SQLite для локального запуска без .env. В prod задайте DATABASE_URL=postgresql://...
+    database_url: str = Field(default=_DEFAULT_SQLITE)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _database_url_fallback(cls, v: object) -> str:
+        if v is None:
+            return _DEFAULT_SQLITE
+        if isinstance(v, str) and not v.strip():
+            return _DEFAULT_SQLITE
+        return str(v).strip()
 
     # Список origin через запятую (например https://app.up.railway.app).
     # "*" — все origin; в этом режиме allow_credentials в CORS будет False (требование браузера).

@@ -35,18 +35,23 @@ function getApiPrefix(): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
+/** База API: только `NEXT_PUBLIC_API_URL` (например `http://127.0.0.1:8080` — не origin Next :3000). */
 export function getApiUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
-  console.log("API URL runtime:", url);
-
   if (!url || url.trim() === "") {
-    throw new Error("API URL not set");
+    throw new Error("NEXT_PUBLIC_API_URL is not set");
   }
-
+  if (isApiDebugLoggingEnabled() && typeof console !== "undefined" && console.debug) {
+    console.debug("[gordo API] NEXT_PUBLIC_API_URL (base):", url);
+  }
   return url;
 }
 
-/** Склеивает base + префикс API + путь (например `/auth/login` → `.../api/auth/login`). */
+/**
+ * base (NEXT_PUBLIC_API_URL) + префикс `/api` + путь.
+ * Пример: `buildApiUrl("/admin/users")` → `http://127.0.0.1:8080/api/admin/users`.
+ * Не передавайте уже с `/api` в начале пути целиком (`/api/admin/...`), иначе будет `/api/api/...`.
+ */
 export function buildApiUrl(path: string): string {
   const base = normalizeBaseUrl(getApiUrl());
   const prefix = getApiPrefix();

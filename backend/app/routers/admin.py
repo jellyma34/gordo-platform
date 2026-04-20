@@ -30,8 +30,8 @@ from app.schemas import (
 )
 from app.security import hash_password
 
-# Пути относительно mount в main: app.include_router(..., prefix="/api/admin") → /api/admin/users, …
-router = APIRouter(tags=["admin"])
+# prefix="/admin" здесь + include_router(..., prefix=API_PREFIX) в main → итог /api/admin/...
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 _VALID_ROLES = frozenset({"admin", "manager", "employee"})
 

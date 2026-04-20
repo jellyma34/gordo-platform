@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -60,7 +61,8 @@ async def lifespan(_: FastAPI):
         try:
             u = urlparse(raw_db)
             safe = f"{u.scheme}://{u.hostname or ''}:{u.port or ''}{u.path or ''}"
-            print(f"[DB] Using PostgreSQL (sanitized URL, no credentials): {safe}", flush=True)
+            label = "SQLite" if u.scheme.startswith("sqlite") else "PostgreSQL"
+            print(f"[DB] Using {label} (sanitized URL, no credentials): {safe}", flush=True)
         except Exception:
             print("[DB] DATABASE_URL is set (could not parse for log)", flush=True)
     yield
@@ -114,16 +116,44 @@ def api_status():
 def root():
     return {"status": "ok"}
 
-# Единый префикс REST. Admin: явный mount /api/admin (аналог app.use("/api/admin", adminRoutes)).
+# Единый префикс REST. Итог admin: prefix="/api" + router prefix="/admin" + "/users" → /api/admin/users
 API_PREFIX = "/api"
 
 app.include_router(auth_router.router, prefix=f"{API_PREFIX}/auth")
-# Admin сразу после auth: статические /users, /logs до любых широких маршрутов под /api.
-app.include_router(admin.router, prefix=f"{API_PREFIX}/admin")
+# admin.router имеет только prefix="/admin" (не "/api/admin" и не второй "/api").
+app.include_router(admin.router, prefix="/api")
 app.include_router(tmc.router, prefix=API_PREFIX)
 app.include_router(debug.router, prefix=API_PREFIX)
 app.include_router(sections.router, prefix=API_PREFIX)
 app.include_router(gpr.router, prefix=API_PREFIX)
 app.include_router(entity_versions.router, prefix=API_PREFIX)
 app.include_router(tender.router, prefix=API_PREFIX)
+
+
+def _debug_dump_registered_paths() -> None:
+    """Диагностика: какие пути реально зарегистрированы при импорте приложения."""
+    print("[routes] ----- app.routes -----", flush=True)
+    for route in app.routes:
+        p = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if isinstance(p, str):
+            print(
+                f"[routes] {','.join(sorted(methods or [])) or '-':24} {p}",
+                flush=True,
+            )
+        else:
+            print(f"[routes] <{type(route).__name__}>", flush=True)
+    print("[routes] ----- OpenAPI paths /api/admin* -----", flush=True)
+    try:
+        for path in sorted(app.openapi()["paths"].keys()):
+            if str(path).startswith("/api/admin"):
+                print(f"[routes] {path}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[routes] openapi: {exc}", flush=True)
+    print("[routes] ----- end -----", flush=True)
+
+
+# Дамп маршрутов при старте: задать DUMP_APP_ROUTES=1 (в т.ч. на Railway для проверки).
+if os.environ.get("DUMP_APP_ROUTES", "").strip() == "1":
+    _debug_dump_registered_paths()
 
