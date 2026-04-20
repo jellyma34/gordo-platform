@@ -12,6 +12,7 @@ import {
 
 import {
   type ApiSection,
+  AUTH_EXPIRED_EVENT,
   type AuthSnapshot,
   clearAuth,
   loadStoredAuth,
@@ -42,16 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
   const [allowedSections, setAllowedSections] = useState<ApiSection[]>([]);
 
-  useEffect(() => {
-    const s = loadStoredAuth();
-    if (s) {
-      setToken(s.token);
-      setRole(s.role);
-      setAllowedSections(s.allowedSections);
-    }
-    setHydrated(true);
-  }, []);
-
   const setSession = useCallback((s: AuthSnapshot) => {
     saveAuth(s.token, s.role, s.allowedSections);
     setToken(s.token);
@@ -65,6 +56,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(null);
     setAllowedSections([]);
   }, []);
+
+  useEffect(() => {
+    const s = loadStoredAuth();
+    if (s) {
+      setToken(s.token);
+      setRole(s.role);
+      setAllowedSections(s.allowedSections);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      logout();
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onSessionExpired);
+  }, [logout]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
