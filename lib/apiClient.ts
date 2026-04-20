@@ -6,7 +6,19 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-const raw = process.env.NEXT_PUBLIC_API_URL;
+const ENV_API_ASSIGNMENT = "NEXT_PUBLIC_API_URL=";
+
+function stripEmbeddedEnvKey(value: string): string {
+  if (!value.includes(ENV_API_ASSIGNMENT)) return value;
+  /** Последний сегмент после `NEXT_PUBLIC_API_URL=`, чтобы снять и двойной префикс вида `KEY=KEY=https://…`. */
+  const parts = value.split(ENV_API_ASSIGNMENT);
+  return (parts[parts.length - 1] ?? "").trim();
+}
+
+let raw = process.env.NEXT_PUBLIC_API_URL ?? "";
+if (raw.includes(ENV_API_ASSIGNMENT)) {
+  raw = stripEmbeddedEnvKey(raw);
+}
 
 function trimEnvApiValue(value: string): string {
   let s = value.trim();
@@ -21,18 +33,18 @@ function trimEnvApiValue(value: string): string {
 
 export let API_URL: string | null = null;
 
-if (raw) {
-  try {
+try {
+  if (raw) {
     const normalized = trimEnvApiValue(raw);
     const parsed = new URL(normalized);
     if (parsed.protocol === "http:" || parsed.protocol === "https:") {
       API_URL = parsed.origin;
     } else {
-      console.error("❌ Invalid NEXT_PUBLIC_API_URL:", raw);
+      console.error("Invalid NEXT_PUBLIC_API_URL:", raw);
     }
-  } catch {
-    console.error("❌ Invalid NEXT_PUBLIC_API_URL:", raw);
   }
+} catch {
+  console.error("Invalid NEXT_PUBLIC_API_URL:", raw);
 }
 
 if (!API_URL) {

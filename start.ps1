@@ -20,7 +20,14 @@ if (Get-NetTCPConnection -State Listen -LocalPort $backendPort -ErrorAction Sile
 
 # Локальный API по умолчанию. Удалённый: задайте только явно GORDO_PUBLIC_API_URL= (не используем NEXT_PUBLIC_API_URL из среды пользователя — иначе подставлялся Railway).
 if ($env:GORDO_PUBLIC_API_URL) {
-    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$($env:GORDO_PUBLIC_API_URL)" -Encoding utf8
+    $gordo = $env:GORDO_PUBLIC_API_URL
+    # Ошибочная вставка целиком «NEXT_PUBLIC_API_URL=https://…» в значение переменной
+    if ($gordo -like "*NEXT_PUBLIC_API_URL=*") {
+        $key = "NEXT_PUBLIC_API_URL="
+        $idx = $gordo.LastIndexOf($key)
+        if ($idx -ge 0) { $gordo = $gordo.Substring($idx + $key.Length) }
+    }
+    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$gordo" -Encoding utf8
 } else {
     Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort" -Encoding utf8
 }
