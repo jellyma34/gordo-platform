@@ -118,8 +118,9 @@ def root():
 API_PREFIX = "/api"
 
 app.include_router(auth_router.router, prefix=f"{API_PREFIX}/auth")
-app.include_router(tmc.router, prefix=API_PREFIX)
+# Admin сразу после auth: статические /users, /logs до любых широких маршрутов под /api.
 app.include_router(admin.router, prefix=f"{API_PREFIX}/admin")
+app.include_router(tmc.router, prefix=API_PREFIX)
 app.include_router(debug.router, prefix=API_PREFIX)
 app.include_router(sections.router, prefix=API_PREFIX)
 app.include_router(gpr.router, prefix=API_PREFIX)
