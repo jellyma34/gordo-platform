@@ -30,15 +30,17 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
 }
 
 /**
- * Читает `NEXT_PUBLIC_API_URL` при каждом вызове (не кэшируется в модульной константе).
- * Примечание: в клиентском бандле Next.js подставляет значения `NEXT_PUBLIC_*` на этапе сборки.
+ * Читает `NEXT_PUBLIC_API_URL` только при вызове (не на уровне модуля).
+ * В клиентском бандле Next.js подставляет `NEXT_PUBLIC_*` на этапе сборки.
  */
 export function getApiUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
+  console.log("API URL runtime:", url);
+
   if (!url?.trim()) {
-    console.error("API URL not set");
-    return "";
+    throw new Error("API URL not set");
   }
+
   return url.trim();
 }
 
@@ -76,21 +78,12 @@ function runClientWarningsOnce(base: string): void {
   }
 }
 
-function ensureRequestUrl(url: string): void {
-  if (!url?.trim()) {
-    throw new Error("API URL not set");
-  }
-}
-
+/** Собирает абсолютный URL; внутри вызывает getApiUrl() в момент запроса. */
 export function buildApiUrl(path: string): string {
   const raw = getApiUrl();
-  if (!raw) {
-    return "";
-  }
   const base = normalizeApiBaseUrl(raw);
   if (!base) {
-    console.error("API URL not set");
-    return "";
+    throw new Error("API URL not set");
   }
   runClientWarningsOnce(base);
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -119,18 +112,24 @@ function redirectToLogin(): void {
   window.location.assign(url);
 }
 
-export async function fetchPublicApi(url: string, init: RequestInit): Promise<Response> {
-  ensureRequestUrl(url);
+/**
+ * Путь API (например `/auth/login` или `/admin/logs?page=1`); перед fetch вызывается getApiUrl() через buildApiUrl.
+ */
+export async function fetchPublicApi(path: string, init: RequestInit): Promise<Response> {
+  const url = buildApiUrl(path);
   logApiRequest(url, false, init.method);
   return fetch(url, init);
 }
 
+/**
+ * Защищённый запрос по пути; перед fetch вызывается getApiUrl() через buildApiUrl.
+ */
 export async function fetchAuthorizedApi(
-  url: string,
+  path: string,
   token: string | null | undefined,
   init: RequestInit = {},
 ): Promise<Response> {
-  ensureRequestUrl(url);
+  const url = buildApiUrl(path);
   const headers = new Headers(init.headers ?? {});
   const hasToken = Boolean(token?.trim());
   if (hasToken) {
@@ -154,7 +153,6 @@ export async function fetchAuthorizedApi(
 export const apiClient = {
   get baseUrl(): string {
     const raw = getApiUrl();
-    if (!raw) return "";
     return normalizeApiBaseUrl(raw) || raw;
   },
   getApiUrl,

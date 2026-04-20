@@ -1,6 +1,6 @@
 import type { GprTaskApiItem, GprTaskWritePayload } from "./gprUtils";
 
-import { buildApiUrl, fetchAuthorizedApi, fetchPublicApi } from "./apiClient";
+import { fetchAuthorizedApi, fetchPublicApi } from "./apiClient";
 import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
 import type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
 
@@ -60,7 +60,7 @@ export function firstConstructionPath(
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
   try {
-    const res = await fetchPublicApi(buildApiUrl("/auth/login"), {
+    const res = await fetchPublicApi("/auth/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -127,7 +127,7 @@ export type CreateUserPayload = {
 };
 
 export async function createUserRequest(token: string, body: CreateUserPayload) {
-  const res = await fetchAuthorizedApi(buildApiUrl("/admin/create-user"), token, {
+  const res = await fetchAuthorizedApi("/admin/create-user", token, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -194,7 +194,7 @@ async function adminJsonError(res: Response, fallback: string): Promise<never> {
 }
 
 export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
-  const res = await fetchAuthorizedApi(buildApiUrl("/admin/users"), token, {});
+  const res = await fetchAuthorizedApi("/admin/users", token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить пользователей");
   const data = (await res.json()) as Array<{
     id: number;
@@ -217,7 +217,7 @@ export type UpdateUserPayload = {
 };
 
 export async function updateAdminUser(token: string, userId: number, body: UpdateUserPayload): Promise<AdminUserRow> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}`), token, {
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}`, token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -240,7 +240,7 @@ export async function updateAdminUser(token: string, userId: number, body: Updat
 }
 
 export async function blockAdminUser(token: string, userId: number, reason?: string): Promise<AdminUserRow> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/block`), token, {
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}/block`, token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -263,7 +263,7 @@ export async function blockAdminUser(token: string, userId: number, reason?: str
 }
 
 export async function unblockAdminUser(token: string, userId: number): Promise<AdminUserRow> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/unblock`), token, {
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}/unblock`, token, {
     method: "PUT",
   });
   if (!res.ok) await adminJsonError(res, "Не удалось разблокировать пользователя");
@@ -306,7 +306,7 @@ export type UserAnalytics = {
 };
 
 export async function getAdminUserAnalytics(token: string, userId: number): Promise<UserAnalytics> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/analytics`), token, {});
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}/analytics`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить аналитику пользователя");
   return res.json() as Promise<UserAnalytics>;
 }
@@ -337,7 +337,7 @@ export type EntityVersionDetail = {
 };
 
 export async function listEntityVersions(token: string, entityId: number): Promise<EntityVersionListItem[]> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/versions`), token, {});
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/versions`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю версий");
   return res.json() as Promise<EntityVersionListItem[]>;
 }
@@ -347,7 +347,7 @@ export async function getEntityVersion(
   entityId: number,
   versionId: number,
 ): Promise<EntityVersionDetail> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/versions/${versionId}`), token, {});
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/versions/${versionId}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить версию");
   return res.json() as Promise<EntityVersionDetail>;
 }
@@ -358,7 +358,7 @@ export async function rollbackEntityVersion(
   versionId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/rollback/${versionId}?type=${entityType}`), token, {
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/rollback/${versionId}?type=${entityType}`, token, {
     method: "POST",
   });
   if (!res.ok) await adminJsonError(res, "Не удалось откатить версию");
@@ -394,7 +394,7 @@ export async function listEntityHistory(
   entityId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<EntityHistoryListItem[]> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history?type=${entityType}`), token, {});
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/history?type=${entityType}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
   return res.json() as Promise<EntityHistoryListItem[]>;
 }
@@ -406,7 +406,7 @@ export async function getEntityHistoryItem(
   historyId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<EntityHistoryDetail> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history/${historyId}?type=${entityType}`), token, {});
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/history/${historyId}?type=${entityType}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить запись истории");
   return res.json() as Promise<EntityHistoryDetail>;
 }
@@ -418,7 +418,7 @@ export async function deleteEntityHistoryVersion(
   historyId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history/${historyId}?type=${entityType}`), token, {
+  const res = await fetchAuthorizedApi(`/entity/${entityId}/history/${historyId}?type=${entityType}`, token, {
     method: "DELETE",
   });
   if (!res.ok) await adminJsonError(res, "Не удалось удалить версию истории");
@@ -428,7 +428,7 @@ export async function deleteEntityHistoryVersion(
 }
 
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/password`), token, {
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}/password`, token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -439,7 +439,7 @@ export async function setAdminUserPassword(token: string, userId: number, passwo
 }
 
 export async function deleteAdminUser(token: string, userId: number): Promise<void> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}`), token, {
+  const res = await fetchAuthorizedApi(`/admin/users/${userId}`, token, {
     method: "DELETE",
   });
   if (!res.ok) await adminJsonError(res, "Не удалось удалить пользователя");
@@ -478,20 +478,20 @@ export async function listActivityLogs(
     page: String(page),
     page_size: String(pageSize),
   });
-  const res = await fetchAuthorizedApi(`${buildApiUrl("/admin/logs")}?${q.toString()}`, token, {});
+  const res = await fetchAuthorizedApi(`/admin/logs?${q.toString()}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
   return res.json() as Promise<ActivityLogsPageResponse>;
 }
 
 export async function getRelatedDeviations(token: string, taskId: number): Promise<RelatedDeviationRow[]> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks/${taskId}/related-deviations`), token, {});
+  const res = await fetchAuthorizedApi(`/gpr/tasks/${taskId}/related-deviations`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить связанные отклонения");
   return res.json() as Promise<RelatedDeviationRow[]>;
 }
 
 export async function listGprTasksApi(token: string, partId?: number): Promise<GprTaskApiItem[]> {
   const q = partId != null ? `?part_id=${partId}` : "";
-  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks${q}`), token, {});
+  const res = await fetchAuthorizedApi(`/gpr/tasks${q}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить задачи ГПР");
   return res.json() as Promise<GprTaskApiItem[]>;
 }
@@ -501,7 +501,7 @@ export async function updateGprTaskApi(
   taskId: number,
   body: GprTaskWritePayload,
 ): Promise<GprTaskApiItem> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks/${taskId}`), token, {
+  const res = await fetchAuthorizedApi(`/gpr/tasks/${taskId}`, token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -513,7 +513,7 @@ export async function updateGprTaskApi(
 }
 
 export async function createGprTaskApi(token: string, body: GprTaskWritePayload): Promise<GprTaskApiItem> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks`), token, {
+  const res = await fetchAuthorizedApi(`/gpr/tasks`, token, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -526,7 +526,7 @@ export async function createGprTaskApi(token: string, body: GprTaskWritePayload)
 
 /** Текущая задача ГПР из БД: `GET /entity/{id}` (алиас семантики «сущность»). */
 export async function getEntityGprTaskApi(token: string, entityId: number): Promise<GprTaskApiItem> {
-  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}`), token, {});
+  const res = await fetchAuthorizedApi(`/entity/${entityId}`, token, {});
   if (!res.ok) await adminJsonError(res, "Сущность не найдена или нет доступа");
   return res.json() as Promise<GprTaskApiItem>;
 }
