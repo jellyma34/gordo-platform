@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import {
   buildDealsMonthSeries,
-  DEALS_EMPTY_LABEL,
+  DEALS_LABEL_EM_DASH,
   transformDealsData,
   type DealsByMonth,
 } from "./DealsSection";
@@ -43,7 +43,7 @@ function DealsPresentation({ dealsByMonth }: Props) {
   const momDisplay =
     deltaCount != null && deltaPct != null
       ? `${deltaCount >= 0 ? "+" : ""}${numFmt.format(deltaCount)} шт · ${deltaPct >= 0 ? "+" : ""}${pctFmt.format(deltaPct)}%`
-      : DEALS_EMPTY_LABEL;
+      : DEALS_LABEL_EM_DASH;
 
   const withDelta = useMemo(() => {
     return series.map((row, i) => {
@@ -114,7 +114,7 @@ function DealsPresentation({ dealsByMonth }: Props) {
       <section className="mx-auto max-w-3xl text-center">
         <h2 className="text-lg font-semibold text-slate-900">Сделки по месяцам</h2>
         {series.length === 0 ? (
-          <p className="mt-8 text-slate-600">{DEALS_EMPTY_LABEL}</p>
+          <p className="mt-8 text-slate-600">Нет месяцев в выгрузке — загрузите JSON сделок.</p>
         ) : (
           <div className="mt-10 flex h-72 items-end justify-center gap-2 px-2 sm:gap-3">
             {series.map((r) => (
