@@ -6,86 +6,20 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-const KNOWN_DEV_API_HOST = "gordo-platform-dev.up.railway.app";
-
-function normalizeApiBaseUrl(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed) return "";
-
-  try {
-    const u = new URL(trimmed);
-    const host = u.hostname.toLowerCase();
-    if (host.endsWith(".railway.app") && u.port !== "") {
-      u.port = "";
-    }
-    const isLoopback = host === "localhost" || host === "127.0.0.1";
-    if (isLoopback && u.protocol === "https:") {
-      u.protocol = "http:";
-      return u.href.replace(/\/$/, "");
-    }
-    return u.href.replace(/\/+$/, "");
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Читает `NEXT_PUBLIC_API_URL` только при вызове (не на уровне модуля).
- * В клиентском бандле Next.js подставляет `NEXT_PUBLIC_*` на этапе сборки.
- */
 export function getApiUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
   console.log("API URL runtime:", url);
 
-  if (!url?.trim()) {
+  if (!url || url.trim() === "") {
     throw new Error("API URL not set");
   }
 
-  return url.trim();
+  return url;
 }
 
-let clientWarningsDone = false;
-
-function runClientWarningsOnce(base: string): void {
-  if (clientWarningsDone || typeof window === "undefined" || !base) return;
-  clientWarningsDone = true;
-
-  const h = window.location.hostname;
-  if (h !== "localhost" && h !== "127.0.0.1") {
-    try {
-      const u = new URL(base);
-      if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
-        console.warn(
-          "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL на URL бэкенда в интернете.",
-        );
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    try {
-      const host = new URL(base).hostname.toLowerCase();
-      if (host === KNOWN_DEV_API_HOST) {
-        console.warn(
-          "[gordo] В production-сборке указан dev-бэкенд. Задайте NEXT_PUBLIC_API_URL на URL бэкенда среды (staging/production).",
-        );
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-/** Собирает абсолютный URL; внутри вызывает getApiUrl() в момент запроса. */
+/** Склеивает базу из getApiUrl() с путём. */
 export function buildApiUrl(path: string): string {
-  const raw = getApiUrl();
-  const base = normalizeApiBaseUrl(raw);
-  if (!base) {
-    throw new Error("API URL not set");
-  }
-  runClientWarningsOnce(base);
+  const base = getApiUrl();
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${base.replace(/\/+$/, "")}${p}`;
 }
@@ -112,18 +46,12 @@ function redirectToLogin(): void {
   window.location.assign(url);
 }
 
-/**
- * Путь API (например `/auth/login` или `/admin/logs?page=1`); перед fetch вызывается getApiUrl() через buildApiUrl.
- */
 export async function fetchPublicApi(path: string, init: RequestInit): Promise<Response> {
   const url = buildApiUrl(path);
   logApiRequest(url, false, init.method);
   return fetch(url, init);
 }
 
-/**
- * Защищённый запрос по пути; перед fetch вызывается getApiUrl() через buildApiUrl.
- */
 export async function fetchAuthorizedApi(
   path: string,
   token: string | null | undefined,
@@ -152,8 +80,7 @@ export async function fetchAuthorizedApi(
 
 export const apiClient = {
   get baseUrl(): string {
-    const raw = getApiUrl();
-    return normalizeApiBaseUrl(raw) || raw;
+    return getApiUrl();
   },
   getApiUrl,
   buildUrl: buildApiUrl,
