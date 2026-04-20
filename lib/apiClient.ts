@@ -6,6 +6,35 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
+/**
+ * База без хвостового `/` и без суффикса `/api`, чтобы не получить `.../api/api/...`
+ * при добавлении префикса из getApiPrefix().
+ */
+function normalizeBaseUrl(raw: string): string {
+  let t = raw.trim().replace(/\/+$/, "");
+  if (t.toLowerCase().endsWith("/api")) {
+    t = t.slice(0, -4).replace(/\/+$/, "");
+  }
+  return t;
+}
+
+/**
+ * Префикс путей API (как на backend: `/api/auth`, `/api/admin`, …).
+ * Пустая строка — без префикса (только для отладки со старым бэкендом без `/api`).
+ * По умолчанию: `/api`.
+ */
+function getApiPrefix(): string {
+  const raw = process.env.NEXT_PUBLIC_API_PREFIX;
+  if (raw === "") {
+    return "";
+  }
+  const p = (raw ?? "/api").trim();
+  if (p === "") {
+    return "";
+  }
+  return p.startsWith("/") ? p : `/${p}`;
+}
+
 export function getApiUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
   console.log("API URL runtime:", url);
@@ -17,11 +46,12 @@ export function getApiUrl(): string {
   return url;
 }
 
-/** Склеивает базу из getApiUrl() с путём. */
+/** Склеивает base + префикс API + путь (например `/auth/login` → `.../api/auth/login`). */
 export function buildApiUrl(path: string): string {
-  const base = getApiUrl();
+  const base = normalizeBaseUrl(getApiUrl());
+  const prefix = getApiPrefix();
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${base.replace(/\/+$/, "")}${p}`;
+  return `${base}${prefix}${p}`;
 }
 
 export function isApiDebugLoggingEnabled(): boolean {
@@ -80,7 +110,7 @@ export async function fetchAuthorizedApi(
 
 export const apiClient = {
   get baseUrl(): string {
-    return getApiUrl();
+    return normalizeBaseUrl(getApiUrl());
   },
   getApiUrl,
   buildUrl: buildApiUrl,

@@ -21,7 +21,9 @@ PORT=8080 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port $PORT
 
 API: `http://127.0.0.1:${PORT}`  
 Документация: `http://127.0.0.1:${PORT}/docs`  
-Логин: `POST http://127.0.0.1:${PORT}/auth/login`
+Префикс REST: **`/api`** (см. `app/main.py`, `API_PREFIX`).  
+Логин: `POST http://127.0.0.1:${PORT}/api/auth/login`  
+Админ: `GET|POST http://127.0.0.1:${PORT}/api/admin/users` и т.д.
 
 Фронтенд в `.env.local` должен указывать **HTTP**, не HTTPS:
 

@@ -110,12 +110,15 @@ def api_status():
 def root():
     return {"status": "ok"}
 
-app.include_router(auth_router.router, prefix="/auth")
-app.include_router(tmc.router)
-app.include_router(admin.router)
-app.include_router(debug.router)
-app.include_router(sections.router)
-app.include_router(gpr.router)
-app.include_router(entity_versions.router)
-app.include_router(tender.router)
+# Единый префикс REST API (совпадает с NEXT_PUBLIC_API_PREFIX на фронте, по умолчанию /api).
+API_PREFIX = "/api"
+
+app.include_router(auth_router.router, prefix=f"{API_PREFIX}/auth")
+app.include_router(tmc.router, prefix=API_PREFIX)
+app.include_router(admin.router, prefix=API_PREFIX)
+app.include_router(debug.router, prefix=API_PREFIX)
+app.include_router(sections.router, prefix=API_PREFIX)
+app.include_router(gpr.router, prefix=API_PREFIX)
+app.include_router(entity_versions.router, prefix=API_PREFIX)
+app.include_router(tender.router, prefix=API_PREFIX)
 
