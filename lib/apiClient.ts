@@ -35,11 +35,22 @@ function getApiPrefix(): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
-/** База API: только `NEXT_PUBLIC_API_URL` (например `http://127.0.0.1:8080` — не origin Next :3000). */
+/**
+ * База бэкенда: только абсолютный `NEXT_PUBLIC_API_URL` (`https://…` / `http://…`).
+ * Без него в проде `fetch` превращается в относительный `/api/...` → Next.js отдаёт 404.
+ */
 export function getApiUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL;
-  if (!url || url.trim() === "") {
-    throw new Error("NEXT_PUBLIC_API_URL is not set");
+  const raw = process.env.NEXT_PUBLIC_API_URL;
+  const url = (raw ?? "").trim();
+  if (!url) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL is not set. Set it to the FastAPI origin, e.g. https://gordo-platform-production.up.railway.app",
+    );
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must be an absolute URL with http:// or https:// (not a path like /api).",
+    );
   }
   if (isApiDebugLoggingEnabled() && typeof console !== "undefined" && console.debug) {
     console.debug("[gordo API] NEXT_PUBLIC_API_URL (base):", url);
@@ -48,15 +59,15 @@ export function getApiUrl(): string {
 }
 
 /**
- * base (NEXT_PUBLIC_API_URL) + префикс `/api` + путь.
- * Пример: `buildApiUrl("/admin/users")` → `http://127.0.0.1:8080/api/admin/users`.
- * Не передавайте уже с `/api` в начале пути целиком (`/api/admin/...`), иначе будет `/api/api/...`.
+ * `{NEXT_PUBLIC_API_URL}/api/...` — всегда абсолютный URL на бэкенд.
+ * Путь без повторного `/api`: `buildApiUrl("/admin/users")` → `https://backend.../api/admin/users`.
  */
 export function buildApiUrl(path: string): string {
   const base = normalizeBaseUrl(getApiUrl());
   const prefix = getApiPrefix();
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${prefix}${p}`;
+  const pathPart = `${prefix}${p}`;
+  return new URL(pathPart, base.endsWith("/") ? base : `${base}/`).href;
 }
 
 export function isApiDebugLoggingEnabled(): boolean {

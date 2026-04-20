@@ -101,7 +101,8 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/deals");
+      const dealsUrl = new URL("/api/deals", window.location.origin).href;
+      const res = await fetch(dealsUrl);
       const json: unknown = await res.json();
       if (!res.ok) {
         const msg =
