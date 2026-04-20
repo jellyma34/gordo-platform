@@ -7,18 +7,108 @@ import {
   DEALS_LABEL_EM_DASH,
   transformDealsData,
   type DealsByMonth,
+  type NormalizedDealRow,
+  type NormalizedObjectType,
 } from "./DealsSection";
 
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 const pctFmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const rubFmt = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 });
+const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
+
+const SEGMENT_KEYS = ["apartment", "parking", "storage", "commercial"] as const;
+export type SegmentPresentationKey = (typeof SEGMENT_KEYS)[number];
+
+const PRESENTATION_SEGMENT_LABELS: Record<SegmentPresentationKey, string> = {
+  apartment: "Квартиры",
+  parking: "Машино-места (ММ)",
+  storage: "Кладовые",
+  commercial: "Коммерция",
+};
+
+function monthSumSeriesForSegment(rows: NormalizedDealRow[], seg: NormalizedObjectType) {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    if (r.normalizedType !== seg) continue;
+    m.set(r.monthKey, (m.get(r.monthKey) ?? 0) + r.sumRub);
+  }
+  return [...m.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([monthKey, sum]) => ({ monthKey, sum }));
+}
+
+function segmentStatus(
+  monthSeries: { sum: number }[],
+  planSum: number | undefined,
+  actualSum: number,
+): "норма" | "риск" | "критично" {
+  if (planSum != null && planSum > 0) {
+    const d = (actualSum - planSum) / planSum;
+    if (d >= -0.05) return "норма";
+    if (d >= -0.15) return "риск";
+    return "критично";
+  }
+  if (monthSeries.length < 2) return "норма";
+  const last = monthSeries[monthSeries.length - 1]!.sum;
+  const prev = monthSeries[monthSeries.length - 2]!.sum;
+  if (prev === 0 && last === 0) return "норма";
+  const ch = prev > 0 ? (last - prev) / prev : last > 0 ? 1 : 0;
+  if (ch >= -0.05) return "норма";
+  if (ch >= -0.15) return "риск";
+  return "критично";
+}
+
+function statusBadgeClass(s: "норма" | "риск" | "критично"): string {
+  switch (s) {
+    case "норма":
+      return "border-emerald-200 bg-emerald-50 text-emerald-900";
+    case "риск":
+      return "border-amber-200 bg-amber-50 text-amber-950";
+    case "критично":
+      return "border-red-200 bg-red-50 text-red-900";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-800";
+  }
+}
 
 type Props = {
   dealsByMonth: DealsByMonth;
+  /** План выручки по сегменту (₽); если не задан — отклонение от плана не показывается, статус по динамике месяцев. */
+  segmentPlanRub?: Partial<Record<SegmentPresentationKey, number>>;
 };
 
-function DealsPresentation({ dealsByMonth }: Props) {
+function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
   const analytics = useMemo(() => transformDealsData(dealsByMonth), [dealsByMonth]);
+  const rows = analytics.normalizedDeals;
+  const totalSum = analytics.totalSum;
+
+  const segmentBlocks = useMemo(() => {
+    return SEGMENT_KEYS.map((key) => {
+      const seg = key as NormalizedObjectType;
+      const segRows = rows.filter((r) => r.normalizedType === seg);
+      const count = segRows.length;
+      const sum = segRows.reduce((s, r) => s + r.sumRub, 0);
+      const share = totalSum > 0 ? sum / totalSum : 0;
+      const monthSeries = monthSumSeriesForSegment(rows, seg);
+      const maxM = Math.max(1, ...monthSeries.map((p) => p.sum));
+      const plan = segmentPlanRub?.[key];
+      const status = segmentStatus(monthSeries, plan, sum);
+      const planDeviationPct =
+        plan != null && plan > 0 ? ((sum - plan) / plan) * 100 : null;
+      return {
+        key,
+        label: PRESENTATION_SEGMENT_LABELS[key],
+        count,
+        sum,
+        share,
+        monthSeries,
+        maxM,
+        plan,
+        planDeviationPct,
+        status,
+      };
+    });
+  }, [rows, totalSum, segmentPlanRub]);
 
   const series = useMemo(() => buildDealsMonthSeries(analytics.dealsPerMonth), [analytics.dealsPerMonth]);
 
@@ -78,6 +168,66 @@ function DealsPresentation({ dealsByMonth }: Props) {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Сделки</h1>
         <p className="mt-2 text-slate-600">Обзор по загруженным данным</p>
       </header>
+
+      <section>
+        <h2 className="text-center text-lg font-semibold text-slate-900">Структура продаж по сегментам</h2>
+        <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-slate-500">
+          Сегменты после <span className="font-mono">normalizeDeal</span>: приоритет полей{" "}
+          <span className="font-mono">object.type</span> / <span className="font-mono">deal.type</span>, затем{" "}
+          <span className="font-mono">object.category</span> и др.
+        </p>
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {segmentBlocks.map((b) => (
+            <div
+              key={b.key}
+              className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{b.label}</p>
+                <span
+                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusBadgeClass(b.status)}`}
+                >
+                  {b.status}
+                </span>
+              </div>
+              <p className="mt-3 text-lg font-semibold tabular-nums leading-tight text-slate-900">
+                {numFmt.format(b.count)} шт · {rubFmt.format(b.sum)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Доля выручки: <span className="font-medium text-slate-700">{shareFmt.format(b.share)}</span>
+              </p>
+              {b.planDeviationPct != null ? (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  К плану:{" "}
+                  <span className={b.planDeviationPct >= 0 ? "font-medium text-emerald-800" : "font-medium text-red-800"}>
+                    {b.planDeviationPct >= 0 ? "+" : ""}
+                    {pctFmt.format(b.planDeviationPct)}%
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-slate-400">План не задан — статус по динамике месяцев</p>
+              )}
+              <div className="mt-3 flex h-9 items-end gap-0.5">
+                {b.monthSeries.length === 0 ? (
+                  <div className="h-1 w-full rounded bg-slate-100" />
+                ) : (
+                  b.monthSeries.map((p, i) => (
+                    <div
+                      key={`${b.key}-${p.monthKey}-${i}`}
+                      className="min-w-0 flex-1 rounded-sm bg-slate-300/90"
+                      style={{
+                        height: `${Math.max(4, (p.sum / b.maxM) * 36)}px`,
+                      }}
+                      title={`${p.monthKey}: ${rubFmt.format(p.sum)}`}
+                    />
+                  ))
+                )}
+              </div>
+              <p className="mt-1 text-[10px] text-slate-400">Выручка по месяцам</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="text-center">
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">

@@ -95,6 +95,9 @@ export type DealRecord = {
   /** Сумма (альтернативные имена в API). */
   amount?: string | number;
   budget?: string | number;
+  /** Тип объекта / сегмент (см. {@link resolveDealSegmentType}). */
+  type?: string;
+  object_type?: string;
   deal_type?: string;
   type?: string;
   dealType?: string;
@@ -122,6 +125,9 @@ export type DealObjectRef = {
   category_name?: string;
   name?: string;
   project_name?: string;
+  /** Код типа объекта (вместе с deal.type) — см. {@link resolveDealSegmentType}. */
+  type?: string;
+  object_type?: string;
 };
 
 export type DealClientRef = {
@@ -369,6 +375,39 @@ export function resolveObjectSegmentType(obj: DealObjectRef | undefined): Normal
   return "unknown";
 }
 
+/** Распознаёт сегмент по явным кодам в `type` / `object_type` (object и deal). */
+function segmentTypeFromHint(raw: string): NormalizedObjectType | null {
+  const t = raw.trim().toLowerCase();
+  if (t === "flat" || t === "apartment" || t === "квартира" || t === "квартиры") return "apartment";
+  if (t === "garage" || t === "parking" || t === "мм" || t === "машино-место" || t === "машиноместо") return "parking";
+  if (t === "storage" || t === "кладовая" || t === "кладовые") return "storage";
+  if (t === "comm" || t === "commercial" || t === "коммерция") return "commercial";
+  return null;
+}
+
+/**
+ * Сегмент сделки: приоритет явных полей `type` / `object_type` в {@link DealObjectRef} и в deal,
+ * иначе {@link resolveObjectSegmentType} по `category` / `category_name`.
+ */
+export function resolveDealSegmentType(row: DealExportRow): NormalizedObjectType {
+  const o = row.object;
+  const or = o != null && typeof o === "object" ? (o as Record<string, unknown>) : null;
+  const d = row.deal as Record<string, unknown> | undefined;
+  const candidates: unknown[] = [];
+  if (or) {
+    candidates.push(or.type, or.object_type);
+  }
+  if (d) {
+    candidates.push(d.type, d.object_type);
+  }
+  for (const raw of candidates) {
+    if (raw == null || String(raw).trim() === "") continue;
+    const seg = segmentTypeFromHint(String(raw));
+    if (seg != null) return seg;
+  }
+  return resolveObjectSegmentType(row.object);
+}
+
 export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   const list: DealExportRow[] = Array.isArray(data) ? data : [];
   const out: NormalizedDealRow[] = [];
@@ -378,7 +417,7 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
     const n = normalizeDeal(row);
     if (n == null) continue;
 
-    const normalizedType = resolveObjectSegmentType(row.object);
+    const normalizedType = resolveDealSegmentType(row);
     const typeLabel = OBJECT_TYPE_LABEL_RU[normalizedType];
 
     out.push({
@@ -489,6 +528,21 @@ export function groupDealsByNormalizedType(rows: NormalizedDealRow[]): Record<No
     init[r.normalizedType].push(r);
   }
   return init;
+}
+
+/** Четыре продуктовых сегмента (без «Не определено») — для структуры продаж / плана. */
+export type DealSegmentKey = "apartment" | "parking" | "storage" | "commercial";
+
+/**
+ * Группировка нормализованных сделок по сегменту (после {@link normalizeDeal} / {@link extractNormalizedDeals}).
+ */
+export function groupDealsBySegment(rows: NormalizedDealRow[]): Record<DealSegmentKey, NormalizedDealRow[]> {
+  return {
+    apartment: rows.filter((r) => r.normalizedType === "apartment"),
+    parking: rows.filter((r) => r.normalizedType === "parking"),
+    storage: rows.filter((r) => r.normalizedType === "storage"),
+    commercial: rows.filter((r) => r.normalizedType === "commercial"),
+  };
 }
 
 export function buildDealsMonthSeries(grouped: DealsPerMonthGrouped): DealsMonthSeriesRow[] {
