@@ -18,13 +18,15 @@ if (Get-NetTCPConnection -State Listen -LocalPort $backendPort -ErrorAction Sile
     }
 }
 
-# Фронт: по умолчанию dev API на Railway. Локальный API: $env:GORDO_USE_LOCAL_API='1'.
-# Иной публичный API: $env:GORDO_PUBLIC_API_URL='https://...' перед запуском.
-$publicApiUrl = if ($env:GORDO_PUBLIC_API_URL) { $env:GORDO_PUBLIC_API_URL } else { "https://gordo-platform-dev.up.railway.app" }
-if ($env:GORDO_USE_LOCAL_API -eq "1") {
-    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort`nNEXT_PUBLIC_API_FORCE_LOCAL=1" -Encoding utf8
-} else {
+# Фронт: по умолчанию локальный API. Удалённый Railway dev: $env:GORDO_USE_RAILWAY_DEV='1'
+# или явно $env:GORDO_PUBLIC_API_URL='https://...'
+if ($env:GORDO_USE_RAILWAY_DEV -eq "1") {
+    $publicApiUrl = if ($env:GORDO_PUBLIC_API_URL) { $env:GORDO_PUBLIC_API_URL } else { "https://gordo-platform-dev.up.railway.app" }
     Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$publicApiUrl" -Encoding utf8
+} elseif ($env:GORDO_PUBLIC_API_URL) {
+    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$($env:GORDO_PUBLIC_API_URL)" -Encoding utf8
+} else {
+    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort" -Encoding utf8
 }
 
 Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location '$backendPath'; uvicorn app.main:app --reload --host 127.0.0.1 --port $backendPort`""

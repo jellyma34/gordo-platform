@@ -45,9 +45,15 @@ export type DealRecord = {
   utm_source?: string;
 };
 
+/** Ссылка на объект сделки в выгрузке; сегмент — только `object.category`. */
+export type DealObjectRef = {
+  category?: string;
+};
+
 export type DealExportRow = {
   id?: string | number;
   deal?: DealRecord;
+  object?: DealObjectRef;
 };
 
 /** Сделки по месяцам (ключ YYYY-MM). */
@@ -57,12 +63,37 @@ export type DealsPerMonthGrouped = Record<string, { count: number; sum: number }
 
 export type SegmentBucket = { count: number; sum: number };
 
+/** Сегмент по `row.object.category`: flat | garage | comm. */
+export type NormalizedObjectType = "apartment" | "parking" | "commercial" | "unknown";
+
+export const OBJECT_TYPE_LABEL_RU: Record<NormalizedObjectType, string> = {
+  apartment: "Квартиры",
+  parking: "Машино-места",
+  commercial: "Коммерция",
+  unknown: "Не определено",
+};
+
+const DEAL_KIND_FIELD_KEYS = ["deal_type", "deal_kind", "contract_type"] as const;
+
+/** Порядок опций фильтра «Тип» (тип объекта). */
+const OBJECT_TYPE_FILTER_ORDER: string[] = [
+  OBJECT_TYPE_LABEL_RU.apartment,
+  OBJECT_TYPE_LABEL_RU.parking,
+  OBJECT_TYPE_LABEL_RU.commercial,
+  OBJECT_TYPE_LABEL_RU.unknown,
+];
+
 export type NormalizedDealRow = {
   dealDate: string;
   dealDateMs: number;
   monthKey: string;
   sumRub: number;
+  /** Сегмент по `object.category`: flat → apartment, garage → parking, comm → commercial. */
+  normalizedType: NormalizedObjectType;
+  /** Подпись сегмента для фильтров и таблиц (на русском). */
   typeLabel: string;
+  /** Вид сделки (ДДУ, бронь и т.д.) — из deal_type / deal_kind, не путать с типом объекта. */
+  dealKindLabel: string;
   objectLabel: string;
   managerLabel: string;
   sourceLabel: string;
@@ -119,6 +150,20 @@ function monthKeyFromDate(dateStr: string): string {
   return String(dateStr).trim().slice(0, 7);
 }
 
+/**
+ * Источник истины: `row.object.category`.
+ * `flat` → apartment, `garage` → parking, `comm` → commercial.
+ */
+export function categoryToNormalizedType(category: unknown): NormalizedObjectType {
+  const c = String(category ?? "")
+    .trim()
+    .toLowerCase();
+  if (c === "flat") return "apartment";
+  if (c === "garage") return "parking";
+  if (c === "comm") return "commercial";
+  return "unknown";
+}
+
 function parseDealDateMs(dateStr: string): number {
   const d = new Date(String(dateStr).trim());
   const t = d.getTime();
@@ -130,8 +175,10 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   const out: NormalizedDealRow[] = [];
 
   for (const item of list) {
-    const deal = item?.deal;
+    const row = item as DealExportRow;
+    const deal = row.deal;
     if (deal == null || typeof deal !== "object") continue;
+    console.log(row.object);
     const d = deal as DealRecord & Record<string, unknown>;
     const dealDateRaw = d.deal_date;
     if (dealDateRaw == null || String(dealDateRaw).trim() === "") continue;
@@ -140,13 +187,11 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
     const monthKey = monthKeyFromDate(dealDate);
     const sumRub = parseDealSum(d.deal_sum);
 
-    const typeLabel = pickFirstString(d as Record<string, unknown>, [
-      "deal_type",
-      "type",
-      "dealType",
-      "category",
-      "deal_kind",
-    ]);
+    const rec = d as Record<string, unknown>;
+    const normalizedType = categoryToNormalizedType(row.object?.category);
+    const typeLabel = OBJECT_TYPE_LABEL_RU[normalizedType];
+    const dealKindLabel = pickFirstString(rec, [...DEAL_KIND_FIELD_KEYS]);
+
     const objectLabel = pickFirstString(d as Record<string, unknown>, [
       "house_name",
       "project_name",
@@ -177,7 +222,9 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       dealDateMs: parseDealDateMs(dealDate),
       monthKey,
       sumRub,
+      normalizedType,
       typeLabel,
+      dealKindLabel,
       objectLabel,
       managerLabel,
       sourceLabel,
@@ -260,6 +307,20 @@ export function transformDealsData(data: unknown): DealsAnalytics {
     validDeals: normalizedDeals,
     ...computeDealMetrics(normalizedDeals),
   };
+}
+
+/** Распределение по `object.category` → apartment | parking | commercial | unknown. */
+export function groupDealsByNormalizedType(rows: NormalizedDealRow[]): Record<NormalizedObjectType, NormalizedDealRow[]> {
+  const init: Record<NormalizedObjectType, NormalizedDealRow[]> = {
+    apartment: [],
+    parking: [],
+    commercial: [],
+    unknown: [],
+  };
+  for (const r of rows) {
+    init[r.normalizedType].push(r);
+  }
+  return init;
 }
 
 export function buildDealsMonthSeries(grouped: DealsPerMonthGrouped): DealsMonthSeriesRow[] {
@@ -389,10 +450,17 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
   const filterOptions = useMemo(() => {
     const rows = fullBase.normalizedDeals;
     const months = [...new Set(rows.map((r) => r.monthKey))].sort((a, b) => a.localeCompare(b));
-    const types = [...new Set(rows.map((r) => r.typeLabel))].sort((a, b) => a.localeCompare(b, "ru"));
+    const present = new Set(rows.map((r) => r.typeLabel));
+    const types = OBJECT_TYPE_FILTER_ORDER.filter((label) => present.has(label));
     const objects = [...new Set(rows.map((r) => r.objectLabel))].sort((a, b) => a.localeCompare(b, "ru"));
     return { months, types, objects };
   }, [fullBase.normalizedDeals]);
+
+  /** Все загруженные строки (без фильтров) — счётчики «В загрузке». */
+  const dealsByNormalizedTypeAll = useMemo(
+    () => groupDealsByNormalizedType(fullBase.normalizedDeals),
+    [fullBase.normalizedDeals],
+  );
 
   const filteredRows = useMemo(() => {
     return fullBase.normalizedDeals.filter((r) => {
@@ -404,6 +472,25 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
   }, [filterMonth, filterType, filterObject, fullBase.normalizedDeals]);
 
   const analytics = useMemo(() => computeDealMetrics(filteredRows), [filteredRows]);
+
+  /** Сегментация в текущем срезе фильтров — KPI по квартирам / паркингу / кладовкам. */
+  const dealsByNormalizedType = useMemo(
+    () => groupDealsByNormalizedType(filteredRows),
+    [filteredRows],
+  );
+
+  const segmentKpiApartment = useMemo(
+    () => computeDealMetrics(dealsByNormalizedType.apartment),
+    [dealsByNormalizedType],
+  );
+  const segmentKpiParking = useMemo(
+    () => computeDealMetrics(dealsByNormalizedType.parking),
+    [dealsByNormalizedType],
+  );
+  const segmentKpiCommercial = useMemo(
+    () => computeDealMetrics(dealsByNormalizedType.commercial),
+    [dealsByNormalizedType],
+  );
 
   const onDealsJsonSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -551,8 +638,10 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Сделки — разведка данных</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Срез по выгрузке: все поля <span className="font-mono text-xs">deal.*</span> нормализуются в таблицах ниже.
-              Рабочий режим: только таблицы и показатели, без графиков.
+              Сегмент сделки задаётся полем <span className="font-mono text-xs">object.category</span>:{" "}
+              <span className="font-mono text-xs">flat</span> / <span className="font-mono text-xs">garage</span> /{" "}
+              <span className="font-mono text-xs">comm</span>. Остальные поля <span className="font-mono text-xs">deal.*</span>{" "}
+              — для таблиц и сумм.
             </p>
           </div>
           <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-900">
@@ -578,12 +667,12 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
             </select>
           </label>
           <label className="text-xs font-semibold text-slate-700">
-            Тип
+            Тип объекта
             <select
               className={selectClass}
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              aria-label="Фильтр по типу сделки"
+              aria-label="Фильтр по типу объекта недвижимости"
             >
               <option value="">Все типы</option>
               {filterOptions.types.map((t) => (
@@ -620,6 +709,11 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           >
             Сбросить фильтры
           </button>
+          <p className="w-full text-xs text-slate-600 sm:w-auto">
+            В загрузке: квартиры {dealsByNormalizedTypeAll.apartment.length} · машино-места{" "}
+            {dealsByNormalizedTypeAll.parking.length} · коммерция {dealsByNormalizedTypeAll.commercial.length} · не определено{" "}
+            {dealsByNormalizedTypeAll.unknown.length}
+          </p>
           <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50">
             Загрузить JSON
             <input type="file" accept=".json" className="sr-only" onChange={onDealsJsonSelected} aria-label="Загрузить JSON сделок за месяц" />
@@ -686,6 +780,90 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Δ к пред. месяцу</div>
             <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{momValue}</div>
             <p className="mt-1 text-xs text-slate-500">{momSub}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">KPI по сегментам</h3>
+          <p className="text-xs text-slate-500">Те же фильтры, что и у блока выше (месяц, тип объекта, объект).</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.apartment}</div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {numFmt.format(segmentKpiApartment.totalCount)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(segmentKpiApartment.totalSum)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(
+                      segmentKpiApartment.totalCount > 0 ? segmentKpiApartment.totalSum / segmentKpiApartment.totalCount : 0,
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.parking}</div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {numFmt.format(segmentKpiParking.totalCount)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(segmentKpiParking.totalSum)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(
+                      segmentKpiParking.totalCount > 0 ? segmentKpiParking.totalSum / segmentKpiParking.totalCount : 0,
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/80 to-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-indigo-950">{OBJECT_TYPE_LABEL_RU.commercial}</div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {numFmt.format(segmentKpiCommercial.totalCount)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сумма</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(segmentKpiCommercial.totalSum)}
+                  </div>
+                </div>
+                <div className={workKpiCard}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Средний чек</div>
+                  <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900">
+                    {rubFmt.format(
+                      segmentKpiCommercial.totalCount > 0
+                        ? segmentKpiCommercial.totalSum / segmentKpiCommercial.totalCount
+                        : 0,
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -775,13 +953,15 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       </section>
 
       <section className={panelClass}>
-        <h3 className="text-base font-semibold text-slate-900">Сделки по типам</h3>
-        <p className="text-xs text-slate-500">Агрегат analytics.dealsByType для текущего среза.</p>
+        <h3 className="text-base font-semibold text-slate-900">Сделки по типам объектов</h3>
+        <p className="text-xs text-slate-500">
+          Сегменты по <span className="font-mono">object.category</span> (flat / garage / comm); текущий срез учитывает фильтры.
+        </p>
         <div className={tableWrapClass}>
           <table className={tableClass}>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500">
-                <th className="px-3 py-2.5">Тип</th>
+                <th className="px-3 py-2.5">Тип объекта</th>
                 <th className="px-3 py-2.5 text-right">Кол-во</th>
                 <th className="px-3 py-2.5 text-right">Сумма</th>
                 <th className="px-3 py-2.5 text-right">Средний чек</th>
@@ -923,7 +1103,7 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500">
                 <th className="px-3 py-2.5">Дата сделки</th>
                 <th className="px-3 py-2.5 text-right">Сумма</th>
-                <th className="px-3 py-2.5">Тип</th>
+                <th className="px-3 py-2.5">Тип объекта</th>
                 <th className="px-3 py-2.5">Объект / ЖК</th>
                 <th className="px-3 py-2.5">Менеджер</th>
                 <th className="px-3 py-2.5">Источник</th>
@@ -935,7 +1115,12 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                   <tr key={`${r.dealDate}-${r.sumRub}-${idx}`} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-900">{r.dealDate}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">{rubFmt.format(r.sumRub)}</td>
-                    <td className="px-3 py-2.5 text-slate-800">{r.typeLabel}</td>
+                    <td className="px-3 py-2.5 text-slate-800">
+                      <div className="font-medium">{r.typeLabel}</div>
+                      {r.dealKindLabel !== DEALS_EMPTY_LABEL ? (
+                        <div className="text-xs text-slate-500">{r.dealKindLabel}</div>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-800">{r.objectLabel}</td>
                     <td className="px-3 py-2.5 text-slate-800">{r.managerLabel}</td>
                     <td className="px-3 py-2.5 text-slate-800">{r.sourceLabel}</td>

@@ -1,18 +1,18 @@
 {
   "status": "ok",
   "data": [
-    { "deal": { "deal_date": "2026-01-08", "deal_sum": "4 850 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Иванова А.", "source": "Сайт" } },
-    { "deal": { "deal_date": "2026-01-19", "deal_sum": "3 200 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Петров С.", "source": "Агентство" } },
-    { "deal": { "deal_date": "2026-01-25", "deal_sum": 6100000, "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Иванова А.", "source": "Сайт" } },
-    { "deal": { "deal_date": "2026-02-03", "deal_sum": "2 150 000", "deal_type": "Бронь", "house_name": "Гордо, корп. 1", "manager_name": "Сидорова М.", "source": "Звонок" } },
-    { "deal": { "deal_date": "2026-02-14", "deal_sum": "7 890 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Петров С.", "source": "Сайт" } },
-    { "deal": { "deal_date": "2026-02-27", "deal_sum": 4250000, "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Иванова А.", "source": "Партнёр" } },
-    { "deal": { "deal_date": "2026-03-05", "deal_sum": "1 980 000", "deal_type": "Бронь", "house_name": "Гордо, корп. 2", "manager_name": "Сидорова М.", "source": "Агентство" } },
-    { "deal": { "deal_date": "2026-03-18", "deal_sum": "6 100 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Петров С.", "source": "Сайт" } },
-    { "deal": { "deal_date": "2026-03-29", "deal_sum": 3330000, "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Иванова А.", "source": "Звонок" } },
-    { "deal": { "deal_date": "2026-04-02", "deal_sum": "5 000 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Сидорова М.", "source": "Сайт" } },
-    { "deal": { "deal_date": "2026-04-11", "deal_sum": "2 750 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Петров С.", "source": "Партнёр" } },
-    { "deal": { "deal_date": "2026-04-15", "deal_sum": "920 000", "deal_type": "Коммерция", "house_name": "Гордо, корп. 1", "manager_name": "Иванова А.", "source": "Агентство" } },
-    { "deal": { "deal_date": "2026-04-20", "deal_sum": "4 100 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Сидорова М.", "source": "Сайт" } }
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-01-08", "deal_sum": "4 850 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Иванова А.", "source": "Сайт" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-01-19", "deal_sum": "3 200 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Петров С.", "source": "Агентство" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-01-25", "deal_sum": 6100000, "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Иванова А.", "source": "Сайт" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-02-03", "deal_sum": "2 150 000", "deal_type": "Бронь", "house_name": "Гордо, корп. 1", "manager_name": "Сидорова М.", "source": "Звонок" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-02-14", "deal_sum": "7 890 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Петров С.", "source": "Сайт" } },
+    { "object": { "category": "garage" }, "deal": { "deal_date": "2026-02-27", "deal_sum": 4250000, "deal_type": "ДДУ", "house_name": "Гордо, паркинг А", "manager_name": "Иванова А.", "source": "Партнёр" } },
+    { "object": { "category": "garage" }, "deal": { "deal_date": "2026-03-05", "deal_sum": "1 980 000", "deal_type": "Бронь", "house_name": "Гордо, корп. 2", "manager_name": "Сидорова М.", "source": "Агентство" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-03-18", "deal_sum": "6 100 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Петров С.", "source": "Сайт" } },
+    { "object": { "category": "comm" }, "deal": { "deal_date": "2026-03-29", "deal_sum": 3330000, "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Иванова А.", "source": "Звонок" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-04-02", "deal_sum": "5 000 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 1", "manager_name": "Сидорова М.", "source": "Сайт" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-04-11", "deal_sum": "2 750 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Петров С.", "source": "Партнёр" } },
+    { "object": { "category": "comm" }, "deal": { "deal_date": "2026-04-15", "deal_sum": "920 000", "deal_type": "Коммерция", "house_name": "Гордо, корп. 1", "manager_name": "Иванова А.", "source": "Агентство" } },
+    { "object": { "category": "flat" }, "deal": { "deal_date": "2026-04-20", "deal_sum": "4 100 000", "deal_type": "ДДУ", "house_name": "Гордо, корп. 2", "manager_name": "Сидорова М.", "source": "Сайт" } }
   ]
 }
