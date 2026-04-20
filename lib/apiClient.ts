@@ -6,17 +6,31 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-/** Raw value from env (build-time inlined for `NEXT_PUBLIC_*`). */
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").trim();
+/** Сырое значение из env (для логов при невалидном URL). */
+const NEXT_PUBLIC_API_URL_RAW = process.env.NEXT_PUBLIC_API_URL;
+
+/**
+ * Итоговый базовый URL после нормализации: trim, снятие обрамляющих кавычек, удаление завершающего `/`.
+ * Инлайнится на этапе сборки для `NEXT_PUBLIC_*`.
+ */
+export const API_URL = NEXT_PUBLIC_API_URL_RAW
+  ? NEXT_PUBLIC_API_URL_RAW.trim()
+      .replace(/^["']|["']$/g, "")
+      .replace(/\/$/, "")
+  : "";
 
 let loggedInvalidApiUrl = false;
 
-function logInvalidApiUrlOnce(): void {
+function logInvalidApiUrlOnce(rawValue: string | undefined): void {
   if (loggedInvalidApiUrl) return;
   loggedInvalidApiUrl = true;
   if (typeof console !== "undefined" && console.error) {
-    console.error("[gordo] NEXT_PUBLIC_API_URL is invalid or missing:", API_URL || "(empty)");
+    console.error("❌ NEXT_PUBLIC_API_URL invalid:", rawValue);
   }
+}
+
+function isApiUrlValid(): boolean {
+  return API_URL.startsWith("http://") || API_URL.startsWith("https://");
 }
 
 /**
@@ -31,29 +45,22 @@ function normalizeBaseUrl(raw: string): string {
   return t;
 }
 
-function isValidHttpAbsoluteUrl(raw: string): boolean {
-  return /^https?:\/\//i.test(raw.trim());
-}
-
 /**
  * Нормализованный origin (`https://host`), без `/api`. `null`, если переменная не задана или не абсолютный http(s) URL.
  * Не бросает исключений (в т.ч. на этапе сборки).
  */
 export function resolveApiOrigin(): string | null {
-  if (!API_URL || !isValidHttpAbsoluteUrl(API_URL)) {
-    logInvalidApiUrlOnce();
+  if (!isApiUrlValid()) {
+    logInvalidApiUrlOnce(NEXT_PUBLIC_API_URL_RAW);
     return null;
   }
   return normalizeBaseUrl(API_URL);
 }
 
-/** Понятное сообщение для UI/throw при попытке запроса без валидного URL. */
+/** Сообщение при попытке запроса с невалидным URL (только в runtime, внутри fetch*). */
 export function getApiConfigurationError(): string | null {
-  if (!API_URL) {
-    return "NEXT_PUBLIC_API_URL не задан. Укажите полный URL бэкенда (https://…) в переменных окружения.";
-  }
-  if (!isValidHttpAbsoluteUrl(API_URL)) {
-    return "NEXT_PUBLIC_API_URL должен быть полным URL (http:// или https://), а не путём вроде /api.";
+  if (!isApiUrlValid()) {
+    return "API URL is not configured correctly";
   }
   return null;
 }
