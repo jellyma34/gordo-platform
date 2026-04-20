@@ -114,13 +114,12 @@ def api_status():
 def root():
     return {"status": "ok"}
 
-# Единый префикс REST (аналог app.use("/api", …) в Express). Совпадает с NEXT_PUBLIC_API_PREFIX на фронте.
-# Роутер admin (app/routers/admin.py) задаёт prefix="/admin" → итого /api/admin/* (users, logs, …).
+# Единый префикс REST. Admin: явный mount /api/admin (аналог app.use("/api/admin", adminRoutes)).
 API_PREFIX = "/api"
 
 app.include_router(auth_router.router, prefix=f"{API_PREFIX}/auth")
 app.include_router(tmc.router, prefix=API_PREFIX)
-app.include_router(admin.router, prefix=API_PREFIX)  # GET|POST /api/admin/users, GET /api/admin/logs, …
+app.include_router(admin.router, prefix=f"{API_PREFIX}/admin")
 app.include_router(debug.router, prefix=API_PREFIX)
 app.include_router(sections.router, prefix=API_PREFIX)
 app.include_router(gpr.router, prefix=API_PREFIX)
