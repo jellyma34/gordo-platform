@@ -8,16 +8,10 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-/**
- * Fallback только при `next dev` (NODE_ENV=development).
- * В production без `NEXT_PUBLIC_API_URL` не подставляем dev backend.
- */
+/** Dev backend на Railway, если `NEXT_PUBLIC_API_URL` не задан (только `next dev`). */
 const DEV_FALLBACK_API_URL = "https://gordo-platform-dev.up.railway.app";
 
-/** Известный хост dev API на Railway (для предупреждения в production). */
 const DEV_API_HOST = "gordo-platform-dev.up.railway.app";
-
-const MISSING_API_PLACEHOLDER = "https://invalid-api-base.gordo.local";
 
 function normalizeApiBaseUrl(raw: string | undefined): string {
   const trimmed = (raw ?? "").trim();
@@ -42,23 +36,32 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
 
 function resolvePublicApiUrl(): string {
   const fromEnv = normalizeApiBaseUrl((process.env.NEXT_PUBLIC_API_URL ?? "").trim());
-  if (fromEnv) return fromEnv;
+  if (fromEnv) {
+    return fromEnv;
+  }
   if (process.env.NODE_ENV === "development") {
     return normalizeApiBaseUrl(DEV_FALLBACK_API_URL) || DEV_FALLBACK_API_URL.replace(/\/+$/, "");
   }
-  return "";
+  throw new Error(
+    "NEXT_PUBLIC_API_URL is not set. In Railway → Variables для сервиса фронта задайте, например: " +
+      "NEXT_PUBLIC_API_URL=https://gordo-platform-dev.up.railway.app — затем пересоберите.",
+  );
 }
 
-/** Базовый URL API (без завершающего `/`). */
+/** Базовый URL API (без завершающего `/`), всегда http(s). */
 export const API_URL = resolvePublicApiUrl();
 
+if (process.env.NODE_ENV === "development" && typeof console !== "undefined" && console.info) {
+  console.info("[gordo] NEXT_PUBLIC_API_URL (API base):", API_URL);
+}
+
 function warnIfDevApiInProduction(): void {
-  if (process.env.NODE_ENV !== "production" || typeof window === "undefined" || !API_URL) return;
+  if (process.env.NODE_ENV !== "production" || typeof window === "undefined") return;
   try {
     const host = new URL(API_URL).hostname.toLowerCase();
     if (host === DEV_API_HOST) {
       console.warn(
-        "[gordo] API: в production-сборке указан dev-бэкенд. Задайте NEXT_PUBLIC_API_URL на URL бэкенда текущей среды (staging/production).",
+        "[gordo] API: в production-сборке указан dev-бэкенд. Задайте NEXT_PUBLIC_API_URL на URL бэкенда текущей среды.",
       );
     }
   } catch {
@@ -66,14 +69,14 @@ function warnIfDevApiInProduction(): void {
   }
 }
 
-if (typeof window !== "undefined" && API_URL) {
+if (typeof window !== "undefined") {
   const h = window.location.hostname;
   if (h !== "localhost" && h !== "127.0.0.1") {
     try {
       const u = new URL(API_URL);
       if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
         console.warn(
-          "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL на URL бэкенда в интернете.",
+          "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL в интернете.",
         );
       }
     } catch {
@@ -83,16 +86,11 @@ if (typeof window !== "undefined" && API_URL) {
   warnIfDevApiInProduction();
 }
 
-/** Полный URL эндпоинта backend. */
+/** Полный абсолютный URL эндпоинта backend (схема + хост + path). */
 export function buildApiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
-  const base = API_URL || MISSING_API_PLACEHOLDER;
-  if (!API_URL && typeof window !== "undefined") {
-    console.error(
-      "[gordo] NEXT_PUBLIC_API_URL не задан в сборке. Укажите URL бэкенда в переменных окружения (Railway / CI).",
-    );
-  }
-  return `${base.replace(/\/+$/, "")}${p}`;
+  const base = API_URL.endsWith("/") ? API_URL : `${API_URL}/`;
+  return new URL(p, base).href;
 }
 
 export function isApiDebugLoggingEnabled(): boolean {
