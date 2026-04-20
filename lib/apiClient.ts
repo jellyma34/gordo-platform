@@ -6,102 +6,65 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-/** Сырое значение из env (для логов при невалидном URL). */
-const NEXT_PUBLIC_API_URL_RAW = process.env.NEXT_PUBLIC_API_URL;
+const raw = process.env.NEXT_PUBLIC_API_URL;
 
-/**
- * Итоговый базовый URL после нормализации: trim, снятие обрамляющих кавычек, удаление завершающего `/`.
- * Инлайнится на этапе сборки для `NEXT_PUBLIC_*`.
- */
-export const API_URL = NEXT_PUBLIC_API_URL_RAW
-  ? NEXT_PUBLIC_API_URL_RAW.trim()
-      .replace(/^["']|["']$/g, "")
-      .replace(/\/$/, "")
-  : "";
+function trimEnvApiValue(value: string): string {
+  let s = value.trim();
+  for (;;) {
+    const q =
+      (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"));
+    if (!q) break;
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
 
-let loggedInvalidApiUrl = false;
+export let API_URL: string | null = null;
 
-function logInvalidApiUrlOnce(rawValue: string | undefined): void {
-  if (loggedInvalidApiUrl) return;
-  loggedInvalidApiUrl = true;
-  if (typeof console !== "undefined" && console.error) {
-    console.error("❌ NEXT_PUBLIC_API_URL invalid:", rawValue);
+if (raw) {
+  try {
+    const normalized = trimEnvApiValue(raw);
+    const parsed = new URL(normalized);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      API_URL = parsed.origin;
+    } else {
+      console.error("❌ Invalid NEXT_PUBLIC_API_URL:", raw);
+    }
+  } catch {
+    console.error("❌ Invalid NEXT_PUBLIC_API_URL:", raw);
   }
 }
 
-function isApiUrlValid(): boolean {
-  return API_URL.startsWith("http://") || API_URL.startsWith("https://");
+if (!API_URL) {
+  console.error("❌ API URL is not configured correctly:", raw);
 }
 
 /**
- * База без хвостового `/` и без суффикса `/api`, чтобы не получить `.../api/api/...`
- * при добавлении префикса `/api`.
+ * Полный URL к бэкенду: `{origin}{path}`, где `path` обычно `/api/...`.
+ * При `!API_URL` возвращает пустую строку (без исключений на этапе сборки).
  */
-function normalizeBaseUrl(raw: string): string {
-  let t = raw.trim().replace(/\/+$/, "");
-  if (t.toLowerCase().endsWith("/api")) {
-    t = t.slice(0, -4).replace(/\/+$/, "");
+export function buildUrl(path: string): string {
+  if (!API_URL) {
+    return "";
   }
-  return t;
+  return `${API_URL}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-/**
- * Нормализованный origin (`https://host`), без `/api`. `null`, если переменная не задана или не абсолютный http(s) URL.
- * Не бросает исключений (в т.ч. на этапе сборки).
- */
+export const buildApiUrl = buildUrl;
+
 export function resolveApiOrigin(): string | null {
-  if (!isApiUrlValid()) {
-    logInvalidApiUrlOnce(NEXT_PUBLIC_API_URL_RAW);
-    return null;
-  }
-  return normalizeBaseUrl(API_URL);
+  return API_URL;
 }
 
-/** Сообщение при попытке запроса с невалидным URL (только в runtime, внутри fetch*). */
 export function getApiConfigurationError(): string | null {
-  if (!isApiUrlValid()) {
-    return "API URL is not configured correctly";
+  if (!API_URL) {
+    return "API URL is not configured";
   }
   return null;
 }
 
-/**
- * Префикс REST после origin. По умолчанию `/api` → итог `{origin}/api/...`.
- * Пустая строка `NEXT_PUBLIC_API_PREFIX=""` — только для отладки со старым бэкендом.
- */
-function getApiPathPrefix(): string {
-  const raw = process.env.NEXT_PUBLIC_API_PREFIX;
-  if (raw === "") {
-    return "";
-  }
-  const p = (raw ?? "/api").trim();
-  if (p === "") {
-    return "";
-  }
-  return p.startsWith("/") ? p : `/${p}`;
-}
-
-/**
- * База для отображения/совместимости: валидный origin или пустая строка (без подставных URL).
- */
 export function getApiUrl(): string {
-  return resolveApiOrigin() ?? "";
-}
-
-/**
- * `{origin}/api/...` — абсолютный URL на бэкенд.
- * Пример: `buildApiUrl("/admin/users")` → `https://backend.../api/admin/users`.
- * При невалидном `NEXT_PUBLIC_API_URL` возвращает пустую строку (без исключений, в т.ч. при сборке).
- */
-export function buildApiUrl(path: string): string {
-  const base = resolveApiOrigin();
-  if (!base) {
-    return "";
-  }
-  const prefix = getApiPathPrefix();
-  const p = path.startsWith("/") ? path : `/${path}`;
-  const pathPart = `${prefix}${p}`;
-  return new URL(pathPart, base.endsWith("/") ? base : `${base}/`).href;
+  return API_URL ?? "";
 }
 
 export function isApiDebugLoggingEnabled(): boolean {
@@ -127,9 +90,10 @@ function redirectToLogin(): void {
 }
 
 export async function fetchPublicApi(path: string, init: RequestInit): Promise<Response> {
-  const cfg = getApiConfigurationError();
-  if (cfg) throw new Error(cfg);
-  const url = buildApiUrl(path);
+  if (!API_URL) {
+    throw new Error("API URL is not configured");
+  }
+  const url = buildUrl(path);
   logApiRequest(url, false, init.method);
   return fetch(url, init);
 }
@@ -139,9 +103,10 @@ export async function fetchAuthorizedApi(
   token: string | null | undefined,
   init: RequestInit = {},
 ): Promise<Response> {
-  const cfg = getApiConfigurationError();
-  if (cfg) throw new Error(cfg);
-  const url = buildApiUrl(path);
+  if (!API_URL) {
+    throw new Error("API URL is not configured");
+  }
+  const url = buildUrl(path);
   const headers = new Headers(init.headers ?? {});
   const hasToken = Boolean(token?.trim());
   if (hasToken) {
@@ -164,10 +129,11 @@ export async function fetchAuthorizedApi(
 
 export const apiClient = {
   get baseUrl(): string {
-    return resolveApiOrigin() ?? "";
+    return API_URL ?? "";
   },
   getApiUrl,
-  buildUrl: buildApiUrl,
+  buildUrl,
+  buildApiUrl,
   fetchPublic: fetchPublicApi,
   fetchWithAuth: fetchAuthorizedApi,
 } as const;
