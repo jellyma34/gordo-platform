@@ -1,132 +1,25 @@
 import type { GprTaskApiItem, GprTaskWritePayload } from "./gprUtils";
 
-export type Role = "admin" | "manager" | "employee";
-export type ApiSection = "gpr" | "tenders" | "materials";
-export type UserStatus = "active" | "blocked";
+import { buildApiUrl, fetchAuthorizedApi, fetchPublicApi } from "./apiClient";
+import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
+import type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
+
+export type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
+export {
+  API_URL,
+  apiClient,
+  AUTH_EXPIRED_EVENT,
+  isApiDebugLoggingEnabled,
+  SESSION_EXPIRED_MESSAGE,
+} from "./apiClient";
+export { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
 
 /** Сообщение при 401 от POST /auth/login (для UI). */
 export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
 export const BLOCKED_LOGIN_MESSAGE = "Доступ ограничен. Обратитесь к администратору";
 
-/** Если `NEXT_PUBLIC_API_URL` не попал в сборку — ходим на dev backend (не на origin фронта). */
-const FALLBACK_PUBLIC_API_URL = "https://gordo-platform-dev.up.railway.app";
-
-/**
- * Базовый URL API: `NEXT_PUBLIC_API_URL` на этапе build, иначе {@link FALLBACK_PUBLIC_API_URL}.
- */
-function normalizeApiBaseUrl(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed) return "";
-
-  try {
-    const u = new URL(trimmed);
-    const host = u.hostname.toLowerCase();
-    // Публичный домен Railway не должен содержать порт в URL (например :8000).
-    if (host.endsWith(".railway.app") && u.port !== "") {
-      u.port = "";
-    }
-    const isLoopback = host === "localhost" || host === "127.0.0.1";
-    // Локальный FastAPI без TLS — https://localhost даёт ERR_SSL_PROTOCOL_ERROR
-    if (isLoopback && u.protocol === "https:") {
-      u.protocol = "http:";
-      return u.href.replace(/\/$/, "");
-    }
-    return u.href.replace(/\/+$/, "");
-  } catch {
-    return "";
-  }
-}
-
-/** Базовый URL API (без завершающего `/`). Всегда абсолютный хост backend. */
-export const API_URL =
-  normalizeApiBaseUrl((process.env.NEXT_PUBLIC_API_URL ?? "").trim()) ||
-  normalizeApiBaseUrl(FALLBACK_PUBLIC_API_URL) ||
-  FALLBACK_PUBLIC_API_URL.replace(/\/+$/, "");
-
-/** Полный URL эндпоинта: всегда `${API_URL}${path}` (не относительные пути к фронту). */
-function api(path: string): string {
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return `${API_URL}${p}`;
-}
-
-if (typeof window !== "undefined" && API_URL) {
-  const h = window.location.hostname;
-  if (h !== "localhost" && h !== "127.0.0.1") {
-    try {
-      const u = new URL(API_URL);
-      if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
-        console.warn(
-          "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL на URL бэкенда в интернете.",
-        );
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-const STORAGE_TOKEN = "gordo_token";
-const STORAGE_ROLE = "gordo_role";
-const STORAGE_SECTIONS = "gordo_allowed_sections";
-
-export type AuthSnapshot = {
-  token: string;
-  role: Role;
-  status: UserStatus;
-  blockedReason?: string | null;
-  allowedSections: ApiSection[];
-};
-
 function isApiSection(x: string): x is ApiSection {
   return x === "gpr" || x === "tenders" || x === "materials";
-}
-
-export function parseAllowedSections(raw: string | null): ApiSection[] {
-  if (!raw) return [];
-  try {
-    const v = JSON.parse(raw) as unknown;
-    if (!Array.isArray(v)) return [];
-    return v.filter((x): x is ApiSection => typeof x === "string" && isApiSection(x));
-  } catch {
-    return [];
-  }
-}
-
-export function loadStoredAuth(): AuthSnapshot | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const token = window.localStorage.getItem(STORAGE_TOKEN);
-    const roleRaw = window.localStorage.getItem(STORAGE_ROLE);
-    const sectionsRaw = window.localStorage.getItem(STORAGE_SECTIONS);
-    if (
-      !token ||
-      (roleRaw !== "admin" && roleRaw !== "manager" && roleRaw !== "employee")
-    )
-      return null;
-    return {
-      token,
-      role: roleRaw,
-      status: "active",
-      blockedReason: null,
-      allowedSections: parseAllowedSections(sectionsRaw),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function saveAuth(token: string, role: Role, allowedSections: ApiSection[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_TOKEN, token);
-  window.localStorage.setItem(STORAGE_ROLE, role);
-  window.localStorage.setItem(STORAGE_SECTIONS, JSON.stringify(allowedSections));
-}
-
-export function clearAuth(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_TOKEN);
-  window.localStorage.removeItem(STORAGE_ROLE);
-  window.localStorage.removeItem(STORAGE_SECTIONS);
 }
 
 export type UiConstructionSection = "gpr" | "tenders" | "tmc";
@@ -167,7 +60,7 @@ export function firstConstructionPath(
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
   try {
-    const res = await fetch(api("/auth/login"), {
+    const res = await fetchPublicApi(buildApiUrl("/auth/login"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -234,11 +127,10 @@ export type CreateUserPayload = {
 };
 
 export async function createUserRequest(token: string, body: CreateUserPayload) {
-  const res = await fetch(api("/admin/create-user"), {
+  const res = await fetchAuthorizedApi(buildApiUrl("/admin/create-user"), token, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
   });
@@ -302,9 +194,7 @@ async function adminJsonError(res: Response, fallback: string): Promise<never> {
 }
 
 export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
-  const res = await fetch(api("/admin/users"), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl("/admin/users"), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить пользователей");
   const data = (await res.json()) as Array<{
     id: number;
@@ -327,11 +217,10 @@ export type UpdateUserPayload = {
 };
 
 export async function updateAdminUser(token: string, userId: number, body: UpdateUserPayload): Promise<AdminUserRow> {
-  const res = await fetch(api(`/admin/users/${userId}`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}`), token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
   });
@@ -351,11 +240,10 @@ export async function updateAdminUser(token: string, userId: number, body: Updat
 }
 
 export async function blockAdminUser(token: string, userId: number, reason?: string): Promise<AdminUserRow> {
-  const res = await fetch(api(`/admin/users/${userId}/block`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/block`), token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ reason: reason?.trim() || null }),
   });
@@ -375,9 +263,8 @@ export async function blockAdminUser(token: string, userId: number, reason?: str
 }
 
 export async function unblockAdminUser(token: string, userId: number): Promise<AdminUserRow> {
-  const res = await fetch(api(`/admin/users/${userId}/unblock`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/unblock`), token, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось разблокировать пользователя");
   const raw = (await res.json()) as {
@@ -419,9 +306,7 @@ export type UserAnalytics = {
 };
 
 export async function getAdminUserAnalytics(token: string, userId: number): Promise<UserAnalytics> {
-  const res = await fetch(api(`/admin/users/${userId}/analytics`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/analytics`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить аналитику пользователя");
   return res.json() as Promise<UserAnalytics>;
 }
@@ -452,9 +337,7 @@ export type EntityVersionDetail = {
 };
 
 export async function listEntityVersions(token: string, entityId: number): Promise<EntityVersionListItem[]> {
-  const res = await fetch(api(`/entity/${entityId}/versions`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/versions`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю версий");
   return res.json() as Promise<EntityVersionListItem[]>;
 }
@@ -464,9 +347,7 @@ export async function getEntityVersion(
   entityId: number,
   versionId: number,
 ): Promise<EntityVersionDetail> {
-  const res = await fetch(api(`/entity/${entityId}/versions/${versionId}`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/versions/${versionId}`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить версию");
   return res.json() as Promise<EntityVersionDetail>;
 }
@@ -477,9 +358,8 @@ export async function rollbackEntityVersion(
   versionId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetch(api(`/entity/${entityId}/rollback/${versionId}?type=${entityType}`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/rollback/${versionId}?type=${entityType}`), token, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось откатить версию");
 }
@@ -514,9 +394,7 @@ export async function listEntityHistory(
   entityId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<EntityHistoryListItem[]> {
-  const res = await fetch(api(`/entity/${entityId}/history?type=${entityType}`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history?type=${entityType}`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
   return res.json() as Promise<EntityHistoryListItem[]>;
 }
@@ -528,9 +406,7 @@ export async function getEntityHistoryItem(
   historyId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<EntityHistoryDetail> {
-  const res = await fetch(api(`/entity/${entityId}/history/${historyId}?type=${entityType}`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history/${historyId}?type=${entityType}`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить запись истории");
   return res.json() as Promise<EntityHistoryDetail>;
 }
@@ -542,9 +418,8 @@ export async function deleteEntityHistoryVersion(
   historyId: number,
   entityType: "gpr" | "tender" | "tmc" = "gpr",
 ): Promise<void> {
-  const res = await fetch(api(`/entity/${entityId}/history/${historyId}?type=${entityType}`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}/history/${historyId}?type=${entityType}`), token, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось удалить версию истории");
   if (res.headers.get("content-type")?.includes("application/json")) {
@@ -553,11 +428,10 @@ export async function deleteEntityHistoryVersion(
 }
 
 export async function setAdminUserPassword(token: string, userId: number, password: string): Promise<void> {
-  const res = await fetch(api(`/admin/users/${userId}/password`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}/password`), token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ password: password.trim() }),
   });
@@ -565,9 +439,8 @@ export async function setAdminUserPassword(token: string, userId: number, passwo
 }
 
 export async function deleteAdminUser(token: string, userId: number): Promise<void> {
-  const res = await fetch(api(`/admin/users/${userId}`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/admin/users/${userId}`), token, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) await adminJsonError(res, "Не удалось удалить пользователя");
 }
@@ -605,26 +478,20 @@ export async function listActivityLogs(
     page: String(page),
     page_size: String(pageSize),
   });
-  const res = await fetch(`${api("/admin/logs")}?${q.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(`${buildApiUrl("/admin/logs")}?${q.toString()}`, token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить историю");
   return res.json() as Promise<ActivityLogsPageResponse>;
 }
 
 export async function getRelatedDeviations(token: string, taskId: number): Promise<RelatedDeviationRow[]> {
-  const res = await fetch(api(`/gpr/tasks/${taskId}/related-deviations`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks/${taskId}/related-deviations`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить связанные отклонения");
   return res.json() as Promise<RelatedDeviationRow[]>;
 }
 
 export async function listGprTasksApi(token: string, partId?: number): Promise<GprTaskApiItem[]> {
   const q = partId != null ? `?part_id=${partId}` : "";
-  const res = await fetch(api(`/gpr/tasks${q}`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks${q}`), token, {});
   if (!res.ok) await adminJsonError(res, "Не удалось загрузить задачи ГПР");
   return res.json() as Promise<GprTaskApiItem[]>;
 }
@@ -634,12 +501,10 @@ export async function updateGprTaskApi(
   taskId: number,
   body: GprTaskWritePayload,
 ): Promise<GprTaskApiItem> {
-  console.log("SAVE REQUEST", taskId);
-  const res = await fetch(api(`/gpr/tasks/${taskId}`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks/${taskId}`), token, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
   });
@@ -648,12 +513,10 @@ export async function updateGprTaskApi(
 }
 
 export async function createGprTaskApi(token: string, body: GprTaskWritePayload): Promise<GprTaskApiItem> {
-  console.log("SAVE REQUEST", "create", body.code);
-  const res = await fetch(api(`/gpr/tasks`), {
+  const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks`), token, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
   });
@@ -663,9 +526,7 @@ export async function createGprTaskApi(token: string, body: GprTaskWritePayload)
 
 /** Текущая задача ГПР из БД: `GET /entity/{id}` (алиас семантики «сущность»). */
 export async function getEntityGprTaskApi(token: string, entityId: number): Promise<GprTaskApiItem> {
-  const res = await fetch(api(`/entity/${entityId}`), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchAuthorizedApi(buildApiUrl(`/entity/${entityId}`), token, {});
   if (!res.ok) await adminJsonError(res, "Сущность не найдена или нет доступа");
   return res.json() as Promise<GprTaskApiItem>;
 }

@@ -18,11 +18,18 @@ if (Get-NetTCPConnection -State Listen -LocalPort $backendPort -ErrorAction Sile
     }
 }
 
-# Фронт по умолчанию — dev API на Railway. Локальный API: $env:GORDO_USE_LOCAL_API='1' перед запуском.
+# Локальный FastAPI: $env:GORDO_USE_LOCAL_API='1'
+# Удалённый API без хардкода в скрипте: $env:GORDO_PUBLIC_API_URL или $env:NEXT_PUBLIC_API_URL
 if ($env:GORDO_USE_LOCAL_API -eq "1") {
     Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=http://127.0.0.1:$backendPort`nNEXT_PUBLIC_API_FORCE_LOCAL=1" -Encoding utf8
 } else {
-    Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=https://gordo-platform-dev.up.railway.app" -Encoding utf8
+    $publicApiUrl = $env:GORDO_PUBLIC_API_URL
+    if (-not $publicApiUrl) { $publicApiUrl = $env:NEXT_PUBLIC_API_URL }
+    if ($publicApiUrl) {
+        Set-Content -Path $frontendEnv -Value "NEXT_PUBLIC_API_URL=$publicApiUrl" -Encoding utf8
+    } else {
+        Write-Host "[gordo] Не задан GORDO_PUBLIC_API_URL / NEXT_PUBLIC_API_URL — Next.js возьмёт NEXT_PUBLIC_API_URL из .env.development (если есть)."
+    }
 }
 
 Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location '$backendPath'; uvicorn app.main:app --reload --host 127.0.0.1 --port $backendPort`""
