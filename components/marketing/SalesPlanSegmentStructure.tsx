@@ -299,8 +299,13 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
                 />
                 <div className="relative flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
                   <div className={`min-w-0 text-[11px] uppercase tracking-wide ${vs.label}`}>{c.title}</div>
-                  <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
-                    {numFmt.format(c.count)} шт · {compactRub(c.sum)}
+                  <div className={`mt-1.5 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
+                    <span className="tabular-nums">{numFmt.format(c.count)}</span>
+                    <span className="opacity-70"> шт</span>
+                    <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>
+                      {" · "}
+                    </span>
+                    <span className="tabular-nums">{compactRub(c.sum)}</span>
                   </div>
                   <div className={`mt-1 text-[11px] tabular-nums leading-snug ${vs.sub}`}>
                     Средний чек: <span className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>{rubFmt.format(c.avg)}</span>

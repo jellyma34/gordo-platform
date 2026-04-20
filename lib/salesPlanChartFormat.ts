@@ -12,6 +12,20 @@ export function compactRub(n: number): string {
     : rubFmt.format(n);
 }
 
+/** Короткие подписи на графиках cashflow: «1 млн», «350 млн» (без «₽» в строке). */
+export function formatCompactCashflowRub(n: number): string {
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(Math.round(n));
+  if (abs >= 1_000_000_000) {
+    const b = abs / 1_000_000_000;
+    const s = b % 1 === 0 ? String(Math.round(b)) : b.toFixed(1).replace(/\.0$/, "");
+    return `${sign}${s} млрд`;
+  }
+  if (abs >= 1_000_000) return `${sign}${Math.round(abs / 1_000_000)} млн`;
+  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)} тыс`;
+  return `${sign}${abs}`;
+}
+
 /** Одна строка для подписи на баре баланса структуры: «-2,8% · -56M». */
 export function structureBalanceBarLabelLine(deltaShare: number, deltaRub: number): string {
   const sPct = deltaShare >= 0 ? "+" : "−";
