@@ -39,13 +39,17 @@ function resolvePublicApiUrl(): string {
   if (fromEnv) {
     return fromEnv;
   }
-  if (process.env.NODE_ENV === "development") {
-    return normalizeApiBaseUrl(DEV_FALLBACK_API_URL) || DEV_FALLBACK_API_URL.replace(/\/+$/, "");
+  const fallback =
+    normalizeApiBaseUrl(DEV_FALLBACK_API_URL) || DEV_FALLBACK_API_URL.replace(/\/+$/, "");
+  if (process.env.NODE_ENV !== "development") {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn(
+        "[gordo] NEXT_PUBLIC_API_URL is not set — using dev backend URL for this process. " +
+          "Set NEXT_PUBLIC_API_URL in Railway / .env for the correct API.",
+      );
+    }
   }
-  throw new Error(
-    "NEXT_PUBLIC_API_URL is not set. In Railway → Variables для сервиса фронта задайте, например: " +
-      "NEXT_PUBLIC_API_URL=https://gordo-platform-dev.up.railway.app — затем пересоберите.",
-  );
+  return fallback;
 }
 
 /** Базовый URL API (без завершающего `/`), всегда http(s). */

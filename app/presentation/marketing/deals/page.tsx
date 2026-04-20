@@ -2,6 +2,9 @@ import { Suspense } from "react";
 
 import { MarketingPresentationRouteBody } from "@/components/marketing/MarketingPresentationRouteBody";
 
+/** Нет SSG/prerender: клиентский контент и импорты API не должны выполняться на этапе `next build`. */
+export const dynamic = "force-dynamic";
+
 export default function PresentationMarketingDealsPage() {
   return (
     <Suspense
