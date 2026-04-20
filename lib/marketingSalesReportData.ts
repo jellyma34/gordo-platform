@@ -293,24 +293,16 @@ export const marketingSalesReportMock: SalesReportPayload = {
     escrowFactCumulative: 892_000_000,
     gapAlertThresholdRub: 120_000_000,
     month: [
-      {
-        periodKey: "2026-01",
-        label: "янв. 26",
-        dduCumulative: 390_000_000,
-        escrowCumulative: 360_000_000,
-      },
-      {
-        periodKey: "2026-02",
-        label: "фев. 26",
-        dduCumulative: 800_000_000,
-        escrowCumulative: 720_000_000,
-      },
-      {
-        periodKey: "2026-03",
-        label: "мар. 26",
-        dduCumulative: 1_130_000_000,
-        escrowCumulative: 892_000_000,
-      },
+      { periodKey: "2025-07", label: "июл. 25", dduCumulative: 145_000_000, escrowCumulative: 135_000_000 },
+      { periodKey: "2025-08", label: "авг. 25", dduCumulative: 178_000_000, escrowCumulative: 165_000_000 },
+      { periodKey: "2025-09", label: "сен. 25", dduCumulative: 215_000_000, escrowCumulative: 200_000_000 },
+      { periodKey: "2025-10", label: "окт. 25", dduCumulative: 258_000_000, escrowCumulative: 240_000_000 },
+      { periodKey: "2025-11", label: "ноя. 25", dduCumulative: 305_000_000, escrowCumulative: 280_000_000 },
+      { periodKey: "2025-12", label: "дек. 25", dduCumulative: 355_000_000, escrowCumulative: 320_000_000 },
+      { periodKey: "2026-01", label: "янв. 26", dduCumulative: 390_000_000, escrowCumulative: 360_000_000 },
+      { periodKey: "2026-02", label: "фев. 26", dduCumulative: 800_000_000, escrowCumulative: 720_000_000 },
+      { periodKey: "2026-03", label: "мар. 26", dduCumulative: 1_130_000_000, escrowCumulative: 892_000_000 },
+      { periodKey: "2026-04", label: "апр. 26", dduCumulative: 1_210_000_000, escrowCumulative: 950_000_000 },
     ],
     quarter: [
       {
@@ -330,6 +322,72 @@ export const marketingSalesReportMock: SalesReportPayload = {
   series: {
     month: [
       {
+        periodKey: "2025-07",
+        label: "июл. 25",
+        revenue: {
+          planCumulative: 120_000_000,
+          factCumulative: 105_000_000,
+          forecastCumulative: 112_000_000,
+        },
+        units: { planCumulative: 8, factCumulative: 7, forecastCumulative: 7 },
+        area: { planCumulative: 520, factCumulative: 456, forecastCumulative: 480 },
+      },
+      {
+        periodKey: "2025-08",
+        label: "авг. 25",
+        revenue: {
+          planCumulative: 145_000_000,
+          factCumulative: 128_000_000,
+          forecastCumulative: 136_000_000,
+        },
+        units: { planCumulative: 10, factCumulative: 9, forecastCumulative: 9 },
+        area: { planCumulative: 630, factCumulative: 548, forecastCumulative: 580 },
+      },
+      {
+        periodKey: "2025-09",
+        label: "сен. 25",
+        revenue: {
+          planCumulative: 175_000_000,
+          factCumulative: 155_000_000,
+          forecastCumulative: 164_000_000,
+        },
+        units: { planCumulative: 12, factCumulative: 11, forecastCumulative: 11 },
+        area: { planCumulative: 760, factCumulative: 655, forecastCumulative: 700 },
+      },
+      {
+        periodKey: "2025-10",
+        label: "окт. 25",
+        revenue: {
+          planCumulative: 210_000_000,
+          factCumulative: 185_000_000,
+          forecastCumulative: 196_000_000,
+        },
+        units: { planCumulative: 15, factCumulative: 14, forecastCumulative: 14 },
+        area: { planCumulative: 910, factCumulative: 780, forecastCumulative: 830 },
+      },
+      {
+        periodKey: "2025-11",
+        label: "ноя. 25",
+        revenue: {
+          planCumulative: 250_000_000,
+          factCumulative: 220_000_000,
+          forecastCumulative: 233_000_000,
+        },
+        units: { planCumulative: 18, factCumulative: 17, forecastCumulative: 17 },
+        area: { planCumulative: 1080, factCumulative: 920, forecastCumulative: 980 },
+      },
+      {
+        periodKey: "2025-12",
+        label: "дек. 25",
+        revenue: {
+          planCumulative: 300_000_000,
+          factCumulative: 260_000_000,
+          forecastCumulative: 278_000_000,
+        },
+        units: { planCumulative: 22, factCumulative: 20, forecastCumulative: 21 },
+        area: { planCumulative: 1290, factCumulative: 1080, forecastCumulative: 1160 },
+      },
+      {
         periodKey: "2026-01",
         label: "янв. 26",
         revenue: {
@@ -337,16 +395,8 @@ export const marketingSalesReportMock: SalesReportPayload = {
           factCumulative: 352_000_000,
           forecastCumulative: 365_000_000,
         },
-        units: {
-          planCumulative: 26,
-          factCumulative: 24,
-          forecastCumulative: 25,
-        },
-        area: {
-          planCumulative: 1540,
-          factCumulative: 1428,
-          forecastCumulative: 1480,
-        },
+        units: { planCumulative: 26, factCumulative: 24, forecastCumulative: 25 },
+        area: { planCumulative: 1540, factCumulative: 1428, forecastCumulative: 1480 },
       },
       {
         periodKey: "2026-02",
@@ -356,16 +406,8 @@ export const marketingSalesReportMock: SalesReportPayload = {
           factCumulative: 698_000_000,
           forecastCumulative: 735_000_000,
         },
-        units: {
-          planCumulative: 52,
-          factCumulative: 46,
-          forecastCumulative: 49,
-        },
-        area: {
-          planCumulative: 3080,
-          factCumulative: 2736,
-          forecastCumulative: 2890,
-        },
+        units: { planCumulative: 52, factCumulative: 46, forecastCumulative: 49 },
+        area: { planCumulative: 3080, factCumulative: 2736, forecastCumulative: 2890 },
       },
       {
         periodKey: "2026-03",
@@ -375,16 +417,19 @@ export const marketingSalesReportMock: SalesReportPayload = {
           factCumulative: 1_088_000_000,
           forecastCumulative: 1_175_000_000,
         },
-        units: {
-          planCumulative: 84,
-          factCumulative: 71,
-          forecastCumulative: 77,
+        units: { planCumulative: 84, factCumulative: 71, forecastCumulative: 77 },
+        area: { planCumulative: 4980, factCumulative: 4188, forecastCumulative: 4550 },
+      },
+      {
+        periodKey: "2026-04",
+        label: "апр. 26",
+        revenue: {
+          planCumulative: 1_420_000_000,
+          factCumulative: 1_190_000_000,
+          forecastCumulative: 1_295_000_000,
         },
-        area: {
-          planCumulative: 4980,
-          factCumulative: 4188,
-          forecastCumulative: 4550,
-        },
+        units: { planCumulative: 95, factCumulative: 78, forecastCumulative: 86 },
+        area: { planCumulative: 5520, factCumulative: 4580, forecastCumulative: 4980 },
       },
     ],
     quarter: [

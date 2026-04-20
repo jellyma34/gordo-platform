@@ -22,15 +22,20 @@ const SEGMENT_TITLES: Record<DealSegmentKey, string> = {
   commercial: "Коммерция",
 };
 
-/** Визуальные темы сегментов (как у KPI: градиент, glow, radial). */
+/**
+ * Визуал сегментов = та же база, что KPI (SalesPlanKpiDashboard): тройной градиент,
+ * shadow 14px/36px, inset, radial сверху-слева; без жёсткой рамки — акцент через свечение.
+ */
 type SegmentVisual = {
   card: string;
   glow: string;
   insetGlow: string;
   hoverGlow: string;
   radial: string;
-  border: string;
-  ring: string;
+  /** Мягкий переливающийся слой (linear-gradient + .segment-card-gradient-sheen) */
+  sheen: string;
+  /** Заливка микро-бара доли выручки */
+  barFill: string;
   label: string;
   value: string;
   sub: string;
@@ -39,108 +44,108 @@ type SegmentVisual = {
 
 const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
   apartment: {
-    card: "bg-gradient-to-br from-indigo-900/50 via-slate-900/38 to-slate-950/72",
-    glow: "shadow-[0_14px_38px_rgba(99,102,241,0.28)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_0_40px_rgba(99,102,241,0.14)]",
-    hoverGlow: "hover:shadow-[0_20px_48px_rgba(99,102,241,0.38)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(129,140,248,0.38), transparent 54%)",
-    border: "border-indigo-400/35",
-    ring: "ring-1 ring-indigo-300/15",
-    label: "text-indigo-200/75",
+    card: "bg-gradient-to-br from-indigo-900/42 via-slate-900/38 to-slate-900/60",
+    glow: "shadow-[0_14px_36px_rgba(99,102,241,0.26)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(99,102,241,0.15)]",
+    hoverGlow: "hover:shadow-[0_22px_44px_rgba(99,102,241,0.38)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.28), transparent 52%)",
+    sheen: "linear-gradient(125deg, rgba(129,140,248,0.22) 0%, transparent 42%, rgba(255,255,255,0.04) 100%)",
+    barFill: "rgba(129, 140, 248, 0.92)",
+    label: "text-indigo-300/90",
     value: "text-indigo-50",
-    sub: "text-slate-400",
-    tertiary: "text-slate-500/90",
-  },
-  parking: {
-    card: "bg-gradient-to-br from-violet-900/48 via-slate-900/38 to-slate-950/72",
-    glow: "shadow-[0_14px_38px_rgba(139,92,246,0.26)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_0_40px_rgba(139,92,246,0.13)]",
-    hoverGlow: "hover:shadow-[0_20px_48px_rgba(139,92,246,0.36)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(167,139,250,0.34), transparent 54%)",
-    border: "border-violet-400/32",
-    ring: "ring-1 ring-violet-300/15",
-    label: "text-violet-200/75",
-    value: "text-violet-50",
-    sub: "text-slate-400",
-    tertiary: "text-slate-500/90",
-  },
-  storage: {
-    card: "bg-gradient-to-br from-slate-800/70 via-cyan-950/25 to-slate-950/75",
-    glow: "shadow-[0_14px_38px_rgba(34,211,238,0.14)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_40px_rgba(34,211,238,0.08)]",
-    hoverGlow: "hover:shadow-[0_20px_48px_rgba(34,211,238,0.22)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(103,232,249,0.18), transparent 54%)",
-    border: "border-cyan-500/22",
-    ring: "ring-1 ring-slate-400/15",
-    label: "text-cyan-100/65",
-    value: "text-slate-100",
     sub: "text-slate-400",
     tertiary: "text-slate-500/85",
   },
+  parking: {
+    card: "bg-gradient-to-br from-violet-900/40 via-slate-900/38 to-slate-900/60",
+    glow: "shadow-[0_14px_36px_rgba(139,92,246,0.24)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(167,139,250,0.14)]",
+    hoverGlow: "hover:shadow-[0_22px_44px_rgba(139,92,246,0.36)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.26), transparent 52%)",
+    sheen: "linear-gradient(125deg, rgba(167,139,250,0.2) 0%, transparent 42%, rgba(255,255,255,0.035) 100%)",
+    barFill: "rgba(167, 139, 250, 0.9)",
+    label: "text-violet-300/90",
+    value: "text-violet-50",
+    sub: "text-slate-400",
+    tertiary: "text-slate-500/85",
+  },
+  storage: {
+    card: "bg-gradient-to-br from-slate-800/48 via-slate-900/38 to-slate-900/60",
+    glow: "shadow-[0_14px_36px_rgba(34,211,238,0.16)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(103,232,249,0.08)]",
+    hoverGlow: "hover:shadow-[0_22px_44px_rgba(34,211,238,0.24)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(103,232,249,0.14), transparent 52%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.14) 0%, transparent 45%, rgba(103,232,249,0.08) 100%)",
+    barFill: "rgba(103, 232, 249, 0.55)",
+    label: "text-slate-400",
+    value: "text-slate-100",
+    sub: "text-slate-400",
+    tertiary: "text-slate-500/80",
+  },
   commercial: {
-    card: "bg-gradient-to-br from-orange-950/55 via-slate-900/38 to-slate-950/72",
-    glow: "shadow-[0_14px_38px_rgba(249,115,22,0.24)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_40px_rgba(249,115,22,0.12)]",
-    hoverGlow: "hover:shadow-[0_20px_48px_rgba(249,115,22,0.34)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(251,146,60,0.28), transparent 54%)",
-    border: "border-orange-400/30",
-    ring: "ring-1 ring-orange-300/12",
-    label: "text-orange-200/70",
+    card: "bg-gradient-to-br from-orange-900/40 via-slate-900/38 to-slate-900/60",
+    glow: "shadow-[0_14px_36px_rgba(249,115,22,0.24)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(251,146,60,0.12)]",
+    hoverGlow: "hover:shadow-[0_22px_44px_rgba(249,115,22,0.36)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.26), transparent 52%)",
+    sheen: "linear-gradient(125deg, rgba(251,146,60,0.22) 0%, transparent 40%, rgba(248,113,113,0.08) 100%)",
+    barFill: "rgba(251, 146, 60, 0.95)",
+    label: "text-orange-300/90",
     value: "text-orange-50",
     sub: "text-slate-400",
-    tertiary: "text-slate-500/90",
+    tertiary: "text-slate-500/85",
   },
 };
 
 const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
   apartment: {
-    card: "bg-gradient-to-br from-indigo-50/95 via-white to-indigo-100/65",
-    glow: "shadow-[0_12px_32px_rgba(99,102,241,0.16)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_0_28px_rgba(99,102,241,0.08)]",
-    hoverGlow: "hover:shadow-[0_18px_42px_rgba(99,102,241,0.22)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(129,140,248,0.28), transparent 58%)",
-    border: "border-indigo-200/90",
-    ring: "ring-1 ring-indigo-100/70",
-    label: "text-indigo-700/85",
+    card: "bg-gradient-to-br from-indigo-100/85 via-white to-indigo-50/70",
+    glow: "shadow-[0_12px_30px_rgba(99,102,241,0.18)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(99,102,241,0.10)]",
+    hoverGlow: "hover:shadow-[0_18px_38px_rgba(99,102,241,0.24)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.24), transparent 55%)",
+    sheen: "linear-gradient(125deg, rgba(129,140,248,0.18) 0%, transparent 50%, rgba(255,255,255,0.5) 100%)",
+    barFill: "rgba(79, 70, 229, 0.88)",
+    label: "text-indigo-700/90",
     value: "text-indigo-950",
     sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   parking: {
-    card: "bg-gradient-to-br from-violet-50/95 via-white to-violet-100/60",
-    glow: "shadow-[0_12px_32px_rgba(139,92,246,0.14)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_0_28px_rgba(139,92,246,0.07)]",
-    hoverGlow: "hover:shadow-[0_18px_42px_rgba(139,92,246,0.20)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(167,139,250,0.24), transparent 58%)",
-    border: "border-violet-200/85",
-    ring: "ring-1 ring-violet-100/65",
-    label: "text-violet-800/80",
+    card: "bg-gradient-to-br from-violet-100/85 via-white to-violet-50/70",
+    glow: "shadow-[0_12px_30px_rgba(139,92,246,0.16)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(167,139,250,0.09)]",
+    hoverGlow: "hover:shadow-[0_18px_38px_rgba(139,92,246,0.22)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.22), transparent 55%)",
+    sheen: "linear-gradient(125deg, rgba(167,139,250,0.16) 0%, transparent 50%, rgba(255,255,255,0.45) 100%)",
+    barFill: "rgba(124, 58, 237, 0.82)",
+    label: "text-violet-800/90",
     value: "text-violet-950",
     sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   storage: {
-    card: "bg-gradient-to-br from-slate-50/98 via-white to-cyan-50/50",
-    glow: "shadow-[0_12px_32px_rgba(14,116,144,0.10)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_0_28px_rgba(34,211,238,0.06)]",
-    hoverGlow: "hover:shadow-[0_18px_42px_rgba(14,116,144,0.16)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(34,211,238,0.14), transparent 58%)",
-    border: "border-slate-200/95",
-    ring: "ring-1 ring-cyan-100/50",
+    card: "bg-gradient-to-br from-slate-100/90 via-white to-cyan-50/65",
+    glow: "shadow-[0_12px_30px_rgba(14,116,144,0.12)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(34,211,238,0.07)]",
+    hoverGlow: "hover:shadow-[0_18px_38px_rgba(14,116,144,0.18)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(34,211,238,0.12), transparent 55%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.12) 0%, transparent 50%, rgba(236,254,255,0.6) 100%)",
+    barFill: "rgba(8, 145, 178, 0.65)",
     label: "text-slate-600",
     value: "text-slate-900",
     sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   commercial: {
-    card: "bg-gradient-to-br from-orange-50/95 via-white to-amber-50/65",
-    glow: "shadow-[0_12px_32px_rgba(234,88,12,0.14)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_0_28px_rgba(251,146,60,0.08)]",
-    hoverGlow: "hover:shadow-[0_18px_42px_rgba(234,88,12,0.20)]",
-    radial: "radial-gradient(circle at 18% 14%, rgba(251,146,60,0.22), transparent 58%)",
-    border: "border-orange-200/85",
-    ring: "ring-1 ring-amber-100/60",
-    label: "text-orange-800/80",
+    card: "bg-gradient-to-br from-orange-100/85 via-white to-amber-50/70",
+    glow: "shadow-[0_12px_30px_rgba(234,88,12,0.16)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(251,146,60,0.10)]",
+    hoverGlow: "hover:shadow-[0_18px_38px_rgba(234,88,12,0.22)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.22), transparent 55%)",
+    sheen: "linear-gradient(125deg, rgba(251,146,60,0.16) 0%, transparent 48%, rgba(254,215,170,0.5) 100%)",
+    barFill: "rgba(234, 88, 12, 0.88)",
+    label: "text-orange-800/90",
     value: "text-orange-950",
     sub: "text-slate-600",
     tertiary: "text-slate-500",
@@ -269,25 +274,56 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
       <div className={`${gridClass} items-stretch`}>
         {cards.map((c) => {
           const vs = presentation ? SEGMENT_VISUAL_PRESENTATION[c.key] : SEGMENT_VISUAL_WORK[c.key];
+          const sharePct = Math.min(100, Math.max(0, c.share * 100));
           return (
-            <div key={c.key} className="flex min-h-[12.5rem] h-full flex-col">
+            <div key={c.key} className="flex h-full min-h-0 flex-col">
               <div
-                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border ${vs.border} ${vs.ring} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition duration-200 ease-out will-change-transform hover:z-[1] hover:scale-[1.02]`}
+                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1] hover:-translate-y-0.5`}
               >
-                <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: vs.radial }} />
-                <div className="relative flex h-full flex-1 flex-col justify-between gap-3 p-4 sm:p-[1.125rem]">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.12em] ${vs.label}`}>{c.title}</div>
-                  <div className={`min-h-[3.25rem] text-2xl font-extrabold leading-[1.15] tabular-nums tracking-tight sm:text-[26px] sm:leading-none ${vs.value}`}>
+                <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
+                <div
+                  className={`pointer-events-none absolute inset-0 rounded-xl segment-card-gradient-sheen ${
+                    presentation ? "opacity-[0.38] mix-blend-soft-light" : "opacity-[0.22]"
+                  }`}
+                  style={{ backgroundImage: vs.sheen }}
+                  aria-hidden
+                />
+                <div
+                  className={`pointer-events-none absolute inset-0 rounded-xl mix-blend-overlay ${
+                    presentation ? "opacity-[0.14]" : "opacity-[0.06]"
+                  }`}
+                  style={{
+                    backgroundImage: `repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0px, transparent 1px, transparent 5px)`,
+                  }}
+                  aria-hidden
+                />
+                <div className="relative flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
+                  <div className={`min-w-0 text-[11px] uppercase tracking-wide ${vs.label}`}>{c.title}</div>
+                  <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
                     {numFmt.format(c.count)} шт · {compactRub(c.sum)}
                   </div>
-                  <div
-                    className={`mt-auto space-y-1.5 border-t pt-3 ${presentation ? "border-white/10" : "border-slate-200/90"}`}
-                  >
-                    <div className={`text-[13px] tabular-nums leading-snug ${vs.sub}`}>
-                      Средний чек: <span className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>{rubFmt.format(c.avg)}</span>
+                  <div className={`mt-1 text-[11px] tabular-nums leading-snug ${vs.sub}`}>
+                    Средний чек: <span className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>{rubFmt.format(c.avg)}</span>
+                  </div>
+                  <div className="mt-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide ${vs.tertiary}`}>Доля выручки</span>
+                      <span className={`text-[11px] tabular-nums leading-none ${vs.tertiary}`}>{shareFmt.format(c.share)}</span>
                     </div>
-                    <div className={`text-[11px] tabular-nums leading-snug ${vs.tertiary}`}>
-                      Доля: <span className="font-medium opacity-95">{shareFmt.format(c.share)}</span>
+                    <div
+                      className={`mt-1.5 h-1 w-full overflow-hidden rounded-full ${
+                        presentation ? "bg-white/[0.08] ring-1 ring-white/[0.06]" : "bg-slate-200/90 ring-1 ring-slate-300/50"
+                      }`}
+                    >
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+                          presentation ? "shadow-[0_0_12px_rgba(255,255,255,0.12)]" : ""
+                        }`}
+                        style={{
+                          width: `${sharePct}%`,
+                          backgroundColor: vs.barFill,
+                        }}
+                      />
                     </div>
                   </div>
                 </div>

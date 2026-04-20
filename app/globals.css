@@ -263,3 +263,21 @@ a {
   outline: 2px solid rgba(96, 165, 250, 0.5);
   outline-offset: 3px;
 }
+
+/* «Структура продаж»: мягкий сдвиг градиента поверх карточки (как KPI, но тоньше) */
+@keyframes segment-gradient-sheen {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.segment-card-gradient-sheen {
+  background-size: 200% 200%;
+  animation: segment-gradient-sheen 18s ease-in-out infinite;
+}

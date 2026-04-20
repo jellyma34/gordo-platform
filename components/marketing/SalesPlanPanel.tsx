@@ -27,8 +27,10 @@ import {
   formatSalesPlanAsOfKpiSub,
   type DynamicsKpiInput,
 } from "@/lib/salesPlanDynamicsKpi";
+import { buildCashflowSeries } from "@/lib/buildCashflowSeries";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
+import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 
@@ -657,6 +659,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     deviationCumulative: baseRev.factCumulative - effectiveTotalPlan,
     percentComplete: effectiveTotalPlan > 0 ? (baseRev.factCumulative / effectiveTotalPlan) * 100 : 0,
   };
+
+  const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
+  const cashflowSeriesBase = useMemo(() => buildCashflowSeries(report), [report]);
 
   const categoriesAdjusted = useMemo(
     () =>
@@ -1982,6 +1987,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       </p>
 
       <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} />
+
+      {presentation ? (
+        <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
+      ) : null}
 
       {/* KPI summary */}
       <KpiDashboard mode={presentation ? "presentation" : "work"} items={dynamicsKpiItems} className="mb-7" />
