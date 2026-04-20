@@ -92,9 +92,16 @@ function segmentKpiTitleClass(variant: SegmentKpiVisualVariant): string {
 export type DealRecord = {
   deal_date?: string;
   deal_sum?: string | number;
+  /** Сумма (альтернативные имена в API). */
+  amount?: string | number;
+  budget?: string | number;
   deal_type?: string;
   type?: string;
   dealType?: string;
+  date?: string;
+  created_at?: string;
+  status?: string;
+  client_name?: string;
   house_name?: string;
   project_name?: string;
   object?: string;
@@ -117,10 +124,17 @@ export type DealObjectRef = {
   project_name?: string;
 };
 
+export type DealClientRef = {
+  name?: string;
+};
+
 export type DealExportRow = {
   id?: string | number;
   deal?: DealRecord;
   object?: DealObjectRef;
+  client?: DealClientRef;
+  /** Верхнеуровневый проект, если не задан в object. */
+  project?: string;
 };
 
 /** Сделки по месяцам (ключ YYYY-MM). */
@@ -163,9 +177,26 @@ export type NormalizedDealRow = {
   typeLabel: string;
   /** Вид сделки (ДДУ, бронь и т.д.) — из deal_type / deal_kind, не путать с типом объекта. */
   dealKindLabel: string;
+  /** Проект / объект (из {@link normalizeDeal}, поле project). */
   objectLabel: string;
   managerLabel: string;
   sourceLabel: string;
+  statusLabel: string;
+  clientLabel: string;
+};
+
+/** Результат универсальной нормализации одной строки выгрузки (до агрегаций). */
+export type NormalizedDealFields = {
+  project: string;
+  manager: string;
+  source: string;
+  amount: number;
+  dateStr: string;
+  dateMs: number;
+  monthKey: string;
+  status: string;
+  client: string;
+  dealKind: string;
 };
 
 export type DealMetrics = {
@@ -219,17 +250,103 @@ function pickFirstString(
   return whenEmpty;
 }
 
-/** Подпись объекта для агрегаций и таблиц: `object.name` → `object.project_name` → «Без названия». */
-function pickObjectLabelFromRow(row: DealExportRow): string {
-  const o = row.object;
-  if (o != null && typeof o === "object") {
-    return pickFirstString(o as Record<string, unknown>, ["name", "project_name"], DEALS_LABEL_UNNAMED_OBJECT);
+function firstNonEmptyValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const k of keys) {
+    if (!(k in record)) continue;
+    const v = record[k];
+    if (v != null && String(v).trim() !== "") return v;
   }
-  return DEALS_LABEL_UNNAMED_OBJECT;
+  return null;
+}
+
+/** Приводит дату к YYYY-MM-DD или null. */
+function normalizeDateToYmd(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const head = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+  const t = Date.parse(s);
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function monthKeyFromDate(dateStr: string): string {
   return String(dateStr).trim().slice(0, 7);
+}
+
+function parseDealDateMs(dateStr: string): number {
+  const d = new Date(String(dateStr).trim());
+  const t = d.getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Универсальная нормализация строки выгрузки сделки.
+ * Все агрегации строятся только по полям из этой функции (через {@link extractNormalizedDeals}).
+ */
+export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
+  console.log("[normalizeDeal] row", row);
+
+  const deal = row.deal;
+  if (deal == null || typeof deal !== "object") return null;
+  const d = deal as Record<string, unknown>;
+
+  const project = ((): string => {
+    const o = row.object;
+    if (o != null && typeof o === "object") {
+      const or = o as Record<string, unknown>;
+      const v = firstNonEmptyValue(or, ["name", "project_name"]);
+      if (v != null) return String(v).trim();
+    }
+    const top = (row as Record<string, unknown>).project;
+    if (top != null && String(top).trim() !== "") return String(top).trim();
+    return DEALS_LABEL_UNNAMED_OBJECT;
+  })();
+
+  const manager = pickFirstString(d, ["manager_name", "manager", "responsible"]);
+  const source = pickFirstString(d, ["source", "deal_source", "utm_source"]);
+
+  const amountRaw = firstNonEmptyValue(d, ["amount", "budget", "deal_sum"]);
+  const amount = parseDealSum(amountRaw);
+
+  const dateRaw = firstNonEmptyValue(d, ["date", "created_at", "deal_date"]);
+  const dateStr = normalizeDateToYmd(dateRaw);
+  if (dateStr == null) return null;
+
+  const statusRaw = d.status;
+  const status =
+    statusRaw != null && String(statusRaw).trim() !== ""
+      ? String(statusRaw).trim()
+      : DEALS_LABEL_UNSPECIFIED;
+
+  const client = ((): string => {
+    const cl = row.client;
+    if (cl != null && typeof cl === "object") {
+      const nm = (cl as Record<string, unknown>).name;
+      if (nm != null && String(nm).trim() !== "") return normalizeField(nm, DEALS_LABEL_UNSPECIFIED);
+    }
+    return normalizeField(d.client_name, DEALS_LABEL_UNSPECIFIED);
+  })();
+
+  const dealKind = pickFirstString(d, [...DEAL_KIND_FIELD_KEYS]);
+
+  return {
+    project,
+    manager,
+    source,
+    amount,
+    dateStr,
+    dateMs: parseDealDateMs(dateStr),
+    monthKey: monthKeyFromDate(dateStr),
+    status,
+    client,
+    dealKind,
+  };
 }
 
 /**
@@ -252,49 +369,31 @@ export function resolveObjectSegmentType(obj: DealObjectRef | undefined): Normal
   return "unknown";
 }
 
-function parseDealDateMs(dateStr: string): number {
-  const d = new Date(String(dateStr).trim());
-  const t = d.getTime();
-  return Number.isFinite(t) ? t : 0;
-}
-
 export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   const list: DealExportRow[] = Array.isArray(data) ? data : [];
   const out: NormalizedDealRow[] = [];
 
   for (const item of list) {
     const row = item as DealExportRow;
-    const deal = row.deal;
-    if (deal == null || typeof deal !== "object") continue;
-    console.log(row);
-    const d = deal as DealRecord & Record<string, unknown>;
-    const dealDateRaw = d.deal_date;
-    if (dealDateRaw == null || String(dealDateRaw).trim() === "") continue;
+    const n = normalizeDeal(row);
+    if (n == null) continue;
 
-    const dealDate = String(dealDateRaw).trim().slice(0, 10);
-    const monthKey = monthKeyFromDate(dealDate);
-    const sumRub = parseDealSum(d.deal_sum);
-
-    const rec = d as Record<string, unknown>;
     const normalizedType = resolveObjectSegmentType(row.object);
     const typeLabel = OBJECT_TYPE_LABEL_RU[normalizedType];
-    const dealKindLabel = pickFirstString(rec, [...DEAL_KIND_FIELD_KEYS]);
-
-    const objectLabel = pickObjectLabelFromRow(row);
-    const managerLabel = pickFirstString(d as Record<string, unknown>, ["manager_name", "manager", "responsible"]);
-    const sourceLabel = pickFirstString(d as Record<string, unknown>, ["source", "deal_source", "utm_source"]);
 
     out.push({
-      dealDate,
-      dealDateMs: parseDealDateMs(dealDate),
-      monthKey,
-      sumRub,
+      dealDate: n.dateStr,
+      dealDateMs: n.dateMs,
+      monthKey: n.monthKey,
+      sumRub: n.amount,
       normalizedType,
       typeLabel,
-      dealKindLabel,
-      objectLabel,
-      managerLabel,
-      sourceLabel,
+      dealKindLabel: n.dealKind,
+      objectLabel: n.project,
+      managerLabel: n.manager,
+      sourceLabel: n.source,
+      statusLabel: n.status,
+      clientLabel: n.client,
     });
   }
 
@@ -324,6 +423,7 @@ function flattenDealsInput(data: unknown): DealExportRow[] {
   return [];
 }
 
+/** Агрегаты по уже нормализованным строкам ({@link extractNormalizedDeals} / {@link normalizeDeal}). */
 export function computeDealMetrics(rows: NormalizedDealRow[]): DealMetrics {
   const dealsPerMonth: DealsPerMonthGrouped = {};
   const dealsByType: Record<string, SegmentBucket> = {};
@@ -1040,8 +1140,10 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       <section className={panelClass}>
         <h3 className="text-base font-semibold text-slate-900">Сделки по объектам</h3>
         <p className="text-xs text-slate-500">
-          Агрегат <span className="font-mono">analytics.dealsByProject</span>:{" "}
-          <span className="font-mono">object.name</span>, иначе <span className="font-mono">object.project_name</span>.
+          Агрегат <span className="font-mono">analytics.dealsByProject</span> из{" "}
+          <span className="font-mono">normalizeDeal</span>:{" "}
+          <span className="font-mono">object.name</span> → <span className="font-mono">object.project_name</span> →{" "}
+          <span className="font-mono">project</span>.
         </p>
         <div className={tableWrapClass}>
           <table className={tableClass}>
@@ -1076,8 +1178,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       <section className={panelClass}>
         <h3 className="text-base font-semibold text-slate-900">Сделки по менеджерам</h3>
         <p className="text-xs text-slate-500">
-          <span className="font-mono">analytics.dealsByManager</span>:{" "}
-          <span className="font-mono">deal.manager_name</span>, <span className="font-mono">deal.manager</span>,{" "}
+          <span className="font-mono">normalizeDeal</span> → <span className="font-mono">analytics.dealsByManager</span>:{" "}
+          <span className="font-mono">deal.manager_name</span> → <span className="font-mono">deal.manager</span> →{" "}
           <span className="font-mono">deal.responsible</span>.
         </p>
         <div className={tableWrapClass}>
@@ -1115,8 +1217,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       <section className={panelClass}>
         <h3 className="text-base font-semibold text-slate-900">Сделки по источникам</h3>
         <p className="text-xs text-slate-500">
-          <span className="font-mono">analytics.dealsBySource</span>:{" "}
-          <span className="font-mono">deal.source</span>, <span className="font-mono">deal.deal_source</span>,{" "}
+          <span className="font-mono">normalizeDeal</span> → <span className="font-mono">analytics.dealsBySource</span>:{" "}
+          <span className="font-mono">deal.source</span> → <span className="font-mono">deal.deal_source</span> →{" "}
           <span className="font-mono">deal.utm_source</span>.
         </p>
         <div className={tableWrapClass}>
@@ -1166,6 +1268,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                 <th className="px-3 py-2.5">Объект / ЖК</th>
                 <th className="px-3 py-2.5">Менеджер</th>
                 <th className="px-3 py-2.5">Источник</th>
+                <th className="px-3 py-2.5">Статус</th>
+                <th className="px-3 py-2.5">Клиент</th>
               </tr>
             </thead>
             <tbody>
@@ -1183,11 +1287,13 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                     <td className="px-3 py-2.5 text-slate-800">{r.objectLabel}</td>
                     <td className="px-3 py-2.5 text-slate-800">{r.managerLabel}</td>
                     <td className="px-3 py-2.5 text-slate-800">{r.sourceLabel}</td>
+                    <td className="px-3 py-2.5 text-slate-800">{r.statusLabel}</td>
+                    <td className="px-3 py-2.5 text-slate-800">{r.clientLabel}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-600">
+                  <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-600">
                     {DEALS_TABLE_NO_ROWS}
                   </td>
                 </tr>

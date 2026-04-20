@@ -1,7 +1,7 @@
 {
   "status": "ok",
   "data": [
-    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-01-08", "deal_sum": "4 850 000", "deal_type": "ДДУ", "manager_name": "Иванова А.", "source": "Сайт" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "client": { "name": "Иванов П." }, "deal": { "deal_date": "2026-01-08", "deal_sum": "4 850 000", "deal_type": "ДДУ", "status": "Активна", "manager_name": "Иванова А.", "source": "Сайт" } },
     { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-01-19", "deal_sum": "3 200 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Агентство" } },
     { "object": { "category": "flat", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-01-25", "deal_sum": 6100000, "deal_type": "ДДУ", "manager_name": "Иванова А.", "source": "Сайт" } },
     { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-02-03", "deal_sum": "2 150 000", "deal_type": "Бронь", "manager_name": "Сидорова М.", "source": "Звонок" } },
