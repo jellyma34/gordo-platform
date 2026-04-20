@@ -6,9 +6,22 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
+/** Raw value from env (build-time inlined for `NEXT_PUBLIC_*`). */
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").trim();
+
+let loggedInvalidApiUrl = false;
+
+function logInvalidApiUrlOnce(): void {
+  if (loggedInvalidApiUrl) return;
+  loggedInvalidApiUrl = true;
+  if (typeof console !== "undefined" && console.error) {
+    console.error("[gordo] NEXT_PUBLIC_API_URL is invalid or missing:", API_URL || "(empty)");
+  }
+}
+
 /**
  * База без хвостового `/` и без суффикса `/api`, чтобы не получить `.../api/api/...`
- * при добавлении префикса из getApiPrefix().
+ * при добавлении префикса `/api`.
  */
 function normalizeBaseUrl(raw: string): string {
   let t = raw.trim().replace(/\/+$/, "");
@@ -18,12 +31,38 @@ function normalizeBaseUrl(raw: string): string {
   return t;
 }
 
+function isValidHttpAbsoluteUrl(raw: string): boolean {
+  return /^https?:\/\//i.test(raw.trim());
+}
+
 /**
- * Префикс путей API (как на backend: `/api/auth`, `/api/admin`, …).
- * Пустая строка — без префикса (только для отладки со старым бэкендом без `/api`).
- * По умолчанию: `/api`.
+ * Нормализованный origin (`https://host`), без `/api`. `null`, если переменная не задана или не абсолютный http(s) URL.
+ * Не бросает исключений (в т.ч. на этапе сборки).
  */
-function getApiPrefix(): string {
+export function resolveApiOrigin(): string | null {
+  if (!API_URL || !isValidHttpAbsoluteUrl(API_URL)) {
+    logInvalidApiUrlOnce();
+    return null;
+  }
+  return normalizeBaseUrl(API_URL);
+}
+
+/** Понятное сообщение для UI/throw при попытке запроса без валидного URL. */
+export function getApiConfigurationError(): string | null {
+  if (!API_URL) {
+    return "NEXT_PUBLIC_API_URL не задан. Укажите полный URL бэкенда (https://…) в переменных окружения.";
+  }
+  if (!isValidHttpAbsoluteUrl(API_URL)) {
+    return "NEXT_PUBLIC_API_URL должен быть полным URL (http:// или https://), а не путём вроде /api.";
+  }
+  return null;
+}
+
+/**
+ * Префикс REST после origin. По умолчанию `/api` → итог `{origin}/api/...`.
+ * Пустая строка `NEXT_PUBLIC_API_PREFIX=""` — только для отладки со старым бэкендом.
+ */
+function getApiPathPrefix(): string {
   const raw = process.env.NEXT_PUBLIC_API_PREFIX;
   if (raw === "") {
     return "";
@@ -35,60 +74,24 @@ function getApiPrefix(): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
-/** Зарезервированный origin для сборки, когда `NEXT_PUBLIC_API_URL` не задан (без хардкода окружений). */
-const UNCONFIGURED_API_BASE = "https://unconfigured.invalid";
-
-let getApiUrlConfigWarned = false;
-
-function warnApiUrlConfigOnce(message: string): void {
-  if (getApiUrlConfigWarned) return;
-  getApiUrlConfigWarned = true;
-  if (typeof console !== "undefined" && console.warn) {
-    console.warn(`[gordo] ${message}`);
-  }
-}
-
 /**
- * База бэкенда: `NEXT_PUBLIC_API_URL` (`https://…` / `http://…`).
- * При отсутствии или неверном формате не бросает на этапе `next build` / prerender — логирует и даёт placeholder
- * (опционально переопределение через `NEXT_PUBLIC_API_FALLBACK_BASE` в Railway без правки кода).
+ * База для отображения/совместимости: валидный origin или пустая строка (без подставных URL).
  */
 export function getApiUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_URL;
-  const url = (raw ?? "").trim();
-  const fallback = (process.env.NEXT_PUBLIC_API_FALLBACK_BASE ?? "").trim();
-
-  if (!url) {
-    warnApiUrlConfigOnce(
-      "NEXT_PUBLIC_API_URL is not set. Set the FastAPI origin in Railway. Until then, API base is a placeholder; calls will fail until configured.",
-    );
-    if (fallback && /^https?:\/\//i.test(fallback)) {
-      return fallback;
-    }
-    return UNCONFIGURED_API_BASE;
-  }
-  if (!/^https?:\/\//i.test(url)) {
-    warnApiUrlConfigOnce(
-      "NEXT_PUBLIC_API_URL must be an absolute URL with http:// or https:// (not a path like /api). Using placeholder.",
-    );
-    if (fallback && /^https?:\/\//i.test(fallback)) {
-      return fallback;
-    }
-    return UNCONFIGURED_API_BASE;
-  }
-  if (isApiDebugLoggingEnabled() && typeof console !== "undefined" && console.debug) {
-    console.debug("[gordo API] NEXT_PUBLIC_API_URL (base):", url);
-  }
-  return url;
+  return resolveApiOrigin() ?? "";
 }
 
 /**
- * `{NEXT_PUBLIC_API_URL}/api/...` — всегда абсолютный URL на бэкенд.
- * Путь без повторного `/api`: `buildApiUrl("/admin/users")` → `https://backend.../api/admin/users`.
+ * `{origin}/api/...` — абсолютный URL на бэкенд.
+ * Пример: `buildApiUrl("/admin/users")` → `https://backend.../api/admin/users`.
+ * При невалидном `NEXT_PUBLIC_API_URL` возвращает пустую строку (без исключений, в т.ч. при сборке).
  */
 export function buildApiUrl(path: string): string {
-  const base = normalizeBaseUrl(getApiUrl());
-  const prefix = getApiPrefix();
+  const base = resolveApiOrigin();
+  if (!base) {
+    return "";
+  }
+  const prefix = getApiPathPrefix();
   const p = path.startsWith("/") ? path : `/${path}`;
   const pathPart = `${prefix}${p}`;
   return new URL(pathPart, base.endsWith("/") ? base : `${base}/`).href;
@@ -117,6 +120,8 @@ function redirectToLogin(): void {
 }
 
 export async function fetchPublicApi(path: string, init: RequestInit): Promise<Response> {
+  const cfg = getApiConfigurationError();
+  if (cfg) throw new Error(cfg);
   const url = buildApiUrl(path);
   logApiRequest(url, false, init.method);
   return fetch(url, init);
@@ -127,6 +132,8 @@ export async function fetchAuthorizedApi(
   token: string | null | undefined,
   init: RequestInit = {},
 ): Promise<Response> {
+  const cfg = getApiConfigurationError();
+  if (cfg) throw new Error(cfg);
   const url = buildApiUrl(path);
   const headers = new Headers(init.headers ?? {});
   const hasToken = Boolean(token?.trim());
@@ -150,7 +157,7 @@ export async function fetchAuthorizedApi(
 
 export const apiClient = {
   get baseUrl(): string {
-    return normalizeBaseUrl(getApiUrl());
+    return resolveApiOrigin() ?? "";
   },
   getApiUrl,
   buildUrl: buildApiUrl,
