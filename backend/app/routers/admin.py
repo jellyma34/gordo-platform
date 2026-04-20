@@ -138,7 +138,7 @@ def list_users(
     ]
 
 
-@router.post("/create-user", response_model=CreateUserResponse)
+@router.post("/users", response_model=CreateUserResponse)
 def create_user(
     body: CreateUserRequest,
     actor: User = Depends(require_admin_or_manager),

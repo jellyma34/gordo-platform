@@ -127,7 +127,7 @@ export type CreateUserPayload = {
 };
 
 export async function createUserRequest(token: string, body: CreateUserPayload) {
-  const res = await fetchAuthorizedApi("/admin/create-user", token, {
+  const res = await fetchAuthorizedApi("/admin/users", token, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
