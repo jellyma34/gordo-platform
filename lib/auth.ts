@@ -6,9 +6,9 @@ import type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
 
 export type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
 export {
-  API_URL,
   apiClient,
   AUTH_EXPIRED_EVENT,
+  getApiUrl,
   isApiDebugLoggingEnabled,
   SESSION_EXPIRED_MESSAGE,
 } from "./apiClient";

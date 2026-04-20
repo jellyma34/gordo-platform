@@ -1,22 +1,11 @@
 import { clearAuth } from "./authStorage";
 
-/** Единственный источник base URL — `NEXT_PUBLIC_API_URL` (без хардкода домена в коде). */
-function readApiUrlFromEnv(): string {
-  return (process.env.NEXT_PUBLIC_API_URL ?? "").trim();
-}
-
 export const SESSION_EXPIRED_MESSAGE = "Сессия истекла, выполните повторный вход";
 
 export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-/** Плейсхолдер, если env не задан (запросы не должны уходить на origin фронта). */
-const MISSING_API_PLACEHOLDER = "https://invalid-api-base.gordo.local";
-
-/**
- * Хост dev-сервиса на Railway — только для предупреждения, не используется как base URL.
- */
 const KNOWN_DEV_API_HOST = "gordo-platform-dev.up.railway.app";
 
 function normalizeApiBaseUrl(raw: string | undefined): string {
@@ -40,32 +29,29 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
   }
 }
 
-function resolvePublicApiUrl(): string {
-  return normalizeApiBaseUrl(readApiUrlFromEnv());
-}
-
-/** Базовый URL API из `NEXT_PUBLIC_API_URL`. */
-export const API_URL = resolvePublicApiUrl();
-
-function warnIfDevApiInProduction(): void {
-  if (process.env.NODE_ENV !== "production" || typeof window === "undefined" || !API_URL) return;
-  try {
-    const host = new URL(API_URL).hostname.toLowerCase();
-    if (host === KNOWN_DEV_API_HOST) {
-      console.warn(
-        "[gordo] В production-сборке указан dev-бэкенд. Задайте NEXT_PUBLIC_API_URL на URL бэкенда среды (staging/production).",
-      );
-    }
-  } catch {
-    /* ignore */
+/**
+ * Читает `NEXT_PUBLIC_API_URL` при каждом вызове (не кэшируется в модульной константе).
+ * Примечание: в клиентском бандле Next.js подставляет значения `NEXT_PUBLIC_*` на этапе сборки.
+ */
+export function getApiUrl(): string {
+  const url = process.env.NEXT_PUBLIC_API_URL;
+  if (!url?.trim()) {
+    console.error("API URL not set");
+    return "";
   }
+  return url.trim();
 }
 
-if (typeof window !== "undefined" && API_URL) {
+let clientWarningsDone = false;
+
+function runClientWarningsOnce(base: string): void {
+  if (clientWarningsDone || typeof window === "undefined" || !base) return;
+  clientWarningsDone = true;
+
   const h = window.location.hostname;
   if (h !== "localhost" && h !== "127.0.0.1") {
     try {
-      const u = new URL(API_URL);
+      const u = new URL(base);
       if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
         console.warn(
           "[gordo] API указывает на localhost, а страница открыта с другого хоста. Задайте NEXT_PUBLIC_API_URL на URL бэкенда в интернете.",
@@ -75,17 +61,39 @@ if (typeof window !== "undefined" && API_URL) {
       /* ignore */
     }
   }
-  warnIfDevApiInProduction();
+
+  if (process.env.NODE_ENV === "production") {
+    try {
+      const host = new URL(base).hostname.toLowerCase();
+      if (host === KNOWN_DEV_API_HOST) {
+        console.warn(
+          "[gordo] В production-сборке указан dev-бэкенд. Задайте NEXT_PUBLIC_API_URL на URL бэкенда среды (staging/production).",
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function ensureRequestUrl(url: string): void {
+  if (!url?.trim()) {
+    throw new Error("API URL not set");
+  }
 }
 
 export function buildApiUrl(path: string): string {
-  const p = path.startsWith("/") ? path : `/${path}`;
-  const base = API_URL || MISSING_API_PLACEHOLDER;
-  if (!API_URL && typeof window !== "undefined") {
-    console.error(
-      "[gordo] NEXT_PUBLIC_API_URL не задан. Укажите URL бэкенда в переменных окружения или в .env.development / .env.local.",
-    );
+  const raw = getApiUrl();
+  if (!raw) {
+    return "";
   }
+  const base = normalizeApiBaseUrl(raw);
+  if (!base) {
+    console.error("API URL not set");
+    return "";
+  }
+  runClientWarningsOnce(base);
+  const p = path.startsWith("/") ? path : `/${path}`;
   return `${base.replace(/\/+$/, "")}${p}`;
 }
 
@@ -112,6 +120,7 @@ function redirectToLogin(): void {
 }
 
 export async function fetchPublicApi(url: string, init: RequestInit): Promise<Response> {
+  ensureRequestUrl(url);
   logApiRequest(url, false, init.method);
   return fetch(url, init);
 }
@@ -121,6 +130,7 @@ export async function fetchAuthorizedApi(
   token: string | null | undefined,
   init: RequestInit = {},
 ): Promise<Response> {
+  ensureRequestUrl(url);
   const headers = new Headers(init.headers ?? {});
   const hasToken = Boolean(token?.trim());
   if (hasToken) {
@@ -143,8 +153,11 @@ export async function fetchAuthorizedApi(
 
 export const apiClient = {
   get baseUrl(): string {
-    return API_URL;
+    const raw = getApiUrl();
+    if (!raw) return "";
+    return normalizeApiBaseUrl(raw) || raw;
   },
+  getApiUrl,
   buildUrl: buildApiUrl,
   fetchPublic: fetchPublicApi,
   fetchWithAuth: fetchAuthorizedApi,

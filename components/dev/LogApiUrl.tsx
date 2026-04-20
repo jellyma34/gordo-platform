@@ -2,12 +2,12 @@
 
 import { useEffect } from "react";
 
-import { API_URL } from "@/lib/auth";
+import { getApiUrl } from "@/lib/auth";
 
-/** Один раз при загрузке клиента: какой базовый URL API зашит в сборку. */
+/** Один раз при загрузке клиента: базовый URL API (через getApiUrl на момент вызова). */
 export function LogApiUrl() {
   useEffect(() => {
-    console.log(API_URL);
+    console.log(getApiUrl());
   }, []);
   return null;
 }
