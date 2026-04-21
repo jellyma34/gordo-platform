@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DealsSection } from "@/components/marketing/DealsSection";
 import { InstallmentsSection } from "@/components/marketing/InstallmentsSection";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import {
@@ -348,11 +349,7 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
             key={t.id}
             type="button"
             onClick={() => setWorkMainTab(t.id)}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-              workMainTab === t.id
-                ? "bg-slate-900 text-white shadow"
-                : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-            }`}
+            className={segmentedControlTabClass(workMainTab === t.id, "light")}
           >
             {t.label}
           </button>

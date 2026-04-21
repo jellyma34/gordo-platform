@@ -39,7 +39,6 @@ type SegmentVisual = {
   barFill: string;
   label: string;
   value: string;
-  sub: string;
   tertiary: string;
 };
 
@@ -54,7 +53,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(129, 140, 248, 0.92)",
     label: "text-indigo-300/90",
     value: "text-indigo-50",
-    sub: "text-slate-400",
     tertiary: "text-slate-500/85",
   },
   parking: {
@@ -67,7 +65,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(167, 139, 250, 0.9)",
     label: "text-violet-300/90",
     value: "text-violet-50",
-    sub: "text-slate-400",
     tertiary: "text-slate-500/85",
   },
   storage: {
@@ -80,7 +77,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(103, 232, 249, 0.55)",
     label: "text-slate-400",
     value: "text-slate-100",
-    sub: "text-slate-400",
     tertiary: "text-slate-500/80",
   },
   commercial: {
@@ -93,7 +89,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(251, 146, 60, 0.95)",
     label: "text-orange-300/90",
     value: "text-orange-50",
-    sub: "text-slate-400",
     tertiary: "text-slate-500/85",
   },
 };
@@ -109,7 +104,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(79, 70, 229, 0.88)",
     label: "text-indigo-700/90",
     value: "text-indigo-950",
-    sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   parking: {
@@ -122,7 +116,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(124, 58, 237, 0.82)",
     label: "text-violet-800/90",
     value: "text-violet-950",
-    sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   storage: {
@@ -135,7 +128,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(8, 145, 178, 0.65)",
     label: "text-slate-600",
     value: "text-slate-900",
-    sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
   commercial: {
@@ -148,7 +140,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     barFill: "rgba(234, 88, 12, 0.88)",
     label: "text-orange-800/90",
     value: "text-orange-950",
-    sub: "text-slate-600",
     tertiary: "text-slate-500",
   },
 };
@@ -309,8 +300,17 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
                     </span>
                     <span className="tabular-nums">{compactRub(c.sum)}</span>
                   </div>
-                  <div className={`mt-1 text-[11px] tabular-nums leading-snug ${vs.sub}`}>
-                    Средний чек: <span className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>{rubFmt.format(c.avg)}</span>
+                  <div className="mt-1.5 tabular-nums leading-snug">
+                    <div
+                      className={`text-[12px] leading-tight ${presDark ? "text-slate-300" : "text-[#6B7280]"}`}
+                    >
+                      Средний чек
+                    </div>
+                    <div
+                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                    >
+                      {rubFmt.format(c.avg)}
+                    </div>
                   </div>
                   <div className="mt-2">
                     <div className="flex items-baseline justify-between gap-2">

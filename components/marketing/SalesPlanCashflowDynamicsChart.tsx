@@ -13,6 +13,7 @@ import {
 } from "@/lib/buildCashflowSeries";
 import { formatCashShort, numFmt } from "@/lib/salesPlanChartFormat";
 import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
@@ -216,21 +217,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
     return [min - pad, max + pad];
   }, [chartData, presDark]);
 
-  const toggleClass = (active: boolean) => {
-    if (presDark) {
-      return active
-        ? "border-0 bg-slate-700/80 text-slate-100 ring-1 ring-slate-500/50"
-        : "border-0 text-slate-400 ring-1 ring-slate-600/60 hover:bg-slate-800/80";
-    }
-    if (presentation) {
-      return active
-        ? "border-0 bg-[#2563EB] text-white hover:bg-[#1D4ED8]"
-        : "border border-solid border-[#D1D5DB] bg-transparent text-[#374151] hover:bg-[#1D4ED8] hover:text-white";
-    }
-    return active
-      ? "bg-slate-900 text-white"
-      : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
-  };
+  const segmentSurface = presDark ? "dark" : "light";
 
   if (chartData.length === 0) {
     return (
@@ -270,26 +257,18 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
             План и факт поступлений на эскроу (без сделок). План: из помесячного плана выручки × {CASHFLOW_PLAN_FROM_REVENUE_RATIO}.
           </p>
         </div>
-        <div
-          className={
-            presDark
-              ? "flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ring-slate-600/40"
-              : presentation
-                ? "flex shrink-0 gap-2"
-                : "flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ring-slate-300"
-          }
-        >
+        <div className="flex shrink-0 flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setMode("monthly")}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition ${toggleClass(mode === "monthly")}`}
+            className={segmentedControlTabClass(mode === "monthly", segmentSurface)}
           >
             Помесячно
           </button>
           <button
             type="button"
             onClick={() => setMode("cumulative")}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition ${toggleClass(mode === "cumulative")}`}
+            className={segmentedControlTabClass(mode === "cumulative", segmentSurface)}
           >
             Нарастающим итогом
           </button>

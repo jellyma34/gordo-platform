@@ -12,6 +12,7 @@ import { SalesDealsSection } from "./SalesDealsSection";
 import { SalesPlanPanel, type PlanScenario } from "./SalesPlanPanel";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "./marketingPresentationLightContext";
+import { segmentedControlTabClass, type SegmentedControlSurface } from "./marketingSegmentedControlClasses";
 
 export type MarketingTab = "sales" | "deals" | "installment";
 
@@ -32,50 +33,15 @@ function TabButton({
   active,
   onClick,
   children,
-  presentation,
+  surface,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
-  presentation: boolean;
+  surface: SegmentedControlSurface;
 }) {
-  const mplLight = useMarketingPresentationLight();
-  if (presentation) {
-    if (mplLight) {
-      return (
-        <button
-          type="button"
-          onClick={onClick}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-            active
-              ? "bg-mpl-primary text-white shadow-md ring-1 ring-mpl-primary/30"
-              : "border border-mpl-border bg-mpl-card text-mpl-text hover:bg-slate-50"
-          }`}
-        >
-          {children}
-        </button>
-      );
-    }
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-          active ? "bg-slate-50 text-slate-900 shadow" : "bg-white/5 text-slate-200 hover:bg-white/10"
-        }`}
-      >
-        {children}
-      </button>
-    );
-  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-        active ? "bg-slate-900 text-white shadow" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-      }`}
-    >
+    <button type="button" onClick={onClick} className={segmentedControlTabClass(active, surface)}>
       {children}
     </button>
   );
@@ -135,8 +101,10 @@ export function MarketingWorkspace({
         : "inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
 
   const tabsDivider = presDark
-    ? "mt-4 border-t border-slate-600/40 pt-4"
+    ? "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-600/40 pt-4"
     : "mt-4 flex flex-wrap items-center gap-2 border-t border-mpl-border pt-4";
+
+  const editTabSurface: SegmentedControlSurface = "light";
 
   const filterWell = presDark
     ? "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5"
@@ -164,17 +132,17 @@ export function MarketingWorkspace({
           {presentation ? (
             <MarketingPresentationTabs />
           ) : (
-            <>
-              <TabButton presentation={presentation} active={editTab === "sales"} onClick={() => setEditTab("sales")}>
+            <div className="flex flex-wrap items-center gap-2">
+              <TabButton surface={editTabSurface} active={editTab === "sales"} onClick={() => setEditTab("sales")}>
                 План продаж
               </TabButton>
-              <TabButton presentation={presentation} active={editTab === "deals"} onClick={() => setEditTab("deals")}>
+              <TabButton surface={editTabSurface} active={editTab === "deals"} onClick={() => setEditTab("deals")}>
                 Сделки
               </TabButton>
-              <TabButton presentation={presentation} active={editTab === "installment"} onClick={() => setEditTab("installment")}>
+              <TabButton surface={editTabSurface} active={editTab === "installment"} onClick={() => setEditTab("installment")}>
                 Рассрочка ДДУ
               </TabButton>
-            </>
+            </div>
           )}
           {!presentation ? (
             <Link
