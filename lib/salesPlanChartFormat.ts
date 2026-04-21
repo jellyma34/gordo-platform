@@ -41,6 +41,27 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
   return rubFmt.format(n);
 }
 
+/** Короткие подписи на линиях «Динамика поступлений» (в SVG, без tooltip). */
+export function formatCashShort(value: number): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  if (value === 0) return "0 ₽";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "−" : "";
+  if (abs >= 1_000_000_000) {
+    const b = abs / 1_000_000_000;
+    const s =
+      Math.abs(b - Math.round(b)) < 1e-6 ? String(Math.round(b)) : b.toFixed(1).replace(".", ",");
+    return `${sign}${s} млрд ₽`;
+  }
+  if (abs >= 1_000_000) {
+    const m = abs / 1_000_000;
+    const s =
+      Math.abs(m - Math.round(m)) < 1e-6 ? String(Math.round(m)) : m.toFixed(1).replace(".", ",");
+    return `${sign}${s} млн ₽`;
+  }
+  return `${value.toLocaleString("ru-RU")} ₽`;
+}
+
 /** Одна строка для подписи на баре баланса структуры: «-2,8% · -56M». */
 export function structureBalanceBarLabelLine(deltaShare: number, deltaRub: number): string {
   const sPct = deltaShare >= 0 ? "+" : "−";

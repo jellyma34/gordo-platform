@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
+import { useChartHeight, useChartWidth, usePlotArea, useXAxisScale, useYAxisScale } from "recharts";
 
 import {
   CASHFLOW_PLAN_FROM_REVENUE_RATIO,
@@ -10,7 +11,7 @@ import {
   type CashflowChartRow,
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
-import { formatCashflowDynamicsChartLabel, numFmt } from "@/lib/salesPlanChartFormat";
+import { formatCashShort, numFmt } from "@/lib/salesPlanChartFormat";
 import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -20,7 +21,6 @@ const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: fals
 const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
 const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
 const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const Customized = dynamic(() => import("recharts").then((m) => m.Customized), { ssr: false });
 
 function formatRubLabel(n: number): string {
   return `${numFmt.format(Math.round(n))} ₽`;
@@ -30,12 +30,10 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Базовый отступ подписи от точки (пикс.). */
-const LABEL_OFFSET_FROM_POINT_PX = 14;
-/** Если расстояние между фактом и планом на экране меньше — доп. сдвиг подписей (светлая презентация). */
-const Y_POINT_PROXIMITY_THRESHOLD_PX = 26;
-const PRES_LIGHT_PROXIMITY_EXTRA_PX = 12;
-const PROXIMITY_EXTRA_SCALE = 0.72;
+/** Порог близости двух точек по Y (пикс.): больше отступ подписи от маркера. */
+const LABEL_Y_PROXIMITY_PX = 20;
+const LABEL_OFFSET_FAR_PX = 8;
+const LABEL_OFFSET_NEAR_PX = 16;
 const X_SHIFT_FACT = -4;
 const X_SHIFT_PLAN = 4;
 const CHART_LABEL_FONT_PX = 11;
@@ -88,118 +86,79 @@ function CashflowTooltip({
   );
 }
 
-function resolveCategoryCenterX(
-  xAxis: { scale?: (v: string) => number; bandwidth?: () => number } | undefined,
-  label: string,
-  index: number,
-  offset: { left: number; width: number },
-  n: number,
-): number {
-  if (xAxis?.scale) {
-    try {
-      const pos = xAxis.scale(label);
-      if (typeof pos === "number" && Number.isFinite(pos)) {
-        const bw = typeof xAxis.bandwidth === "function" ? xAxis.bandwidth() : 0;
-        return offset.left + pos + (bw > 0 ? bw / 2 : 0);
-      }
-    } catch {
-      /* fallback */
-    }
-  }
-  return offset.left + ((index + 0.5) / Math.max(1, n)) * offset.width;
-}
+/**
+ * Подписи в координатах SVG (Recharts 3): масштабы из контекста графика.
+ * Раньше использовался Customized + xAxisMap из Recharts 2 — в v3 эти props не приходят, слой был пустым.
+ */
+function CashflowDynamicsSvgLabels({
+  chartData,
+  presDark,
+}: {
+  chartData: CashflowChartRow[];
+  presDark: boolean;
+}) {
+  const xScale = useXAxisScale();
+  const yScale = useYAxisScale();
+  const chartW = useChartWidth();
+  const chartH = useChartHeight();
+  const plot = usePlotArea();
 
-type AxisMapsProps = {
-  xAxisMap?: Record<string, { scale: (v: string) => number; bandwidth?: () => number }>;
-  yAxisMap?: Record<string, { scale: (v: number) => number }>;
-  offset?: { top: number; left: number; width: number; height: number };
-  width?: number;
-  height?: number;
-};
-
-function buildCashflowLabelLayer(chartData: CashflowChartRow[], presDark: boolean) {
   const presLight = !presDark;
   const factFill = presDark ? "#93c5fd" : "#1D4ED8";
   const planFill = presDark ? "#fdba74" : "#EA580C";
+  const fontWeight = presLight ? 400 : 500;
+  const opacity = presLight ? 0.9 : 1;
 
-  return function CashflowValueLabelsLayer(props: AxisMapsProps) {
-    const { xAxisMap, yAxisMap, offset, width: svgWidth, height: svgHeight } = props;
-    if (!offset || !yAxisMap) return null;
-    const yAxis = Object.values(yAxisMap)[0];
-    const xAxis = xAxisMap ? Object.values(xAxisMap)[0] : undefined;
-    if (!yAxis?.scale) return null;
+  if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
+    return null;
+  }
 
-    const n = chartData.length;
-    const plotRight = offset.left + offset.width;
-    const plotBottom = offset.top + offset.height;
-    const innerW = typeof svgWidth === "number" && svgWidth > 0 ? svgWidth : plotRight + 12;
-    const innerH = typeof svgHeight === "number" && svgHeight > 0 ? svgHeight : plotBottom + 12;
-    const padX = 8;
-    const padY = 6;
-    const halfH = APPROX_LABEL_H_PX / 2;
+  const padX = 8;
+  const padY = 6;
+  const halfH = APPROX_LABEL_H_PX / 2;
 
-    return (
-      <g pointerEvents="none">
-        {chartData.map((row, i) => {
-          const cx = resolveCategoryCenterX(xAxis, row.label, i, offset, n);
-          const yFactPt = yAxis.scale(row.fact);
-          const yPlanPt = yAxis.scale(row.plan);
-          if (!Number.isFinite(yFactPt) || !Number.isFinite(yPlanPt)) return null;
+  return (
+    <g pointerEvents="none">
+      {chartData.map((row, i) => {
+        const n = chartData.length;
+        let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
+        if (cx == null && plot && n > 0) {
+          cx = plot.x + ((i + 0.5) / n) * plot.width;
+        }
+        const yFactPt = yScale(row.fact);
+        const yPlanPt = yScale(row.plan);
+        if (cx == null || yFactPt == null || yPlanPt == null) return null;
 
-          const dyPts = Math.abs(yFactPt - yPlanPt);
-          let off = LABEL_OFFSET_FROM_POINT_PX;
-          let proximityBump = 0;
-          if (presLight) {
-            proximityBump = dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX ? PRES_LIGHT_PROXIMITY_EXTRA_PX : 0;
-          } else {
-            const extra =
-              dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX
-                ? (Y_POINT_PROXIMITY_THRESHOLD_PX - dyPts) * PROXIMITY_EXTRA_SCALE
-                : 0;
-            off += extra;
-          }
+        const dyPts = Math.abs(yFactPt - yPlanPt);
+        const offset = dyPts < LABEL_Y_PROXIMITY_PX ? LABEL_OFFSET_NEAR_PX : LABEL_OFFSET_FAR_PX;
 
-          let factY = yFactPt - off - proximityBump;
-          let planY = yPlanPt + off + proximityBump;
+        let factY = yFactPt - offset;
+        let planY = yPlanPt + offset;
 
-          let factX = cx + X_SHIFT_FACT;
-          let planX = cx + X_SHIFT_PLAN;
+        let factX = cx + X_SHIFT_FACT;
+        let planX = cx + X_SHIFT_PLAN;
 
-          const factText = formatCashflowDynamicsChartLabel(row.fact);
-          const planText = formatCashflowDynamicsChartLabel(row.plan);
-          const wf = approxLabelWidthPx(factText, CHART_LABEL_FONT_PX);
-          const wp = approxLabelWidthPx(planText, CHART_LABEL_FONT_PX);
-          const hf = APPROX_LABEL_H_PX;
-          const hp = APPROX_LABEL_H_PX;
+        const factText = formatCashShort(row.fact);
+        const planText = formatCashShort(row.plan);
 
-          let hidePlan = false;
-          if (!presLight && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
-            hidePlan = true;
-          }
+        const wf = approxLabelWidthPx(factText || "0", CHART_LABEL_FONT_PX);
+        const wp = approxLabelWidthPx(planText || "0", CHART_LABEL_FONT_PX);
+        const hf = APPROX_LABEL_H_PX;
+        const hp = APPROX_LABEL_H_PX;
 
-          factX = clamp(factX, padX + wf / 2, innerW - padX - wf / 2);
-          planX = clamp(planX, padX + wp / 2, innerW - padX - wp / 2);
-          factY = clamp(factY, padY + halfH, innerH - padY - halfH);
-          planY = clamp(planY, padY + halfH, innerH - padY - halfH);
+        factX = clamp(factX, padX + wf / 2, chartW - padX - wf / 2);
+        planX = clamp(planX, padX + wp / 2, chartW - padX - wp / 2);
+        factY = clamp(factY, padY + halfH, chartH - padY - halfH);
+        planY = clamp(planY, padY + halfH, chartH - padY - halfH);
 
-          if (
-            !presLight &&
-            !hidePlan &&
-            centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)
-          ) {
-            hidePlan = true;
-          }
+        if (centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+          factY = clamp(yFactPt - offset - 12, padY + halfH, chartH - padY - halfH);
+          planY = clamp(yPlanPt + offset + 12, padY + halfH, chartH - padY - halfH);
+        }
 
-          if (presLight && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
-            factY = clamp(yFactPt - off - proximityBump - 14, padY + halfH, innerH - padY - halfH);
-            planY = clamp(yPlanPt + off + proximityBump + 14, padY + halfH, innerH - padY - halfH);
-          }
-
-          const fontWeight = presLight ? 400 : 500;
-          const opacity = presLight ? 0.9 : 1;
-
-          return (
-            <g key={`${row.periodKey}-${i}`}>
+        return (
+          <g key={`${row.periodKey}-${i}`}>
+            {factText ? (
               <text
                 x={factX}
                 y={factY}
@@ -213,27 +172,27 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], presDark: boolea
               >
                 {factText}
               </text>
-              {!hidePlan ? (
-                <text
-                  x={planX}
-                  y={planY}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={planFill}
-                  fontSize={CHART_LABEL_FONT_PX}
-                  fontWeight={fontWeight}
-                  opacity={opacity}
-                  className="tabular-nums"
-                >
-                  {planText}
-                </text>
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
+            ) : null}
+            {planText ? (
+              <text
+                x={planX}
+                y={planY}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={planFill}
+                fontSize={CHART_LABEL_FONT_PX}
+                fontWeight={fontWeight}
+                opacity={opacity}
+                className="tabular-nums"
+              >
+                {planText}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
 type Props = {
@@ -272,8 +231,6 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
       ? "bg-slate-900 text-white"
       : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
   };
-
-  const labelLayer = useMemo(() => buildCashflowLabelLayer(chartData, presDark), [chartData, presDark]);
 
   if (chartData.length === 0) {
     return (
@@ -383,7 +340,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
               activeDot={{ r: 4.5 }}
               isAnimationActive={false}
             />
-            <Customized component={labelLayer} />
+            <CashflowDynamicsSvgLabels chartData={chartData} presDark={presDark} />
             </LineChart>
           </ResponsiveContainer>
         </div>
