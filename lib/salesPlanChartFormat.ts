@@ -26,7 +26,7 @@ export function formatCompactCashflowRub(n: number): string {
   return `${sign}${abs}`;
 }
 
-/** Подписи на графике «Динамика поступлений»: до 1 знака после запятой (115 млн, 43,4 млн). */
+/** Подписи на графике «Динамика поступлений»: до 1 знака после запятой (115 млн ₽, 43,4 млн ₽); ниже 1 млн — обычный формат валюты. */
 export function formatCashflowDynamicsChartLabel(n: number): string {
   const sign = n < 0 ? "−" : "";
   const abs = Math.abs(n);
@@ -35,10 +35,10 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
     if (Math.abs(r - Math.round(r)) < 1e-9) return String(Math.round(r));
     return r.toFixed(1).replace(".", ",").replace(/,?0$/, "");
   };
-  if (abs >= 1_000_000_000) return `${sign}${fmt1(abs / 1_000_000_000)} млрд`;
-  if (abs >= 1_000_000) return `${sign}${fmt1(abs / 1_000_000)} млн`;
-  if (abs >= 1_000) return `${sign}${numFmt.format(Math.round(abs / 1_000))} тыс`;
-  return `${sign}${numFmt.format(Math.round(abs))}`;
+  if (abs >= 1_000_000_000) return `${sign}${fmt1(abs / 1_000_000_000)} млрд ₽`;
+  if (abs >= 1_000_000) return `${sign}${fmt1(abs / 1_000_000)} млн ₽`;
+  if (abs >= 1_000) return `${sign}${numFmt.format(Math.round(abs / 1_000))} тыс ₽`;
+  return rubFmt.format(n);
 }
 
 /** Одна строка для подписи на баре баланса структуры: «-2,8% · -56M». */

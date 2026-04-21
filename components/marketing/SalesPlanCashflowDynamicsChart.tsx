@@ -30,15 +30,17 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Базовый отступ подписи от точки (пикс.); при близких fact/plan увеличивается. */
+/** Базовый отступ подписи от точки (пикс.). */
 const LABEL_OFFSET_FROM_POINT_PX = 14;
-/** Если расстояние между точками на экране меньше — добавляем вертикальный зазор между подписями. */
+/** Если расстояние между фактом и планом на экране меньше — доп. сдвиг подписей (светлая презентация). */
 const Y_POINT_PROXIMITY_THRESHOLD_PX = 26;
+const PRES_LIGHT_PROXIMITY_EXTRA_PX = 12;
 const PROXIMITY_EXTRA_SCALE = 0.72;
 const X_SHIFT_FACT = -4;
 const X_SHIFT_PLAN = 4;
 const CHART_LABEL_FONT_PX = 11;
 const APPROX_LABEL_H_PX = CHART_LABEL_FONT_PX + 3;
+const CHART_MARGIN_TOP_LIGHT_LABELS = 40;
 
 function approxLabelWidthPx(text: string, fontPx: number): number {
   return Math.max(fontPx * 2, text.length * fontPx * 0.58);
@@ -115,9 +117,10 @@ type AxisMapsProps = {
   height?: number;
 };
 
-function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: boolean) {
-  const factFill = darkChrome ? "#93c5fd" : "#1e40af";
-  const planFill = darkChrome ? "#fdba74" : "#ea580c";
+function buildCashflowLabelLayer(chartData: CashflowChartRow[], presDark: boolean) {
+  const presLight = !presDark;
+  const factFill = presDark ? "#93c5fd" : "#1D4ED8";
+  const planFill = presDark ? "#fdba74" : "#EA580C";
 
   return function CashflowValueLabelsLayer(props: AxisMapsProps) {
     const { xAxisMap, yAxisMap, offset, width: svgWidth, height: svgHeight } = props;
@@ -131,8 +134,8 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
     const plotBottom = offset.top + offset.height;
     const innerW = typeof svgWidth === "number" && svgWidth > 0 ? svgWidth : plotRight + 12;
     const innerH = typeof svgHeight === "number" && svgHeight > 0 ? svgHeight : plotBottom + 12;
-    const padX = 4;
-    const padY = 4;
+    const padX = 8;
+    const padY = 6;
     const halfH = APPROX_LABEL_H_PX / 2;
 
     return (
@@ -144,14 +147,20 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
           if (!Number.isFinite(yFactPt) || !Number.isFinite(yPlanPt)) return null;
 
           const dyPts = Math.abs(yFactPt - yPlanPt);
-          const extra =
-            dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX
-              ? (Y_POINT_PROXIMITY_THRESHOLD_PX - dyPts) * PROXIMITY_EXTRA_SCALE
-              : 0;
-          const off = LABEL_OFFSET_FROM_POINT_PX + extra;
+          let off = LABEL_OFFSET_FROM_POINT_PX;
+          let proximityBump = 0;
+          if (presLight) {
+            proximityBump = dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX ? PRES_LIGHT_PROXIMITY_EXTRA_PX : 0;
+          } else {
+            const extra =
+              dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX
+                ? (Y_POINT_PROXIMITY_THRESHOLD_PX - dyPts) * PROXIMITY_EXTRA_SCALE
+                : 0;
+            off += extra;
+          }
 
-          let factY = yFactPt - off;
-          let planY = yPlanPt + off;
+          let factY = yFactPt - off - proximityBump;
+          let planY = yPlanPt + off + proximityBump;
 
           let factX = cx + X_SHIFT_FACT;
           let planX = cx + X_SHIFT_PLAN;
@@ -164,7 +173,7 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
           const hp = APPROX_LABEL_H_PX;
 
           let hidePlan = false;
-          if (centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+          if (!presLight && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
             hidePlan = true;
           }
 
@@ -173,9 +182,21 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
           factY = clamp(factY, padY + halfH, innerH - padY - halfH);
           planY = clamp(planY, padY + halfH, innerH - padY - halfH);
 
-          if (!hidePlan && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+          if (
+            !presLight &&
+            !hidePlan &&
+            centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)
+          ) {
             hidePlan = true;
           }
+
+          if (presLight && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+            factY = clamp(yFactPt - off - proximityBump - 14, padY + halfH, innerH - padY - halfH);
+            planY = clamp(yPlanPt + off + proximityBump + 14, padY + halfH, innerH - padY - halfH);
+          }
+
+          const fontWeight = presLight ? 400 : 500;
+          const opacity = presLight ? 0.9 : 1;
 
           return (
             <g key={`${row.periodKey}-${i}`}>
@@ -186,7 +207,8 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
                 dominantBaseline="middle"
                 fill={factFill}
                 fontSize={CHART_LABEL_FONT_PX}
-                fontWeight={500}
+                fontWeight={fontWeight}
+                opacity={opacity}
                 className="tabular-nums"
               >
                 {factText}
@@ -199,7 +221,8 @@ function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: bool
                   dominantBaseline="middle"
                   fill={planFill}
                   fontSize={CHART_LABEL_FONT_PX}
-                  fontWeight={500}
+                  fontWeight={fontWeight}
+                  opacity={opacity}
                   className="tabular-nums"
                 >
                   {planText}
@@ -230,22 +253,25 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
     const min = Math.min(...vals);
     const max = Math.max(...vals);
     const span = max - min || Math.max(Math.abs(max), 1) * 0.05;
-    const pad = span * 0.14;
+    const pad = span * (presDark ? 0.14 : 0.2);
     return [min - pad, max + pad];
-  }, [chartData]);
+  }, [chartData, presDark]);
 
-  const toggleClass = (active: boolean) =>
-    presDark
-      ? active
-        ? "bg-slate-700/80 text-slate-100 ring-1 ring-slate-500/50"
-        : "text-slate-400 ring-1 ring-slate-600/60 hover:bg-slate-800/80"
-      : presentation
-        ? active
-          ? "bg-mpl-primary text-white ring-1 ring-mpl-primary/40"
-          : "border border-mpl-border bg-white text-mpl-text hover:bg-slate-50"
-        : active
-          ? "bg-slate-900 text-white"
-          : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
+  const toggleClass = (active: boolean) => {
+    if (presDark) {
+      return active
+        ? "border-0 bg-slate-700/80 text-slate-100 ring-1 ring-slate-500/50"
+        : "border-0 text-slate-400 ring-1 ring-slate-600/60 hover:bg-slate-800/80";
+    }
+    if (presentation) {
+      return active
+        ? "border-0 bg-[#2563EB] text-white hover:bg-[#1D4ED8]"
+        : "border border-solid border-[#D1D5DB] bg-transparent text-[#374151] hover:bg-[#1D4ED8] hover:text-white";
+    }
+    return active
+      ? "bg-slate-900 text-white"
+      : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
+  };
 
   const labelLayer = useMemo(() => buildCashflowLabelLayer(chartData, presDark), [chartData, presDark]);
 
@@ -288,7 +314,13 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
           </p>
         </div>
         <div
-          className={`flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ${presDark ? "ring-slate-600/40" : "ring-mpl-border"}`}
+          className={
+            presDark
+              ? "flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ring-slate-600/40"
+              : presentation
+                ? "flex shrink-0 gap-2"
+                : "flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ring-slate-300"
+          }
         >
           <button
             type="button"
@@ -315,7 +347,10 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
             className="!overflow-visible [&_svg]:overflow-visible"
             style={{ overflow: "visible" }}
           >
-            <LineChart data={chartData} margin={{ top: 30, right: 10, left: 4, bottom: 16 }}>
+            <LineChart
+              data={chartData}
+              margin={{ top: presDark ? 30 : CHART_MARGIN_TOP_LIGHT_LABELS, right: 12, left: 6, bottom: 16 }}
+            >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
             <YAxis
