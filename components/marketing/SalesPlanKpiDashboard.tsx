@@ -6,7 +6,7 @@ import { FormulaVariablesLegend, type FormulaVariableEntry } from "@/components/
 
 export type KpiCardTone = "green" | "yellow" | "red";
 
-export type KpiDashboardMode = "presentation" | "explain" | "work";
+export type KpiDashboardMode = "presentation" | "presentationLight" | "explain" | "work";
 
 export type KpiSignalLabel = "OK" | "Риск" | "Критично";
 
@@ -49,10 +49,10 @@ export type KpiDashboardItem = {
   };
 };
 
-function miniLineColorByTone(tone: KpiCardTone, presentationLike: boolean): string {
-  if (tone === "green") return presentationLike ? "#d1fae5" : "#047857";
-  if (tone === "yellow") return presentationLike ? "#fffbeb" : "#b45309";
-  return presentationLike ? "#ffe4e6" : "#b91c1c";
+function miniLineColorByTone(tone: KpiCardTone, darkSurface: boolean): string {
+  if (tone === "green") return darkSurface ? "#d1fae5" : "#047857";
+  if (tone === "yellow") return darkSurface ? "#fffbeb" : "#b45309";
+  return darkSurface ? "#ffe4e6" : "#b91c1c";
 }
 
 export function KpiDashboard({
@@ -67,56 +67,58 @@ export function KpiDashboard({
   /** Сетка карточек (по умолчанию 4 в ряд на xl; например 5 KPI для «Сделок»). */
   gridClassName?: string;
 }) {
-  const presentationLike = mode === "presentation" || mode === "explain";
+  const presentationLike = mode === "presentation" || mode === "explain" || mode === "presentationLight";
+  /** Тёмные градиенты KPI — только старая тёмная презентация и explain. */
+  const kpiDarkSurface = mode === "presentation" || mode === "explain";
 
   const toneStyles = (tone: KpiCardTone) =>
     tone === "green"
       ? {
-          value: presentationLike ? "text-emerald-300" : "text-emerald-700",
-          miniBar: presentationLike ? "#34d399" : "#10b981",
-          miniLine: presentationLike ? "#d1fae5" : "#047857",
-          glow: presentationLike ? "shadow-[0_14px_36px_rgba(16,185,129,0.26)]" : "shadow-[0_12px_30px_rgba(16,185,129,0.18)]",
-          insetGlow: presentationLike
+          value: kpiDarkSurface ? "text-emerald-300" : "text-emerald-700",
+          miniBar: kpiDarkSurface ? "#34d399" : "#10b981",
+          miniLine: kpiDarkSurface ? "#d1fae5" : "#047857",
+          glow: kpiDarkSurface ? "shadow-[0_14px_36px_rgba(16,185,129,0.26)]" : "shadow-[0_12px_30px_rgba(16,185,129,0.18)]",
+          insetGlow: kpiDarkSurface
             ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(16,185,129,0.15)]"
             : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(16,185,129,0.10)]",
           radial:
-            presentationLike
+            kpiDarkSurface
               ? "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.28), transparent 52%)"
               : "radial-gradient(circle at 18% 15%, rgba(74,222,128,0.24), transparent 55%)",
-          card: presentationLike
+          card: kpiDarkSurface
             ? "bg-gradient-to-br from-emerald-900/42 via-slate-900/38 to-slate-900/60"
             : "bg-gradient-to-br from-emerald-100/85 via-white to-emerald-50/70",
         }
       : tone === "yellow"
         ? {
-            value: presentationLike ? "text-amber-300" : "text-amber-700",
-            miniBar: presentationLike ? "#fbbf24" : "#f59e0b",
-            miniLine: presentationLike ? "#fffbeb" : "#b45309",
-            glow: presentationLike ? "shadow-[0_14px_36px_rgba(245,158,11,0.24)]" : "shadow-[0_12px_30px_rgba(245,158,11,0.16)]",
-            insetGlow: presentationLike
+            value: kpiDarkSurface ? "text-amber-300" : "text-amber-700",
+            miniBar: kpiDarkSurface ? "#fbbf24" : "#f59e0b",
+            miniLine: kpiDarkSurface ? "#fffbeb" : "#b45309",
+            glow: kpiDarkSurface ? "shadow-[0_14px_36px_rgba(245,158,11,0.24)]" : "shadow-[0_12px_30px_rgba(245,158,11,0.16)]",
+            insetGlow: kpiDarkSurface
               ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(245,158,11,0.14)]"
               : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(245,158,11,0.10)]",
             radial:
-              presentationLike
+              kpiDarkSurface
                 ? "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.30), transparent 52%)"
                 : "radial-gradient(circle at 18% 15%, rgba(251,191,36,0.26), transparent 55%)",
-            card: presentationLike
+            card: kpiDarkSurface
               ? "bg-gradient-to-br from-amber-900/40 via-slate-900/38 to-slate-900/60"
               : "bg-gradient-to-br from-amber-100/85 via-white to-amber-50/70",
           }
         : {
-            value: presentationLike ? "text-red-300" : "text-red-700",
-            miniBar: presentationLike ? "#fb7185" : "#ef4444",
-            miniLine: presentationLike ? "#ffe4e6" : "#b91c1c",
-            glow: presentationLike ? "shadow-[0_14px_36px_rgba(239,68,68,0.26)]" : "shadow-[0_12px_30px_rgba(239,68,68,0.16)]",
-            insetGlow: presentationLike
+            value: kpiDarkSurface ? "text-red-300" : "text-red-700",
+            miniBar: kpiDarkSurface ? "#fb7185" : "#ef4444",
+            miniLine: kpiDarkSurface ? "#ffe4e6" : "#b91c1c",
+            glow: kpiDarkSurface ? "shadow-[0_14px_36px_rgba(239,68,68,0.26)]" : "shadow-[0_12px_30px_rgba(239,68,68,0.16)]",
+            insetGlow: kpiDarkSurface
               ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(239,68,68,0.14)]"
               : "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(239,68,68,0.10)]",
             radial:
-              presentationLike
+              kpiDarkSurface
                 ? "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.30), transparent 52%)"
                 : "radial-gradient(circle at 18% 15%, rgba(251,113,133,0.24), transparent 55%)",
-            card: presentationLike
+            card: kpiDarkSurface
               ? "bg-gradient-to-br from-red-900/40 via-slate-900/38 to-slate-900/60"
               : "bg-gradient-to-br from-red-100/85 via-white to-red-50/70",
           };
@@ -189,8 +191,8 @@ export function KpiDashboard({
 
         const baselineStroke =
           kpi.sparkBaselineStroke ??
-          (kpi.key === "month-dev" ? miniLineColorByTone(kpi.surfaceTone ?? kpi.tone, presentationLike) : undefined) ??
-          (presentationLike ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.45)");
+          (kpi.key === "month-dev" ? miniLineColorByTone(kpi.surfaceTone ?? kpi.tone, kpiDarkSurface) : undefined) ??
+          (kpiDarkSurface ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.45)");
 
         return (
           <div key={kpi.key} className="flex flex-col">
@@ -203,17 +205,23 @@ export function KpiDashboard({
               ) : null}
               <div className="relative p-3 sm:p-3.5">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className={`min-w-0 text-[11px] uppercase tracking-wide ${presentationLike ? "text-slate-400" : "text-slate-500"}`}>
+                  <div className={`min-w-0 text-[11px] uppercase tracking-wide ${kpiDarkSurface ? "text-slate-400" : "text-slate-500"}`}>
                     {kpi.title}
                   </div>
-                  {mode === "presentation" && kpi.signalLabel ? (
+                  {(mode === "presentation" || mode === "presentationLight") && kpi.signalLabel ? (
                     <span
                       className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                         kpi.signalLabel === "OK"
-                          ? "bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/35"
+                          ? mode === "presentationLight"
+                            ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200"
+                            : "bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/35"
                           : kpi.signalLabel === "Риск"
-                            ? "bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/35"
-                            : "bg-rose-500/25 text-rose-100 ring-1 ring-rose-400/40"
+                            ? mode === "presentationLight"
+                              ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200"
+                              : "bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/35"
+                            : mode === "presentationLight"
+                              ? "bg-rose-100 text-rose-800 ring-1 ring-rose-200"
+                              : "bg-rose-500/25 text-rose-100 ring-1 ring-rose-400/40"
                       }`}
                     >
                       {kpi.signalLabel}
@@ -348,12 +356,12 @@ export function KpiDashboard({
                     </svg>
                   </div>
                 ) : null}
-                <div className={`mt-1 text-[11px] ${presentationLike ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
+                <div className={`mt-1 text-[11px] ${kpiDarkSurface ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
                 <p
-                  className={`mt-2 text-[12px] leading-tight ${presentationLike ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" ? "line-clamp-4" : "line-clamp-2"}`}
+                  className={`mt-2 text-[12px] leading-tight ${kpiDarkSurface ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" || mode === "presentationLight" ? "line-clamp-4" : "line-clamp-2"}`}
                   style={{
                     display: "-webkit-box",
-                    WebkitLineClamp: mode === "presentation" ? 4 : 2,
+                    WebkitLineClamp: mode === "presentation" || mode === "presentationLight" ? 4 : 2,
                     WebkitBoxOrient: "vertical",
                     overflow: "hidden",
                   }}
@@ -364,20 +372,26 @@ export function KpiDashboard({
               {mode !== "explain" ? (
                 <div
                   className={`pointer-events-none absolute left-2 right-2 top-[calc(100%+8px)] z-20 rounded-xl px-3 py-3 opacity-0 backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 sm:left-auto sm:right-0 sm:w-[320px] ${
-                    presentationLike
-                      ? "border border-slate-500/45 bg-[#0b1220]/90 text-slate-200 shadow-[0_16px_40px_rgba(15,23,42,0.65)]"
-                      : "border border-slate-200/80 bg-slate-900/92 text-slate-100 shadow-[0_14px_34px_rgba(15,23,42,0.28)]"
+                    mode === "presentationLight"
+                      ? "border border-mpl-border bg-mpl-card text-mpl-text shadow-xl"
+                      : kpiDarkSurface
+                        ? "border border-slate-500/45 bg-[#0b1220]/90 text-slate-200 shadow-[0_16px_40px_rgba(15,23,42,0.65)]"
+                        : "border border-slate-200/80 bg-slate-900/92 text-slate-100 shadow-[0_14px_34px_rgba(15,23,42,0.28)]"
                   }`}
                 >
                   <div className="text-[12px] font-semibold leading-tight">{kpi.title}</div>
-                  <div className="mt-1 text-[12px] leading-snug text-slate-300">{kpi.tooltip.metricMeaning}</div>
+                  <div
+                    className={`mt-1 text-[12px] leading-snug ${mode === "presentationLight" ? "text-mpl-muted" : "text-slate-300"}`}
+                  >
+                    {kpi.tooltip.metricMeaning}
+                  </div>
                   {mode === "work" ? (
                     <>
                       <div className="mt-1 text-[11px] leading-snug text-slate-400">{kpi.tooltip.formula}</div>
                       <FormulaVariablesLegend
                         variables={kpi.tooltip.variables}
                         sigmaNote={kpi.tooltip.sigmaNote}
-                        presentation={presentationLike}
+                        presentation={kpiDarkSurface}
                       />
                       <div className="mt-2 space-y-1 text-[11px] leading-snug text-slate-300">
                         <div>

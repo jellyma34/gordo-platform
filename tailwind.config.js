@@ -6,7 +6,20 @@ module.exports = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}"
   ],
   theme: {
-    extend: {}
+    extend: {
+      colors: {
+        mpl: {
+          page: "var(--mpl-page-bg)",
+          card: "var(--mpl-card-bg)",
+          border: "var(--mpl-border)",
+          text: "var(--mpl-text)",
+          muted: "var(--mpl-text-muted)",
+          primary: "var(--mpl-primary)",
+          "primary-blue": "var(--mpl-primary-blue)",
+          chart: "var(--mpl-chart-surface)"
+        }
+      }
+    }
   },
   plugins: []
 };

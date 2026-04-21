@@ -14,7 +14,7 @@ import {
 } from "@/lib/salesPlanVelocityChartData";
 
 import { FormulaVariablesLegend, type FormulaVariableEntry } from "./FormulaVariablesLegend";
-import { chartPresentationLike, type SalesPlanChartMode } from "./types";
+import { chartPresentationLike, chartUsesDarkVisual, type SalesPlanChartMode } from "./types";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
@@ -363,9 +363,10 @@ export function SalesTempoChart({
 }: SalesTempoChartProps) {
   const uid = useId().replace(/:/g, "");
   const presentation = chartPresentationLike(mode);
-  const presentationTooltipUx = mode === "presentation";
-  const axisColor = presentation ? "#94a3b8" : "#64748b";
-  const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
+  const darkChrome = chartUsesDarkVisual(mode);
+  const presentationTooltipUx = mode === "presentation" || mode === "presentationLight";
+  const axisColor = darkChrome ? "#94a3b8" : "#64748b";
+  const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const yTickDeals = (v: number) => numFmt.format(v);
 
   const chartData = useMemo(() => buildSalesTempoChartData(lineData), [lineData]);
@@ -472,27 +473,27 @@ export function SalesTempoChart({
   return (
     <div ref={rootRef} className={className}>
       <div className="mb-2">
-        <h3 className={`text-sm font-semibold sm:text-base ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+        <h3 className={`text-sm font-semibold sm:text-base ${darkChrome ? "text-slate-100" : "text-slate-900"}`}>
           Факт vs план по месяцам
         </h3>
       </div>
 
       {tempoTotals.totalGap < 0 ? (
-        <div className={`mb-2 text-sm font-semibold tabular-nums ${presentation ? "text-rose-200" : "text-rose-800"}`}>
+        <div className={`mb-2 text-sm font-semibold tabular-nums ${darkChrome ? "text-rose-200" : "text-rose-800"}`}>
           🔴 Недобор: −{numFmt.format(Math.abs(Math.round(tempoTotals.totalGap)))} сделок
         </div>
       ) : null}
       <div
         className={`mb-3 text-center text-xs font-semibold tabular-nums ${
           tempoTotals.totalGap < 0
-            ? presentation
+            ? darkChrome
               ? "text-rose-300"
               : "text-rose-700"
             : tempoTotals.totalGap > 0
-              ? presentation
+              ? darkChrome
                 ? "text-emerald-300"
                 : "text-emerald-700"
-              : presentation
+              : darkChrome
                 ? "text-slate-400"
                 : "text-slate-600"
         }`}
@@ -507,13 +508,13 @@ export function SalesTempoChart({
             <div
               aria-hidden
               className={
-                presentation
+                darkChrome
                   ? "pointer-events-none absolute inset-0 z-0 rounded-lg bg-[radial-gradient(circle_at_50%_62%,rgba(250,204,21,0.14)_0%,rgba(250,204,21,0.04)_38%,rgba(15,23,42,0)_74%)]"
                   : "pointer-events-none absolute inset-0 z-0 rounded-lg bg-[radial-gradient(circle_at_50%_62%,rgba(250,204,21,0.1)_0%,rgba(250,204,21,0.03)_36%,rgba(255,255,255,0)_72%)]"
               }
             />
             {presentationTooltipUx && hoverTickIndex != null && chartData[hoverTickIndex] ? (
-              <SalesTempoPresentationHoverStrip row={chartData[hoverTickIndex]!} presentation={presentation} />
+              <SalesTempoPresentationHoverStrip row={chartData[hoverTickIndex]!} presentation={darkChrome} />
             ) : null}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
@@ -575,7 +576,7 @@ export function SalesTempoChart({
                 {presentationTooltipUx ? (
                   <Tooltip
                     content={() => null}
-                    cursor={{ fill: presentation ? "rgba(148,163,184,0.07)" : "rgba(100,116,139,0.08)" }}
+                    cursor={{ fill: darkChrome ? "rgba(148,163,184,0.07)" : "rgba(100,116,139,0.08)" }}
                     wrapperStyle={{ display: "none", pointerEvents: "none" }}
                   />
                 ) : (
@@ -589,7 +590,7 @@ export function SalesTempoChart({
                           active={active}
                           payload={payload}
                           label={label != null ? String(label) : undefined}
-                          presentation={presentation}
+                          presentation={darkChrome}
                           mode={mode}
                           blockExplain={blockExplain}
                         />
@@ -600,8 +601,8 @@ export function SalesTempoChart({
                 <Bar
                   dataKey="plan"
                   name="План"
-                  fill={presentation ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
-                  stroke={presentation ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
+                  fill={darkChrome ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
+                  stroke={darkChrome ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
                   strokeWidth={0.9}
                   maxBarSize={36}
                   radius={[8, 8, 2, 2]}
@@ -615,8 +616,8 @@ export function SalesTempoChart({
                         return (
                           <Cell
                             key={`plan-${entry.periodKey}`}
-                            fill={presentation ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
-                            stroke={sel ? "#7dd3fc" : presentation ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
+                            fill={darkChrome ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
+                            stroke={sel ? "#7dd3fc" : darkChrome ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
                             strokeWidth={sel ? 2.4 : 0.9}
                           />
                         );
@@ -629,9 +630,9 @@ export function SalesTempoChart({
                           return (
                             <Cell
                               key={`plan-${entry.periodKey}`}
-                              fill={presentation ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
+                              fill={darkChrome ? "rgba(255,255,255,0.38)" : "rgba(71,85,105,0.38)"}
                               fillOpacity={on ? 1 : 0.28}
-                              stroke={glow ? (presentation ? "#e2e8f0" : "#475569") : presentation ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
+                              stroke={glow ? (darkChrome ? "#e2e8f0" : "#475569") : darkChrome ? "rgba(255,255,255,0.22)" : "rgba(100,116,139,0.4)"}
                               strokeWidth={glow ? 2.2 : 0.9}
                             />
                           );
@@ -667,10 +668,10 @@ export function SalesTempoChart({
                             : glow
                               ? "#38bdf8"
                               : isWorst
-                                ? presentation
+                                ? darkChrome
                                   ? "#fda4af"
                                   : "#e11d48"
-                                : presentation
+                                : darkChrome
                                   ? "rgba(255,255,255,0.35)"
                                   : "rgba(248,250,252,0.65)"
                         }
@@ -701,7 +702,7 @@ export function SalesTempoChart({
                       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w)) return null;
                       const cx = x + w / 2;
                       const cy = y - 6;
-                      const fill = d >= 0 ? (presentation ? "#86efac" : "#166534") : presentation ? "#fda4af" : "#be123c";
+                      const fill = d >= 0 ? (darkChrome ? "#86efac" : "#166534") : darkChrome ? "#fda4af" : "#be123c";
                       return (
                         <text x={cx} y={cy} textAnchor="middle" fill={fill} fontSize={9} className="font-semibold tabular-nums">
                           {text}
@@ -718,11 +719,11 @@ export function SalesTempoChart({
         {presentationTooltipUx ? (
           <aside className="w-full shrink-0 xl:sticky xl:top-2 xl:w-[min(280px,34%)] xl:max-w-[280px]" aria-label="Подробности по выбранной точке">
             {selectedPoint != null && chartData[selectedPoint] ? (
-              <SalesTempoPresentationDetailPanel row={chartData[selectedPoint]!} presentation={presentation} />
+              <SalesTempoPresentationDetailPanel row={chartData[selectedPoint]!} presentation={darkChrome} />
             ) : (
               <div
                 className={
-                  presentation
+                  darkChrome
                     ? "rounded-lg border border-cyan-500/20 bg-[#0f172a]/55 p-3 text-[10px] leading-snug text-slate-400"
                     : "rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] leading-snug text-slate-600"
                 }
@@ -734,42 +735,42 @@ export function SalesTempoChart({
         ) : null}
       </div>
 
-      <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+      <p className={`mt-2 text-[10px] leading-snug ${darkChrome ? "text-slate-500" : "text-slate-500"}`}>
         Run rate сглаживает значения. Нарастающий итог отклонения — в графике справа.
       </p>
 
       <div
         className={`mt-2 text-left text-[11px] leading-snug ${
-          presentation ? "text-slate-300" : "text-slate-700"
+          darkChrome ? "text-slate-300" : "text-slate-700"
         }`}
       >
         {tempoTotals.totalGap < 0 ? (
           <>
-            <div className={`mt-2 font-medium ${presentation ? "text-slate-200" : "text-slate-800"}`}>Основной вклад:</div>
+            <div className={`mt-2 font-medium ${darkChrome ? "text-slate-200" : "text-slate-800"}`}>Основной вклад:</div>
             {shortfallBreakdown.items.length > 0 ? (
               <div className="mt-1.5 space-y-2.5">
                 {shortfallBreakdown.items.map((m, idx) => (
                   <div
                     key={m.periodKey}
                     className={`rounded-md border px-2 py-1.5 ${
-                      presentation ? "border-slate-600/40 bg-slate-950/30" : "border-slate-200 bg-slate-50/80"
+                      darkChrome ? "border-slate-600/40 bg-slate-950/30" : "border-slate-200 bg-slate-50/80"
                     } ${idx > 0 ? "mt-1" : ""}`}
                   >
-                    <div className={`font-medium ${presentation ? "text-slate-100" : "text-slate-900"}`}>{m.label.toLowerCase()}:</div>
+                    <div className={`font-medium ${darkChrome ? "text-slate-100" : "text-slate-900"}`}>{m.label.toLowerCase()}:</div>
                     <div className="tabular-nums">
                       −{numFmt.format(Math.abs(Math.round(m.delta)))} сделок ({m.contributionPct}%)
                     </div>
                     <div
                       className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wide ${
-                        presentation ? "text-slate-400" : "text-slate-500"
+                        darkChrome ? "text-slate-400" : "text-slate-500"
                       }`}
                     >
                       Причина (гипотеза):
                     </div>
-                    <div className={`text-[10px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>Причина:</div>
+                    <div className={`text-[10px] ${darkChrome ? "text-slate-400" : "text-slate-600"}`}>Причина:</div>
                     <ul
                       className={`mt-0.5 list-inside list-disc space-y-0.5 pl-0.5 text-[10px] ${
-                        presentation ? "text-slate-300" : "text-slate-700"
+                        darkChrome ? "text-slate-300" : "text-slate-700"
                       }`}
                     >
                       {FUNNEL_HYPOTHESIS_PLACEHOLDERS.map((line) => (
@@ -781,30 +782,30 @@ export function SalesTempoChart({
               </div>
             ) : null}
             {shortfallBreakdown.showRemainder ? (
-              <div className={`mt-1.5 tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              <div className={`mt-1.5 tabular-nums ${darkChrome ? "text-slate-300" : "text-slate-700"}`}>
                 прочее: {shortfallBreakdown.remainderPct}%
               </div>
             ) : null}
-            <p className={`mt-2 text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+            <p className={`mt-2 text-[10px] leading-snug ${darkChrome ? "text-slate-500" : "text-slate-500"}`}>
               Причина требует данных воронки (leads, conversion, availability)
             </p>
           </>
         ) : (
-          <div className={`mt-2 ${presentation ? "text-emerald-300/95" : "text-emerald-800"}`}>
+          <div className={`mt-2 ${darkChrome ? "text-emerald-300/95" : "text-emerald-800"}`}>
             🟢 Отклонений нет, план выполняется
           </div>
         )}
       </div>
 
       {showVelocityFooter ? (
-        <div className={`flex h-[18px] items-center justify-center gap-x-3 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+        <div className={`flex h-[18px] items-center justify-center gap-x-3 text-[10px] font-medium leading-tight ${darkChrome ? "text-slate-400" : "text-slate-600"}`}>
           <span className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${presentation ? "bg-slate-300" : "bg-slate-500"}`} />
+            <span className={`h-2 w-2 rounded-full ${darkChrome ? "bg-slate-300" : "bg-slate-500"}`} />
             <span>Факт</span>
           </span>
           <span aria-hidden>—</span>
           <span className="tabular-nums">{velocityCompletionPct}%</span>
-          <span className={`font-semibold tabular-nums ${presentation ? "text-amber-200" : "text-amber-700"}`}>
+          <span className={`font-semibold tabular-nums ${darkChrome ? "text-amber-200" : "text-amber-700"}`}>
             {dec1Fmt.format(actualPerMonth)} сделок
           </span>
         </div>
@@ -829,8 +830,9 @@ export function SalesTempoCumulativeChart({
 }: SalesTempoCumulativeChartProps) {
   const uid = useId().replace(/:/g, "");
   const presentation = chartPresentationLike(mode);
-  const axisColor = presentation ? "#94a3b8" : "#64748b";
-  const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
+  const darkChrome = chartUsesDarkVisual(mode);
+  const axisColor = darkChrome ? "#94a3b8" : "#64748b";
+  const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const yTickDeals = (v: number) => numFmt.format(v);
   const chartData = useMemo(() => buildSalesTempoChartData(lineData), [lineData]);
   const expandedData = useMemo(() => buildCumulativeExpandedRows(chartData), [chartData]);
@@ -853,8 +855,8 @@ export function SalesTempoCumulativeChart({
     lastCum < 0 &&
     lastCum < firstCum;
 
-  const lineStroke = presentation ? "#fb7185" : "#e11d48";
-  const lineFill = presentation ? "#fb7185" : "#e11d48";
+  const lineStroke = darkChrome ? "#fb7185" : "#e11d48";
+  const lineFill = darkChrome ? "#fb7185" : "#e11d48";
   const xTicks = useMemo(() => chartData.map((_, i) => i), [chartData]);
   const xDomainMax = useMemo(() => {
     if (expandedData.length === 0) return 0;
@@ -867,7 +869,7 @@ export function SalesTempoCumulativeChart({
         <div
           aria-hidden
           className={
-            presentation
+            darkChrome
               ? "pointer-events-none absolute inset-0 z-0 rounded-lg bg-[radial-gradient(circle_at_50%_40%,rgba(251,113,133,0.12)_0%,rgba(251,113,133,0.04)_40%,rgba(15,23,42,0)_72%)]"
               : "pointer-events-none absolute inset-0 z-0 rounded-lg bg-[radial-gradient(circle_at_50%_40%,rgba(225,29,72,0.08)_0%,rgba(225,29,72,0.03)_38%,rgba(255,255,255,0)_70%)]"
           }
@@ -898,8 +900,8 @@ export function SalesTempoCumulativeChart({
             />
             <defs>
               <linearGradient id={`${uid}-areaBelowZero`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={presentation ? "#fb7185" : "#e11d48"} stopOpacity={0.58} />
-                <stop offset="38%" stopColor={presentation ? "#f43f5e" : "#be123c"} stopOpacity={0.34} />
+                <stop offset="0%" stopColor={darkChrome ? "#fb7185" : "#e11d48"} stopOpacity={0.58} />
+                <stop offset="38%" stopColor={darkChrome ? "#f43f5e" : "#be123c"} stopOpacity={0.34} />
                 <stop offset="100%" stopColor="#881337" stopOpacity={0.1} />
               </linearGradient>
               <filter id={`${uid}-cumulativeGlow`} x="-50%" y="-50%" width="200%" height="200%">
@@ -925,7 +927,7 @@ export function SalesTempoCumulativeChart({
             <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} width={44} tickFormatter={yTickDeals} />
             <ReferenceLine
               y={0}
-              stroke={presentation ? "#e2e8f0" : "#334155"}
+              stroke={darkChrome ? "#e2e8f0" : "#334155"}
               strokeWidth={2.25}
               strokeDasharray="10 7"
               label={{
@@ -952,14 +954,14 @@ export function SalesTempoCumulativeChart({
                 if (!active || !payload?.length) return null;
                 const row = payload[0]?.payload as SalesTempoCumulativeChartRow | undefined;
                 if (!row) return null;
-                const shell = presentation
+                const shell = darkChrome
                   ? "rounded-md border border-slate-600/50 bg-[#0f172a]/95 px-2.5 py-1.5 text-[11px] text-slate-200 shadow-md"
                   : "rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-800 shadow-md";
                 const title = row.isSynthetic ? "Пересечение плана" : row.label;
                 return (
                   <div className={shell}>
                     <div className="font-semibold">{title}</div>
-                    <div className={`mt-0.5 tabular-nums ${presentation ? "text-slate-400" : "text-slate-500"}`}>
+                    <div className={`mt-0.5 tabular-nums ${darkChrome ? "text-slate-400" : "text-slate-500"}`}>
                       Кумулятив: {row.cumulativeGapRunning >= 0 ? "+" : "−"}
                       {numFmt.format(Math.abs(Math.round(row.cumulativeGapRunning)))}
                     </div>
@@ -972,7 +974,7 @@ export function SalesTempoCumulativeChart({
               dataKey="cumulativeGapRunning"
               name="Нарастающий разрыв"
               stroke={lineStroke}
-              strokeWidth={presentation ? 4.25 : 4}
+              strokeWidth={darkChrome ? 4.25 : 4}
               strokeLinecap="round"
               strokeLinejoin="round"
               isAnimationActive={false}
@@ -987,12 +989,12 @@ export function SalesTempoCumulativeChart({
                   const label = `${v >= 0 ? "+" : "−"}${numFmt.format(Math.abs(v))} сделок`;
                   return (
                     <g style={{ filter: `url(#${uid}-cumulativeGlow)` }}>
-                      <circle cx={cx} cy={cy} r={16} fill={lineFill} stroke={presentation ? "#0f172a" : "#fff"} strokeWidth={3} />
+                      <circle cx={cx} cy={cy} r={16} fill={lineFill} stroke={darkChrome ? "#0f172a" : "#fff"} strokeWidth={3} />
                       <text
                         x={cx}
                         y={cy - 22}
                         textAnchor="middle"
-                        fill={presentation ? "#fecdd3" : "#9f1239"}
+                        fill={darkChrome ? "#fecdd3" : "#9f1239"}
                         fontSize={12}
                         className="font-bold tabular-nums"
                       >
@@ -1001,9 +1003,9 @@ export function SalesTempoCumulativeChart({
                     </g>
                   );
                 }
-                return <circle cx={cx} cy={cy} r={3.5} fill={lineFill} stroke={presentation ? "rgba(15,23,42,0.9)" : "#fff"} strokeWidth={1} />;
+                return <circle cx={cx} cy={cy} r={3.5} fill={lineFill} stroke={darkChrome ? "rgba(15,23,42,0.9)" : "#fff"} strokeWidth={1} />;
               }}
-              activeDot={{ r: 10, stroke: presentation ? "#0f172a" : "#fff", strokeWidth: 2.5 }}
+              activeDot={{ r: 10, stroke: darkChrome ? "#0f172a" : "#fff", strokeWidth: 2.5 }}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -1011,7 +1013,7 @@ export function SalesTempoCumulativeChart({
       {showTrendNote ? (
         <p
           className={`mt-2 text-center text-[11px] font-semibold leading-snug ${
-            presentation ? "text-rose-200/95" : "text-rose-700"
+            darkChrome ? "text-rose-200/95" : "text-rose-700"
           }`}
         >
           Тренд ухудшается с января

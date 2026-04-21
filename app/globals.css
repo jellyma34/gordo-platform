@@ -32,6 +32,22 @@ a {
   text-decoration: none;
 }
 
+/**
+ * marketing-presentation-light: только под .theme-marketing-light (/presentation/marketing/*).
+ * Переменные дублируют палитру для Tailwind theme.extend.colors.mpl.*
+ */
+.theme-marketing-light {
+  --mpl-page-bg: #f5f7fb;
+  --mpl-card-bg: #ffffff;
+  --mpl-text: #1f2937;
+  --mpl-text-muted: #6b7280;
+  --mpl-border: #e5e7eb;
+  --mpl-primary: #0f766e;
+  --mpl-primary-blue: #1e40af;
+  --mpl-chart-surface: #ffffff;
+  --mpl-chart-grid: rgba(148, 163, 184, 0.35);
+}
+
 /* Два строки для длинных названий этапов ГПР (блок «Отклонения по этапам» и др.) */
 .stage-title {
   display: -webkit-box;

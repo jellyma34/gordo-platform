@@ -13,7 +13,7 @@ import {
 } from "@/lib/salesPlanVelocityChartData";
 
 import { FormulaVariablesLegend, type FormulaVariableEntry } from "./FormulaVariablesLegend";
-import { chartPresentationLike, type SalesPlanChartMode } from "./types";
+import { chartUsesDarkVisual, type SalesPlanChartMode } from "./types";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
@@ -266,10 +266,10 @@ export function FactVsPlanChart({
   chartHeightClass = "h-[300px]",
 }: FactVsPlanChartProps) {
   const uid = useId().replace(/:/g, "");
-  const presentation = chartPresentationLike(mode);
-  const presentationTooltipUx = mode === "presentation";
-  const axisColor = presentation ? "#94a3b8" : "#64748b";
-  const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
+  const darkChrome = chartUsesDarkVisual(mode);
+  const presentationTooltipUx = mode === "presentation" || mode === "presentationLight";
+  const axisColor = darkChrome ? "#94a3b8" : "#64748b";
+  const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const yTick = (v: number) => (valueKind === "deals" ? numFmt.format(v) : compactRub(v));
 
   const worstIdx = useMemo(() => velocityFactPlanWorstIndex(rows), [rows]);
@@ -334,13 +334,13 @@ export function FactVsPlanChart({
           <div
             aria-hidden
             className={
-              presentation
+              darkChrome
                 ? "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_52%_62%,rgba(250,204,21,0.16)_0%,rgba(250,204,21,0.05)_36%,rgba(15,23,42,0)_74%)]"
                 : "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_52%_62%,rgba(250,204,21,0.11)_0%,rgba(250,204,21,0.03)_34%,rgba(255,255,255,0)_72%)]"
             }
           />
           {presentationTooltipUx && hoverTickIndex != null && rows[hoverTickIndex] ? (
-            <FactVsPlanPresentationHoverStrip row={rows[hoverTickIndex]!} presentation={presentation} valueKind={valueKind} />
+            <FactVsPlanPresentationHoverStrip row={rows[hoverTickIndex]!} presentation={darkChrome} valueKind={valueKind} />
           ) : null}
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
@@ -392,7 +392,7 @@ export function FactVsPlanChart({
             {presentationTooltipUx ? (
               <Tooltip
                 content={() => null}
-                cursor={{ fill: presentation ? "rgba(148,163,184,0.07)" : "rgba(100,116,139,0.08)" }}
+                cursor={{ fill: darkChrome ? "rgba(148,163,184,0.07)" : "rgba(100,116,139,0.08)" }}
                 wrapperStyle={{ display: "none", pointerEvents: "none" }}
               />
             ) : (
@@ -402,7 +402,7 @@ export function FactVsPlanChart({
                     active={active}
                     payload={payload}
                     label={label != null ? String(label) : undefined}
-                    presentation={presentation}
+                    presentation={darkChrome}
                     valueKind={valueKind}
                     mode={mode}
                     blockExplain={blockExplain}
@@ -413,8 +413,8 @@ export function FactVsPlanChart({
             <Bar
               dataKey="plan"
               name="План"
-              fill={presentation ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
-              stroke={presentation ? "rgba(255,255,255,0.28)" : "rgba(100,116,139,0.45)"}
+              fill={darkChrome ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
+              stroke={darkChrome ? "rgba(255,255,255,0.28)" : "rgba(100,116,139,0.45)"}
               strokeWidth={0.9}
               maxBarSize={36}
               radius={[8, 8, 2, 2]}
@@ -429,11 +429,11 @@ export function FactVsPlanChart({
                     return (
                       <Cell
                         key={`plan-${entry.label}-${index}`}
-                        fill={presentation ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
+                        fill={darkChrome ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
                         stroke={
                           sel
                             ? "#7dd3fc"
-                            : presentation
+                            : darkChrome
                               ? "rgba(255,255,255,0.28)"
                               : "rgba(100,116,139,0.45)"
                         }
@@ -449,9 +449,9 @@ export function FactVsPlanChart({
                       return (
                         <Cell
                           key={`plan-${entry.label}-${index}`}
-                          fill={presentation ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
+                          fill={darkChrome ? "rgba(255,255,255,0.42)" : "rgba(71,85,105,0.4)"}
                           fillOpacity={on ? 1 : 0.28}
-                          stroke={glow ? (presentation ? "#e2e8f0" : "#475569") : presentation ? "rgba(255,255,255,0.28)" : "rgba(100,116,139,0.45)"}
+                          stroke={glow ? (darkChrome ? "#e2e8f0" : "#475569") : darkChrome ? "rgba(255,255,255,0.28)" : "rgba(100,116,139,0.45)"}
                           strokeWidth={glow ? 2.2 : 0.9}
                         />
                       );
@@ -487,10 +487,10 @@ export function FactVsPlanChart({
                         : glow
                           ? "#38bdf8"
                           : isWorst
-                            ? presentation
+                            ? darkChrome
                               ? "#fda4af"
                               : "#e11d48"
-                            : presentation
+                            : darkChrome
                               ? "rgba(255,255,255,0.38)"
                               : "rgba(248,250,252,0.65)"
                     }
@@ -528,19 +528,19 @@ export function FactVsPlanChart({
                         height={24}
                         fill={
                           lastDevPct < 0
-                            ? presentation
+                            ? darkChrome
                               ? "rgba(244,63,94,0.30)"
                               : "rgba(254,226,226,0.95)"
-                            : presentation
+                            : darkChrome
                               ? "rgba(16,185,129,0.30)"
                               : "rgba(220,252,231,0.95)"
                         }
                         stroke={
                           lastDevPct < 0
-                            ? presentation
+                            ? darkChrome
                               ? "rgba(251,113,133,0.65)"
                               : "rgba(225,29,72,0.5)"
-                            : presentation
+                            : darkChrome
                               ? "rgba(52,211,153,0.65)"
                               : "rgba(22,163,74,0.5)"
                         }
@@ -558,10 +558,10 @@ export function FactVsPlanChart({
                         className="text-[12px] font-bold tabular-nums"
                         fill={
                           lastDevPct < 0
-                            ? presentation
+                            ? darkChrome
                               ? "#fecdd3"
                               : "#be123c"
-                            : presentation
+                            : darkChrome
                               ? "#bbf7d0"
                               : "#166534"
                         }
@@ -580,11 +580,11 @@ export function FactVsPlanChart({
       {presentationTooltipUx ? (
         <aside className="w-full shrink-0 xl:w-[min(280px,34%)] xl:max-w-[280px]" aria-label="Подробности по выбранному месяцу">
           {selectedPoint != null && rows[selectedPoint] ? (
-            <FactVsPlanPresentationDetailPanel row={rows[selectedPoint]!} presentation={presentation} valueKind={valueKind} />
+            <FactVsPlanPresentationDetailPanel row={rows[selectedPoint]!} presentation={darkChrome} valueKind={valueKind} />
           ) : (
             <div
               className={
-                presentation
+                darkChrome
                   ? "rounded-lg border border-sky-500/20 bg-[#0f172a]/55 p-3 text-[10px] leading-snug text-slate-400"
                   : "rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] leading-snug text-slate-600"
               }
@@ -599,7 +599,7 @@ export function FactVsPlanChart({
         <div
           role="group"
           aria-label="Легенда графика: факт и план"
-          className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}
+          className={`flex h-[18px] items-center justify-center gap-x-7 text-[10px] font-medium leading-tight ${darkChrome ? "text-slate-400" : "text-slate-600"}`}
         >
           <div
             className={`flex items-center gap-2 ${mode === "explain" && onExplainMetricHover ? "cursor-help rounded px-1 py-0.5 hover:bg-white/5" : ""}`}
@@ -609,7 +609,7 @@ export function FactVsPlanChart({
             <span
               className="h-3 w-4 shrink-0 rounded-sm shadow-sm"
               style={{
-                background: presentation
+                background: darkChrome
                   ? "linear-gradient(180deg, #4ade80 0%, #facc15 55%, #f87171 100%)"
                   : "linear-gradient(180deg, #16a34a 0%, #ca8a04 55%, #dc2626 100%)",
               }}
@@ -631,7 +631,7 @@ export function FactVsPlanChart({
             onMouseEnter={() => mode === "explain" && onExplainMetricHover?.("monthlyCompare")}
             onMouseLeave={() => mode === "explain" && onExplainMetricHover?.(null)}
           >
-            <span className={`h-3 w-4 shrink-0 rounded-sm border ${presentation ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`} />
+            <span className={`h-3 w-4 shrink-0 rounded-sm border ${darkChrome ? "border-white/25 bg-white/[0.42]" : "border-slate-400/50 bg-slate-500/40"}`} />
             <span>План</span>
           </div>
         </div>

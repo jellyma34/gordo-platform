@@ -8,6 +8,7 @@ import {
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
+import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
@@ -183,6 +184,7 @@ type Props = {
 };
 
 export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
+  const presDark = useMarketingPresVisual(presentation) === "presDark";
   const [rows, setRows] = useState<NormalizedDealRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -247,8 +249,8 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
   if (loadError) {
     return (
       <div className="mb-7">
-        <h2 className={`mb-3 text-sm font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Структура продаж</h2>
-        <p className={`text-xs ${presentation ? "text-slate-500" : "text-slate-600"}`}>{loadError}</p>
+        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>{loadError}</p>
       </div>
     );
   }
@@ -256,8 +258,8 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
   if (cards.length === 0) {
     return (
       <div className="mb-7">
-        <h2 className={`mb-3 text-sm font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Структура продаж</h2>
-        <p className={`text-xs ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
           Нет сделок по сегментам в текущем срезе (загрузите выгрузку или смените фильтр объекта).
         </p>
       </div>
@@ -266,14 +268,14 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
 
   return (
     <div className="mb-7">
-      <h2 className={`mb-3 text-sm font-semibold ${presentation ? "text-slate-300" : "text-slate-800"}`}>Структура продаж</h2>
-      <p className={`mb-4 text-[11px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+      <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+      <p className={`mb-4 text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
         По нормализованным сделкам (<span className="font-mono">normalizeDeal</span> / сегмент из <span className="font-mono">type</span> и{" "}
         <span className="font-mono">object.category</span>).
       </p>
       <div className={`${gridClass} items-stretch`}>
         {cards.map((c) => {
-          const vs = presentation ? SEGMENT_VISUAL_PRESENTATION[c.key] : SEGMENT_VISUAL_WORK[c.key];
+          const vs = presDark ? SEGMENT_VISUAL_PRESENTATION[c.key] : SEGMENT_VISUAL_WORK[c.key];
           const sharePct = Math.min(100, Math.max(0, c.share * 100));
           return (
             <div key={c.key} className="flex h-full min-h-0 flex-col">

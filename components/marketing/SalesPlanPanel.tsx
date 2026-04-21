@@ -33,6 +33,7 @@ import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
+import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
@@ -54,6 +55,8 @@ const ReferenceDot = dynamic(() => import("recharts").then((m) => m.ReferenceDot
 
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
+/** Светлая презентация маркетинга (/presentation/marketing/*). */
+const CARD_LIGHT = "rounded-2xl border border-mpl-border bg-mpl-card p-4 shadow-sm sm:p-5";
 
 /** Выполнение по шт. высокое, а выручка ниже плана — типичный конфликт цены/микса. */
 function executionRevenueConflictMeta(row: {
@@ -622,10 +625,11 @@ type Props = {
 };
 
 export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, initialPlanScenario }: Props) {
+  const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
-  const card = presentation ? CARD : CARD_EDIT;
-  const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
-  const sub = presentation ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
+  const card = presDark ? CARD : presentation ? CARD_LIGHT : CARD_EDIT;
+  const h4 = presDark ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
+  const sub = presDark ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
 
@@ -994,8 +998,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const forecastPercentAdjusted = effectiveTotalPlan > 0 ? (rrAdjusted.forecastCumulativeEndRub / effectiveTotalPlan) * 100 : 0;
   const forecastGapRub = rrAdjusted.horizonPlanCumulativeRub - rrAdjusted.forecastCumulativeEndRub;
 
-  const axisColor = presentation ? "#94a3b8" : "#64748b";
-  const gridColor = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
+  const axisColor = presDark ? "#94a3b8" : "#64748b";
+  const gridColor = presDark ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const yTickCashM = (v: number) => `${Math.round(v / 1_000_000)}M`;
   const yTickGapBar = (v: number) => `${Math.round(v / 1_000_000)}M`;
   const yTickPct0 = (v: number) => `${Math.round(v)}%`;
@@ -1192,7 +1196,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     }));
     return { rows, maxDelta, axisMaxPp, scaleTicks, maxAbsRub };
   }, [salesStructureBalanceRows]);
-  const chartMode: SalesPlanChartMode = presentation ? "presentation" : "work";
+  const chartMode: SalesPlanChartMode = presentation ? (presDark ? "presentation" : "presentationLight") : "work";
   const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
@@ -1575,26 +1579,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       return {
         status,
         label: "🟢 КОНВЕРСИЯ В НОРМЕ",
-        cardClass: presentation ? "border-emerald-500/45 bg-emerald-950/25" : "border-emerald-200 bg-emerald-50",
-        labelClass: presentation ? "text-emerald-300" : "text-emerald-700",
-        valueClass: presentation ? "text-emerald-200" : "text-emerald-800",
+        cardClass: presDark ? "border-emerald-500/45 bg-emerald-950/25" : "border-emerald-200 bg-emerald-50",
+        labelClass: presDark ? "text-emerald-300" : "text-emerald-700",
+        valueClass: presDark ? "text-emerald-200" : "text-emerald-800",
       };
     }
     if (status === "yellow") {
       return {
         status,
         label: "🟡 КОНВЕРСИЯ В РИСКЕ",
-        cardClass: presentation ? "border-amber-500/45 bg-amber-950/25" : "border-amber-200 bg-amber-50",
-        labelClass: presentation ? "text-amber-300" : "text-amber-700",
-        valueClass: presentation ? "text-amber-200" : "text-amber-800",
+        cardClass: presDark ? "border-amber-500/45 bg-amber-950/25" : "border-amber-200 bg-amber-50",
+        labelClass: presDark ? "text-amber-300" : "text-amber-700",
+        valueClass: presDark ? "text-amber-200" : "text-amber-800",
       };
     }
     return {
       status,
       label: "🔴 КОНВЕРСИЯ ПРОСЕДАЕТ",
-      cardClass: presentation ? "border-rose-500/55 bg-rose-950/35" : "border-rose-300 bg-rose-50",
-      labelClass: presentation ? "text-rose-300" : "text-rose-700",
-      valueClass: presentation ? "text-rose-100" : "text-rose-700",
+      cardClass: presDark ? "border-rose-500/55 bg-rose-950/35" : "border-rose-300 bg-rose-50",
+      labelClass: presDark ? "text-rose-300" : "text-rose-700",
+      valueClass: presDark ? "text-rose-100" : "text-rose-700",
     };
   }, [
     presentation,
@@ -1836,7 +1840,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   );
 
   const segmentedBtn = (active: boolean) =>
-    presentation
+    presDark
       ? `rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
           active ? "bg-slate-100 text-slate-900 shadow-sm" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
         }`
@@ -1859,10 +1863,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
   const insightTone = (tone: "risk" | "ok" | "neutral") => {
     if (tone === "risk")
-      return presentation ? "border-l-red-400/80 text-slate-200" : "border-l-red-500 text-slate-800";
+      return presDark ? "border-l-red-400/80 text-slate-200" : "border-l-red-500 text-slate-800";
     if (tone === "ok")
-      return presentation ? "border-l-emerald-400/80 text-slate-200" : "border-l-emerald-600 text-slate-800";
-    return presentation ? "border-l-slate-500 text-slate-300" : "border-l-slate-400 text-slate-700";
+      return presDark ? "border-l-emerald-400/80 text-slate-200" : "border-l-emerald-600 text-slate-800";
+    return presDark ? "border-l-slate-500 text-slate-300" : "border-l-slate-400 text-slate-700";
   };
 
   return (
@@ -1875,7 +1879,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <p className={sub}>Переключайте режим и сценарий, затем сохраняйте план.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className={presentation ? "inline-flex rounded-lg border border-slate-600/60 bg-slate-900/50 p-0.5" : "inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"}>
+              <div className={presDark ? "inline-flex rounded-lg border border-slate-600/60 bg-slate-900/50 p-0.5" : "inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"}>
                 {(["view", "edit"] as const).map((m) => (
                   <button
                     key={m}
@@ -1897,7 +1901,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 value={scenario}
                 onChange={(e) => setScenario(e.target.value as PlanScenario)}
                 className={
-                  presentation
+                  presDark
                     ? "rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100"
                     : "rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800"
                 }
@@ -1919,7 +1923,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   value={draftTotalPlan}
                   onChange={(e) => setDraftTotalPlan(Number(e.target.value || 0))}
                   className={
-                    presentation
+                    presDark
                       ? "mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 text-sm text-slate-100"
                       : "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
                   }
@@ -1944,7 +1948,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       }))
                     }
                     className={
-                      presentation
+                      presDark
                         ? "mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 text-sm text-slate-100"
                         : "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900"
                     }
@@ -1963,7 +1967,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   type="button"
                   onClick={handleCancelEdit}
                   className={
-                    presentation
+                    presDark
                       ? "rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200"
                       : "rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
                   }
@@ -1973,7 +1977,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
             </div>
           ) : (
-            <div className={`mt-3 text-[11px] ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+            <div className={`mt-3 text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
               API payload (mock): {JSON.stringify(planManagementPayload)}
             </div>
           )}
@@ -1981,7 +1985,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       ) : null}
 
       <p
-        className={`text-xs font-medium tabular-nums tracking-tight ${presentation ? "text-slate-400" : "text-slate-500"}`}
+        className={`text-xs font-medium tabular-nums tracking-tight ${presDark ? "text-slate-400" : "text-slate-500"}`}
       >
         {salesPlanSectionHeader}
       </p>
@@ -1993,7 +1997,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       ) : null}
 
       {/* KPI summary */}
-      <KpiDashboard mode={presentation ? "presentation" : "work"} items={dynamicsKpiItems} className="mb-7" />
+      <KpiDashboard
+        mode={presentation ? (presDark ? "presentation" : "presentationLight") : "work"}
+        items={dynamicsKpiItems}
+        className="mb-7"
+      />
 
       {/* Sales Velocity */}
       <div className={card}>
@@ -2006,12 +2014,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div className="flex flex-col gap-3">
             <div
               className={
-                presentation
+                presDark
                   ? "rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                   : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
               }
             >
-              <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-cyan-200/80" : "text-slate-600"}`}>Темп по месяцам</div>
+              <div className={`mb-2 text-xs font-semibold uppercase tracking-wide ${presDark ? "text-cyan-200/80" : "text-slate-600"}`}>Темп по месяцам</div>
               <SalesTempoChart
                 mode={chartMode}
                 lineData={velocityLineData}
@@ -2024,15 +2032,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div className="flex flex-col gap-3">
             <div
               className={
-                presentation
+                presDark
                   ? "rounded-xl border border-rose-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                   : "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm"
               }
             >
-              <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-rose-200/85" : "text-slate-600"}`}>
+              <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presDark ? "text-rose-200/85" : "text-slate-600"}`}>
                 Кумулятивное отклонение от плана
               </div>
-              <p className={`mb-2 text-[10px] leading-snug ${presentation ? "text-slate-400" : "text-slate-500"}`}>
+              <p className={`mb-2 text-[10px] leading-snug ${presDark ? "text-slate-400" : "text-slate-500"}`}>
                 Нарастающий итог (Σ факт − Σ план)
               </p>
               <SalesTempoCumulativeChart mode={chartMode} lineData={velocityLineData} />
@@ -2051,7 +2059,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
         <div
           className={
-            presentation
+            presDark
               ? "relative mt-4 overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
               : "relative mt-4 overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
           }
@@ -2059,7 +2067,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div
             aria-hidden
             className={
-              presentation
+              presDark
                 ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
                 : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
             }
@@ -2068,7 +2076,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
             <div
               className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
-                presentation
+                presDark
                   ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
                   : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
               }`}
@@ -2077,7 +2085,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             </div>
             <div
               className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
-                presentation
+                presDark
                   ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
                   : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
               }`}
@@ -2086,7 +2094,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             </div>
             <div
               className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
-                presentation
+                presDark
                   ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
                   : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
               }`}
@@ -2100,10 +2108,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <div
                 className={`text-2xl font-bold tabular-nums ${
                   velocityMonthDeviation < 0
-                    ? presentation
+                    ? presDark
                       ? "text-rose-300"
                       : "text-rose-700"
-                    : presentation
+                    : presDark
                       ? "text-emerald-300"
                       : "text-emerald-700"
                 }`}
@@ -2112,7 +2120,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 {numFmt.format(Math.abs(Math.round(velocityMonthDeviation)))} сделок ({velocityMonthDeviationPct >= 0 ? "+" : ""}
                 {velocityMonthDeviationPct.toFixed(1)}%)
               </div>
-              <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <p className={`mt-1 text-sm ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                 {velocityMonthDeviation < 0 ? "Факт за месяц ниже плана." : "Факт за месяц выше плана."}
               </p>
             </div>
@@ -2121,7 +2129,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <div
                 aria-hidden
                 className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                     : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                 }`}
@@ -2129,19 +2137,19 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <div
                 aria-hidden
                 className={`pointer-events-none absolute inset-y-3 right-0 hidden w-px xl:block ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                     : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                 }`}
               />
-              <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                 Снижение темпа продаж наблюдается с января; основной вклад в недобор дает сегмент с длинным циклом сделки и более слабой конверсией на
                 финальных этапах воронки.
               </p>
             </div>
 
             <div className="p-4">
-              <ul className={`space-y-1.5 text-sm ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              <ul className={`space-y-1.5 text-sm ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                 <li>1. Усилить маркетинг в отстающих сегментах.</li>
                 <li>2. Перераспределить бюджет в каналы с лучшим CPL.</li>
                 <li>3. Запустить короткие промо-акции для ускорения сделки.</li>
@@ -2153,22 +2161,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         <div
           id="sales-structure-diagnostic"
           className={
-            presentation
+            presDark
               ? "mt-4 scroll-mt-24 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/80 via-slate-900/55 to-slate-950/90 p-3"
               : "mt-4 scroll-mt-24 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
           }
         >
-          <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+          <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
             Выполнение структуры продаж — диагностика
           </div>
-          <p className={`mb-3 text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+          <p className={`mb-3 text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
             Порядок по Δ выручке (хуже сверху). Цвет полосы и акцентов — по Δ ₽, длина полосы — % по шт. Высокий % по шт. не означает выручку в плане
             {salesStructureExecutionDiagnostic.hasUnitsRevenueConflict ? " (есть метка «ниже плана по ₽»)" : ""}.
           </p>
           <div className="overflow-x-auto">
             <table className="min-w-[520px] w-full border-collapse text-xs">
               <thead>
-                <tr className={presentation ? "text-slate-400" : "text-slate-600"}>
+                <tr className={presDark ? "text-slate-400" : "text-slate-600"}>
                   <th className="px-2 py-1.5 text-left font-semibold">Категория</th>
                   <th className="px-2 py-1.5 text-left font-semibold">Выполнение</th>
                   <th className="px-2 py-1.5 text-right font-semibold">Δ шт</th>
@@ -2180,63 +2188,63 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   const barW = Math.max(0, Math.min(100, row.percent));
                   const barClass =
                     row.rubTone === "red"
-                      ? presentation
+                      ? presDark
                         ? "bg-rose-600"
                         : "bg-rose-600"
                       : row.rubTone === "yellow"
-                        ? presentation
+                        ? presDark
                           ? "bg-amber-500"
                           : "bg-amber-500"
-                        : presentation
+                        : presDark
                           ? "bg-emerald-500"
                           : "bg-emerald-600";
                   const metricTone =
                     row.rubTone === "red"
-                      ? presentation
+                      ? presDark
                         ? "text-rose-200"
                         : "text-rose-800"
                       : row.rubTone === "yellow"
-                        ? presentation
+                        ? presDark
                           ? "text-amber-200"
                           : "text-amber-900"
-                        : presentation
+                        : presDark
                           ? "text-emerald-200"
                           : "text-emerald-800";
                   const rowTone =
                     row.execWorstRank === 1
-                      ? presentation
+                      ? presDark
                         ? "bg-rose-950/40"
                         : "bg-rose-100/90"
                       : row.execWorstRank === 2
-                        ? presentation
+                        ? presDark
                           ? "bg-rose-950/22"
                           : "bg-rose-50/80"
                         : row.execWorstRank === 3
-                          ? presentation
+                          ? presDark
                             ? "bg-amber-950/15"
                             : "bg-amber-50/70"
-                          : presentation
+                          : presDark
                             ? "bg-transparent"
                             : "bg-transparent";
                   return (
                     <tr
                       key={row.key}
-                      className={`${rowTone} ${presentation ? "border-t border-slate-700/35" : "border-t border-slate-200/70"} ${
+                      className={`${rowTone} ${presDark ? "border-t border-slate-700/35" : "border-t border-slate-200/70"} ${
                         row.unitsRevenueConflict
-                          ? presentation
+                          ? presDark
                             ? "border-l-2 border-l-amber-400/70"
                             : "border-l-2 border-l-amber-500"
                           : ""
                       }`}
                     >
-                      <td className={`px-2 py-2.5 ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+                      <td className={`px-2 py-2.5 ${presDark ? "text-slate-50" : "text-slate-900"}`}>
                         <div className="flex flex-col gap-0.5">
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span className="font-bold">{row.label}</span>
                             {row.unitsRevenueConflict ? (
                               <span
                                 className={`inline-flex items-center gap-0.5 rounded border px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
-                                  presentation
+                                  presDark
                                     ? "border-amber-500/45 bg-amber-950/40 text-amber-100"
                                     : "border-amber-300 bg-amber-50 text-amber-950"
                                 }`}
@@ -2254,7 +2262,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                             ) : null}
                           </div>
                           {row.unitsRevenueConflict && row.conflictHint ? (
-                            <span className={`text-[9px] font-medium leading-tight ${presentation ? "text-amber-200/90" : "text-amber-900"}`}>
+                            <span className={`text-[9px] font-medium leading-tight ${presDark ? "text-amber-200/90" : "text-amber-900"}`}>
                               {row.conflictHint}
                             </span>
                           ) : null}
@@ -2262,10 +2270,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       </td>
                       <td className="px-2 py-2.5">
                         <div className="flex min-w-[10rem] max-w-xs items-center gap-2">
-                          <span className={`w-9 shrink-0 text-right text-[11px] font-bold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+                          <span className={`w-9 shrink-0 text-right text-[11px] font-bold tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
                             {Math.round(row.percent)}%
                           </span>
-                          <div className={`h-2 min-w-0 flex-1 overflow-hidden rounded-full ${presentation ? "bg-slate-700/50" : "bg-slate-200"}`}>
+                          <div className={`h-2 min-w-0 flex-1 overflow-hidden rounded-full ${presDark ? "bg-slate-700/50" : "bg-slate-200"}`}>
                             <div className={`h-full rounded-full ${barClass}`} style={{ width: `${barW}%` }} />
                           </div>
                         </div>
@@ -2286,7 +2294,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
           <div
             className={
-              presentation
+              presDark
                 ? "relative mt-3 overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
                 : "relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
             }
@@ -2294,7 +2302,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               aria-hidden
               className={
-                presentation
+                presDark
                   ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
                   : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
               }
@@ -2303,7 +2311,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
                     : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
                 }`}
@@ -2312,7 +2320,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
                     : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
                 }`}
@@ -2321,7 +2329,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
                     : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
                 }`}
@@ -2335,20 +2343,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <p
                   className={`text-2xl font-bold tabular-nums ${
                     salesStructureExecutionDiagnostic.negSum < 0
-                      ? presentation
+                      ? presDark
                         ? "text-rose-300"
                         : "text-rose-700"
-                      : presentation
+                      : presDark
                         ? "text-emerald-300"
                         : "text-emerald-700"
                   }`}
                 >
                   −{compactRub(Math.abs(salesStructureExecutionDiagnostic.negSum))}
                 </p>
-                <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`mt-1 text-sm ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   перекос структуры
                 </p>
-                <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`mt-1 text-sm ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   деньги не добраны из-за структуры продаж
                 </p>
               </div>
@@ -2356,7 +2364,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <div
                   aria-hidden
                   className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                       : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                   }`}
@@ -2364,23 +2372,23 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <div
                   aria-hidden
                   className={`pointer-events-none absolute inset-y-3 right-0 hidden w-px xl:block ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                       : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                   }`}
                 />
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   рост кладовых и парковок вытесняет
                 </p>
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   2-комнатные и коммерцию → падение выручки
                 </p>
               </div>
               <div className="p-4">
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                   сместить продажи в 2-комнатные и коммерцию
                 </p>
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                   ограничить давление низкомаржинальных сегментов
                 </p>
               </div>
@@ -2390,21 +2398,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
         <div
           className={
-            presentation
+            presDark
               ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/75 via-slate-900/50 to-slate-950/90 p-3"
               : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3"
           }
         >
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                 Баланс структуры продаж
               </div>
-              <p className={`mt-0.5 max-w-sm text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              <p className={`mt-0.5 max-w-sm text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                 Ширина от центра = (|Δ доли| / max|Δ|)·50%. Центр — 0. Толщина — |Δ ₽|; порядок — по |₽|.
               </p>
             </div>
-            <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[10px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+            <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[10px] ${presDark ? "text-slate-500" : "text-slate-500"}`}>
               <span>0 — план</span>
               <span>← минус</span>
               <span>плюс →</span>
@@ -2412,7 +2420,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
 
           <div
-            className={`mb-2 hidden text-[10px] md:grid md:gap-2 ${presentation ? "text-slate-400" : "text-slate-600"}`}
+            className={`mb-2 hidden text-[10px] md:grid md:gap-2 ${presDark ? "text-slate-400" : "text-slate-600"}`}
             style={{ gridTemplateColumns: "minmax(0,8rem) minmax(0,1fr)" }}
           >
             <span className="font-semibold">Сегмент</span>
@@ -2422,7 +2430,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <ul className="space-y-2.5">
             <li className="hidden md:grid md:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] md:gap-2 md:items-end">
               <div aria-hidden className="min-h-[1px]" />
-              <div className={`relative h-6 w-full ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <div className={`relative h-6 w-full ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                 {salesStructureBalanceDiagnostic.scaleTicks.map((v) => {
                   const leftPct = 50 + (v / salesStructureBalanceDiagnostic.axisMaxPp) * 50;
                   return (
@@ -2432,7 +2440,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       style={{ left: `${leftPct}%`, transform: "translateX(-50%)" }}
                     >
                       <div
-                        className={`${v === 0 ? `w-[2px] ${presentation ? "h-5 bg-slate-100" : "h-5 bg-slate-800"}` : `w-px ${presentation ? "h-3 bg-slate-500/[0.06]" : "h-3 bg-slate-400/[0.08]"}`}`}
+                        className={`${v === 0 ? `w-[2px] ${presDark ? "h-5 bg-slate-100" : "h-5 bg-slate-800"}` : `w-px ${presDark ? "h-3 bg-slate-500/[0.06]" : "h-3 bg-slate-400/[0.08]"}`}`}
                       />
                       <span className="mt-0.5 text-[9px] font-medium tabular-nums leading-none">
                         {v === 0 ? "0" : `${v > 0 ? "+" : "−"}${Math.abs(v)}%`}
@@ -2460,22 +2468,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 if (row.deltaShare >= 0) return "";
                 if (topProblem) {
                   if (row.lossRank === 1)
-                    return presentation
+                    return presDark
                       ? "linear-gradient(90deg, #fecdd8 0%, #f87171 42%, #b91c1c 100%)"
                       : "linear-gradient(90deg, #fee2e2 0%, #f87171 45%, #991b1b 100%)";
                   if (row.lossRank === 2)
-                    return presentation
+                    return presDark
                       ? "linear-gradient(90deg, #fce4e9 0%, #fb7185 48%, #c2183f 100%)"
                       : "linear-gradient(90deg, #fff1f2 0%, #fb7185 48%, #a21c3f 100%)";
-                  return presentation
+                  return presDark
                     ? "linear-gradient(90deg, #fdf2f8 0%, #fb7185 52%, #c2183f 100%)"
                     : "linear-gradient(90deg, #fff1f2 0%, #fb7185 52%, #a21c3f 100%)";
                 }
                 if (row.deltaRub < 0)
-                  return presentation
+                  return presDark
                     ? "linear-gradient(90deg, #ffe4e6 0%, #fca5a5 52%, #e11d48 100%)"
                     : "linear-gradient(90deg, #fff1f2 0%, #fca5a5 50%, #dc2626 100%)";
-                return presentation
+                return presDark
                   ? "linear-gradient(90deg, #fffbeb 0%, #fcd34d 48%, #ca8a04 100%)"
                   : "linear-gradient(90deg, #fffbeb 0%, #fcd34d 50%, #b45309 100%)";
               })();
@@ -2483,17 +2491,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               const posGrad = (() => {
                 if (row.deltaShare <= 0) return "";
                 if (row.deltaRub > 0)
-                  return presentation
+                  return presDark
                     ? "linear-gradient(90deg, #0f766e 0%, #14b8a6 45%, #5eead4 100%)"
                     : "linear-gradient(90deg, #0d9488 0%, #2dd4bf 48%, #99f6e4 100%)";
-                return presentation
+                return presDark
                   ? "linear-gradient(90deg, #b45309 0%, #eab308 48%, #fde047 100%)"
                   : "linear-gradient(90deg, #a16207 0%, #eab308 50%, #facc15 100%)";
               })();
 
-              const rowShell = presentation ? "border-slate-700/40 bg-slate-950/25" : "border-slate-200/90 bg-white/90";
-              const tickLine = presentation ? "bg-slate-400/[0.06]" : "bg-slate-500/[0.08]";
-              const centerZero = presentation ? "bg-slate-100" : "bg-slate-800";
+              const rowShell = presDark ? "border-slate-700/40 bg-slate-950/25" : "border-slate-200/90 bg-white/90";
+              const tickLine = presDark ? "bg-slate-400/[0.06]" : "bg-slate-500/[0.08]";
+              const centerZero = presDark ? "bg-slate-100" : "bg-slate-800";
 
               const labelLine = structureBalanceBarLabelLine(row.deltaShare, row.deltaRub);
               const amberBar =
@@ -2515,7 +2523,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 >
                   <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] md:gap-2">
                     <div
-                      className={`text-xs font-bold tracking-tight ${presentation ? "text-slate-50" : "text-slate-900"}`}
+                      className={`text-xs font-bold tracking-tight ${presDark ? "text-slate-50" : "text-slate-900"}`}
                     >
                       {row.label}
                     </div>
@@ -2524,7 +2532,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                         className="relative w-full overflow-hidden rounded-md"
                         style={{
                           height: trackPx,
-                          backgroundColor: presentation ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.07)",
+                          backgroundColor: presDark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.07)",
                         }}
                       >
                         {scaleTicks.map((v) => {
@@ -2545,7 +2553,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                           <>
                             <div
                               className={`absolute bottom-0 top-0 z-[5] overflow-hidden rounded-l-sm border-l-2 ${
-                                presentation ? "border-l-slate-100" : "border-l-white"
+                                presDark ? "border-l-slate-100" : "border-l-white"
                               }`}
                               style={{
                                 right: "50%",
@@ -2582,7 +2590,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                           <>
                             <div
                               className={`absolute bottom-0 top-0 z-[5] overflow-hidden rounded-r-sm border-r-2 ${
-                                presentation ? "border-r-slate-100" : "border-r-white"
+                                presDark ? "border-r-slate-100" : "border-r-white"
                               }`}
                               style={{
                                 left: "50%",
@@ -2625,7 +2633,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
           <div
             className={
-              presentation
+              presDark
                 ? "relative mt-4 overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
                 : "relative mt-4 overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
             }
@@ -2633,7 +2641,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               aria-hidden
               className={
-                presentation
+                presDark
                   ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
                   : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
               }
@@ -2642,7 +2650,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-3">
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
                     : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
                 }`}
@@ -2651,7 +2659,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%,5%_50%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
                     : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
                 }`}
@@ -2660,7 +2668,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
               <div
                 className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
-                  presentation
+                  presDark
                     ? "bg-[linear-gradient(90deg,rgba(6,95,70,0.72)_0%,rgba(16,185,129,0.48)_58%,rgba(110,231,183,0.34)_100%)] text-emerald-100"
                     : "bg-[linear-gradient(90deg,rgba(187,247,208,0.95)_0%,rgba(220,252,231,0.9)_60%,rgba(240,253,244,0.88)_100%)] text-emerald-800"
                 }`}
@@ -2674,17 +2682,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <p
                   className={`text-2xl font-bold tabular-nums ${
                     salesStructureExecutionDiagnostic.negSum < 0
-                      ? presentation
+                      ? presDark
                         ? "text-rose-300"
                         : "text-rose-700"
-                      : presentation
+                      : presDark
                         ? "text-emerald-300"
                         : "text-emerald-700"
                   }`}
                 >
                   −{compactRub(Math.abs(salesStructureExecutionDiagnostic.negSum))}
                 </p>
-                <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`mt-1 text-sm ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   перекос структуры продаж
                 </p>
               </div>
@@ -2692,7 +2700,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <div
                   aria-hidden
                   className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                       : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                   }`}
@@ -2700,23 +2708,23 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <div
                   aria-hidden
                   className={`pointer-events-none absolute inset-y-3 right-0 hidden w-px xl:block ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                       : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                   }`}
                 />
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   рост кладовых и парковок вытесняет
                 </p>
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   2-комнатные и коммерцию → потеря выручки
                 </p>
               </div>
               <div className="p-4">
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                   сместить продажи в 2-комнатные и коммерцию
                 </p>
-                <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                   ограничить долю низкомаржинальных сегментов
                 </p>
               </div>
@@ -2728,16 +2736,16 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
         <div
           className={
-            presentation
+            presDark
               ? "mt-4 rounded-xl border border-slate-600/45 bg-gradient-to-br from-slate-900/75 via-slate-900/50 to-slate-950/90 p-3 sm:p-4"
               : "mt-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3 sm:p-4"
           }
         >
           <div className="mb-3">
-            <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               Финансовые показатели
             </div>
-            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
               Сетка 2×2: ДДУ vs эскроу, конверсия, разрыв и план по эскроу — сравнимые карточки одной высоты.
             </p>
           </div>
@@ -2745,11 +2753,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div className="grid grid-cols-1 gap-3 sm:auto-rows-fr sm:grid-cols-2 sm:grid-rows-2 sm:gap-3 sm:items-stretch">
             <div
               className={`flex h-auto max-h-[320px] min-h-0 flex-col overflow-hidden rounded-xl border p-3 sm:h-[320px] sm:max-h-[320px] ${
-                presentation ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
+                presDark ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
               }`}
             >
-              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>ДДУ vs эскроу</div>
-              <div className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>ДДУ vs эскроу</div>
+              <div className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
                 {rubFmt.format(financialCashFlow.dduTotal)} · {rubFmt.format(financialCashFlow.escTotal)}
               </div>
               <div className="mt-2 h-[140px] w-full min-w-0 shrink-0">
@@ -2765,13 +2773,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickCashM} domain={[0, "auto"]} />
                     <Tooltip
-                      cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                      cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                       content={
-                        presentation ? rechartsPresentationMiniTooltip((n) => rubFmt.format(n), { dataKey: "ddu" }) : undefined
+                        presDark ? rechartsPresentationMiniTooltip((n) => rubFmt.format(n), { dataKey: "ddu" }) : undefined
                       }
-                      formatter={presentation ? undefined : (v, name) => [rubFmt.format(Number(v)), String(name)]}
+                      formatter={presDark ? undefined : (v, name) => [rubFmt.format(Number(v)), String(name)]}
                       contentStyle={
-                        presentation
+                        presDark
                           ? undefined
                           : { borderRadius: 6, fontSize: 10 }
                       }
@@ -2779,30 +2787,30 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                     <Legend wrapperStyle={{ fontSize: 8, paddingTop: 0 }} formatter={(value) => <span style={{ color: axisColor }}>{value}</span>} />
                     <Area type="monotone" dataKey="gapCumulative" name="Разрыв" stroke="none" fill="url(#finMergeDiv)" baseLine={0} />
                     <Line type="monotone" dataKey="escrow" name="Эскроу" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2 }} />
-                    <Line type="monotone" dataKey="ddu" name="ДДУ" stroke={presentation ? "#f8fafc" : "#0f172a"} strokeWidth={2} dot={{ r: 2 }} />
+                    <Line type="monotone" dataKey="ddu" name="ДДУ" stroke={presDark ? "#f8fafc" : "#0f172a"} strokeWidth={2} dot={{ r: 2 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightMerge}</p>
+              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presDark ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightMerge}</p>
             </div>
 
             <div
               className={`flex h-auto max-h-[320px] min-h-0 flex-col overflow-hidden rounded-xl border p-3 sm:h-[320px] sm:max-h-[320px] ${
-                presentation ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
+                presDark ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
               }`}
             >
-              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>Конверсия эскроу / ДДУ</div>
+              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>Конверсия эскроу / ДДУ</div>
               <div className="mt-1 flex flex-wrap items-baseline gap-2">
-                <span className={`text-xl font-black tabular-nums ${presentation ? "text-rose-200" : "text-rose-700"}`}>
+                <span className={`text-xl font-black tabular-nums ${presDark ? "text-rose-200" : "text-rose-700"}`}>
                   {financialCashFlow.conversionTotalPct.toFixed(1)}%
                 </span>
                 {financialCashFlow.escrowDduWarning ? (
-                  <span className={`rounded border px-1 py-0.5 text-[7px] font-bold uppercase ${presentation ? "border-amber-400/50 text-amber-100" : "border-amber-300 text-amber-950"}`}>
+                  <span className={`rounded border px-1 py-0.5 text-[7px] font-bold uppercase ${presDark ? "border-amber-400/50 text-amber-100" : "border-amber-300 text-amber-950"}`}>
                     ниже 80%
                   </span>
                 ) : null}
               </div>
-              <p className={`text-[8px] font-medium leading-tight ${presentation ? "text-slate-500" : "text-slate-600"}`}>Benchmark 80–90%</p>
+              <p className={`text-[8px] font-medium leading-tight ${presDark ? "text-slate-500" : "text-slate-600"}`}>Benchmark 80–90%</p>
               <div className="mt-1 h-[140px] w-full min-w-0 shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={financialCashFlow.chartRows} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
@@ -2810,44 +2818,44 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={30} domain={[60, financialCashFlow.conversionYMax]} tickFormatter={yTickPct0} />
                     <Tooltip
-                      cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                      cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                       content={
-                        presentation
+                        presDark
                           ? rechartsPresentationMiniTooltip((n) => `${n.toFixed(1)}%`, { dataKey: "conversionPct" })
 
                           : undefined
                       }
-                      formatter={presentation ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "Эскроу/ДДУ"]}
-                      contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                      formatter={presDark ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "Эскроу/ДДУ"]}
+                      contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
                     />
-                    <ReferenceArea y1={80} y2={90} fill={presentation ? "rgba(34,197,94,0.14)" : "rgba(22,163,74,0.12)"} strokeOpacity={0} />
+                    <ReferenceArea y1={80} y2={90} fill={presDark ? "rgba(34,197,94,0.14)" : "rgba(22,163,74,0.12)"} strokeOpacity={0} />
                     <ReferenceLine y={80} stroke="#4ade80" strokeDasharray="3 2" strokeWidth={0.8} />
                     <ReferenceLine y={90} stroke="#4ade80" strokeDasharray="3 2" strokeWidth={0.8} />
                     <Line type="monotone" dataKey="conversionPct" stroke="#f87171" strokeWidth={2} dot={{ r: 2 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightConversion}</p>
+              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presDark ? "text-slate-400" : "text-slate-600"}`}>{financialCashFlow.insightConversion}</p>
             </div>
 
             <div
               className={`flex h-auto max-h-[320px] min-h-0 flex-col overflow-hidden rounded-xl border-2 p-3 shadow-lg sm:h-[320px] sm:max-h-[320px] ${
-                presentation
+                presDark
                   ? "border-red-500/85 bg-gradient-to-br from-red-950 via-rose-950 to-red-900 ring-1 ring-red-500/50"
                   : "border-red-500 bg-gradient-to-br from-red-100 via-rose-50 to-red-50 ring-1 ring-red-300"
               }`}
             >
-              <div className={`text-[9px] font-black uppercase tracking-wide ${presentation ? "text-red-100" : "text-red-950"}`}>Разрыв (ДДУ − эскроу)</div>
+              <div className={`text-[9px] font-black uppercase tracking-wide ${presDark ? "text-red-100" : "text-red-950"}`}>Разрыв (ДДУ − эскроу)</div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <span className={`rounded border px-1.5 py-0.5 text-[7px] font-black uppercase ${presentation ? "border-white/30 bg-black/25 text-white" : "border-red-800/25 bg-white text-red-900"}`}>
+                <span className={`rounded border px-1.5 py-0.5 text-[7px] font-black uppercase ${presDark ? "border-white/30 bg-black/25 text-white" : "border-red-800/25 bg-white text-red-900"}`}>
                   {financialCashFlow.gapRiskStatusEn}
                 </span>
-                <span className={`text-lg font-black tabular-nums ${presentation ? "text-white" : "text-red-950"}`}>
+                <span className={`text-lg font-black tabular-nums ${presDark ? "text-white" : "text-red-950"}`}>
                   {financialCashFlow.gapRub >= 0 ? "" : "−"}
                   {compactRub(Math.abs(financialCashFlow.gapRub))}
                 </span>
               </div>
-              <p className={`line-clamp-1 text-[8px] font-semibold ${presentation ? "text-red-100/90" : "text-red-900"}`}>
+              <p className={`line-clamp-1 text-[8px] font-semibold ${presDark ? "text-red-100/90" : "text-red-900"}`}>
                 {financialCashFlow.gapTrend === "up" ? "↑ " : financialCashFlow.gapTrend === "down" ? "↓ " : "→ "}
                 горизонт {financialCashFlow.signedDeltaHorizon} · {financialCashFlow.liquidityRiskLabelRu}
               </p>
@@ -2860,66 +2868,66 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                         <stop offset="100%" stopColor="#7f1d1d" stopOpacity={0.3} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={presentation ? "rgba(254,202,202,0.1)" : "rgba(185,28,28,0.1)"} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: presentation ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={{ stroke: presentation ? "rgba(254,202,202,0.2)" : "rgba(127,29,29,0.25)" }} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis tick={{ fill: presentation ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickGapBar} domain={[0, "auto"]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={presDark ? "rgba(254,202,202,0.1)" : "rgba(185,28,28,0.1)"} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: presDark ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={{ stroke: presDark ? "rgba(254,202,202,0.2)" : "rgba(127,29,29,0.25)" }} tickLine={false} interval="preserveStartEnd" />
+                    <YAxis tick={{ fill: presDark ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickGapBar} domain={[0, "auto"]} />
                     <Tooltip
-                      cursor={presentation ? { stroke: "rgba(254,202,202,0.35)", strokeWidth: 1 } : undefined}
+                      cursor={presDark ? { stroke: "rgba(254,202,202,0.35)", strokeWidth: 1 } : undefined}
                       content={
-                        presentation
+                        presDark
                           ? rechartsPresentationMiniTooltip((n) => rubFmt.format(n), { dataKey: "gapCumulative" })
 
                           : undefined
                       }
-                      formatter={presentation ? undefined : (v) => rubFmt.format(Number(v))}
-                      contentStyle={presentation ? undefined : { borderRadius: 6, fontSize: 10 }}
+                      formatter={presDark ? undefined : (v) => rubFmt.format(Number(v))}
+                      contentStyle={presDark ? undefined : { borderRadius: 6, fontSize: 10 }}
                     />
                     <Area type="monotone" dataKey="gapCumulative" stroke="none" fill="url(#finGapRisk)" baseLine={0} />
                     <Line
                       type="monotone"
                       dataKey="gapCumulative"
-                      stroke={presentation ? "#fff1f2" : "#b91c1c"}
+                      stroke={presDark ? "#fff1f2" : "#b91c1c"}
                       strokeWidth={2}
                       dot={(dotProps: { cx?: number; cy?: number; payload?: { isForecast?: boolean }; index?: number }) => {
                         const { cx, cy, payload, index } = dotProps;
                         if (cx == null || cy == null) return null;
                         const k = index ?? 0;
                         if (payload?.isForecast) {
-                          return <circle key={`gfc-${k}`} cx={cx} cy={cy} r={4} fill="#facc15" stroke={presentation ? "#450a0a" : "#fff"} strokeWidth={1} />;
+                          return <circle key={`gfc-${k}`} cx={cx} cy={cy} r={4} fill="#facc15" stroke={presDark ? "#450a0a" : "#fff"} strokeWidth={1} />;
                         }
-                        return <circle key={`gh-${k}`} cx={cx} cy={cy} r={2.5} fill={presentation ? "#fecdd3" : "#ef4444"} stroke={presentation ? "#881337" : "#fff"} strokeWidth={0.8} />;
+                        return <circle key={`gh-${k}`} cx={cx} cy={cy} r={2.5} fill={presDark ? "#fecdd3" : "#ef4444"} stroke={presDark ? "#881337" : "#fff"} strokeWidth={0.8} />;
                       }}
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-red-50" : "text-red-950"}`}>{financialCashFlow.insightGap}</p>
+              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presDark ? "text-red-50" : "text-red-950"}`}>{financialCashFlow.insightGap}</p>
             </div>
 
             <div
               className={`flex h-auto max-h-[320px] min-h-0 flex-col overflow-hidden rounded-xl border p-3 sm:h-[320px] sm:max-h-[320px] ${
-                presentation ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
-              } ${financialCashFlow.revExecEscrowPct < 80 ? (presentation ? "ring-1 ring-amber-500/40" : "ring-1 ring-amber-300") : ""}`}
+                presDark ? "border-slate-600/60 bg-slate-950/55" : "border-slate-200 bg-white"
+              } ${financialCashFlow.revExecEscrowPct < 80 ? (presDark ? "ring-1 ring-amber-500/40" : "ring-1 ring-amber-300") : ""}`}
             >
-              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>План выручки (эскроу)</div>
+              <div className={`text-[9px] font-extrabold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>План выручки (эскроу)</div>
               <div
                 className={`mt-1 text-xl font-black tabular-nums ${
                   financialCashFlow.revExecEscrowPct >= 100
-                    ? presentation
+                    ? presDark
                       ? "text-emerald-300"
                       : "text-emerald-700"
                     : financialCashFlow.revExecEscrowPct >= 80
-                      ? presentation
+                      ? presDark
                         ? "text-sky-300"
                         : "text-sky-700"
-                      : presentation
+                      : presDark
                         ? "text-amber-200"
                         : "text-amber-800"
                 }`}
               >
                 {financialCashFlow.revExecEscrowPct.toFixed(1)}%
               </div>
-              <p className={`line-clamp-1 text-[8px] leading-tight ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              <p className={`line-clamp-1 text-[8px] leading-tight ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                 Недовыполнение чаще из‑за лага эскроу (escrow lag), не из‑за отсутствия ДДУ.
               </p>
               <div className="mt-1 h-[140px] w-full min-w-0 shrink-0">
@@ -2929,45 +2937,45 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={32} domain={[0, financialCashFlow.execYMax]} tickFormatter={(v) => `${v}%`} />
                     <Tooltip
-                      cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                      cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                       content={
-                        presentation
+                        presDark
                           ? rechartsPresentationMiniTooltip((n) => `${n.toFixed(1)}%`, { dataKey: "execPct" })
 
                           : undefined
                       }
-                      formatter={presentation ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "%"]}
-                      contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                      formatter={presDark ? undefined : (v) => [`${Number(v).toFixed(1)}%`, "%"]}
+                      contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
                     />
                     <ReferenceLine y={100} stroke="#facc15" strokeDasharray="4 3" strokeWidth={1.2} />
-                    <Line type="monotone" dataKey="execPct" stroke={presentation ? "#7dd3fc" : "#0369a1"} strokeWidth={2} dot={{ r: 2 }} />
+                    <Line type="monotone" dataKey="execPct" stroke={presDark ? "#7dd3fc" : "#0369a1"} strokeWidth={2} dot={{ r: 2 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <p className={`mt-2 line-clamp-2 text-[9px] leading-snug ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                 Связь с разрывом {compactRub(financialCashFlow.gapRub)}: % плана по деньгам на счёте отстаёт при отставании эскроу.
               </p>
             </div>
           </div>
 
           <div
-            className={`mt-4 space-y-4 border-t pt-4 ${presentation ? "border-slate-700/40" : "border-slate-200"}`}
+            className={`mt-4 space-y-4 border-t pt-4 ${presDark ? "border-slate-700/40" : "border-slate-200"}`}
           >
             <div>
-              <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                 Разложение отклонения (корневые причины)
               </div>
-              <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                 От отклонения к драйверам, затем к структуре линеек и выводу — для решений, а не для отчёта. Драйверы масштабируются при смене плана/сценария; детализация структуры совпадает с блоком ниже.
               </p>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-                <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <div className={`min-w-0 rounded-xl border p-3 ${presDark ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                   Водопад драйверов (порядок = цепочка)
                 </div>
-                <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                <p className={`mt-1 text-[9px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                   Сумма столбцов = итоговое отклонение. Красный — ухудшение к плану, зелёный — перекрытие.
                 </p>
                 <div className="relative mx-auto mt-3 h-44 w-full max-w-xl">
@@ -2988,11 +2996,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                               }}
                             />
                           </div>
-                          <div className={`mt-1 line-clamp-2 text-center text-[8px] font-medium leading-tight ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                          <div className={`mt-1 line-clamp-2 text-center text-[8px] font-medium leading-tight ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                             {r.labelRu}
                           </div>
                           <div
-                            className={`text-[9px] font-bold tabular-nums ${r.impactRub < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}
+                            className={`text-[9px] font-bold tabular-nums ${r.impactRub < 0 ? (presDark ? "text-rose-200" : "text-rose-700") : presDark ? "text-emerald-200" : "text-emerald-700"}`}
                           >
                             {r.impactRub >= 0 ? "+" : "−"}
                             {compactRub(Math.abs(r.impactRub))}
@@ -3005,7 +3013,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full min-w-[280px] border-collapse text-[10px]">
                     <thead>
-                      <tr className={presentation ? "text-slate-500" : "text-slate-500"}>
+                      <tr className={presDark ? "text-slate-500" : "text-slate-500"}>
                         <th className="py-1 pr-2 text-left font-semibold">Драйвер (по |вклад|)</th>
                         <th className="py-1 text-right font-semibold">Δ ₽</th>
                         <th className="py-1 pl-2 text-right font-semibold">После шага</th>
@@ -3015,13 +3023,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                       {rootCauseDecomposition.driversSortedByImpact.map((d) => {
                         const end = rootCauseDecomposition.waterfallRows.find((w) => w.id === d.id)?.runningEnd ?? 0;
                         return (
-                          <tr key={d.id} className={presentation ? "border-t border-slate-700/35" : "border-t border-slate-200"}>
-                            <td className={`py-1.5 pr-2 ${presentation ? "text-slate-200" : "text-slate-800"}`}>{d.labelRu}</td>
-                            <td className={`py-1.5 text-right tabular-nums ${d.impactRub < 0 ? (presentation ? "text-rose-200" : "text-rose-700") : presentation ? "text-emerald-200" : "text-emerald-700"}`}>
+                          <tr key={d.id} className={presDark ? "border-t border-slate-700/35" : "border-t border-slate-200"}>
+                            <td className={`py-1.5 pr-2 ${presDark ? "text-slate-200" : "text-slate-800"}`}>{d.labelRu}</td>
+                            <td className={`py-1.5 text-right tabular-nums ${d.impactRub < 0 ? (presDark ? "text-rose-200" : "text-rose-700") : presDark ? "text-emerald-200" : "text-emerald-700"}`}>
                               {d.impactRub >= 0 ? "+" : "−"}
                               {compactRub(Math.abs(d.impactRub))}
                             </td>
-                            <td className={`py-1.5 pl-2 text-right tabular-nums ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                            <td className={`py-1.5 pl-2 text-right tabular-nums ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                               {end <= 0 ? "−" : "+"}
                               {compactRub(Math.abs(end))}
                             </td>
@@ -3034,15 +3042,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
 
               <div className="flex min-w-0 flex-col gap-3">
-                <div className={`rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <div className={`rounded-xl border p-3 ${presDark ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                     Структура: топ минусов к Δ выручке
                   </div>
-                  <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+                  <p className={`mt-1 text-[9px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                     Те же строки и порядок, что в «Выполнение структуры продаж — диагностика» (Δ ₽ по линейке).{" "}
                     <a
                       href="#sales-structure-diagnostic"
-                      className={`font-semibold underline decoration-dotted underline-offset-2 ${presentation ? "text-sky-300" : "text-sky-700"}`}
+                      className={`font-semibold underline decoration-dotted underline-offset-2 ${presDark ? "text-sky-300" : "text-sky-700"}`}
                     >
                       Перейти к таблице
                     </a>
@@ -3050,26 +3058,26 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   </p>
                   <ul className="mt-2 space-y-1.5">
                     {rootCauseDecomposition.structureDrilldown.length === 0 ? (
-                      <li className={`text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>Нет отрицательных Δ по линейкам.</li>
+                      <li className={`text-[10px] ${presDark ? "text-slate-500" : "text-slate-600"}`}>Нет отрицательных Δ по линейкам.</li>
                     ) : (
                       rootCauseDecomposition.structureDrilldown.map((row) => (
                         <li
                           key={row.key}
-                          className={`flex items-baseline justify-between gap-2 text-[10px] ${presentation ? "text-slate-200" : "text-slate-800"}`}
+                          className={`flex items-baseline justify-between gap-2 text-[10px] ${presDark ? "text-slate-200" : "text-slate-800"}`}
                         >
                           <span className="min-w-0 truncate">{row.label}</span>
-                          <span className={`shrink-0 tabular-nums ${presentation ? "text-rose-200" : "text-rose-700"}`}>−{compactRub(Math.abs(row.deltaRub))}</span>
+                          <span className={`shrink-0 tabular-nums ${presDark ? "text-rose-200" : "text-rose-700"}`}>−{compactRub(Math.abs(row.deltaRub))}</span>
                         </li>
                       ))
                     )}
                   </ul>
                 </div>
 
-                <div className={`rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                <div className={`rounded-xl border p-3 ${presDark ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                     Тренд отклонения по периодам ряда
                   </div>
-                  <p className={`mt-1 text-[10px] leading-snug ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <p className={`mt-1 text-[10px] leading-snug ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                     <span className="font-semibold">Накопительно: {rootCauseDecomposition.trendRu}.</span> {rootCauseDecomposition.trendDetailRu}
                   </p>
                   <div className="mt-2 h-[120px] w-full min-w-0">
@@ -3084,35 +3092,35 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                           tickFormatter={(v) => `${Math.round(v / 1_000_000)}M`}
                         />
                         <Tooltip
-                          cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                          cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                           content={
-                            presentation
+                            presDark
                               ? rechartsPresentationMiniTooltip((n) => rubFmt.format(n), { dataKey: "cum" })
                               : undefined
                           }
                           formatter={
-                            presentation
+                            presDark
                               ? undefined
                               : (v, name) => [
                                   rubFmt.format(Number(v)),
                                   String(name) === "cum" ? "Накопит. откл." : "За период",
                                 ]
                           }
-                          contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                          contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
                         />
-                        <ReferenceLine y={0} stroke={presentation ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.5)"} />
+                        <ReferenceLine y={0} stroke={presDark ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.5)"} />
                         <Line type="monotone" dataKey="cum" name="cum" stroke="#f87171" strokeWidth={2} dot={{ r: 2 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className={`mt-1 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>Линия — накопительное отклонение выручки (факт − план) по выбранной гранулярности.</p>
+                  <p className={`mt-1 text-[8px] ${presDark ? "text-slate-500" : "text-slate-500"}`}>Линия — накопительное отклонение выручки (факт − план) по выбранной гранулярности.</p>
                 </div>
               </div>
             </div>
 
             <div
               className={
-                presentation
+                presDark
                   ? "relative overflow-hidden rounded-xl border border-slate-600/45 bg-[linear-gradient(120deg,rgba(15,23,42,0.94)_0%,rgba(30,41,59,0.9)_52%,rgba(15,23,42,0.94)_100%)] shadow-[0_0_24px_rgba(56,189,248,0.08)]"
                   : "relative overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(120deg,rgba(248,250,252,0.96)_0%,rgba(255,255,255,1)_52%,rgba(248,250,252,0.96)_100%)] shadow-sm"
               }
@@ -3120,7 +3128,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <div
                 aria-hidden
                 className={
-                  presentation
+                  presDark
                     ? "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.16)_0%,rgba(56,189,248,0.05)_38%,rgba(15,23,42,0)_74%)]"
                     : "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.08)_0%,rgba(56,189,248,0.03)_35%,rgba(255,255,255,0)_72%)]"
                 }
@@ -3129,7 +3137,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <div className="relative grid grid-cols-1 overflow-hidden xl:grid-cols-2">
                 <div
                   className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,95%_0,100%_50%,95%_100%,0_100%)] ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(90deg,rgba(127,29,29,0.82)_0%,rgba(190,24,93,0.52)_60%,rgba(251,113,133,0.38)_100%)] text-rose-100"
                       : "bg-[linear-gradient(90deg,rgba(254,202,202,0.95)_0%,rgba(254,226,226,0.9)_60%,rgba(255,241,242,0.88)_100%)] text-rose-800"
                   }`}
@@ -3138,7 +3146,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </div>
                 <div
                   className={`px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,5%_50%)] ${
-                    presentation
+                    presDark
                       ? "bg-[linear-gradient(90deg,rgba(51,65,85,0.75)_0%,rgba(71,85,105,0.58)_55%,rgba(100,116,139,0.42)_100%)] text-slate-100"
                       : "bg-[linear-gradient(90deg,rgba(226,232,240,0.95)_0%,rgba(241,245,249,0.92)_60%,rgba(248,250,252,0.9)_100%)] text-slate-700"
                   }`}
@@ -3149,35 +3157,35 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
               <div className="relative grid grid-cols-1 xl:grid-cols-2">
                 <div className="p-4">
-                  <p className={`text-2xl font-bold tabular-nums ${presentation ? "text-rose-300" : "text-rose-700"}`}>−177 млн ₽</p>
-                  <p className={`mt-1 text-sm ${presentation ? "text-slate-400" : "text-slate-600"}`}>недовыполнение выручки</p>
+                  <p className={`text-2xl font-bold tabular-nums ${presDark ? "text-rose-300" : "text-rose-700"}`}>−177 млн ₽</p>
+                  <p className={`mt-1 text-sm ${presDark ? "text-slate-400" : "text-slate-600"}`}>недовыполнение выручки</p>
                 </div>
 
                 <div className="relative p-4">
                   <div
                     aria-hidden
                     className={`pointer-events-none absolute inset-y-3 left-0 hidden w-px xl:block ${
-                      presentation
+                      presDark
                         ? "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.5),transparent)]"
                         : "bg-[linear-gradient(to_bottom,transparent,rgba(148,163,184,0.35),transparent)]"
                     }`}
                   />
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                     Темп продаж −124 млн ₽ — корневая причина
                   </p>
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                     Структура −68 млн ₽ — усиливает просадку
                   </p>
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                     Рост кладовых и парковок
                   </p>
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                     смещает структуру
                   </p>
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                     → вытесняет 2-комнатные и коммерцию
                   </p>
-                  <p className={`text-sm leading-relaxed ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+                  <p className={`text-sm leading-relaxed ${presDark ? "text-slate-300" : "text-slate-700"}`}>
                     → формирует основной недобор выручки (−177 млн ₽)
                   </p>
                 </div>
@@ -3190,7 +3198,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <div
         className={
-          presentation
+          presDark
             ? `mt-4 rounded-xl border p-3 sm:p-4 ${
                 inventoryLiquidationAnalysis.pctAtRisk > 6 || inventoryLiquidationAnalysis.timeDeficitMonths > 0.5
                   ? "border-rose-500/45 bg-gradient-to-br from-rose-950/35 via-slate-900/80 to-slate-950/95 ring-1 ring-rose-500/25"
@@ -3205,13 +3213,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-rose-200" : "text-rose-800"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-rose-200" : "text-rose-800"}`}>
               Риск ликвидации · прогноз
             </div>
-            <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               Выбытие продукта (остатки)
             </div>
-            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
               Фокус на том, что с высокой вероятностью останется непроданным: прогноз → темп → структура.
             </p>
           </div>
@@ -3219,55 +3227,55 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
         <div
           className={`mt-4 rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
-            presentation
+            presDark
               ? "border-orange-500/55 bg-gradient-to-br from-orange-950/50 via-slate-950/80 to-slate-950 shadow-[inset_0_1px_0_rgba(255,237,213,0.12)]"
               : "border-orange-400 bg-gradient-to-br from-orange-50 to-amber-50/90 shadow-sm"
           }`}
         >
-          <div className={`text-[10px] font-black uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+          <div className={`text-[10px] font-black uppercase tracking-wide ${presDark ? "text-orange-200" : "text-orange-900"}`}>
             Прогноз непроданного (ключевой KPI)
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
-            <span className={`text-3xl font-black tabular-nums sm:text-4xl ${presentation ? "text-orange-100" : "text-orange-950"}`}>
+            <span className={`text-3xl font-black tabular-nums sm:text-4xl ${presDark ? "text-orange-100" : "text-orange-950"}`}>
               {numFmt.format(inventoryLiquidationAnalysis.totalRisk)} шт
             </span>
-            <span className={`text-2xl font-black tabular-nums sm:text-3xl ${presentation ? "text-orange-200/95" : "text-orange-800"}`}>
+            <span className={`text-2xl font-black tabular-nums sm:text-3xl ${presDark ? "text-orange-200/95" : "text-orange-800"}`}>
               {inventoryLiquidationAnalysis.pctAtRisk.toFixed(1)}%
             </span>
-            <span className={`text-[10px] font-medium ${presentation ? "text-orange-200/80" : "text-orange-900/80"}`}>от портфеля</span>
+            <span className={`text-[10px] font-medium ${presDark ? "text-orange-200/80" : "text-orange-900/80"}`}>от портфеля</span>
           </div>
-          <p className={`mt-2 max-w-2xl text-[10px] leading-snug ${presentation ? "text-orange-100/85" : "text-orange-950/85"}`}>
+          <p className={`mt-2 max-w-2xl text-[10px] leading-snug ${presDark ? "text-orange-100/85" : "text-orange-950/85"}`}>
             Оценка объёма, который модель не закрывает к дате завершения продаж при текущих темпах и миксе.
           </p>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-2">
-          <div className={`rounded-lg border px-3 py-2 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>Продано</div>
-            <div className={`mt-0.5 text-lg font-black tabular-nums ${presentation ? "text-emerald-200" : "text-emerald-800"}`}>
+          <div className={`rounded-lg border px-3 py-2 ${presDark ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}>Продано</div>
+            <div className={`mt-0.5 text-lg font-black tabular-nums ${presDark ? "text-emerald-200" : "text-emerald-800"}`}>
               {inventoryLiquidationAnalysis.pctSold.toFixed(1)}%
             </div>
-            <div className={`text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            <div className={`text-[9px] ${presDark ? "text-slate-500" : "text-slate-600"}`}>
               {numFmt.format(inventoryLiquidationAnalysis.totalSold)} / {numFmt.format(inventoryLiquidationAnalysis.totalPlan)} шт
             </div>
           </div>
-          <div className={`rounded-lg border px-3 py-2 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>Остаток</div>
-            <div className={`mt-0.5 text-lg font-black tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+          <div className={`rounded-lg border px-3 py-2 ${presDark ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}>Остаток</div>
+            <div className={`mt-0.5 text-lg font-black tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
               {inventoryLiquidationAnalysis.pctRemaining.toFixed(1)}%
             </div>
-            <div className={`text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            <div className={`text-[9px] ${presDark ? "text-slate-500" : "text-slate-600"}`}>
               {numFmt.format(inventoryLiquidationAnalysis.totalRemaining)} шт к выбытию
             </div>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-orange-500/35 bg-slate-950/50" : "border-orange-200 bg-orange-50/50"}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+          <div className={`min-w-0 rounded-xl border p-3 ${presDark ? "border-orange-500/35 bg-slate-950/50" : "border-orange-200 bg-orange-50/50"}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-orange-200" : "text-orange-900"}`}>
               Портфель: продано · остаток · прогноз непроданного
             </div>
-            <p className={`mt-1 text-[9px] leading-snug ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+            <p className={`mt-1 text-[9px] leading-snug ${presDark ? "text-slate-400" : "text-slate-600"}`}>
               Оранжевый сегмент — прогноз непроданного (акцент); серый — остаток без этого прогноза.
             </p>
             <div className="mt-2 h-[96px] w-full min-w-0">
@@ -3287,10 +3295,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   />
                   <YAxis type="category" dataKey="name" width={68} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} />
                   <Tooltip
-                    cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
-                    content={presentation ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} шт`) : undefined}
+                    cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                    content={presDark ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} шт`) : undefined}
                     formatter={
-                      presentation
+                      presDark
                         ? undefined
                         : (v, name) => {
                             const lab =
@@ -3304,17 +3312,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                             return [`${numFmt.format(Number(v))} шт`, lab];
                           }
                     }
-                    contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                    contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
                   <Bar dataKey="sold" name="Продано" stackId="inv" fill="#22c55e" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="remaining" name="Остаток" stackId="inv" fill={presentation ? "#475569" : "#94a3b8"} />
+                  <Bar dataKey="remaining" name="Остаток" stackId="inv" fill={presDark ? "#475569" : "#94a3b8"} />
                   <Bar
                     dataKey="unsoldForecast"
                     name="Непроданный прогноз"
                     stackId="inv"
                     fill="#ea580c"
-                    stroke={presentation ? "#fed7aa" : "#9a3412"}
+                    stroke={presDark ? "#fed7aa" : "#9a3412"}
                     strokeWidth={2}
                     radius={[0, 4, 4, 0]}
                   />
@@ -3324,48 +3332,48 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
 
           <div
-            className={`min-w-0 rounded-xl border p-3 ${presentation ? "border-amber-500/35 bg-slate-950/45" : "border-amber-200 bg-amber-50/60"}`}
+            className={`min-w-0 rounded-xl border p-3 ${presDark ? "border-amber-500/35 bg-slate-950/45" : "border-amber-200 bg-amber-50/60"}`}
           >
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-amber-200" : "text-amber-900"}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-amber-200" : "text-amber-900"}`}>
               Темп ликвидации и дефицит времени
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
-                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Требуемый темп</div>
-                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+              <div className={presDark ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
+                <div className={presDark ? "text-slate-400" : "text-slate-600"}>Требуемый темп</div>
+                <div className={`mt-0.5 font-bold tabular-nums ${presDark ? "text-slate-50" : "text-slate-900"}`}>
                   {dec1Fmt.format(inventoryLiquidationAnalysis.plannedPace)} шт/мес
                 </div>
-                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>к дедлайну</div>
+                <div className={`mt-0.5 text-[8px] ${presDark ? "text-slate-500" : "text-slate-500"}`}>к дедлайну</div>
               </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
-                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Фактический темп</div>
+              <div className={presDark ? "rounded-lg bg-slate-900/55 p-2 ring-1 ring-white/10" : "rounded-lg bg-white p-2 ring-1 ring-amber-200/80"}>
+                <div className={presDark ? "text-slate-400" : "text-slate-600"}>Фактический темп</div>
                 <div
                   className={`mt-0.5 font-bold tabular-nums ${
                     inventoryLiquidationAnalysis.actualPace < inventoryLiquidationAnalysis.plannedPace * 0.95
-                      ? presentation
+                      ? presDark
                         ? "text-rose-300"
                         : "text-rose-700"
-                      : presentation
+                      : presDark
                         ? "text-emerald-300"
                         : "text-emerald-700"
                   }`}
                 >
                   {dec1Fmt.format(inventoryLiquidationAnalysis.actualPace)} шт/мес
                 </div>
-                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+                <div className={`mt-0.5 text-[8px] ${presDark ? "text-slate-500" : "text-slate-500"}`}>
                   {(inventoryLiquidationAnalysis.paceRatio * 100).toFixed(0)}% к требуемому
                 </div>
               </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Мес. на полное выбытие</div>
-                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-amber-100" : "text-amber-950"}`}>
+              <div className={presDark ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
+                <div className={presDark ? "text-slate-400" : "text-slate-600"}>Мес. на полное выбытие</div>
+                <div className={`mt-0.5 font-bold tabular-nums ${presDark ? "text-amber-100" : "text-amber-950"}`}>
                   {dec1Fmt.format(inventoryLiquidationAnalysis.monthsToClear)}
                 </div>
-                <div className={`mt-0.5 text-[8px] ${presentation ? "text-slate-500" : "text-slate-500"}`}>остаток / факт</div>
+                <div className={`mt-0.5 text-[8px] ${presDark ? "text-slate-500" : "text-slate-500"}`}>остаток / факт</div>
               </div>
-              <div className={presentation ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
-                <div className={presentation ? "text-slate-400" : "text-slate-600"}>Времени до конца продаж</div>
-                <div className={`mt-0.5 font-bold tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <div className={presDark ? "rounded-lg bg-slate-900/55 p-2" : "rounded-lg bg-white p-2"}>
+                <div className={presDark ? "text-slate-400" : "text-slate-600"}>Времени до конца продаж</div>
+                <div className={`mt-0.5 font-bold tabular-nums ${presDark ? "text-slate-100" : "text-slate-900"}`}>
                   {dec1Fmt.format(inventoryLiquidationAnalysis.monthsLeft)} мес.
                 </div>
               </div>
@@ -3373,10 +3381,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               className={`mt-3 rounded-lg border px-3 py-2 text-[10px] font-semibold ${
                 inventoryLiquidationAnalysis.timeDeficitMonths > 0.5
-                  ? presentation
+                  ? presDark
                     ? "border-rose-500/50 bg-rose-950/40 text-rose-100"
                     : "border-rose-300 bg-rose-50 text-rose-900"
-                  : presentation
+                  : presDark
                     ? "border-slate-600/50 text-slate-300"
                     : "border-slate-200 text-slate-700"
               }`}
@@ -3393,11 +3401,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
         </div>
 
-        <div className={`mt-4 rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
-          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+        <div className={`mt-4 rounded-xl border p-3 ${presDark ? "border-slate-600/50 bg-slate-950/40" : "border-slate-200 bg-slate-50"}`}>
+          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-slate-400" : "text-slate-600"}`}>
             Структура: сортировка по риску ликвидности (остаток × слабый темп сегмента)
           </div>
-          <p className={`mt-1 text-[9px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+          <p className={`mt-1 text-[9px] ${presDark ? "text-slate-500" : "text-slate-600"}`}>
             Топ‑2 по индексу помечены; оранжевый — прогноз непроданного по типу.
           </p>
           <div className="mt-2" style={{ height: Math.max(200, inventoryLiquidationAnalysis.barByType.length * 44) }}>
@@ -3415,10 +3423,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <XAxis type="number" tick={{ fill: axisColor, fontSize: 9 }} tickFormatter={(v) => numFmt.format(v)} />
                 <YAxis type="category" dataKey="labelAxis" width={132} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} />
                 <Tooltip
-                  cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
-                  content={presentation ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} шт`) : undefined}
+                  cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                  content={presDark ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} шт`) : undefined}
                   formatter={
-                    presentation
+                    presDark
                       ? undefined
                       : (v, name) => {
                           const lab =
@@ -3432,17 +3440,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                           return [`${numFmt.format(Number(v))} шт`, lab];
                         }
                   }
-                  contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                  contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 9 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
                 <Bar dataKey="sold" name="Продано" stackId="t" fill="#22c55e" />
-                <Bar dataKey="remaining" name="Остаток" stackId="t" fill={presentation ? "#475569" : "#94a3b8"} />
+                <Bar dataKey="remaining" name="Остаток" stackId="t" fill={presDark ? "#475569" : "#94a3b8"} />
                 <Bar
                   dataKey="unsoldForecast"
                   name="Непроданный прогноз"
                   stackId="t"
                   fill="#ea580c"
-                  stroke={presentation ? "#fed7aa" : "#9a3412"}
+                  stroke={presDark ? "#fed7aa" : "#9a3412"}
                   strokeWidth={1.5}
                 />
               </BarChart>
@@ -3451,11 +3459,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         </div>
 
         <div className={`mt-4 grid gap-3 lg:grid-cols-2`}>
-          <div className={`rounded-xl border p-3 ${presentation ? "border-orange-500/40 bg-orange-950/25" : "border-orange-200 bg-orange-50/90"}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+          <div className={`rounded-xl border p-3 ${presDark ? "border-orange-500/40 bg-orange-950/25" : "border-orange-200 bg-orange-50/90"}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-orange-200" : "text-orange-900"}`}>
               Концентрация риска по типам
             </div>
-            <p className={`mt-1 text-[9px] ${presentation ? "text-orange-100/75" : "text-orange-950/80"}`}>
+            <p className={`mt-1 text-[9px] ${presDark ? "text-orange-100/75" : "text-orange-950/80"}`}>
               Доля каждой категории в суммарном прогнозе непроданного.
             </p>
             <ul className="mt-2 space-y-2">
@@ -3464,10 +3472,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   key={r.id}
                   className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[10px] ${
                     idx === 0
-                      ? presentation
+                      ? presDark
                         ? "border-orange-400/60 bg-black/25 font-semibold text-orange-50"
                         : "border-orange-400 bg-white font-semibold text-orange-950"
-                      : presentation
+                      : presDark
                         ? "border-slate-600/40 text-slate-200"
                         : "border-slate-200 text-slate-800"
                   }`}
@@ -3475,7 +3483,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                   <span className="min-w-0 truncate">{r.label}</span>
                   <span className="shrink-0 text-right tabular-nums">
                     {numFmt.format(r.units)} шт
-                    <span className={`ml-2 font-bold ${presentation ? "text-orange-200" : "text-orange-800"}`}>
+                    <span className={`ml-2 font-bold ${presDark ? "text-orange-200" : "text-orange-800"}`}>
                       {r.pctOfTotalRisk.toFixed(0)}%
                     </span>
                   </span>
@@ -3485,10 +3493,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
           <div
             className={`rounded-xl border-l-4 p-3 text-[11px] leading-relaxed ${
-              presentation ? "border-l-orange-400 bg-slate-950/45 text-slate-200" : "border-l-orange-500 bg-white text-slate-800"
+              presDark ? "border-l-orange-400 bg-slate-950/45 text-slate-200" : "border-l-orange-500 bg-white text-slate-800"
             }`}
           >
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-orange-200" : "text-orange-900"}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-orange-200" : "text-orange-900"}`}>
               Инсайт (проблема → причина → следствие)
             </div>
             <p className="mt-2 font-medium">{inventoryLiquidationAnalysis.insight.problem}</p>
@@ -3500,42 +3508,42 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <div
         className={
-          presentation
+          presDark
             ? "mt-4 rounded-xl border border-violet-500/25 bg-gradient-to-br from-slate-900/85 via-violet-950/20 to-slate-950/95 p-3 sm:p-4 ring-1 ring-violet-500/15"
             : "mt-4 rounded-xl border border-violet-200 bg-gradient-to-br from-white via-violet-50/40 to-slate-50 p-3 sm:p-4"
         }
       >
         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-800"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-violet-200" : "text-violet-800"}`}>
               Конверсия · монетизация
             </div>
-            <div className={`text-xs font-semibold uppercase tracking-wide ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               Дополнительные продажи (upsell)
             </div>
-            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+            <p className={`mt-0.5 max-w-3xl text-[10px] leading-snug ${presDark ? "text-slate-500" : "text-slate-600"}`}>
               Насколько эффективно монетизируем сделки по квартирам паркингом и кладовыми: сначала конверсия, затем денежный эффект и выполнение плана.
             </p>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+          <div className={`rounded-xl border px-4 py-3 ${presDark ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}>
               Сделки по квартирам (база)
             </div>
-            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              <span className={presentation ? "text-sky-200" : "text-sky-800"}>{numFmt.format(upsellDiagnosticAnalysis.aptF)}</span>
-              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>/</span>
+            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presDark ? "text-slate-100" : "text-slate-900"}`}>
+              <span className={presDark ? "text-sky-200" : "text-sky-800"}>{numFmt.format(upsellDiagnosticAnalysis.aptF)}</span>
+              <span className={`text-sm font-bold ${presDark ? "text-slate-500" : "text-slate-500"}`}>/</span>
               <span>{numFmt.format(upsellDiagnosticAnalysis.aptP)}</span>
-              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план, шт.</span>
+              <span className={`text-[10px] font-semibold ${presDark ? "text-slate-400" : "text-slate-600"}`}>факт / план, шт.</span>
             </div>
-            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presentation ? "text-violet-200" : "text-violet-800"}`}>
+            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presDark ? "text-violet-200" : "text-violet-800"}`}>
               {upsellDiagnosticAnalysis.aptExecPct.toFixed(1)}% выполнения плана по базе
             </div>
           </div>
           <div className={`rounded-xl border-2 px-4 py-3 ${upsellConversionSignal.cardClass}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}>
               Сводная конверсия upsell
             </div>
             <div className={`mt-1 text-[10px] font-black uppercase tracking-wide ${upsellConversionSignal.labelClass}`}>
@@ -3543,33 +3551,33 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             </div>
             <div className={`mt-1 text-2xl font-black tabular-nums sm:text-[30px] ${upsellConversionSignal.valueClass}`}>
               {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvFact)}%
-              <span className={`ml-2 text-[12px] font-semibold ${presentation ? "text-slate-300" : "text-slate-600"}`}>
+              <span className={`ml-2 text-[12px] font-semibold ${presDark ? "text-slate-300" : "text-slate-600"}`}>
                 (план {dec1Fmt.format(upsellDiagnosticAnalysis.totalConvPlan)}%)
               </span>
             </div>
-            <div className={`mt-1 text-[10px] font-semibold tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className={`mt-1 text-[10px] font-semibold tabular-nums ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               {upsellDiagnosticAnalysis.totalConvDeltaPP >= 0 ? "+" : ""}{dec1Fmt.format(upsellDiagnosticAnalysis.totalConvDeltaPP)} п.п. →
               {" "}недобор выручки
             </div>
-            <div className={`mt-1 text-[10px] ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <div className={`mt-1 text-[10px] ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               Основной провал: {upsellDiagnosticAnalysis.weakConvName} (−{dec1Fmt.format(Math.max(0, upsellDiagnosticAnalysis.weakConvDeltaPP))} п.п.)
             </div>
-            <div className={`mt-1 text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+            <div className={`mt-1 text-[10px] font-semibold ${presDark ? "text-slate-400" : "text-slate-600"}`}>
               Норма: {Math.floor(upsellDiagnosticAnalysis.totalConvPlan)}–{Math.floor(upsellDiagnosticAnalysis.totalConvPlan) + 5}%
             </div>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className={`rounded-xl border px-4 py-3 ${presentation ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
-            <div className={`text-[9px] font-bold uppercase tracking-wide ${presentation ? "text-slate-500" : "text-slate-500"}`}>UPSSELL (₽)</div>
-            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
-              <span className={presentation ? "text-sky-200" : "text-sky-800"}>{compactRub(upsellDiagnosticAnalysis.totalActual)}</span>
-              <span className={`text-sm font-bold ${presentation ? "text-slate-500" : "text-slate-500"}`}>/</span>
+          <div className={`rounded-xl border px-4 py-3 ${presDark ? "border-slate-600/50 bg-slate-950/50" : "border-slate-200 bg-white"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}>UPSSELL (₽)</div>
+            <div className={`mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0 text-xl font-black tabular-nums ${presDark ? "text-slate-100" : "text-slate-900"}`}>
+              <span className={presDark ? "text-sky-200" : "text-sky-800"}>{compactRub(upsellDiagnosticAnalysis.totalActual)}</span>
+              <span className={`text-sm font-bold ${presDark ? "text-slate-500" : "text-slate-500"}`}>/</span>
               <span>{compactRub(upsellDiagnosticAnalysis.totalPlan)}</span>
-              <span className={`text-[10px] font-semibold ${presentation ? "text-slate-400" : "text-slate-600"}`}>факт / план</span>
+              <span className={`text-[10px] font-semibold ${presDark ? "text-slate-400" : "text-slate-600"}`}>факт / план</span>
             </div>
-            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presentation ? "text-violet-200" : "text-violet-800"}`}>
+            <div className={`mt-1 text-[10px] font-bold tabular-nums ${presDark ? "text-violet-200" : "text-violet-800"}`}>
               {upsellDiagnosticAnalysis.totalPlan > 0
                 ? `${dec1Fmt.format((upsellDiagnosticAnalysis.totalActual / upsellDiagnosticAnalysis.totalPlan) * 100)}% выполнения плана`
                 : "0.0% выполнения плана"}
@@ -3577,10 +3585,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               className={`mt-1 text-[10px] font-bold tabular-nums ${
                 upsellDiagnosticAnalysis.totalRevDelta >= 0
-                  ? presentation
+                  ? presDark
                     ? "text-emerald-300"
                     : "text-emerald-700"
-                  : presentation
+                  : presDark
                     ? "text-rose-300"
                     : "text-rose-700"
               }`}
@@ -3592,24 +3600,24 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div
             className={`rounded-xl border-2 px-4 py-3 ${
               upsellDiagnosticAnalysis.totalRevDelta < 0
-                ? presentation
+                ? presDark
                   ? "border-rose-500/55 bg-rose-950/35"
                   : "border-rose-300 bg-rose-50"
-                : presentation
+                : presDark
                   ? "border-emerald-500/45 bg-emerald-950/25"
                   : "border-emerald-200 bg-emerald-50"
             }`}
           >
-            <div className={`text-[9px] font-black uppercase tracking-wide ${presentation ? "text-rose-200" : "text-rose-800"}`}>
+            <div className={`text-[9px] font-black uppercase tracking-wide ${presDark ? "text-rose-200" : "text-rose-800"}`}>
               Отклонение (₽)
             </div>
             <div
               className={`mt-1 text-2xl font-black tabular-nums sm:text-3xl ${
                 upsellDiagnosticAnalysis.totalRevDelta < 0
-                  ? presentation
+                  ? presDark
                     ? "text-rose-100"
                     : "text-rose-700"
-                  : presentation
+                  : presDark
                     ? "text-emerald-200"
                     : "text-emerald-800"
               }`}
@@ -3617,14 +3625,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               {upsellDiagnosticAnalysis.totalRevDelta >= 0 ? "+" : "−"}
               {compactRub(Math.abs(upsellDiagnosticAnalysis.totalRevDelta))}
             </div>
-            <div className={`mt-1 text-[9px] leading-snug ${presentation ? "text-rose-200/85" : "text-rose-900/85"}`}>
+            <div className={`mt-1 text-[9px] leading-snug ${presDark ? "text-rose-200/85" : "text-rose-900/85"}`}>
               <span className="font-semibold">Вклад по категориям:</span> {upsellDiagnosticAnalysis.insight.revBreakdownLine}
             </div>
           </div>
         </div>
 
         <div
-          className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-snug ${presentation ? "border-slate-600/40 bg-slate-950/40 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}
+          className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-snug ${presDark ? "border-slate-600/40 bg-slate-950/40 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}
         >
           <span className="font-semibold">Зависимость от базы:</span> ожидаемая выручка upsell при плановой конверсии на текущей базе — около{" "}
           <span className="tabular-nums font-bold">{compactRub(upsellDiagnosticAnalysis.scaledPlanTotal)}</span> (масштаб{" "}
@@ -3653,15 +3661,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 tickFormatter={(v) => `${v}%`}
               />
               <Tooltip
-                cursor={presentation ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
+                cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                 content={
-                  presentation
+                  presDark
                     ? rechartsPresentationMiniTooltip((n) => `${dec1Fmt.format(n)}%`, { dataKey: "factConv" })
 
                     : undefined
                 }
-                formatter={presentation ? undefined : (v) => [`${dec1Fmt.format(Number(v))}%`, ""]}
-                contentStyle={presentation ? undefined : { fontSize: 10, borderRadius: 6 }}
+                formatter={presDark ? undefined : (v) => [`${dec1Fmt.format(Number(v))}%`, ""]}
+                contentStyle={presDark ? undefined : { fontSize: 10, borderRadius: 6 }}
               />
               <Bar
                 dataKey="planConv"
@@ -3683,21 +3691,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           {upsellDiagnosticAnalysis.rows.map((r) => (
             <div
               key={r.id}
-              className={`rounded-xl border p-3 ${presentation ? "border-slate-600/50 bg-slate-950/45" : "border-slate-200 bg-white"}`}
+              className={`rounded-xl border p-3 ${presDark ? "border-slate-600/50 bg-slate-950/45" : "border-slate-200 bg-white"}`}
             >
-              <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-800"}`}>{r.name}</div>
+              <div className={`text-[10px] font-bold uppercase tracking-wide ${presDark ? "text-violet-200" : "text-violet-800"}`}>{r.name}</div>
 
-              <div className={`mt-2 text-lg font-black tabular-nums ${presentation ? "text-slate-100" : "text-slate-900"}`}>
+              <div className={`mt-2 text-lg font-black tabular-nums ${presDark ? "text-slate-100" : "text-slate-900"}`}>
                 {dec1Fmt.format(r.plannedConversionPct)}% → {dec1Fmt.format(r.actualConversionPct)}%
-                <span className={`ml-2 text-[10px] font-bold ${presentation ? "text-slate-500" : "text-slate-600"}`}>план → факт</span>
+                <span className={`ml-2 text-[10px] font-bold ${presDark ? "text-slate-500" : "text-slate-600"}`}>план → факт</span>
               </div>
               <div
                 className={`mt-0.5 text-sm font-bold tabular-nums ${
                   r.convDeltaPct >= 0
-                    ? presentation
+                    ? presDark
                       ? "text-emerald-300"
                       : "text-emerald-700"
-                    : presentation
+                    : presDark
                       ? "text-rose-300"
                       : "text-rose-700"
                 }`}
@@ -3707,29 +3715,29 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </div>
 
               <div
-                className={`mt-3 text-xl font-black tabular-nums ${r.revDelta >= 0 ? (presentation ? "text-emerald-200" : "text-emerald-800") : presentation ? "text-rose-200" : "text-rose-700"}`}
+                className={`mt-3 text-xl font-black tabular-nums ${r.revDelta >= 0 ? (presDark ? "text-emerald-200" : "text-emerald-800") : presDark ? "text-rose-200" : "text-rose-700"}`}
               >
                 {r.revDelta >= 0 ? "+" : "−"}
                 {compactRub(Math.abs(r.revDelta))}
               </div>
-              <div className={`text-[9px] font-medium ${presentation ? "text-slate-500" : "text-slate-600"}`}>влияние на выручку (факт − план)</div>
+              <div className={`text-[9px] font-medium ${presDark ? "text-slate-500" : "text-slate-600"}`}>влияние на выручку (факт − план)</div>
 
-              <div className={`mt-2 flex items-baseline justify-between gap-2 ${presentation ? "text-slate-400" : "text-slate-600"}`}>
+              <div className={`mt-2 flex items-baseline justify-between gap-2 ${presDark ? "text-slate-400" : "text-slate-600"}`}>
                 <span className="text-[9px] uppercase tracking-wide">Выполнение плана</span>
-                <span className={`text-base font-black tabular-nums ${presentation ? "text-violet-200" : "text-violet-700"}`}>{r.execPct.toFixed(1)}%</span>
+                <span className={`text-base font-black tabular-nums ${presDark ? "text-violet-200" : "text-violet-700"}`}>{r.execPct.toFixed(1)}%</span>
               </div>
-              <div className={`text-[9px] tabular-nums ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+              <div className={`text-[9px] tabular-nums ${presDark ? "text-slate-500" : "text-slate-600"}`}>
                 План {compactRub(r.planRevenueRub)} · факт {compactRub(r.actualRevenueRub)}
               </div>
             </div>
           ))}
         </div>
 
-        <div className={`mt-4 rounded-xl border p-3 ${presentation ? "border-violet-500/35 bg-violet-950/20" : "border-violet-200 bg-violet-50/80"}`}>
-          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-900"}`}>
+        <div className={`mt-4 rounded-xl border p-3 ${presDark ? "border-violet-500/35 bg-violet-950/20" : "border-violet-200 bg-violet-50/80"}`}>
+          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-violet-200" : "text-violet-900"}`}>
             Потенциал (разрыв до плановой конверсии и норматива)
           </div>
-          <p className={`mt-1 text-[10px] leading-snug ${presentation ? "text-violet-100/85" : "text-violet-950/90"}`}>
+          <p className={`mt-1 text-[10px] leading-snug ${presDark ? "text-violet-100/85" : "text-violet-950/90"}`}>
             Закрыть разрыв до <span className="font-semibold">плановой</span> конверсии на текущей базе квартир — до{" "}
             <span className="font-bold tabular-nums">{compactRub(upsellDiagnosticAnalysis.totalPotentialPlanConv)}</span>. До единого целевого норматива{" "}
             {dec1Fmt.format(upsellDiagnosticAnalysis.targetPct)}% (покатегорочно) — до{" "}
@@ -3746,15 +3754,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
         <div
           className={`mt-4 rounded-xl border-l-4 p-3 text-[11px] leading-relaxed ${
-            presentation ? "border-l-violet-400 bg-slate-950/40 text-slate-200" : "border-l-violet-600 bg-white text-slate-800"
+            presDark ? "border-l-violet-400 bg-slate-950/40 text-slate-200" : "border-l-violet-600 bg-white text-slate-800"
           }`}
         >
-          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presentation ? "text-violet-200" : "text-violet-900"}`}>
+          <div className={`text-[10px] font-semibold uppercase tracking-wide ${presDark ? "text-violet-200" : "text-violet-900"}`}>
             Инсайт
           </div>
           <p className="mt-2 font-semibold">
             Главный рычаг:{" "}
-            <span className={presentation ? "text-violet-200" : "text-violet-900"}>
+            <span className={presDark ? "text-violet-200" : "text-violet-900"}>
               {upsellDiagnosticAnalysis.insight.driver === "conversion"
                 ? "конверсия (эффективность монетизации при текущей базе)"
                 : upsellDiagnosticAnalysis.insight.driver === "base"
@@ -3769,14 +3777,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <section
         className={
-          presentation
+          presDark
             ? "rounded-2xl border border-slate-600/50 bg-gradient-to-b from-slate-900/95 to-slate-950 p-4 sm:p-5 ring-1 ring-white/5"
             : "rounded-2xl border border-slate-300/80 bg-white p-4 shadow-md sm:p-5"
         }
         aria-label="Итоговые управленческие индикаторы"
       >
         <div className="mb-3 flex flex-col gap-0.5 border-b border-dashed border-slate-500/20 pb-2 sm:flex-row sm:items-baseline sm:justify-between">
-          <h3 className={presentation ? "text-xs font-bold uppercase tracking-wider text-slate-400" : "text-xs font-bold uppercase tracking-wider text-slate-500"}>
+          <h3 className={presDark ? "text-xs font-bold uppercase tracking-wider text-slate-400" : "text-xs font-bold uppercase tracking-wider text-slate-500"}>
             Итоговые управленческие индикаторы
           </h3>
         </div>
@@ -3784,14 +3792,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           <div
             className={`rounded-2xl border-2 px-4 py-5 sm:col-span-2 sm:px-6 sm:py-7 ${
               executiveManagementSummary.statusTone === "green"
-                ? presentation
+                ? presDark
                   ? "border-emerald-400/60 bg-emerald-950/40"
                   : "border-emerald-400 bg-emerald-50"
                 : executiveManagementSummary.statusTone === "yellow"
-                  ? presentation
+                  ? presDark
                     ? "border-amber-400/55 bg-amber-950/35"
                     : "border-amber-400 bg-amber-50"
-                  : presentation
+                  : presDark
                     ? "border-rose-500/60 bg-rose-950/40"
                     : "border-rose-500 bg-rose-50"
             }`}
@@ -3799,14 +3807,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <div
               className={`text-[9px] font-bold uppercase tracking-widest opacity-80 ${
                 executiveManagementSummary.statusTone === "green"
-                  ? presentation
+                  ? presDark
                     ? "text-emerald-200"
                     : "text-emerald-900"
                   : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
+                    ? presDark
                       ? "text-amber-200"
                       : "text-amber-900"
-                    : presentation
+                    : presDark
                       ? "text-rose-200"
                       : "text-rose-900"
               }`}
@@ -3816,25 +3824,25 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             <p
               className={`mt-1 text-3xl font-black leading-none sm:text-4xl md:text-5xl ${
                 executiveManagementSummary.statusTone === "green"
-                  ? presentation
+                  ? presDark
                     ? "text-emerald-50"
                     : "text-emerald-950"
                   : executiveManagementSummary.statusTone === "yellow"
-                    ? presentation
+                    ? presDark
                       ? "text-amber-50"
                       : "text-amber-950"
-                    : presentation
+                    : presDark
                       ? "text-rose-50"
                       : "text-rose-950"
               }`}
             >
               {executiveManagementSummary.statusLabel}
             </p>
-            <p className={`mt-2 whitespace-pre-line text-sm font-semibold tabular-nums sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <p className={`mt-2 whitespace-pre-line text-sm font-semibold tabular-nums sm:text-base ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               {executiveManagementSummary.statusMetrics}
             </p>
-            <div className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-snug ${presentation ? "border-slate-600/70 bg-black/20 text-slate-200" : "border-slate-200 bg-white/80 text-slate-700"}`}>
-              <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>Причинная цепочка</div>
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-snug ${presDark ? "border-slate-600/70 bg-black/20 text-slate-200" : "border-slate-200 bg-white/80 text-slate-700"}`}>
+              <div className={`text-[9px] font-bold uppercase tracking-widest ${presDark ? "text-slate-500" : "text-slate-500"}`}>Причинная цепочка</div>
               <p className="mt-1 font-black tabular-nums">{executiveManagementSummary.causalChain[0]}</p>
               <p className="mt-0.5">{executiveManagementSummary.causalChain[1]}</p>
               <p className="mt-0.5">{executiveManagementSummary.causalChain[2]}</p>
@@ -3843,41 +3851,41 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
           <div
             className={`rounded-2xl border-2 px-4 py-4 sm:px-5 sm:py-5 ${
-              presentation ? "border-rose-500/60 bg-rose-950/35" : "border-rose-500 bg-rose-50"
+              presDark ? "border-rose-500/60 bg-rose-950/35" : "border-rose-500 bg-rose-50"
             }`}
           >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-rose-200" : "text-rose-900"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presDark ? "text-rose-200" : "text-rose-900"}`}>
               Проблема
             </div>
-            <p className={`mt-2 text-lg font-black leading-tight sm:text-xl ${presentation ? "text-rose-50" : "text-rose-950"}`}>
+            <p className={`mt-2 text-lg font-black leading-tight sm:text-xl ${presDark ? "text-rose-50" : "text-rose-950"}`}>
               {executiveManagementSummary.mainProblem}
             </p>
           </div>
 
           <div
             className={`rounded-2xl border-2 px-4 py-4 shadow-md sm:px-5 sm:py-5 ${
-              presentation
+              presDark
                 ? "border-sky-400/80 bg-sky-950/55 shadow-sky-950/50"
                 : "border-sky-600 bg-sky-100 shadow-sky-300/60"
             }`}
           >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-sky-200" : "text-sky-900"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presDark ? "text-sky-200" : "text-sky-900"}`}>
               Действие
             </div>
-            <p className={`mt-2 whitespace-pre-line text-base font-bold leading-snug sm:text-lg ${presentation ? "text-sky-50" : "text-sky-950"}`}>
+            <p className={`mt-2 whitespace-pre-line text-base font-bold leading-snug sm:text-lg ${presDark ? "text-sky-50" : "text-sky-950"}`}>
               {executiveManagementSummary.requiredAction}
             </p>
           </div>
 
           <div
             className={`rounded-2xl border px-4 py-4 sm:col-span-2 sm:px-5 sm:py-4 ${
-              presentation ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50"
+              presDark ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50"
             }`}
           >
-            <div className={`text-[9px] font-bold uppercase tracking-widest ${presentation ? "text-slate-500" : "text-slate-500"}`}>
+            <div className={`text-[9px] font-bold uppercase tracking-widest ${presDark ? "text-slate-500" : "text-slate-500"}`}>
               Драйвер
             </div>
-            <p className={`mt-2 text-sm font-medium leading-snug sm:text-base ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+            <p className={`mt-2 text-sm font-medium leading-snug sm:text-base ${presDark ? "text-slate-300" : "text-slate-700"}`}>
               {executiveManagementSummary.mainDriver}
             </p>
           </div>

@@ -10,7 +10,8 @@ import {
   type CashflowChartRow,
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
-import { formatCompactCashflowRub, numFmt } from "@/lib/salesPlanChartFormat";
+import { formatCashflowDynamicsChartLabel, numFmt } from "@/lib/salesPlanChartFormat";
+import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
@@ -29,51 +30,56 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Если на одной точке обе подписи и точки близко по Y — скрываем подпись плана. */
-const SAME_INDEX_HIDE_PLAN_IF_Y_WITHIN_PX = 28;
-const LABEL_OFFSET_ABOVE_PT = 14;
+/** Базовый отступ подписи от точки (пикс.); при близких fact/plan увеличивается. */
+const LABEL_OFFSET_FROM_POINT_PX = 14;
+/** Если расстояние между точками на экране меньше — добавляем вертикальный зазор между подписями. */
+const Y_POINT_PROXIMITY_THRESHOLD_PX = 26;
+const PROXIMITY_EXTRA_SCALE = 0.72;
 const X_SHIFT_FACT = -4;
 const X_SHIFT_PLAN = 4;
-const APPROX_LABEL_HALF_H = 7;
-const CHART_LABEL_FONT_PX = 12;
+const CHART_LABEL_FONT_PX = 11;
+const APPROX_LABEL_H_PX = CHART_LABEL_FONT_PX + 3;
 
-/** Индексы: первая, последняя, макс., мин. (по значению ряда). */
-function smartLabelIndices(values: number[]): Set<number> {
-  const n = values.length;
-  if (n === 0) return new Set();
-  if (n === 1) return new Set([0]);
-  let maxIdx = 0;
-  let minIdx = 0;
-  for (let i = 1; i < n; i++) {
-    if (values[i]! > values[maxIdx]!) maxIdx = i;
-    if (values[i]! < values[minIdx]!) minIdx = i;
-  }
-  return new Set([0, n - 1, maxIdx, minIdx]);
+function approxLabelWidthPx(text: string, fontPx: number): number {
+  return Math.max(fontPx * 2, text.length * fontPx * 0.58);
+}
+
+function centeredRectsOverlap(
+  ax: number,
+  ay: number,
+  aw: number,
+  ah: number,
+  bx: number,
+  by: number,
+  bw: number,
+  bh: number,
+): boolean {
+  return Math.abs(ax - bx) < (aw + bw) / 2 && Math.abs(ay - by) < (ah + bh) / 2;
 }
 
 function CashflowTooltip({
   active,
   payload,
-  presentation,
+  darkChrome,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: CashflowChartRow }>;
-  presentation: boolean;
+  darkChrome: boolean;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload as CashflowChartRow | undefined;
   if (!row) return null;
-  const base = presentation ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100" : "border-slate-200 bg-white text-slate-900";
+  const base = darkChrome ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100" : "border-mpl-border bg-mpl-card text-mpl-text";
   return (
     <div className={`rounded-lg px-3 py-2 text-xs shadow-lg ring-1 ${base}`}>
-      <div className={`font-semibold ${presentation ? "text-slate-200" : "text-slate-800"}`}>{row.label}</div>
-      <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${presentation ? "text-slate-200" : "text-slate-800"}`}>
+      <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
+      <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
         <span className="text-[#1e40af]">Факт: {formatRubLabel(row.fact)}</span>
-        <span className={presentation ? "text-slate-500" : "text-slate-400"}> / </span>
+        <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
         <span className="text-orange-500">План: {formatRubLabel(row.plan)}</span>
       </div>
-      <div className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${presentation ? "border-slate-600/40" : "border-slate-200"}`}>
-        <span className={presentation ? "text-slate-400" : "text-slate-500"}>Отклонение</span>
+      <div className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : "border-mpl-border"}`}>
+        <span className={darkChrome ? "text-slate-400" : "text-mpl-muted"}>Отклонение</span>
         <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatRubLabel(row.deviation)}</span>
       </div>
     </div>
@@ -109,12 +115,10 @@ type AxisMapsProps = {
   height?: number;
 };
 
-function buildCashflowLabelLayer(
-  chartData: CashflowChartRow[],
-  presentation: boolean,
-  showFactIndices: Set<number>,
-  showPlanIndices: Set<number>,
-) {
+function buildCashflowLabelLayer(chartData: CashflowChartRow[], darkChrome: boolean) {
+  const factFill = darkChrome ? "#93c5fd" : "#1e40af";
+  const planFill = darkChrome ? "#fdba74" : "#ea580c";
+
   return function CashflowValueLabelsLayer(props: AxisMapsProps) {
     const { xAxisMap, yAxisMap, offset, width: svgWidth, height: svgHeight } = props;
     if (!offset || !yAxisMap) return null;
@@ -129,6 +133,7 @@ function buildCashflowLabelLayer(
     const innerH = typeof svgHeight === "number" && svgHeight > 0 ? svgHeight : plotBottom + 12;
     const padX = 4;
     const padY = 4;
+    const halfH = APPROX_LABEL_H_PX / 2;
 
     return (
       <g pointerEvents="none">
@@ -138,51 +143,66 @@ function buildCashflowLabelLayer(
           const yPlanPt = yAxis.scale(row.plan);
           if (!Number.isFinite(yFactPt) || !Number.isFinite(yPlanPt)) return null;
 
-          let drawFact = showFactIndices.has(i);
-          let drawPlan = showPlanIndices.has(i);
-          if (drawFact && drawPlan && Math.abs(yFactPt - yPlanPt) < SAME_INDEX_HIDE_PLAN_IF_Y_WITHIN_PX) {
-            drawPlan = false;
-          }
+          const dyPts = Math.abs(yFactPt - yPlanPt);
+          const extra =
+            dyPts < Y_POINT_PROXIMITY_THRESHOLD_PX
+              ? (Y_POINT_PROXIMITY_THRESHOLD_PX - dyPts) * PROXIMITY_EXTRA_SCALE
+              : 0;
+          const off = LABEL_OFFSET_FROM_POINT_PX + extra;
 
-          let factY = yFactPt - LABEL_OFFSET_ABOVE_PT;
-          let planY = yPlanPt - LABEL_OFFSET_ABOVE_PT;
+          let factY = yFactPt - off;
+          let planY = yPlanPt + off;
 
           let factX = cx + X_SHIFT_FACT;
           let planX = cx + X_SHIFT_PLAN;
-          factX = clamp(factX, padX + APPROX_LABEL_HALF_H, innerW - padX - APPROX_LABEL_HALF_H);
-          planX = clamp(planX, padX + APPROX_LABEL_HALF_H, innerW - padX - APPROX_LABEL_HALF_H);
 
-          factY = clamp(factY, padY + APPROX_LABEL_HALF_H, innerH - padY - APPROX_LABEL_HALF_H);
-          planY = clamp(planY, padY + APPROX_LABEL_HALF_H, innerH - padY - APPROX_LABEL_HALF_H);
+          const factText = formatCashflowDynamicsChartLabel(row.fact);
+          const planText = formatCashflowDynamicsChartLabel(row.plan);
+          const wf = approxLabelWidthPx(factText, CHART_LABEL_FONT_PX);
+          const wp = approxLabelWidthPx(planText, CHART_LABEL_FONT_PX);
+          const hf = APPROX_LABEL_H_PX;
+          const hp = APPROX_LABEL_H_PX;
+
+          let hidePlan = false;
+          if (centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+            hidePlan = true;
+          }
+
+          factX = clamp(factX, padX + wf / 2, innerW - padX - wf / 2);
+          planX = clamp(planX, padX + wp / 2, innerW - padX - wp / 2);
+          factY = clamp(factY, padY + halfH, innerH - padY - halfH);
+          planY = clamp(planY, padY + halfH, innerH - padY - halfH);
+
+          if (!hidePlan && centeredRectsOverlap(factX, factY, wf, hf, planX, planY, wp, hp)) {
+            hidePlan = true;
+          }
 
           return (
             <g key={`${row.periodKey}-${i}`}>
-              {drawFact ? (
-                <text
-                  x={factX}
-                  y={factY}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={presentation ? "#93c5fd" : "#1e40af"}
-                  fontSize={CHART_LABEL_FONT_PX}
-                  fontWeight={500}
-                  className="tabular-nums"
-                >
-                  {formatCompactCashflowRub(row.fact)}
-                </text>
-              ) : null}
-              {drawPlan ? (
+              <text
+                x={factX}
+                y={factY}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={factFill}
+                fontSize={CHART_LABEL_FONT_PX}
+                fontWeight={500}
+                className="tabular-nums"
+              >
+                {factText}
+              </text>
+              {!hidePlan ? (
                 <text
                   x={planX}
                   y={planY}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill={presentation ? "#fdba74" : "#c2410c"}
+                  fill={planFill}
                   fontSize={CHART_LABEL_FONT_PX}
                   fontWeight={500}
                   className="tabular-nums"
                 >
-                  {formatCompactCashflowRub(row.plan)}
+                  {planText}
                 </text>
               ) : null}
             </g>
@@ -201,6 +221,7 @@ type Props = {
 
 export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }: Props) {
   const [mode, setMode] = useState<CashflowChartMode>("monthly");
+  const presDark = useMarketingPresVisual(presentation) === "presDark";
 
   const chartData = useMemo(() => cashflowRowsForChart(rows, mode, planScale), [rows, mode, planScale]);
 
@@ -214,35 +235,29 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
   }, [chartData]);
 
   const toggleClass = (active: boolean) =>
-    presentation
+    presDark
       ? active
         ? "bg-slate-700/80 text-slate-100 ring-1 ring-slate-500/50"
         : "text-slate-400 ring-1 ring-slate-600/60 hover:bg-slate-800/80"
-      : active
-        ? "bg-slate-900 text-white"
-        : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
+      : presentation
+        ? active
+          ? "bg-mpl-primary text-white ring-1 ring-mpl-primary/40"
+          : "border border-mpl-border bg-white text-mpl-text hover:bg-slate-50"
+        : active
+          ? "bg-slate-900 text-white"
+          : "text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50";
 
-  const { showFactIndices, showPlanIndices } = useMemo(() => {
-    const facts = chartData.map((d) => d.fact);
-    const plans = chartData.map((d) => d.plan);
-    return {
-      showFactIndices: smartLabelIndices(facts),
-      showPlanIndices: smartLabelIndices(plans),
-    };
-  }, [chartData]);
-
-  const labelLayer = useMemo(
-    () => buildCashflowLabelLayer(chartData, presentation, showFactIndices, showPlanIndices),
-    [chartData, presentation, showFactIndices, showPlanIndices],
-  );
+  const labelLayer = useMemo(() => buildCashflowLabelLayer(chartData, presDark), [chartData, presDark]);
 
   if (chartData.length === 0) {
     return (
       <div
         className={
-          presentation
+          presDark
             ? "rounded-xl border border-slate-600/45 bg-[#1e293b]/80 p-4 text-sm text-slate-400"
-            : "rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
+            : presentation
+              ? "rounded-xl border border-mpl-border bg-mpl-card p-4 text-sm text-mpl-muted"
+              : "rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
         }
       >
         Нет данных поступлений по месяцам для графика.
@@ -250,25 +265,31 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
     );
   }
 
-  const gridStroke = presentation ? "rgba(148,163,184,0.12)" : "rgba(148,163,184,0.35)";
-  const axisColor = presentation ? "#94a3b8" : "#64748b";
+  const gridStroke = presDark ? "rgba(148,163,184,0.12)" : "rgba(148,163,184,0.35)";
+  const axisColor = presDark ? "#94a3b8" : "#64748b";
 
   return (
     <div
       className={
-        presentation
+        presDark
           ? "mb-7 overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5"
-          : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+          : presentation
+            ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
+            : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       }
     >
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className={`text-sm font-semibold ${presentation ? "text-slate-100" : "text-slate-900"}`}>Динамика поступлений, ₽</h3>
-          <p className={`mt-0.5 text-[11px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+          <h3 className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}>
+            Динамика поступлений, ₽
+          </h3>
+          <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
             План и факт поступлений на эскроу (без сделок). План: из помесячного плана выручки × {CASHFLOW_PLAN_FROM_REVENUE_RATIO}.
           </p>
         </div>
-        <div className="flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ring-slate-600/40">
+        <div
+          className={`flex shrink-0 gap-1 rounded-lg p-0.5 ring-1 ring-inset ${presDark ? "ring-slate-600/40" : "ring-mpl-border"}`}
+        >
           <button
             type="button"
             onClick={() => setMode("monthly")}
@@ -294,7 +315,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
             className="!overflow-visible [&_svg]:overflow-visible"
             style={{ overflow: "visible" }}
           >
-            <LineChart data={chartData} margin={{ top: 24, right: 10, left: 4, bottom: 16 }}>
+            <LineChart data={chartData} margin={{ top: 30, right: 10, left: 4, bottom: 16 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 10 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
             <YAxis
@@ -305,14 +326,14 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
               tickFormatter={(v) => `${numFmt.format(Math.round(v as number))}`}
               width={56}
             />
-            <Tooltip content={<CashflowTooltip presentation={presentation} />} cursor={{ stroke: presentation ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }} />
+            <Tooltip content={<CashflowTooltip darkChrome={presDark} />} cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }} />
             <Line
               type="monotone"
               dataKey="fact"
               name="Факт"
               stroke="#1e40af"
               strokeWidth={2.25}
-              dot={{ r: 4, fill: "#1e40af", stroke: presentation ? "#0f172a" : "#fff", strokeWidth: 1 }}
+              dot={{ r: 4, fill: "#1e40af", stroke: presDark ? "#0f172a" : "#fff", strokeWidth: 1 }}
               activeDot={{ r: 5 }}
               isAnimationActive={false}
             />
@@ -323,7 +344,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
               stroke="#ea580c"
               strokeWidth={2}
               strokeDasharray="6 4"
-              dot={{ r: 3.5, fill: "#ea580c", stroke: presentation ? "#0f172a" : "#fff", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#ea580c", stroke: presDark ? "#0f172a" : "#fff", strokeWidth: 1 }}
               activeDot={{ r: 4.5 }}
               isAnimationActive={false}
             />
@@ -333,7 +354,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
         </div>
       </div>
 
-      <div className={`mt-3 flex flex-wrap items-center gap-4 text-[10px] ${presentation ? "text-slate-500" : "text-slate-600"}`}>
+      <div className={`mt-3 flex flex-wrap items-center gap-4 text-[10px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-0.5 w-6 rounded bg-[#1e40af]" />
           Факт
