@@ -69,6 +69,8 @@ def _kind_by_task(db: Session, task: GprTask) -> str | None:
     return _kind_by_part_id(db, task.part_id)
 
 
+
+
 def _canonical_storage_part_id(db: Session, part_id: int) -> int:
     """Нормализует входной part_id к каноничному id в БД для house/parking."""
     kind = _kind_by_part_id(db, part_id)
