@@ -33,8 +33,8 @@ export function PresentationChrome({ children }: Props) {
     : "min-h-screen w-full min-w-0 overflow-x-clip bg-gradient-to-b from-[#0b1220] to-[#0f172a]";
 
   const marketingHeaderBg = scrolled
-    ? "border-b border-[#E5E7EB] bg-[rgba(255,255,255,0.85)] backdrop-blur-[8px]"
-    : "border-b border-[#E5E7EB] bg-[rgba(255,255,255,0.7)] backdrop-blur-[8px]";
+    ? "border-b border-black/[0.05] bg-white/70 backdrop-blur-[16px]"
+    : "border-b border-black/[0.05] bg-white/60 backdrop-blur-[16px]";
 
   const navMarketing = (segment: "construction" | "marketing" | "finance") => {
     const active =
@@ -44,27 +44,31 @@ export function PresentationChrome({ children }: Props) {
           ? pathname.startsWith("/presentation/marketing")
           : pathname.startsWith("/presentation/finance");
     if (active) {
-      return "rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 py-2 text-sm font-medium text-[#2563EB]";
+      return "rounded-full border-0 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] px-3 py-1.5 text-sm font-medium text-white shadow-[0_6px_16px_rgba(37,99,235,0.3)]";
     }
-    return "rounded-lg border border-[#D1D5DB] bg-transparent px-3 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6]";
+    return "rounded-full border-0 bg-transparent px-3 py-1.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-black/[0.04]";
   };
 
   const navDarkIdle = "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
 
-  const userMenuMarketing =
-    "[&_a]:rounded-lg [&_a]:border [&_a]:border-[#D1D5DB] [&_a]:bg-transparent [&_a]:px-3 [&_a]:py-2 [&_a]:text-sm [&_a]:font-medium [&_a]:text-[#374151] [&_a]:hover:bg-[#F3F4F6] [&_button]:rounded-lg [&_button]:border [&_button]:border-[#D1D5DB] [&_button]:bg-transparent [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:font-medium [&_button]:text-[#374151] [&_button]:hover:bg-[#F3F4F6]";
+  const marketingSecondaryLink =
+    "rounded-xl border border-black/[0.05] bg-white/60 px-3 py-1.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-white/80";
 
   return (
     <div className={shellClass}>
       {isMarketingLight ? (
-        <header className={`sticky top-0 z-40 transition-[background-color] duration-200 ${marketingHeaderBg}`}>
-          <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-              <Link href="/presentation" className="text-sm font-semibold tracking-tight text-[#111827] hover:text-[#1F2937]">
+        <header
+          className={`sticky top-0 z-40 h-14 transition-[background-color] duration-200 ${marketingHeaderBg}`}
+        >
+          <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 sm:px-6">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-4">
+              <Link
+                href="/presentation"
+                className="shrink-0 text-sm font-semibold tracking-tight text-[#111827] hover:text-[#1F2937]"
+              >
                 Презентация проекта
               </Link>
-              <span className="text-[#9CA3AF]">/</span>
-              <nav className="flex flex-wrap items-center gap-2 text-sm">
+              <nav className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
                 <Link href="/presentation/construction" className={navMarketing("construction")}>
                   Строительство
                 </Link>
@@ -78,11 +82,8 @@ export function PresentationChrome({ children }: Props) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <UserMenu className={userMenuMarketing} />
-              <Link
-                href="/edit"
-                className="rounded-lg border border-[#D1D5DB] bg-transparent px-3 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6]"
-              >
+              <UserMenu theme="light" />
+              <Link href="/edit" className={marketingSecondaryLink}>
                 В рабочий режим
               </Link>
             </div>
@@ -110,7 +111,7 @@ export function PresentationChrome({ children }: Props) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <UserMenu className="[&_a]:border-white/10 [&_a]:bg-white/5 [&_a]:text-slate-200 [&_a]:hover:bg-white/10 [&_button]:border-white/10 [&_button]:bg-white/5 [&_button]:text-slate-200 [&_button]:hover:bg-white/10" />
+              <UserMenu theme="dark" />
               <Link
                 href="/edit"
                 className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"

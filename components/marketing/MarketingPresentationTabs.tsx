@@ -37,7 +37,7 @@ export function MarketingPresentationTabs({
     <div className={className} role="tablist" aria-label="Разделы маркетинга">
       {tabs.map((tab) => {
         const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
-        const surface = mplLight ? "light" : "dark";
+        const surface = mplLight ? "premium" : "dark";
         return (
           <button
             key={tab.id}

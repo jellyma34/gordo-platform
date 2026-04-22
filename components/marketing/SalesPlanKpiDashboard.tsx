@@ -373,7 +373,7 @@ export function KpiDashboard({
                 <div
                   className={`pointer-events-none absolute left-2 right-2 top-[calc(100%+8px)] z-20 rounded-xl px-3 py-3 opacity-0 backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 sm:left-auto sm:right-0 sm:w-[320px] ${
                     mode === "presentationLight"
-                      ? "border border-mpl-border bg-mpl-card text-mpl-text shadow-xl"
+                      ? "border border-black/[0.05] bg-white/90 text-mpl-text shadow-xl backdrop-blur-md"
                       : kpiDarkSurface
                         ? "border border-slate-500/45 bg-[#0b1220]/90 text-slate-200 shadow-[0_16px_40px_rgba(15,23,42,0.65)]"
                         : "border border-slate-200/80 bg-slate-900/92 text-slate-100 shadow-[0_14px_34px_rgba(15,23,42,0.28)]"

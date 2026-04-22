@@ -35,7 +35,8 @@ import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPl
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsJson } from "@/components/marketing/useMarketingDealsJson";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
-import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
+import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
@@ -59,6 +60,7 @@ const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm 
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
 /** Светлая презентация маркетинга (/presentation/marketing/*). */
 const CARD_LIGHT = "rounded-2xl border border-mpl-border bg-mpl-card p-4 shadow-sm sm:p-5";
+const CARD_PREMIUM = `${MPL_PREMIUM_GLASS_MAIN} p-4 sm:p-5`;
 
 /** Выполнение по шт. высокое, а выручка ниже плана — типичный конфликт цены/микса. */
 function executionRevenueConflictMeta(row: {
@@ -627,12 +629,21 @@ type Props = {
 };
 
 export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, initialPlanScenario }: Props) {
+  const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
   const dealsFeed = useMarketingDealsJson();
-  const card = presDark ? CARD : presentation ? CARD_LIGHT : CARD_EDIT;
-  const h4 = presDark ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
-  const sub = presDark ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
+  const card = presDark ? CARD : presentation && mplPremium ? CARD_PREMIUM : presentation ? CARD_LIGHT : CARD_EDIT;
+  const h4 = presDark
+    ? "text-sm font-semibold text-slate-100"
+    : presentation && mplPremium
+      ? "text-sm font-semibold text-mpl-text"
+      : "text-sm font-semibold text-slate-900";
+  const sub = presDark
+    ? "text-[11px] text-slate-500"
+    : presentation && mplPremium
+      ? "text-[11px] text-mpl-muted"
+      : "text-[11px] text-slate-600";
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
 

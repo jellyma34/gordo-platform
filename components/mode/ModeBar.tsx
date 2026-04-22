@@ -117,13 +117,7 @@ function ModeBarInner() {
           >
             Редактирование
           </button>
-          <UserMenu
-            className={
-              isDarkPresentationChrome
-                ? "[&_a]:border-white/10 [&_a]:bg-white/5 [&_a]:text-slate-200 [&_a]:hover:bg-white/10 [&_button]:border-white/10 [&_button]:bg-white/5 [&_button]:text-slate-200 [&_button]:hover:bg-white/10"
-                : undefined
-            }
-          />
+          <UserMenu theme={isDarkPresentationChrome ? "dark" : "light"} />
         </div>
       </div>
     </div>

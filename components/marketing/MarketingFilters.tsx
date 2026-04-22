@@ -2,6 +2,7 @@
 
 import type { MarketingDealTypeOption, MarketingObjectOption } from "@/lib/marketingMockData";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
+import { MPL_PREMIUM_FILTER_SELECT_10 } from "@/lib/marketingPremiumUi";
 
 export type MarketingPeriodGranularity = "month" | "quarter";
 
@@ -19,8 +20,7 @@ type Props = {
 
 const selectPresentationDark =
   "h-8 min-w-[10rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100";
-const selectPresentationLight =
-  "h-8 min-w-[10rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text";
+const selectPresentationLight = MPL_PREMIUM_FILTER_SELECT_10;
 const selectEdit =
   "h-9 min-w-[10rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900";
 const labelCls = (p: boolean, mplLight: boolean) =>

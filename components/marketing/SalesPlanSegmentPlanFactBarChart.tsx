@@ -17,6 +17,13 @@ import {
   type SegmentChartPeriodMode,
 } from "@/lib/filterDealsForSegmentChartPeriod";
 import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import {
+  MPL_PREMIUM_CHART_SHELL,
+  MPL_PREMIUM_FILTER_SELECT_10,
+  MPL_PREMIUM_FILTER_SELECT_12,
+  MPL_PREMIUM_FILTER_SELECT_95,
+  MPL_PREMIUM_TOOLTIP_SHELL,
+} from "@/lib/marketingPremiumUi";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
@@ -37,10 +44,12 @@ function SegmentBarTooltip({
   active,
   payload,
   presDark,
+  mplPremium,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: SegmentPlanFactBarRow }>;
   presDark: boolean;
+  mplPremium: boolean;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload as SegmentPlanFactBarRow | undefined;
@@ -48,7 +57,9 @@ function SegmentBarTooltip({
   const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
   const shell = presDark
     ? "rounded-lg border border-slate-500/40 bg-[#0b1220]/95 px-3 py-2 text-xs text-slate-100 shadow-lg"
-    : "rounded-lg border border-mpl-border bg-mpl-card px-3 py-2 text-xs text-mpl-text shadow-lg";
+    : mplPremium
+      ? MPL_PREMIUM_TOOLTIP_SHELL
+      : "rounded-lg border border-mpl-border bg-mpl-card px-3 py-2 text-xs text-mpl-text shadow-lg";
 
   return (
     <div className={shell}>
@@ -66,7 +77,9 @@ function SegmentBarTooltip({
             {rubFmt.format(Math.round(row.plan))}
           </span>
         </div>
-        <div className={`border-t pt-1.5 ${presDark ? "border-slate-600/50" : "border-mpl-border"}`}>
+        <div
+          className={`border-t pt-1.5 ${presDark ? "border-slate-600/50" : mplPremium ? "border-black/[0.06]" : "border-mpl-border"}`}
+        >
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>Выполнение: </span>
           <span className="font-semibold">{pct === "—" ? pct : `${pct}%`}</span>
         </div>
@@ -149,7 +162,7 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const selectCls = presentation
     ? mplLight
-      ? "h-8 min-w-[9.5rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+      ? MPL_PREMIUM_FILTER_SELECT_95
       : "h-8 min-w-[9.5rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
     : "h-9 min-w-[9.5rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900";
 
@@ -256,9 +269,11 @@ export function SalesPlanSegmentPlanFactBarChart({
       className={
         presDark
           ? "mb-7 overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5"
-          : presentation
-            ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
-            : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+          : presentation && mplLight
+            ? `mb-7 overflow-visible p-4 sm:p-5 ${MPL_PREMIUM_CHART_SHELL}`
+            : presentation
+              ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
+              : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       }
     >
       <div className="mb-3">
@@ -292,7 +307,7 @@ export function SalesPlanSegmentPlanFactBarChart({
                 className={
                   presentation
                     ? mplLight
-                      ? "h-8 min-w-[12rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+                      ? MPL_PREMIUM_FILTER_SELECT_12
                       : "h-8 min-w-[12rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
                     : "h-9 min-w-[12rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900"
                 }
@@ -314,7 +329,7 @@ export function SalesPlanSegmentPlanFactBarChart({
                 className={
                   presentation
                     ? mplLight
-                      ? "h-8 min-w-[10rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+                      ? MPL_PREMIUM_FILTER_SELECT_10
                       : "h-8 min-w-[10rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
                     : "h-9 min-w-[10rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900"
                 }
@@ -370,7 +385,7 @@ export function SalesPlanSegmentPlanFactBarChart({
             />
             <Tooltip
               cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.08)" }}
-              content={<SegmentBarTooltip presDark={presDark} />}
+              content={<SegmentBarTooltip presDark={presDark} mplPremium={presentation && mplLight} />}
             />
             <Bar
               dataKey="fact"

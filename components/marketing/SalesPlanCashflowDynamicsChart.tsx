@@ -12,7 +12,8 @@ import {
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
 import { formatCashShort, numFmt } from "@/lib/salesPlanChartFormat";
-import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
+import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -62,15 +63,21 @@ function CashflowTooltip({
   active,
   payload,
   darkChrome,
+  mplPremium,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: CashflowChartRow }>;
   darkChrome: boolean;
+  mplPremium: boolean;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload as CashflowChartRow | undefined;
   if (!row) return null;
-  const base = darkChrome ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100" : "border-mpl-border bg-mpl-card text-mpl-text";
+  const base = darkChrome
+    ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100"
+    : mplPremium
+      ? "border-black/[0.04] bg-white/90 text-mpl-text backdrop-blur-md"
+      : "border-mpl-border bg-mpl-card text-mpl-text";
   return (
     <div className={`rounded-lg px-3 py-2 text-xs shadow-lg ring-1 ${base}`}>
       <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
@@ -79,7 +86,9 @@ function CashflowTooltip({
         <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
         <span className="text-orange-500">План: {formatRubLabel(row.plan)}</span>
       </div>
-      <div className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : "border-mpl-border"}`}>
+      <div
+        className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : mplPremium ? "border-black/[0.06]" : "border-mpl-border"}`}
+      >
         <span className={darkChrome ? "text-slate-400" : "text-mpl-muted"}>Отклонение</span>
         <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatRubLabel(row.deviation)}</span>
       </div>
@@ -204,6 +213,7 @@ type Props = {
 
 export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }: Props) {
   const [mode, setMode] = useState<CashflowChartMode>("monthly");
+  const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
 
   const chartData = useMemo(() => cashflowRowsForChart(rows, mode, planScale), [rows, mode, planScale]);
@@ -217,7 +227,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
     return [min - pad, max + pad];
   }, [chartData, presDark]);
 
-  const segmentSurface = presDark ? "dark" : "light";
+  const segmentSurface = presDark ? "dark" : mplPremium && presentation ? "premium" : "light";
 
   if (chartData.length === 0) {
     return (
@@ -225,9 +235,11 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
         className={
           presDark
             ? "rounded-xl border border-slate-600/45 bg-[#1e293b]/80 p-4 text-sm text-slate-400"
-            : presentation
-              ? "rounded-xl border border-mpl-border bg-mpl-card p-4 text-sm text-mpl-muted"
-              : "rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
+            : mplPremium && presentation
+              ? `${MPL_PREMIUM_CHART_SHELL} p-4 text-sm text-mpl-muted`
+              : presentation
+                ? "rounded-xl border border-mpl-border bg-mpl-card p-4 text-sm text-mpl-muted"
+                : "rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
         }
       >
         Нет данных поступлений по месяцам для графика.
@@ -243,9 +255,11 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
       className={
         presDark
           ? "mb-7 overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5"
-          : presentation
-            ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
-            : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+          : mplPremium && presentation
+            ? `mb-7 overflow-visible p-4 sm:p-5 ${MPL_PREMIUM_CHART_SHELL}`
+            : presentation
+              ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
+              : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       }
     >
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -297,7 +311,10 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
               tickFormatter={(v) => `${numFmt.format(Math.round(v as number))}`}
               width={56}
             />
-            <Tooltip content={<CashflowTooltip darkChrome={presDark} />} cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }} />
+            <Tooltip
+              content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
+              cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
+            />
             <Line
               type="monotone"
               dataKey="fact"

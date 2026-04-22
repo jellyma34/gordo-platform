@@ -58,6 +58,20 @@ export function firstConstructionPath(
   return "/";
 }
 
+function pickUserLabelFromLoginUser(user: {
+  email: string;
+  full_name?: string | null;
+  name?: string | null;
+}): string {
+  const fn = user.full_name?.trim();
+  if (fn) return fn;
+  const n = typeof user.name === "string" ? user.name.trim() : "";
+  if (n) return n;
+  const em = user.email?.trim();
+  if (em) return em;
+  return "Пользователь";
+}
+
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
   try {
     const res = await fetchPublicApi(buildApiUrl("/auth/login"), {
@@ -89,20 +103,30 @@ export async function loginRequest(email: string, password: string): Promise<Aut
 
     const data = (await res.json()) as {
       token: string;
-      user: { email: string; role: Role; status?: UserStatus; blocked_reason?: string | null; allowed_sections?: string[] };
+      user: {
+        email: string;
+        role: Role;
+        status?: UserStatus;
+        blocked_reason?: string | null;
+        allowed_sections?: string[];
+        full_name?: string | null;
+        name?: string | null;
+      };
     };
     const role = data.user.role;
     const allowedSections: ApiSection[] =
       role === "admin" || role === "manager"
         ? [...SECTION_ORDER]
         : (data.user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
-    saveAuth(data.token, role, allowedSections);
+    const userLabel = pickUserLabelFromLoginUser(data.user);
+    saveAuth(data.token, role, allowedSections, userLabel);
     return {
       token: data.token,
       role,
       status: data.user.status === "blocked" ? "blocked" : "active",
       blockedReason: data.user.blocked_reason ?? null,
       allowedSections,
+      userLabel,
     };
   } catch (err) {
     if (err instanceof Error && err.message === INVALID_LOGIN_MESSAGE) {

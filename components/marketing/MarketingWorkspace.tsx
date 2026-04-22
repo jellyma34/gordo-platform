@@ -10,6 +10,7 @@ import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFi
 import { MarketingPresentationTabs } from "./MarketingPresentationTabs";
 import { SalesDealsSection } from "./SalesDealsSection";
 import { SalesPlanPanel, type PlanScenario } from "./SalesPlanPanel";
+import { MPL_PREMIUM_GLASS_HEADER, MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "./marketingPresentationLightContext";
 import { segmentedControlTabClass, type SegmentedControlSurface } from "./marketingSegmentedControlClasses";
@@ -84,11 +85,15 @@ export function MarketingWorkspace({
 
   const outer = "mx-auto w-full min-w-0 max-w-[1400px] space-y-6";
 
+  const premiumLight = presentation && mplLight && !presDark;
+
   const headerCard = presDark
     ? "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-3 shadow-sm sm:p-4"
-    : presentation
-      ? "rounded-2xl border border-mpl-border bg-mpl-card p-3 shadow-sm sm:p-4"
-      : "rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4";
+    : premiumLight
+      ? `${MPL_PREMIUM_GLASS_HEADER} p-3 sm:p-4`
+      : presentation
+        ? "rounded-2xl border border-mpl-border bg-mpl-card p-3 shadow-sm sm:p-4"
+        : "rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4";
 
   const titleCls = presDark ? "font-semibold text-slate-50" : "font-semibold text-mpl-text";
   const crumbCls = presDark ? "text-sm text-slate-300" : presentation ? "text-sm text-mpl-muted" : "text-sm text-slate-600";
@@ -96,21 +101,27 @@ export function MarketingWorkspace({
   const backBtn =
     presDark
       ? "inline-flex rounded-lg border border-slate-600/70 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-white/10"
-      : presentation
-        ? "inline-flex rounded-lg border border-mpl-border bg-white px-4 py-2 text-sm font-medium text-mpl-primary hover:bg-slate-50"
-        : "inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
+      : premiumLight
+        ? "inline-flex rounded-xl border border-black/[0.05] bg-white/60 px-4 py-2 text-sm font-medium text-[#2563eb] shadow-[0_4px_14px_rgba(37,99,235,0.12)] hover:bg-white/85"
+        : presentation
+          ? "inline-flex rounded-lg border border-mpl-border bg-white px-4 py-2 text-sm font-medium text-mpl-primary hover:bg-slate-50"
+          : "inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
 
   const tabsDivider = presDark
     ? "mt-4 flex flex-wrap items-center gap-2 border-t border-slate-600/40 pt-4"
-    : "mt-4 flex flex-wrap items-center gap-2 border-t border-mpl-border pt-4";
+    : premiumLight
+      ? "mt-4 flex flex-wrap items-center gap-2 border-t border-black/[0.05] pt-4"
+      : "mt-4 flex flex-wrap items-center gap-2 border-t border-mpl-border pt-4";
 
   const editTabSurface: SegmentedControlSurface = "light";
 
   const filterWell = presDark
     ? "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5"
-    : presentation
-      ? "rounded-2xl border border-mpl-border bg-mpl-card p-4 sm:p-5"
-      : "rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5";
+    : premiumLight
+      ? `${MPL_PREMIUM_GLASS_MAIN} p-4 sm:p-5`
+      : presentation
+        ? "rounded-2xl border border-mpl-border bg-mpl-card p-4 sm:p-5"
+        : "rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5";
 
   return (
     <section className={outer}>

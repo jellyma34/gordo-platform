@@ -24,6 +24,8 @@ type AuthContextValue = {
   hydrated: boolean;
   token: string | null;
   role: Role | null;
+  /** Подпись пользователя в шапке (имя, ФИО или email). */
+  userLabel: string | null;
   allowedSections: ApiSection[];
   isAdmin: boolean;
   isManager: boolean;
@@ -41,12 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
+  const [userLabel, setUserLabel] = useState<string | null>(null);
   const [allowedSections, setAllowedSections] = useState<ApiSection[]>([]);
 
   const setSession = useCallback((s: AuthSnapshot) => {
-    saveAuth(s.token, s.role, s.allowedSections);
+    saveAuth(s.token, s.role, s.allowedSections, s.userLabel);
     setToken(s.token);
     setRole(s.role);
+    setUserLabel(s.userLabel ?? null);
     setAllowedSections(s.allowedSections);
   }, []);
 
@@ -54,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuth();
     setToken(null);
     setRole(null);
+    setUserLabel(null);
     setAllowedSections([]);
   }, []);
 
@@ -62,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (s) {
       setToken(s.token);
       setRole(s.role);
+      setUserLabel(s.userLabel ?? null);
       setAllowedSections(s.allowedSections);
     }
     setHydrated(true);
@@ -80,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hydrated,
       token,
       role,
+      userLabel,
       allowedSections,
       isAdmin: role === "admin",
       isManager: role === "manager",
@@ -88,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession,
       logout,
     }),
-    [hydrated, token, role, allowedSections, setSession, logout],
+    [hydrated, token, role, userLabel, allowedSections, setSession, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

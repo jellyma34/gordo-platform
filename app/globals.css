@@ -37,15 +37,15 @@ a {
  * Переменные дублируют палитру для Tailwind theme.extend.colors.mpl.*
  */
 .theme-marketing-light {
-  --mpl-page-bg: #f5f7fb;
-  --mpl-card-bg: #ffffff;
+  --mpl-page-bg: #f8fafc;
+  --mpl-card-bg: rgb(255 255 255 / 0.72);
   --mpl-text: #1f2937;
   --mpl-text-muted: #6b7280;
-  --mpl-border: #e5e7eb;
+  --mpl-border: rgba(0, 0, 0, 0.04);
   --mpl-primary: #0f766e;
-  --mpl-primary-blue: #1e40af;
-  --mpl-chart-surface: #ffffff;
-  --mpl-chart-grid: rgba(148, 163, 184, 0.35);
+  --mpl-primary-blue: #2563eb;
+  --mpl-chart-surface: rgb(255 255 255 / 0.82);
+  --mpl-chart-grid: rgba(148, 163, 184, 0.28);
 }
 
 /* Два строки для длинных названий этапов ГПР (блок «Отклонения по этапам» и др.) */

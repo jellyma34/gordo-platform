@@ -1,9 +1,10 @@
 "use client";
 
+import { Building2, Car, Package, ShoppingBag, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import { groupDealsBySegment, type DealSegmentKey, type NormalizedDealRow } from "@/components/marketing/DealsSection";
-import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
@@ -17,6 +18,20 @@ const SEGMENT_TITLES: Record<DealSegmentKey, string> = {
   parking: "Машино-места",
   storage: "Кладовые",
   commercial: "Коммерция",
+};
+
+const SEGMENT_ICONS: Record<DealSegmentKey, LucideIcon> = {
+  apartment: Building2,
+  parking: Car,
+  storage: Package,
+  commercial: ShoppingBag,
+};
+
+const SEGMENT_ICON_CLASS: Record<DealSegmentKey, string> = {
+  apartment: "text-indigo-500",
+  parking: "text-purple-500",
+  storage: "text-cyan-500",
+  commercial: "text-orange-500",
 };
 
 /**
@@ -140,6 +155,42 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
   },
 };
 
+/** Светлая презентация маркетинга: мягкая «стеклянная» плитка без тяжёлых теней сегментов. */
+const SEGMENT_VISUAL_PREMIUM: Record<DealSegmentKey, SegmentVisual> = {
+  apartment: {
+    ...SEGMENT_VISUAL_WORK.apartment,
+    card: "border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-indigo-50/45 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
+    glow: "",
+    insetGlow: "",
+    hoverGlow:
+      "hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+  },
+  parking: {
+    ...SEGMENT_VISUAL_WORK.parking,
+    card: "border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-violet-50/45 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
+    glow: "",
+    insetGlow: "",
+    hoverGlow:
+      "hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+  },
+  storage: {
+    ...SEGMENT_VISUAL_WORK.storage,
+    card: "border border-black/[0.03] bg-gradient-to-br from-white/92 via-white to-cyan-50/35 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
+    glow: "",
+    insetGlow: "",
+    hoverGlow:
+      "hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+  },
+  commercial: {
+    ...SEGMENT_VISUAL_WORK.commercial,
+    card: "border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-amber-50/40 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
+    glow: "",
+    insetGlow: "",
+    hoverGlow:
+      "hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+  },
+};
+
 /**
  * Сужает строки по выбранному ЖК (мок-фильтры маркетинга). API-сделки матчятся по objectLabel.
  */
@@ -165,7 +216,9 @@ type Props = {
 };
 
 export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }: Props) {
+  const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
+  const segmentCardRadius = mplPremium && presentation && !presDark ? "rounded-[18px]" : "rounded-xl";
 
   const filteredRows = useMemo(
     () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
@@ -242,23 +295,35 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
       </p>
       <div className={`${gridClass} items-stretch`}>
         {cards.map((c) => {
-          const vs = presDark ? SEGMENT_VISUAL_PRESENTATION[c.key] : SEGMENT_VISUAL_WORK[c.key];
+          const vs = presDark
+            ? SEGMENT_VISUAL_PRESENTATION[c.key]
+            : mplPremium && presentation
+              ? SEGMENT_VISUAL_PREMIUM[c.key]
+              : SEGMENT_VISUAL_WORK[c.key];
           const sharePct = Math.min(100, Math.max(0, c.share * 100));
+          const SegmentIcon = SEGMENT_ICONS[c.key];
+          const iconWrapCls = presDark
+            ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/10 backdrop-blur-[6px] ring-1 ring-white/10"
+            : mplPremium && presentation
+              ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/70 backdrop-blur-[6px] ring-1 ring-black/[0.05]"
+              : presentation
+                ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-black/[0.06]"
+                : "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-slate-200/80";
           return (
             <div key={c.key} className="flex h-full min-h-0 flex-col">
               <div
-                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1] hover:-translate-y-0.5`}
+                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
               >
                 <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
                 <div
-                  className={`pointer-events-none absolute inset-0 rounded-xl segment-card-gradient-sheen ${
+                  className={`pointer-events-none absolute inset-0 ${segmentCardRadius} segment-card-gradient-sheen ${
                     presentation ? "opacity-[0.38] mix-blend-soft-light" : "opacity-[0.22]"
                   }`}
                   style={{ backgroundImage: vs.sheen }}
                   aria-hidden
                 />
                 <div
-                  className={`pointer-events-none absolute inset-0 rounded-xl mix-blend-overlay ${
+                  className={`pointer-events-none absolute inset-0 ${segmentCardRadius} mix-blend-overlay ${
                     presentation ? "opacity-[0.14]" : "opacity-[0.06]"
                   }`}
                   style={{
@@ -267,8 +332,13 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   aria-hidden
                 />
                 <div className="relative flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
-                  <div className={`min-w-0 text-[11px] uppercase tracking-wide ${vs.label}`}>{c.title}</div>
-                  <div className={`mt-1.5 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
+                  <div className="mb-1 flex min-w-0 items-center gap-2">
+                    <div className={iconWrapCls} aria-hidden>
+                      <SegmentIcon className={`h-4 w-4 shrink-0 ${SEGMENT_ICON_CLASS[c.key]}`} strokeWidth={2} />
+                    </div>
+                    <span className={`min-w-0 text-[11px] uppercase tracking-wide ${vs.label}`}>{c.title}</span>
+                  </div>
+                  <div className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
                     <span className="tabular-nums">{numFmt.format(c.count)}</span>
                     <span className="opacity-70"> шт</span>
                     <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>

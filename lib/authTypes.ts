@@ -8,4 +8,6 @@ export type AuthSnapshot = {
   status: UserStatus;
   blockedReason?: string | null;
   allowedSections: ApiSection[];
+  /** Имя или email для шапки; если нет в storage — после следующего входа подтянется из API. */
+  userLabel?: string | null;
 };
