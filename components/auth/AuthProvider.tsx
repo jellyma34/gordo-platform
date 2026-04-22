@@ -21,12 +21,21 @@ import {
 } from "@/lib/auth";
 import type { AuthStoredUser } from "@/lib/authTypes";
 
+type AuthContextUser = {
+  fio: string | null;
+  fullName: string | null;
+  full_name: string | null;
+  name: string | null;
+  email: string | null;
+  role: Role;
+};
+
 type AuthContextValue = {
   hydrated: boolean;
   token: string | null;
   role: Role | null;
   /** Профиль сессии для UI (null без входа). */
-  user: { name: string | null; email: string | null; role: Role } | null;
+  user: AuthContextUser | null;
   allowedSections: ApiSection[];
   isAdmin: boolean;
   isManager: boolean;
@@ -51,8 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const label = s.userLabel?.trim();
     const profileFromLabel = label
       ? label.includes("@")
-        ? ({ name: null, email: label } satisfies AuthStoredUser)
-        : ({ name: label, email: null } satisfies AuthStoredUser)
+        ? ({
+            fio: null,
+            fullName: null,
+            full_name: null,
+            name: null,
+            email: label,
+          } satisfies AuthStoredUser)
+        : ({
+            fio: null,
+            fullName: null,
+            full_name: null,
+            name: label,
+            email: null,
+          } satisfies AuthStoredUser)
       : null;
     const profile = s.user ?? profileFromLabel;
     saveAuth(s.token, s.role, s.allowedSections, s.userLabel ?? null, profile);
@@ -97,8 +118,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user:
         token && role
           ? {
-              name: userProfile?.name ?? null,
-              email: userProfile?.email ?? null,
+              fio: userProfile?.fio?.trim() || null,
+              fullName: userProfile?.fullName?.trim() || null,
+              full_name: userProfile?.full_name?.trim() || null,
+              name: userProfile?.name?.trim() || null,
+              email: userProfile?.email?.trim() || null,
               role,
             }
           : null,

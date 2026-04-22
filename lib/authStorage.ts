@@ -6,16 +6,24 @@ const STORAGE_SECTIONS = "gordo_allowed_sections";
 const STORAGE_USER_LABEL = "gordo_user_label";
 const STORAGE_USER = "gordo_user";
 
+function optTrim(rec: Record<string, unknown>, key: string): string | null {
+  const v = rec[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
 function parseStoredUser(raw: string | null): AuthStoredUser | null {
   if (!raw?.trim()) return null;
   try {
     const o = JSON.parse(raw) as unknown;
     if (!o || typeof o !== "object") return null;
     const rec = o as Record<string, unknown>;
-    const name = typeof rec.name === "string" && rec.name.trim() ? rec.name.trim() : null;
-    const email = typeof rec.email === "string" && rec.email.trim() ? rec.email.trim() : null;
-    if (!name && !email) return null;
-    return { name, email };
+    const fio = optTrim(rec, "fio");
+    const fullName = optTrim(rec, "fullName");
+    const full_name = optTrim(rec, "full_name");
+    const name = optTrim(rec, "name");
+    const email = optTrim(rec, "email");
+    if (!fio && !fullName && !full_name && !name && !email) return null;
+    return { fio, fullName, full_name, name, email };
   } catch {
     return null;
   }
@@ -23,8 +31,10 @@ function parseStoredUser(raw: string | null): AuthStoredUser | null {
 
 function legacyUserFromLabel(userLabel: string): AuthStoredUser {
   const t = userLabel.trim();
-  if (t.includes("@")) return { name: null, email: t };
-  return { name: t, email: null };
+  if (t.includes("@")) {
+    return { fio: null, fullName: null, full_name: null, name: null, email: t };
+  }
+  return { fio: null, fullName: null, full_name: null, name: t, email: null };
 }
 
 function isApiSection(x: string): x is ApiSection {
@@ -87,8 +97,20 @@ export function saveAuth(
   } else {
     window.localStorage.removeItem(STORAGE_USER_LABEL);
   }
-  if (user && (user.name || user.email)) {
-    window.localStorage.setItem(STORAGE_USER, JSON.stringify({ name: user.name, email: user.email }));
+  if (
+    user &&
+    (user.fio || user.fullName || user.full_name || user.name || user.email)
+  ) {
+    window.localStorage.setItem(
+      STORAGE_USER,
+      JSON.stringify({
+        fio: user.fio ?? null,
+        fullName: user.fullName ?? null,
+        full_name: user.full_name ?? null,
+        name: user.name,
+        email: user.email,
+      }),
+    );
   } else {
     window.localStorage.removeItem(STORAGE_USER);
   }

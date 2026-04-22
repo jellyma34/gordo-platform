@@ -3,7 +3,6 @@
 import { LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 
 import { useAuth } from "./AuthProvider";
 
@@ -19,11 +18,13 @@ export function UserMenu({
   const { canAccessAdminPanel, logout, user } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    console.log(user);
-  }, [user]);
-
-  const displayName = user?.name?.trim() || user?.email?.trim() || "Пользователь";
+  const displayName =
+    user?.fio?.trim() ||
+    user?.fullName?.trim() ||
+    user?.full_name?.trim() ||
+    user?.name?.trim() ||
+    user?.email?.trim() ||
+    "Пользователь";
   const roleLine = user?.role === "admin" ? "Администратор" : "";
 
   const userShell =

@@ -58,18 +58,26 @@ export function firstConstructionPath(
   return "/";
 }
 
+function trimLoginStr(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t || null;
+}
+
 function pickUserLabelFromLoginUser(user: {
   email: string;
+  fio?: string | null;
+  fullName?: string | null;
   full_name?: string | null;
   name?: string | null;
 }): string {
-  const fn = user.full_name?.trim();
-  if (fn) return fn;
-  const n = typeof user.name === "string" ? user.name.trim() : "";
-  if (n) return n;
-  const em = user.email?.trim();
-  if (em) return em;
-  return "Пользователь";
+  const display =
+    trimLoginStr(user.fio) ||
+    trimLoginStr(user.fullName) ||
+    trimLoginStr(user.full_name) ||
+    trimLoginStr(user.name) ||
+    trimLoginStr(user.email);
+  return display ?? "Пользователь";
 }
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
@@ -109,6 +117,8 @@ export async function loginRequest(email: string, password: string): Promise<Aut
         status?: UserStatus;
         blocked_reason?: string | null;
         allowed_sections?: string[];
+        fio?: string | null;
+        fullName?: string | null;
         full_name?: string | null;
         name?: string | null;
       };
@@ -118,12 +128,17 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       role === "admin" || role === "manager"
         ? [...SECTION_ORDER]
         : (data.user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+    const fio = trimLoginStr(data.user.fio);
+    const fullName = trimLoginStr(data.user.fullName);
+    const full_name = trimLoginStr(data.user.full_name);
+    const name = trimLoginStr(data.user.name);
+    const bestDisplayName = fio || fullName || full_name || name || null;
     const storedUser: AuthStoredUser = {
-      name:
-        (data.user.full_name?.trim() ||
-          (typeof data.user.name === "string" ? data.user.name.trim() : "")) ||
-        null,
-      email: data.user.email?.trim() || null,
+      fio,
+      fullName,
+      full_name,
+      name: bestDisplayName,
+      email: trimLoginStr(data.user.email),
     };
     const userLabel = pickUserLabelFromLoginUser(data.user);
     saveAuth(data.token, role, allowedSections, userLabel, storedUser);

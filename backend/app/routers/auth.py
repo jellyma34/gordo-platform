@@ -27,6 +27,7 @@ class LoginUserOut(BaseModel):
     status: Literal["active", "blocked"] = "active"
     blocked_reason: str | None = None
     allowed_sections: list[str] = Field(default_factory=list)
+    full_name: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -79,6 +80,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     token = create_access_token(subject=str(user.id))
     logger.info("POST /auth/login 200 email=%s role=%s", email_norm, role)
 
+    fn = (user.full_name or "").strip() or None
     return LoginResponse(
         token=token,
         user=LoginUserOut(
@@ -87,5 +89,6 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
             status="active",
             blocked_reason=None,
             allowed_sections=allowed,
+            full_name=fn,
         ),
     )
