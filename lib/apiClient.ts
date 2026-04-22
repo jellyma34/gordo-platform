@@ -8,8 +8,8 @@ export const AUTH_EXPIRED_EVENT = "gordo-auth-expired";
 
 const LOGIN_PATH = "/login";
 
-/** Локальный uvicorn по умолчанию, если в `next dev` переменная не задана. */
-const LOCAL_DEV_API_DEFAULT = "http://127.0.0.1:8080";
+/** Локальный backend по умолчанию, если `NEXT_PUBLIC_API_URL` не задан (типичный `uvicorn` без флага порта). */
+const LOCAL_DEV_API_DEFAULT = "http://localhost:8000";
 
 /** Только для production-сборки без `NEXT_PUBLIC_API_URL` (CI/Railway обычно задают переменную). */
 const PROD_BUILD_FALLBACK_API_URL = "https://gordo-platform-dev.up.railway.app";
@@ -45,9 +45,6 @@ function resolvePublicApiUrl(): string {
   if (process.env.NODE_ENV === "development") {
     const local =
       normalizeApiBaseUrl(LOCAL_DEV_API_DEFAULT) || LOCAL_DEV_API_DEFAULT.replace(/\/+$/, "");
-    if (typeof console !== "undefined" && console.info) {
-      console.info("[gordo] NEXT_PUBLIC_API_URL unset — using local default:", local);
-    }
     return local;
   }
   const fallback =
@@ -62,11 +59,11 @@ function resolvePublicApiUrl(): string {
   return fallback;
 }
 
-/** Базовый URL API (без завершающего `/`), всегда http(s). */
+/** Базовый URL API (без завершающего `/`), всегда http(s). Из `NEXT_PUBLIC_API_URL` или `http://localhost:8000` в dev, если env пуст. */
 export const API_URL = resolvePublicApiUrl();
 
-if (process.env.NODE_ENV === "development" && typeof console !== "undefined" && console.info) {
-  console.info("[gordo] NEXT_PUBLIC_API_URL (API base):", API_URL);
+if (typeof console !== "undefined" && typeof console.log === "function") {
+  console.log(API_URL);
 }
 
 function warnIfDevApiInProduction(): void {
