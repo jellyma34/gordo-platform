@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 import { useChartHeight, useChartWidth, usePlotArea, useXAxisScale, useYAxisScale } from "recharts";
 
 import {
-  CASHFLOW_PLAN_FROM_REVENUE_RATIO,
   cashflowRowsForChart,
   type CashflowChartMode,
   type CashflowChartRow,
@@ -268,7 +267,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation }
             Динамика поступлений, ₽
           </h3>
           <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-            План и факт поступлений на эскроу (без сделок). План: из помесячного плана выручки × {CASHFLOW_PLAN_FROM_REVENUE_RATIO}.
+            План и факт поступлений на эскроу. План рассчитывается как 88% от плановой выручки.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
