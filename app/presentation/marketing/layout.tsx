@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { MarketingAppShell } from "@/components/marketing/MarketingAppShell";
 import { MarketingPresentationLightRoot } from "@/components/marketing/marketingPresentationLightContext";
 
 /**
@@ -7,5 +8,9 @@ import { MarketingPresentationLightRoot } from "@/components/marketing/marketing
  * Остальные разделы /presentation/* не затрагиваются.
  */
 export default function PresentationMarketingLayout({ children }: { children: ReactNode }) {
-  return <MarketingPresentationLightRoot>{children}</MarketingPresentationLightRoot>;
+  return (
+    <MarketingPresentationLightRoot>
+      <MarketingAppShell variant="presentation">{children}</MarketingAppShell>
+    </MarketingPresentationLightRoot>
+  );
 }

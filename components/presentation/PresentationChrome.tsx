@@ -51,9 +51,6 @@ export function PresentationChrome({ children }: Props) {
 
   const navDarkIdle = "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
 
-  const marketingSecondaryLink =
-    "rounded-xl border border-black/[0.05] bg-white/60 px-3 py-1.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-white/80";
-
   return (
     <div className={shellClass}>
       {isMarketingLight ? (
@@ -83,9 +80,6 @@ export function PresentationChrome({ children }: Props) {
 
             <div className="flex flex-wrap items-center gap-2">
               <UserMenu theme="light" />
-              <Link href="/edit" className={marketingSecondaryLink}>
-                В рабочий режим
-              </Link>
             </div>
           </div>
         </header>

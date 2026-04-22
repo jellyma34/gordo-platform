@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAppMode } from "@/components/mode/ModeProvider";
-import { MarketingWorkspace, type MarketingTab } from "@/components/marketing/MarketingWorkspace";
+import { MarketingWorkspace } from "@/components/marketing/MarketingWorkspace";
+import type { MarketingTab } from "@/components/marketing/marketingTypes";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { parsePresentationScenarioQuery, SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
 
@@ -37,13 +38,13 @@ export function MarketingPresentationRouteBody({ presentationActiveTab }: Props)
   const scenario = parsePresentationScenarioQuery(sp.get("scenario"));
   const returnTo = sp.get("return");
 
-  const onBackToBlocks = () => {
+  const onBackToBlocks = useCallback(() => {
     if (returnTo === "work") {
       router.push(SALES_PLAN_SPA.work);
       return;
     }
     router.push("/presentation");
-  };
+  }, [returnTo, router]);
 
   return (
     <MarketingWorkspace
