@@ -1,10 +1,22 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
+import {
+  DEAL_SEGMENT_KEYS,
+  OBJECT_TYPE_LABEL_RU,
+  type DealSegmentKey,
+  type NormalizedDealRow,
+} from "@/components/marketing/DealsSection";
+import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
+import {
+  filterDealsForSegmentChartPeriod,
+  type SegmentChartPeriodMode,
+} from "@/lib/filterDealsForSegmentChartPeriod";
 import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
-import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
@@ -89,13 +101,136 @@ function formatBarTopLabel(v: unknown): string {
   return formatSegmentBarTopLabel(n);
 }
 
+function monthKeyLabelRu(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+    return new Date(y, m - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+  }
+  return monthKey;
+}
+
+type SegmentChartScope = "all" | DealSegmentKey;
+
 type Props = {
-  rows: SegmentPlanFactBarRow[];
+  dealsRows: NormalizedDealRow[];
+  fallbackTotalPlanRub: number | null | undefined;
   presentation: boolean;
+  /** Верхний фильтр «Период» (месяц/квартал) — общая логика с панелью, без дублирования смысла. */
+  marketingPeriod: MarketingPeriodGranularity;
+  /** Дата отчёта плана (YYYY-MM-DD): якорь месяца/квартала, если в сделках нет ни одного monthKey. */
+  planReportAsOfYmd?: string | null;
 };
 
-export function SalesPlanSegmentPlanFactBarChart({ rows, presentation }: Props) {
+export function SalesPlanSegmentPlanFactBarChart({
+  dealsRows,
+  fallbackTotalPlanRub,
+  presentation,
+  marketingPeriod,
+  planReportAsOfYmd,
+}: Props) {
   const presDark = useMarketingPresVisual(presentation) === "presDark";
+  const mplLight = useMarketingPresentationLight();
+
+  const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>(() =>
+    marketingPeriod === "quarter" ? "quarter" : "month",
+  );
+  const [segmentScope, setSegmentScope] = useState<SegmentChartScope>("all");
+  /** Явный выбор месяца YYYY-MM (совпадает с колонками «Сделки по месяцам»). */
+  const [userMonthKey, setUserMonthKey] = useState<string | null>(null);
+  /** Явный выбор квартала `YYYY-q`, q = 0…3. */
+  const [userQuarterId, setUserQuarterId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPeriodMode((prev) => {
+      if (prev === "all") return prev;
+      return marketingPeriod === "quarter" ? "quarter" : "month";
+    });
+  }, [marketingPeriod]);
+
+  const selectCls = presentation
+    ? mplLight
+      ? "h-8 min-w-[9.5rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+      : "h-8 min-w-[9.5rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+    : "h-9 min-w-[9.5rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900";
+
+  const filterLabelCls = presentation
+    ? mplLight
+      ? "text-[11px] font-medium uppercase tracking-wide text-mpl-muted"
+      : "text-[11px] font-medium uppercase tracking-wide text-slate-500"
+    : "text-xs font-medium text-slate-600";
+
+  const sortedMonthKeys = useMemo(
+    () =>
+      [...new Set(dealsRows.map((r) => r.monthKey).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort(),
+    [dealsRows],
+  );
+
+  const monthOptionsForSelect = useMemo(() => {
+    const out = [...sortedMonthKeys];
+    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) {
+      const mk = planReportAsOfYmd.slice(0, 7);
+      if (!out.includes(mk)) out.push(mk);
+    }
+    return out.sort();
+  }, [sortedMonthKeys, planReportAsOfYmd]);
+
+  const quarterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { id: string; label: string }[] = [];
+    for (const key of sortedMonthKeys) {
+      const [y, m] = key.split("-").map(Number);
+      if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
+      const q = Math.floor((m - 1) / 3);
+      const id = `${y}-${q}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      opts.push({ id, label: `${y} · Q${q + 1}` });
+    }
+    opts.sort((a, b) => a.id.localeCompare(b.id));
+    return opts;
+  }, [sortedMonthKeys]);
+
+  const monthKeyForFilter = useMemo(() => {
+    if (periodMode !== "month") return null;
+    if (userMonthKey && monthOptionsForSelect.includes(userMonthKey)) return userMonthKey;
+    if (sortedMonthKeys.length > 0) return sortedMonthKeys[sortedMonthKeys.length - 1]!;
+    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) return planReportAsOfYmd.slice(0, 7);
+    return null;
+  }, [periodMode, userMonthKey, sortedMonthKeys, monthOptionsForSelect, planReportAsOfYmd]);
+
+  const quarterIdForFilter = useMemo(() => {
+    if (periodMode !== "quarter") return null;
+    if (userQuarterId && quarterOptions.some((o) => o.id === userQuarterId)) return userQuarterId;
+    if (quarterOptions.length > 0) return quarterOptions[quarterOptions.length - 1]!.id;
+    if (planReportAsOfYmd && /^\d{4}-\d{2}-\d{2}$/.test(planReportAsOfYmd)) {
+      const [y, m] = planReportAsOfYmd.slice(0, 7).split("-").map(Number);
+      if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+        const q = Math.floor((m - 1) / 3);
+        return `${y}-${q}`;
+      }
+    }
+    return null;
+  }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
+
+  const rows = useMemo(() => {
+    const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
+      fallbackAsOfYmd: planReportAsOfYmd,
+      ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
+      ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
+    });
+    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
+    if (segmentScope === "all") return built;
+    const label = OBJECT_TYPE_LABEL_RU[segmentScope];
+    return built.filter((r) => r.name === label);
+  }, [
+    dealsRows,
+    fallbackTotalPlanRub,
+    periodMode,
+    planReportAsOfYmd,
+    monthKeyForFilter,
+    quarterIdForFilter,
+    segmentScope,
+  ]);
 
   const yDomain = useMemo((): [number, number] => {
     const vals = rows.flatMap((r) => [r.fact, r.plan]);
@@ -110,6 +245,11 @@ export function SalesPlanSegmentPlanFactBarChart({ rows, presentation }: Props) 
   if (rows.length === 0) {
     return null;
   }
+
+  const segmentSelectOptions: { value: SegmentChartScope; label: string }[] = [
+    { value: "all", label: "Все" },
+    ...DEAL_SEGMENT_KEYS.map((k) => ({ value: k, label: OBJECT_TYPE_LABEL_RU[k] })),
+  ];
 
   return (
     <div
@@ -126,8 +266,82 @@ export function SalesPlanSegmentPlanFactBarChart({ rows, presentation }: Props) 
           Выполнение плана продаж по сегментам
         </h3>
         <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-          Выручка накопительно: факт и план по категориям (сгруппированные столбцы).
+          Факт и план по сегментам. Сначала отбор сделок по выбранному месяцу или кварталу (те же ключи, что «Сделки по месяцам»), затем агрегация по сегментам.
         </p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className={filterLabelCls}>Период графика</span>
+            <select
+              value={periodMode}
+              onChange={(e) => {
+                setPeriodMode(e.target.value as SegmentChartPeriodMode);
+              }}
+              className={selectCls}
+            >
+              <option value="month">Месяц</option>
+              <option value="quarter">Квартал</option>
+              <option value="all">Все</option>
+            </select>
+          </label>
+          {periodMode === "month" && monthOptionsForSelect.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className={filterLabelCls}>Месяц</span>
+              <select
+                value={monthKeyForFilter ?? ""}
+                onChange={(e) => setUserMonthKey(e.target.value || null)}
+                className={
+                  presentation
+                    ? mplLight
+                      ? "h-8 min-w-[12rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+                      : "h-8 min-w-[12rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+                    : "h-9 min-w-[12rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900"
+                }
+              >
+                {monthOptionsForSelect.map((mk) => (
+                  <option key={mk} value={mk}>
+                    {monthKeyLabelRu(mk)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {periodMode === "quarter" && quarterOptions.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className={filterLabelCls}>Квартал</span>
+              <select
+                value={quarterIdForFilter ?? ""}
+                onChange={(e) => setUserQuarterId(e.target.value || null)}
+                className={
+                  presentation
+                    ? mplLight
+                      ? "h-8 min-w-[10rem] rounded-lg border border-mpl-border bg-white px-2.5 text-xs text-mpl-text"
+                      : "h-8 min-w-[10rem] rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+                    : "h-9 min-w-[10rem] rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900"
+                }
+              >
+                {quarterOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="flex flex-col gap-1">
+            <span className={filterLabelCls}>Сегмент</span>
+            <select
+              value={segmentScope}
+              onChange={(e) => setSegmentScope(e.target.value as SegmentChartScope)}
+              className={selectCls}
+            >
+              {segmentSelectOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="h-[300px] min-h-[280px] w-full min-w-0">

@@ -238,8 +238,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     <div className="mb-7">
       <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
       <p className={`mb-4 text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-        По нормализованным сделкам (<span className="font-mono">normalizeDeal</span> / сегмент из <span className="font-mono">type</span> и{" "}
-        <span className="font-mono">object.category</span>).
+        Распределение продаж по типам недвижимости.
       </p>
       <div className={`${gridClass} items-stretch`}>
         {cards.map((c) => {

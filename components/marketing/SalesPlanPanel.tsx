@@ -34,7 +34,6 @@ import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlan
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsJson } from "@/components/marketing/useMarketingDealsJson";
-import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
@@ -671,11 +670,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const marketingDealsFiltered = useMemo(
     () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
     [dealsFeed.rows, objectId],
-  );
-
-  const segmentPlanFactBarData = useMemo(
-    () => buildSegmentPlanFactBarDataFromDeals(marketingDealsFiltered, rev.planCumulative),
-    [marketingDealsFiltered, rev.planCumulative],
   );
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
@@ -1862,19 +1856,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
         }`;
 
-  const salesPlanSectionHeader = useMemo(() => {
-    const name = report.projectName ?? "ЖК Гордо";
-    const parts = report.asOf.split("-");
-    if (parts.length !== 3) return `${name} · на ${report.asOf}`;
-    const y = Number(parts[0]);
-    const m = Number(parts[1]);
-    const d = Number(parts[2]);
-    const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
-    const mo = months[m - 1];
-    if (!mo || [y, m, d].some((n) => Number.isNaN(n))) return `${name} · на ${report.asOf}`;
-    return `${name} · на ${d} ${mo} ${y}`;
-  }, [report.projectName, report.asOf]);
-
   const insightTone = (tone: "risk" | "ok" | "neutral") => {
     if (tone === "risk")
       return presDark ? "border-l-red-400/80 text-slate-200" : "border-l-red-500 text-slate-800";
@@ -1998,18 +1979,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         </div>
       ) : null}
 
-      <p
-        className={`text-xs font-medium tabular-nums tracking-tight ${presDark ? "text-slate-400" : "text-slate-500"}`}
-      >
-        {salesPlanSectionHeader}
-      </p>
-
       <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} dealsFeed={dealsFeed} />
 
       {presentation ? (
         <>
           <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
-          {!dealsFeed.loading ? <SalesPlanSegmentPlanFactBarChart rows={segmentPlanFactBarData} presentation /> : null}
+          {!dealsFeed.loading ? (
+            <SalesPlanSegmentPlanFactBarChart
+              dealsRows={marketingDealsFiltered}
+              fallbackTotalPlanRub={rev.planCumulative}
+              marketingPeriod={period}
+              planReportAsOfYmd={report.asOf}
+              presentation
+            />
+          ) : null}
         </>
       ) : null}
 

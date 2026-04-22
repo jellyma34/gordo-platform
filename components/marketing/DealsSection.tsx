@@ -91,6 +91,10 @@ function segmentKpiTitleClass(variant: SegmentKpiVisualVariant): string {
 
 export type DealRecord = {
   deal_date?: string;
+  /** Дата закрытия / подписания (альтернатива date / deal_date в выгрузках). */
+  close_date?: string;
+  /** Период сделки в формате YYYY-MM (агрегаты «по месяцам»). */
+  month?: string;
   deal_sum?: string | number;
   /** Сумма (альтернативные имена в API). */
   amount?: string | number;
@@ -271,11 +275,15 @@ function firstNonEmptyValue(record: Record<string, unknown>, keys: string[]): un
   return null;
 }
 
-/** Приводит дату к YYYY-MM-DD или null. */
+/**
+ * Приводит сырую дату сделки к YYYY-MM-DD или null.
+ * Поддержка YYYY-MM (как в помесячных выгрузках) без неоднозначного `new Date("YYYY-MM")`.
+ */
 function normalizeDateToYmd(raw: unknown): string | null {
   if (raw == null) return null;
   const s = String(raw).trim();
   if (!s) return null;
+  if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;
   const head = s.slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
   const t = Date.parse(s);
@@ -287,13 +295,39 @@ function normalizeDateToYmd(raw: unknown): string | null {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Дата сделки из полей выгрузки (тот же приоритет полей, что при нормализации строки).
+ * Не использует «сырой» `new Date(строка)` без разбора формата — см. {@link normalizeDateToYmd}.
+ */
+export function normalizeDealDate(deal: DealRecord): Date | null {
+  const ymd = normalizeDateToYmd(
+    firstNonEmptyValue(deal as Record<string, unknown>, [
+      "deal_date",
+      "created_at",
+      "close_date",
+      "date",
+      "month",
+    ]),
+  );
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (![y, m, d].every((n) => Number.isFinite(n))) return null;
+  return new Date(y, m - 1, d);
+}
+
 function monthKeyFromDate(dateStr: string): string {
   return String(dateStr).trim().slice(0, 7);
 }
 
 function parseDealDateMs(dateStr: string): number {
-  const d = new Date(String(dateStr).trim());
-  const t = d.getTime();
+  const s = String(dateStr).trim();
+  const head = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) {
+    const [y, m, d] = head.split("-").map(Number);
+    const t = new Date(y, m - 1, d).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  const t = Date.parse(s);
   return Number.isFinite(t) ? t : 0;
 }
 
@@ -327,7 +361,9 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
   const planRaw = firstNonEmptyValue(d, ["plan_sum", "planned_revenue", "plan_amount", "planSum", "plannedRevenue"]);
   const planRub = parseDealSum(planRaw);
 
-  const dateRaw = firstNonEmptyValue(d, ["date", "created_at", "deal_date"]);
+  const dateRaw =
+    firstNonEmptyValue(d, ["deal_date", "created_at", "close_date", "date", "month"]) ??
+    firstNonEmptyValue(row as Record<string, unknown>, ["month", "deal_month", "period", "period_key"]);
   const dateStr = normalizeDateToYmd(dateRaw);
   if (dateStr == null) return null;
 
