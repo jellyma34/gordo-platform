@@ -95,11 +95,14 @@ export type DealRecord = {
   /** Сумма (альтернативные имена в API). */
   amount?: string | number;
   budget?: string | number;
+  /** План по сделке (если есть в выгрузке). */
+  plan_sum?: string | number;
+  planned_revenue?: string | number;
+  plan_amount?: string | number;
   /** Тип объекта / сегмент (см. {@link resolveDealSegmentType}). */
   type?: string;
   object_type?: string;
   deal_type?: string;
-  type?: string;
   dealType?: string;
   date?: string;
   created_at?: string;
@@ -177,6 +180,8 @@ export type NormalizedDealRow = {
   dealDateMs: number;
   monthKey: string;
   sumRub: number;
+  /** План в ₽ из полей выгрузки (plan_sum / planned_revenue / plan_amount), иначе 0. */
+  planRub: number;
   /** Сегмент по `object` (category + при необходимости category_name). */
   normalizedType: NormalizedObjectType;
   /** Подпись сегмента для фильтров и таблиц (на русском). */
@@ -197,6 +202,7 @@ export type NormalizedDealFields = {
   manager: string;
   source: string;
   amount: number;
+  planRub: number;
   dateStr: string;
   dateMs: number;
   monthKey: string;
@@ -296,8 +302,6 @@ function parseDealDateMs(dateStr: string): number {
  * Все агрегации строятся только по полям из этой функции (через {@link extractNormalizedDeals}).
  */
 export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
-  console.log("[normalizeDeal] row", row);
-
   const deal = row.deal;
   if (deal == null || typeof deal !== "object") return null;
   const d = deal as Record<string, unknown>;
@@ -319,6 +323,9 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
 
   const amountRaw = firstNonEmptyValue(d, ["amount", "budget", "deal_sum"]);
   const amount = parseDealSum(amountRaw);
+
+  const planRaw = firstNonEmptyValue(d, ["plan_sum", "planned_revenue", "plan_amount", "planSum", "plannedRevenue"]);
+  const planRub = parseDealSum(planRaw);
 
   const dateRaw = firstNonEmptyValue(d, ["date", "created_at", "deal_date"]);
   const dateStr = normalizeDateToYmd(dateRaw);
@@ -346,6 +353,7 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
     manager,
     source,
     amount,
+    planRub,
     dateStr,
     dateMs: parseDealDateMs(dateStr),
     monthKey: monthKeyFromDate(dateStr),
@@ -425,6 +433,7 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       dealDateMs: n.dateMs,
       monthKey: n.monthKey,
       sumRub: n.amount,
+      planRub: n.planRub,
       normalizedType,
       typeLabel,
       dealKindLabel: n.dealKind,
@@ -439,13 +448,22 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   return out;
 }
 
+/** Разбор ответа API / JSON выгрузки: массив сделок или `{ data: [...] }`. */
+export function parseDealsEnvelope(json: unknown): unknown[] {
+  if (Array.isArray(json)) return json;
+  if (json != null && typeof json === "object" && "data" in json && Array.isArray((json as { data: unknown }).data)) {
+    return (json as { data: unknown[] }).data;
+  }
+  return [];
+}
+
 function bumpBucket(map: Record<string, SegmentBucket>, key: string, sum: number) {
   if (!map[key]) map[key] = { count: 0, sum: 0 };
   map[key].count += 1;
   map[key].sum += sum;
 }
 
-function flattenDealsInput(data: unknown): DealExportRow[] {
+export function flattenDealsInput(data: unknown): DealExportRow[] {
   if (Array.isArray(data)) return data as DealExportRow[];
   if (data != null && typeof data === "object" && !Array.isArray(data)) {
     const o = data as Record<string, unknown>;
@@ -532,6 +550,9 @@ export function groupDealsByNormalizedType(rows: NormalizedDealRow[]): Record<No
 
 /** Четыре продуктовых сегмента (без «Не определено») — для структуры продаж / плана. */
 export type DealSegmentKey = "apartment" | "parking" | "storage" | "commercial";
+
+/** Порядок сегментов в аналитике и на графиках. */
+export const DEAL_SEGMENT_KEYS: readonly DealSegmentKey[] = ["apartment", "parking", "storage", "commercial"];
 
 /**
  * Группировка нормализованных сделок по сегменту (после {@link normalizeDeal} / {@link extractNormalizedDeals}).

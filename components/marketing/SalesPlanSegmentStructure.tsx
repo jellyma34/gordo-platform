@@ -1,14 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import {
-  extractNormalizedDeals,
-  groupDealsBySegment,
-  type DealSegmentKey,
-  type NormalizedDealRow,
-} from "@/components/marketing/DealsSection";
+import { groupDealsBySegment, type DealSegmentKey, type NormalizedDealRow } from "@/components/marketing/DealsSection";
 import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
@@ -144,14 +140,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
   },
 };
 
-function parseDealsEnvelope(json: unknown): unknown[] {
-  if (Array.isArray(json)) return json;
-  if (json != null && typeof json === "object" && "data" in json && Array.isArray((json as { data: unknown }).data)) {
-    return (json as { data: unknown[] }).data;
-  }
-  return [];
-}
-
 /**
  * Сужает строки по выбранному ЖК (мок-фильтры маркетинга). API-сделки матчятся по objectLabel.
  */
@@ -172,40 +160,20 @@ export function filterNormalizedDealsForMarketingObject(rows: NormalizedDealRow[
 type Props = {
   presentation: boolean;
   objectId: string;
+  /** Поток сделок с панели (один GET `/api/deals`). */
+  dealsFeed: MarketingDealsJsonFeed;
 };
 
-export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
+export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }: Props) {
   const presDark = useMarketingPresVisual(presentation) === "presDark";
-  const [rows, setRows] = useState<NormalizedDealRow[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await fetch("/api/deals");
-      const json: unknown = await res.json();
-      if (!res.ok) {
-        setRows([]);
-        setLoadError(typeof json === "object" && json && "error" in json ? String((json as { error: unknown }).error) : `Ошибка ${res.status}`);
-        return;
-      }
-      const list = parseDealsEnvelope(json);
-      const normalized = extractNormalizedDeals(list);
-      setRows(normalized);
-    } catch {
-      setRows([]);
-      setLoadError("Не удалось загрузить сделки");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const filteredRows = useMemo(
-    () => filterNormalizedDealsForMarketingObject(rows, objectId),
-    [rows, objectId],
+    () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
+    [dealsFeed.rows, objectId],
   );
+
+  const loadError = dealsFeed.error;
+  const loadingDeals = dealsFeed.loading && dealsFeed.rows.length === 0;
 
   const cards = useMemo(() => {
     const totalSum = filteredRows.reduce((s, r) => s + r.sumRub, 0);
@@ -236,6 +204,15 @@ export function SalesPlanSegmentStructure({ presentation, objectId }: Props) {
   }, [filteredRows]);
 
   const gridClass = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4";
+
+  if (loadingDeals) {
+    return (
+      <div className="mb-7">
+        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>Загрузка сделок…</p>
+      </div>
+    );
+  }
 
   if (loadError) {
     return (

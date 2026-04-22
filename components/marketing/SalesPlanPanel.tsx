@@ -31,7 +31,10 @@ import { buildCashflowSeries } from "@/lib/buildCashflowSeries";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
-import { SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
+import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
+import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
+import { useMarketingDealsJson } from "@/components/marketing/useMarketingDealsJson";
+import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 
@@ -627,6 +630,7 @@ type Props = {
 export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, initialPlanScenario }: Props) {
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
+  const dealsFeed = useMarketingDealsJson();
   const card = presDark ? CARD : presentation ? CARD_LIGHT : CARD_EDIT;
   const h4 = presDark ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
   const sub = presDark ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
@@ -663,6 +667,16 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     deviationCumulative: baseRev.factCumulative - effectiveTotalPlan,
     percentComplete: effectiveTotalPlan > 0 ? (baseRev.factCumulative / effectiveTotalPlan) * 100 : 0,
   };
+
+  const marketingDealsFiltered = useMemo(
+    () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
+    [dealsFeed.rows, objectId],
+  );
+
+  const segmentPlanFactBarData = useMemo(
+    () => buildSegmentPlanFactBarDataFromDeals(marketingDealsFiltered, rev.planCumulative),
+    [marketingDealsFiltered, rev.planCumulative],
+  );
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
   const cashflowSeriesBase = useMemo(() => buildCashflowSeries(report), [report]);
@@ -1990,10 +2004,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         {salesPlanSectionHeader}
       </p>
 
-      <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} />
+      <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} dealsFeed={dealsFeed} />
 
       {presentation ? (
-        <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
+        <>
+          <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
+          {!dealsFeed.loading ? <SalesPlanSegmentPlanFactBarChart rows={segmentPlanFactBarData} presentation /> : null}
+        </>
       ) : null}
 
       {/* KPI summary */}
