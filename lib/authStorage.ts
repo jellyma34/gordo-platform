@@ -1,4 +1,5 @@
 import type { ApiSection, AuthSnapshot, AuthStoredUser, Role } from "./authTypes";
+import { API_SECTION_KEYS, isApiSection } from "./authTypes";
 
 const STORAGE_TOKEN = "gordo_token";
 const STORAGE_ROLE = "gordo_role";
@@ -37,16 +38,13 @@ function legacyUserFromLabel(userLabel: string): AuthStoredUser {
   return { fio: null, fullName: null, full_name: null, name: t, email: null };
 }
 
-function isApiSection(x: string): x is ApiSection {
-  return x === "gpr" || x === "tenders" || x === "materials";
-}
-
 export function parseAllowedSections(raw: string | null): ApiSection[] {
   if (!raw) return [];
   try {
     const v = JSON.parse(raw) as unknown;
     if (!Array.isArray(v)) return [];
-    return v.filter((x): x is ApiSection => typeof x === "string" && isApiSection(x));
+    const known = v.filter((x): x is ApiSection => typeof x === "string" && isApiSection(x));
+    return [...known].sort((a, b) => API_SECTION_KEYS.indexOf(a) - API_SECTION_KEYS.indexOf(b));
   } catch {
     return [];
   }

@@ -6,8 +6,8 @@ from app.database import get_db
 from app.models import User
 from app.security import decode_token
 
-KNOWN_SECTIONS = frozenset({"gpr", "tenders", "materials"})
-ALL_SECTIONS_ORDERED: list[str] = ["gpr", "tenders", "materials"]
+KNOWN_SECTIONS = frozenset({"gpr", "tenders", "materials", "marketing"})
+ALL_SECTIONS_ORDERED: list[str] = ["gpr", "tenders", "materials", "marketing"]
 
 security_scheme = HTTPBearer(auto_error=False)
 

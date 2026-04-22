@@ -7,9 +7,26 @@ import {
   SESSION_EXPIRED_MESSAGE,
 } from "./apiClient";
 import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
-import type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
+import {
+  API_SECTION_KEYS,
+  type ApiSection,
+  type AuthSnapshot,
+  type AuthStoredUser,
+  isApiSection,
+  type Role,
+  type UserStatus,
+} from "./authTypes";
 
 export type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
+export {
+  API_SECTION_KEYS,
+  API_SECTION_LABELS,
+  defaultNewEmployeeSections,
+  formatAllowedSectionsRu,
+  isApiSection,
+  sectionsRecordAll,
+  sectionsRecordFromAllowed,
+} from "./authTypes";
 export {
   API_URL,
   apiClient,
@@ -23,10 +40,6 @@ export { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./aut
 /** Сообщение при 401 от POST /auth/login (для UI). */
 export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
 export const BLOCKED_LOGIN_MESSAGE = "Доступ ограничен. Обратитесь к администратору";
-
-function isApiSection(x: string): x is ApiSection {
-  return x === "gpr" || x === "tenders" || x === "materials";
-}
 
 export type UiConstructionSection = "gpr" | "tenders" | "tmc";
 
@@ -44,9 +57,9 @@ export function canAccessConstructionSection(
   return allowed.includes(uiToApi(ui));
 }
 
-const SECTION_ORDER: ApiSection[] = ["gpr", "tenders", "materials"];
+const CONSTRUCTION_SECTION_ORDER: Array<Exclude<ApiSection, "marketing">> = ["gpr", "tenders", "materials"];
 
-export function apiSectionToQuery(s: ApiSection): UiConstructionSection {
+export function apiSectionToQuery(s: Exclude<ApiSection, "marketing">): UiConstructionSection {
   return s === "materials" ? "tmc" : s;
 }
 
@@ -58,8 +71,11 @@ export function firstConstructionPath(
 ): string {
   const base = mode === "presentation" ? "/presentation/construction" : "/edit/construction";
   if (role === "admin" || role === "manager") return `${base}?section=gpr`;
-  for (const s of SECTION_ORDER) {
+  for (const s of CONSTRUCTION_SECTION_ORDER) {
     if (allowed.includes(s)) return `${base}?section=${apiSectionToQuery(s)}`;
+  }
+  if (allowed.includes("marketing")) {
+    return mode === "presentation" ? "/presentation/marketing/sales-plan" : "/edit/marketing";
   }
   return "/";
 }
@@ -141,9 +157,10 @@ function storedUserFromApiUser(user: ApiLoginUser): AuthStoredUser {
 
 function allowedSectionsFromApiUser(role: Role, user: ApiLoginUser): ApiSection[] {
   if (role === "admin" || role === "manager") {
-    return [...SECTION_ORDER];
+    return [...API_SECTION_KEYS];
   }
-  return (user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+  const known = (user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+  return [...known].sort((a, b) => API_SECTION_KEYS.indexOf(a) - API_SECTION_KEYS.indexOf(b));
 }
 
 export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): AuthSnapshot {
@@ -293,7 +310,10 @@ function parseUserRow(raw: {
     blocked_reason: raw.blocked_reason ?? null,
     blocked_at: raw.blocked_at ?? null,
     blocked_by_email: raw.blocked_by_email ?? null,
-    allowed_sections: raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s)),
+    allowed_sections: (() => {
+      const known = raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s));
+      return [...known].sort((a, b) => API_SECTION_KEYS.indexOf(a) - API_SECTION_KEYS.indexOf(b));
+    })(),
   };
 }
 
