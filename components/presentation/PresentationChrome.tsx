@@ -29,7 +29,7 @@ export function PresentationChrome({ children }: Props) {
   }, [isMarketingLight]);
 
   const shellClass = isMarketingLight
-    ? "min-h-screen w-full min-w-0 overflow-x-clip bg-[#F5F7FB]"
+    ? "flex h-screen max-h-screen w-full min-w-0 flex-col overflow-hidden bg-[#F5F7FB]"
     : "min-h-screen w-full min-w-0 overflow-x-clip bg-gradient-to-b from-[#0b1220] to-[#0f172a]";
 
   const marketingHeaderBg = scrolled
@@ -55,7 +55,7 @@ export function PresentationChrome({ children }: Props) {
     <div className={shellClass}>
       {isMarketingLight ? (
         <header
-          className={`sticky top-0 z-40 h-14 transition-[background-color] duration-200 ${marketingHeaderBg}`}
+          className={`sticky top-0 z-40 h-14 shrink-0 transition-[background-color] duration-200 ${marketingHeaderBg}`}
         >
           <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 sm:px-6">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-4">
@@ -117,7 +117,11 @@ export function PresentationChrome({ children }: Props) {
         </header>
       )}
 
-      {children}
+      {isMarketingLight ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+      ) : (
+        children
+      )}
     </div>
   );
 }

@@ -6,7 +6,9 @@ import { MarketingEditTabProvider } from "@/components/marketing/marketingEditTa
 export default function EditMarketingLayout({ children }: { children: ReactNode }) {
   return (
     <MarketingEditTabProvider>
-      <MarketingAppShell variant="edit">{children}</MarketingAppShell>
+      <div className="flex h-screen max-h-screen min-h-0 flex-col overflow-hidden">
+        <MarketingAppShell variant="edit">{children}</MarketingAppShell>
+      </div>
     </MarketingEditTabProvider>
   );
 }
