@@ -33,8 +33,8 @@ export function PresentationChrome({ children }: Props) {
     : "min-h-screen w-full min-w-0 overflow-x-clip bg-gradient-to-b from-[#0b1220] to-[#0f172a]";
 
   const marketingHeaderBg = scrolled
-    ? "border-b border-black/[0.05] bg-white/70 backdrop-blur-[16px]"
-    : "border-b border-black/[0.05] bg-white/60 backdrop-blur-[16px]";
+    ? "border-b border-slate-200/40 bg-white/55 backdrop-blur-[12px]"
+    : "border-b border-slate-200/30 bg-white/40 backdrop-blur-[12px]";
 
   const navMarketing = (segment: "construction" | "marketing" | "finance") => {
     const active =
@@ -44,9 +44,9 @@ export function PresentationChrome({ children }: Props) {
           ? pathname.startsWith("/presentation/marketing")
           : pathname.startsWith("/presentation/finance");
     if (active) {
-      return "rounded-full border-0 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] px-3 py-1.5 text-sm font-medium text-white shadow-[0_6px_16px_rgba(37,99,235,0.3)]";
+      return "rounded-xl bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-600";
     }
-    return "rounded-full border-0 bg-transparent px-3 py-1.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-black/[0.04]";
+    return "rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100";
   };
 
   const navDarkIdle = "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
@@ -55,17 +55,17 @@ export function PresentationChrome({ children }: Props) {
     <div className={shellClass}>
       {isMarketingLight ? (
         <header
-          className={`sticky top-0 z-40 h-14 shrink-0 transition-[background-color] duration-200 ${marketingHeaderBg}`}
+          className={`sticky top-0 z-40 min-h-[3.5rem] shrink-0 py-2 transition-[background-color] duration-200 ${marketingHeaderBg}`}
         >
-          <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-2 px-3 sm:px-6">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-4">
+          <div className="mx-auto flex min-h-[3.25rem] w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 sm:gap-5 sm:px-8">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-5">
               <Link
                 href="/presentation"
                 className="shrink-0 text-sm font-semibold tracking-tight text-[#111827] hover:text-[#1F2937]"
               >
                 Презентация проекта
               </Link>
-              <nav className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
+              <nav className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm sm:gap-2">
                 <Link href="/presentation/construction" className={navMarketing("construction")}>
                   Строительство
                 </Link>
@@ -78,8 +78,8 @@ export function PresentationChrome({ children }: Props) {
               </nav>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <UserMenu theme="light" />
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <UserMenu theme="marketing" className="gap-3 sm:gap-4" />
             </div>
           </div>
         </header>

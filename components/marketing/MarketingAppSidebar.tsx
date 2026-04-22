@@ -41,7 +41,7 @@ function SidebarLabel({ collapsed, children }: { collapsed: boolean; children: R
 function navItemClass(active: boolean, collapsed: boolean) {
   const align = collapsed ? "justify-center gap-0 px-0" : "justify-start gap-3 px-3";
   return `flex w-full items-center rounded-md py-2.5 text-sm font-medium transition-all duration-300 ${align} ${
-    active ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"
+    active ? "bg-blue-500/10 text-blue-600" : "text-slate-500 hover:bg-slate-100"
   }`;
 }
 
