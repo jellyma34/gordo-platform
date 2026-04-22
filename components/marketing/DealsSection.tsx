@@ -33,6 +33,17 @@ const selectClass =
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 const pctFmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const rubFmt = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 });
+/** Площади в блоке «Параметры объекта»: до 1 знака + м². */
+const dealObjectAreaFmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+/** Цена в блоке «Параметры объекта»: ₽ с разделителями разрядов. */
+const dealObjectPriceFmt = new Intl.NumberFormat("ru-RU", {
+  style: "currency",
+  currency: "RUB",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+/** Цена за м² в той же таблице: число + «₽/м²». */
+const dealObjectRubPerM2Fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 /** Доли сегмента относительно всего среза: 0.68 → «68%». */
 const sharePctFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 0 });
 
@@ -124,6 +135,7 @@ export type DealRecord = {
   source?: string;
   deal_source?: string;
   utm_source?: string;
+  deal_area?: string | number;
 };
 
 /** Ссылка на объект сделки в выгрузке: категория, имя, проект. */
@@ -135,6 +147,20 @@ export type DealObjectRef = {
   /** Код типа объекта (вместе с deal.type) — см. {@link resolveDealSegmentType}. */
   type?: string;
   object_type?: string;
+  /** Параметры объекта из выгрузки (camelCase / snake_case). */
+  areaTotal?: string | number;
+  area_total?: string | number;
+  areaLiving?: string | number;
+  area_living?: string | number;
+  areaBalcony?: string | number;
+  area_balcony?: string | number;
+  floor?: string | number;
+  price?: string | number;
+  section?: string;
+  /** Площадь в выгрузке Trankeys / аналоги. */
+  estate_area?: string | number;
+  estate_floor?: string | number;
+  geo_house_section?: string;
 };
 
 export type DealClientRef = {
@@ -179,6 +205,18 @@ const OBJECT_TYPE_FILTER_ORDER: string[] = [
   OBJECT_TYPE_LABEL_RU.unknown,
 ];
 
+/** Поля объекта недвижимости из JSON (object / deal). */
+export type DealObjectParams = {
+  areaTotal: number | null;
+  areaLiving: number | null;
+  areaBalcony: number | null;
+  floor: string | null;
+  price: number | null;
+  /** Тип / планировка из выгрузки (не путать с сегментом typeLabel). */
+  type: string | null;
+  section: string | null;
+};
+
 export type NormalizedDealRow = {
   dealDate: string;
   dealDateMs: number;
@@ -198,7 +236,33 @@ export type NormalizedDealRow = {
   sourceLabel: string;
   statusLabel: string;
   clientLabel: string;
+  objectParams: DealObjectParams;
+  /** Нормализованный `object.category` для сортировки таблицы «Параметры объекта». */
+  objectCategoryCode: string | null;
 };
+
+/** Порядок групп: flat → garage → storageroom → comm (остальные в конце). */
+export const OBJECT_PARAMS_TABLE_TYPE_ORDER: Record<string, number> = {
+  flat: 1,
+  garage: 2,
+  storageroom: 3,
+  storage: 3,
+  comm: 4,
+};
+
+function objectParamsTableTypeRank(code: string | null | undefined): number {
+  if (code == null || String(code).trim() === "") return 999;
+  const c = String(code).trim().toLowerCase();
+  return OBJECT_PARAMS_TABLE_TYPE_ORDER[c] ?? 999;
+}
+
+/** ORDER BY type ASC (по {@link OBJECT_PARAMS_TABLE_TYPE_ORDER}), затем deal_date DESC. */
+export function compareForObjectParamsTable(a: NormalizedDealRow, b: NormalizedDealRow): number {
+  const ta = objectParamsTableTypeRank(a.objectCategoryCode);
+  const tb = objectParamsTableTypeRank(b.objectCategoryCode);
+  if (ta !== tb) return ta - tb;
+  return b.dealDateMs - a.dealDateMs;
+}
 
 /** Результат универсальной нормализации одной строки выгрузки (до агрегаций). */
 export type NormalizedDealFields = {
@@ -355,7 +419,7 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
   const manager = pickFirstString(d, ["manager_name", "manager", "responsible"]);
   const source = pickFirstString(d, ["source", "deal_source", "utm_source"]);
 
-  const amountRaw = firstNonEmptyValue(d, ["amount", "budget", "deal_sum"]);
+  const amountRaw = firstNonEmptyValue(d, ["deal_sum", "amount", "budget"]);
   const amount = parseDealSum(amountRaw);
 
   const planRaw = firstNonEmptyValue(d, ["plan_sum", "planned_revenue", "plan_amount", "planSum", "plannedRevenue"]);
@@ -410,7 +474,7 @@ export function resolveObjectSegmentType(obj: DealObjectRef | undefined): Normal
     .toLowerCase();
   if (c === "flat") return "apartment";
   if (c === "garage") return "parking";
-  if (c === "storage") return "storage";
+  if (c === "storageroom" || c === "storage") return "storage";
   if (c === "comm") return "commercial";
 
   const name = String(obj?.category_name ?? "").toLowerCase();
@@ -424,7 +488,7 @@ function segmentTypeFromHint(raw: string): NormalizedObjectType | null {
   const t = raw.trim().toLowerCase();
   if (t === "flat" || t === "apartment" || t === "квартира" || t === "квартиры") return "apartment";
   if (t === "garage" || t === "parking" || t === "мм" || t === "машино-место" || t === "машиноместо") return "parking";
-  if (t === "storage" || t === "кладовая" || t === "кладовые") return "storage";
+  if (t === "storageroom" || t === "storage" || t === "кладовая" || t === "кладовые") return "storage";
   if (t === "comm" || t === "commercial" || t === "коммерция") return "commercial";
   return null;
 }
@@ -452,6 +516,503 @@ export function resolveDealSegmentType(row: DealExportRow): NormalizedObjectType
   return resolveObjectSegmentType(row.object);
 }
 
+function parseDealObjectNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (raw == null || raw === "") return null;
+  const s = String(raw)
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
+  if (!s) return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function dealObjectStringOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+
+function dealRecords(row: DealExportRow): { object: Record<string, unknown> | null; deal: Record<string, unknown> | null } {
+  const o = row.object != null && typeof row.object === "object" ? (row.object as Record<string, unknown>) : null;
+  const d = row.deal != null && typeof row.deal === "object" ? (row.deal as Record<string, unknown>) : null;
+  return { object: o, deal: d };
+}
+
+function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return x != null && typeof x === "object" && !Array.isArray(x);
+}
+
+/**
+ * Значение по пути вида `object.area.total` от корня строки выгрузки.
+ */
+export function deepPick(root: unknown, path: string): unknown {
+  const parts = path
+    .split(".")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let cur: unknown = root;
+  for (const part of parts) {
+    if (!isPlainObject(cur)) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+/**
+ * Все объекты, в которых ищем плоские ключи (корень строки, deal, object, типичные вложения `area` / `params`).
+ */
+function collectDealSearchRoots(row: DealExportRow): Record<string, unknown>[] {
+  const seen = new Set<Record<string, unknown>>();
+  const out: Record<string, unknown>[] = [];
+  const add = (x: unknown) => {
+    if (!isPlainObject(x)) return;
+    if (seen.has(x)) return;
+    seen.add(x);
+    out.push(x);
+  };
+
+  add(row);
+  add(row.deal);
+  add(row.object);
+
+  const deal = row.deal;
+  if (isPlainObject(deal)) {
+    const dr = deal as Record<string, unknown>;
+    add(dr.object);
+    add(dr.area);
+    add(dr.property);
+    add(dr.unit);
+    add(dr.flat);
+    add(dr.estate);
+    add(dr.estate_object);
+    add(dr.estateObject);
+  }
+
+  const obj = row.object;
+  if (isPlainObject(obj)) {
+    const or = obj as Record<string, unknown>;
+    add(or.area);
+    add(or.meta);
+    add(or.params);
+    add(or.characteristics);
+    add(or.props);
+  }
+
+  return out;
+}
+
+function pickNumFromMerged(src: Record<string, unknown>, keys: string[]): number | null {
+  if (src == null || typeof src !== "object") return null;
+  for (const k of keys) {
+    if (!(k in src)) continue;
+    const v = src[k];
+    if (v === null || v === undefined) continue;
+    const n = parseDealObjectNumber(v);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+function pickStrFromMerged(src: Record<string, unknown>, keys: string[]): string | null {
+  if (src == null || typeof src !== "object") return null;
+  for (const k of keys) {
+    if (!(k in src)) continue;
+    const v = src[k];
+    if (v === null || v === undefined) continue;
+    const s = dealObjectStringOrNull(v);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Число: плоские ключи по всем корням + dot-paths на `row`. */
+function universalPickNum(row: DealExportRow, flatKeys: string[], dotPaths: string[]): number | null {
+  for (const src of collectDealSearchRoots(row)) {
+    const n = pickNumFromMerged(src, flatKeys);
+    if (n != null) return n;
+  }
+  for (const p of dotPaths) {
+    const v = deepPick(row, p);
+    if (v !== null && v !== undefined && isPlainObject(v)) {
+      const inner = pickNumFromMerged(v, flatKeys);
+      if (inner != null) return inner;
+    }
+    const n = parseDealObjectNumber(v);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** Строка: плоские ключи + dot-paths. */
+function universalPickStr(row: DealExportRow, flatKeys: string[], dotPaths: string[]): string | null {
+  for (const src of collectDealSearchRoots(row)) {
+    const s = pickStrFromMerged(src, flatKeys);
+    if (s) return s;
+  }
+  for (const p of dotPaths) {
+    const v = deepPick(row, p);
+    if (v !== null && v !== undefined && isPlainObject(v)) {
+      const inner = pickStrFromMerged(v, flatKeys);
+      if (inner) return inner;
+    }
+    const s = dealObjectStringOrNull(v);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Сырое значение для этажа (число или строка). */
+function universalPickRaw(row: DealExportRow, flatKeys: string[], dotPaths: string[]): unknown {
+  for (const src of collectDealSearchRoots(row)) {
+    for (const k of flatKeys) {
+      if (!(k in src)) continue;
+      const v = src[k];
+      if (v === null || v === undefined) continue;
+      if (String(v).trim() === "") continue;
+      return v;
+    }
+  }
+  for (const p of dotPaths) {
+    const v = deepPick(row, p);
+    if (v === null || v === undefined) continue;
+    if (String(v).trim() === "") continue;
+    return v;
+  }
+  return null;
+}
+
+/** price / area; площадь > 0; округление до целого ₽/м². */
+export function dealObjectPricePerM2(price: number | null, areaTotal: number | null): number | null {
+  if (price == null || areaTotal == null) return null;
+  if (!Number.isFinite(price) || !Number.isFinite(areaTotal) || areaTotal <= 0) return null;
+  return Math.round(price / areaTotal);
+}
+
+/** Строка таблицы «Параметры объекта» (после {@link mapDeal}). */
+export type DealObjectParamsTableRow = {
+  date: string;
+  type: string | null;
+  price: number | null;
+  area: number | null;
+  price_per_m2: number | null;
+  floor: string | null;
+  section: string | null;
+};
+
+export function toDealObjectParamsTableRow(row: NormalizedDealRow): DealObjectParamsTableRow {
+  const p = row.objectParams;
+  const price = p.price ?? (Number.isFinite(row.sumRub) ? row.sumRub : null);
+  return {
+    date: row.dealDate,
+    type: p.type,
+    price,
+    area: p.areaTotal,
+    price_per_m2: dealObjectPricePerM2(price, p.areaTotal),
+    floor: p.floor,
+    section: p.section,
+  };
+}
+
+function formatDealObjectFloor(raw: unknown): string | null {
+  if (raw == null) return null;
+  const n = parseDealObjectNumber(raw);
+  if (n != null) {
+    if (Number.isInteger(n)) return String(n);
+    return dealObjectAreaFmt.format(n);
+  }
+  return dealObjectStringOrNull(raw);
+}
+
+/**
+ * `object.category` из выгрузки (Trankeys и аналоги) → подпись в таблице «Параметры объекта».
+ */
+export function mapObjectCategoryLabel(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const c = String(raw).trim().toLowerCase();
+  if (c === "flat") return "Квартира";
+  if (c === "garage") return "Машино-место";
+  if (c === "storageroom") return "Кладовая";
+  if (c === "storage") return "Кладовая";
+  if (c === "comm") return "Коммерция";
+  return null;
+}
+
+/**
+ * Код типа из JSON (`type` / `object_type`) → подпись (запасной путь, если нет `object.category`).
+ */
+export function mapType(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const t = String(raw).trim().toLowerCase();
+  const fromCat = mapObjectCategoryLabel(t);
+  if (fromCat) return fromCat;
+  if (t === "living" || t === "apartment") return "Квартира";
+  if (t === "parking") return "Машино-место";
+  return null;
+}
+
+const MAP_DEAL_AREA_TOTAL_KEYS = [
+  "deal_area",
+  "dealArea",
+  "estate_area",
+  "estateArea",
+  "area_total",
+  "areaTotal",
+  "total_area",
+  "totalArea",
+  "square_total",
+  "squareTotal",
+  "total_square",
+  "totalSquare",
+  "area",
+  "square",
+  "sq",
+  "rooms_area",
+  "roomsArea",
+  "object_area",
+  "objectArea",
+  "sum_area",
+  "sumArea",
+  "full_area",
+  "fullArea",
+  "common_area",
+  "commonArea",
+];
+
+const MAP_DEAL_AREA_TOTAL_PATHS = [
+  "deal.deal_area",
+  "object.estate_area",
+  "object.area_total",
+  "object.areaTotal",
+  "object.total_area",
+  "object.totalArea",
+  "object.area.total",
+  "object.area.full",
+  "object.area.common",
+  "object.area.whole",
+  "object.params.area_total",
+  "object.params.areaTotal",
+  "object.characteristics.area_total",
+  "deal.area_total",
+  "deal.areaTotal",
+  "deal.object.area_total",
+  "deal.object.area",
+  "deal.object.area.total",
+  "deal.flat.area_total",
+  "deal.unit.area_total",
+  "deal.property.area_total",
+];
+
+const MAP_DEAL_AREA_LIVING_KEYS = [
+  "area_living",
+  "areaLiving",
+  "living_area",
+  "livingArea",
+  "square_living",
+  "squareLiving",
+  "living_square",
+  "livingSquare",
+  "residential_area",
+  "residentialArea",
+  "living",
+  "residential",
+];
+
+const MAP_DEAL_AREA_LIVING_PATHS = [
+  "object.area_living",
+  "object.area.living",
+  "object.area.living_area",
+  "object.area.residential",
+  "object.params.area_living",
+  "deal.object.area_living",
+  "deal.object.area.living",
+];
+
+const MAP_DEAL_AREA_BALCONY_KEYS = [
+  "area_balcony",
+  "areaBalcony",
+  "balcony_area",
+  "balconyArea",
+  "square_balcony",
+  "squareBalcony",
+  "balcony",
+  "loggia_area",
+  "loggiaArea",
+  "loggia",
+];
+
+const MAP_DEAL_AREA_BALCONY_PATHS = [
+  "object.area_balcony",
+  "object.area.balcony",
+  "object.area.loggia",
+  "object.params.area_balcony",
+  "deal.object.area_balcony",
+];
+
+const MAP_DEAL_PRICE_KEYS = [
+  "deal_sum",
+  "dealSum",
+  "price",
+  "object_price",
+  "objectPrice",
+  "deal_price",
+  "dealPrice",
+  "amount",
+  "budget",
+  "cost",
+  "sum",
+  "total_price",
+  "totalPrice",
+];
+
+const MAP_DEAL_PRICE_PATHS = [
+  "deal.deal_sum",
+  "object.price",
+  "object.object_price",
+  "object.params.price",
+  "deal.price",
+  "deal.object.price",
+  "deal.amount",
+];
+
+const MAP_DEAL_FLOOR_KEYS = ["floor", "floor_number", "floorNumber", "storey", "storeys", "level", "etazh", "tier"];
+
+const MAP_DEAL_FLOOR_PATHS = [
+  "object.estate_floor",
+  "object.floor",
+  "object.floor_number",
+  "object.params.floor",
+  "object.characteristics.floor",
+  "deal.floor",
+  "deal.object.floor",
+  "deal.flat.floor",
+];
+
+const MAP_DEAL_TYPE_KEYS = ["type", "object_type", "objectType", "typology", "layout", "layout_type", "layoutType"];
+
+const MAP_DEAL_TYPE_PATHS = [
+  "object.type",
+  "object.object_type",
+  "object.params.type",
+  "deal.type",
+  "deal.object.type",
+];
+
+const MAP_DEAL_SECTION_KEYS = [
+  "geo_house_section",
+  "section",
+  "section_name",
+  "sectionName",
+  "building",
+  "corpus",
+  "block",
+  "block_name",
+  "blockName",
+  "housing",
+  "wing",
+  "liter",
+  "litera",
+  "building_name",
+  "buildingName",
+  "house_section",
+  "houseSection",
+  "phase",
+  "queue",
+];
+
+const MAP_DEAL_SECTION_PATHS = [
+  "object.geo_house_section",
+  "object.section",
+  "object.section_name",
+  "object.building",
+  "object.corpus",
+  "object.block",
+  "object.params.section",
+  "deal.section",
+  "deal.object.section",
+  "deal.object.building",
+];
+
+/**
+ * Сводит поля `deal` / `object` к {@link DealObjectParams}.
+ * Приоритет полей выгрузки `data[]`: `deal.deal_sum`, `deal.deal_area`, `object.estate_area`, `object.category`, `object.estate_floor`, `object.geo_house_section`.
+ */
+export function mapDeal(row: DealExportRow): DealObjectParams {
+  const deal = row.deal != null && typeof row.deal === "object" ? (row.deal as Record<string, unknown>) : null;
+  const ob = row.object != null && typeof row.object === "object" ? (row.object as Record<string, unknown>) : null;
+
+  let price: number | null = null;
+  if (deal) {
+    price = parseDealObjectNumber(deal.deal_sum);
+  }
+
+  let areaTotal: number | null = null;
+  if (deal) {
+    areaTotal = parseDealObjectNumber(deal.deal_area);
+  }
+  if (areaTotal == null && ob) {
+    areaTotal = parseDealObjectNumber(ob.estate_area);
+  }
+
+  let type: string | null = null;
+  if (ob && ob.category != null && String(ob.category).trim() !== "") {
+    const cat = String(ob.category).trim();
+    type = mapObjectCategoryLabel(cat) ?? dealObjectStringOrNull(cat);
+  }
+
+  let floor: string | null = null;
+  if (ob && ob.estate_floor != null && String(ob.estate_floor).trim() !== "") {
+    floor = formatDealObjectFloor(ob.estate_floor);
+  }
+
+  let section: string | null = null;
+  if (ob && ob.geo_house_section != null && String(ob.geo_house_section).trim() !== "") {
+    section = dealObjectStringOrNull(ob.geo_house_section);
+  }
+
+  const areaLiving = universalPickNum(row, MAP_DEAL_AREA_LIVING_KEYS, MAP_DEAL_AREA_LIVING_PATHS);
+  const areaBalcony = universalPickNum(row, MAP_DEAL_AREA_BALCONY_KEYS, MAP_DEAL_AREA_BALCONY_PATHS);
+
+  if (price == null) {
+    price = universalPickNum(row, MAP_DEAL_PRICE_KEYS, MAP_DEAL_PRICE_PATHS);
+  }
+  if (areaTotal == null) {
+    areaTotal = universalPickNum(row, MAP_DEAL_AREA_TOTAL_KEYS, MAP_DEAL_AREA_TOTAL_PATHS);
+  }
+  if (type == null) {
+    const typeCode = universalPickStr(row, ["type", "object_type", "objectType"], MAP_DEAL_TYPE_PATHS);
+    const typeFromCode = mapType(typeCode);
+    const typeFallback = universalPickStr(
+      row,
+      ["typology", "layout", "layout_type", "layoutType"],
+      ["object.typology", "object.layout", "deal.object.typology"],
+    );
+    type = typeFromCode ?? typeFallback ?? null;
+  }
+  if (floor == null) {
+    const floorRaw = universalPickRaw(row, MAP_DEAL_FLOOR_KEYS, MAP_DEAL_FLOOR_PATHS);
+    floor = floorRaw != null ? formatDealObjectFloor(floorRaw) : null;
+  }
+  if (section == null) {
+    section = universalPickStr(row, MAP_DEAL_SECTION_KEYS, MAP_DEAL_SECTION_PATHS);
+  }
+
+  return {
+    areaTotal,
+    areaLiving,
+    areaBalcony,
+    floor,
+    price,
+    type,
+    section,
+  };
+}
+
+export function extractDealObjectParams(row: DealExportRow): DealObjectParams {
+  return mapDeal(row);
+}
+
 export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   const list: DealExportRow[] = Array.isArray(data) ? data : [];
   const out: NormalizedDealRow[] = [];
@@ -463,6 +1024,14 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
 
     const normalizedType = resolveDealSegmentType(row);
     const typeLabel = OBJECT_TYPE_LABEL_RU[normalizedType];
+
+    const objectCategoryCode = ((): string | null => {
+      const o = row.object;
+      if (o == null || typeof o !== "object") return null;
+      const raw = (o as Record<string, unknown>).category;
+      if (raw == null || String(raw).trim() === "") return null;
+      return String(raw).trim().toLowerCase();
+    })();
 
     out.push({
       dealDate: n.dateStr,
@@ -478,6 +1047,8 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       sourceLabel: n.source,
       statusLabel: n.status,
       clientLabel: n.client,
+      objectParams: extractDealObjectParams(row),
+      objectCategoryCode,
     });
   }
 
@@ -909,6 +1480,10 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
     return [...filteredRows].sort((a, b) => b.dealDateMs - a.dealDateMs).slice(0, 50);
   }, [filteredRows]);
 
+  const objectParamsTableRows = useMemo(() => {
+    return [...filteredRows].sort(compareForObjectParamsTable).slice(0, 50);
+  }, [filteredRows]);
+
   const byTypeRows = useMemo(() => bucketTableRows(analytics.dealsByType), [analytics.dealsByType]);
   const byObjectRows = useMemo(() => bucketTableRows(analytics.dealsByProject), [analytics.dealsByProject]);
   const byManagerRows = useMemo(() => bucketTableRows(analytics.dealsByManager), [analytics.dealsByManager]);
@@ -1239,6 +1814,63 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
               ) : (
                 <tr>
                   <td colSpan={4} className="px-3 py-6 text-center text-sm text-slate-600">
+                    {DEALS_TABLE_NO_ROWS}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className={panelClass}>
+        <h3 className="text-base font-semibold text-slate-900">Параметры объекта</h3>
+        <p className="text-xs text-slate-500">
+          До 50 сделок в срезе. Сортировка: сначала <span className="font-mono">object.category</span> (квартира → машиноместо → кладовая →
+          коммерция), внутри группы — <span className="font-mono">deal.deal_date</span> по убыванию. Источник:{" "}
+          <span className="font-mono">data[]</span>. Маппинг полей и ₽/м² без изменений. <span className="font-mono">buyer</span> не
+          используется.
+        </p>
+        <div className={tableWrapClass}>
+          <table className={tableClass}>
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500">
+                <th className="px-3 py-2.5">Дата</th>
+                <th className="px-3 py-2.5">Тип</th>
+                <th className="px-3 py-2.5 text-right">Цена</th>
+                <th className="px-3 py-2.5 text-right">Площадь</th>
+                <th className="px-3 py-2.5 text-right">₽/м²</th>
+                <th className="px-3 py-2.5">Этаж</th>
+                <th className="px-3 py-2.5">Секция</th>
+              </tr>
+            </thead>
+            <tbody>
+              {objectParamsTableRows.length > 0 ? (
+                objectParamsTableRows.map((r, idx) => {
+                  const t = toDealObjectParamsTableRow(r);
+                  return (
+                    <tr key={`obj-${r.dealDate}-${r.objectLabel}-${r.sumRub}-${idx}`} className="border-b border-slate-100 last:border-b-0">
+                      <td className="px-3 py-2.5 font-mono text-xs text-slate-900">{t.date}</td>
+                      <td className="px-3 py-2.5 text-slate-800">{t.type ?? DEALS_LABEL_EM_DASH}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                        {t.price != null ? dealObjectPriceFmt.format(t.price) : DEALS_LABEL_EM_DASH}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                        {t.area != null ? `${dealObjectAreaFmt.format(t.area)} м²` : DEALS_LABEL_EM_DASH}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                        {t.price_per_m2 != null
+                          ? `${dealObjectRubPerM2Fmt.format(t.price_per_m2)}\u00a0₽/м²`
+                          : DEALS_LABEL_EM_DASH}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-slate-800">{t.floor ?? DEALS_LABEL_EM_DASH}</td>
+                      <td className="px-3 py-2.5 text-slate-800">{t.section ?? DEALS_LABEL_EM_DASH}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-600">
                     {DEALS_TABLE_NO_ROWS}
                   </td>
                 </tr>
