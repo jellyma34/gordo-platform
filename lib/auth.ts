@@ -2,9 +2,9 @@ import type { GprTaskApiItem, GprTaskWritePayload } from "./gprUtils";
 
 import { buildApiUrl, fetchAuthorizedApi, fetchPublicApi } from "./apiClient";
 import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
-import type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
+import type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
 
-export type { ApiSection, AuthSnapshot, Role, UserStatus } from "./authTypes";
+export type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
 export {
   API_URL,
   apiClient,
@@ -118,8 +118,15 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       role === "admin" || role === "manager"
         ? [...SECTION_ORDER]
         : (data.user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+    const storedUser: AuthStoredUser = {
+      name:
+        (data.user.full_name?.trim() ||
+          (typeof data.user.name === "string" ? data.user.name.trim() : "")) ||
+        null,
+      email: data.user.email?.trim() || null,
+    };
     const userLabel = pickUserLabelFromLoginUser(data.user);
-    saveAuth(data.token, role, allowedSections, userLabel);
+    saveAuth(data.token, role, allowedSections, userLabel, storedUser);
     return {
       token: data.token,
       role,
@@ -127,6 +134,7 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       blockedReason: data.user.blocked_reason ?? null,
       allowedSections,
       userLabel,
+      user: storedUser,
     };
   } catch (err) {
     if (err instanceof Error && err.message === INVALID_LOGIN_MESSAGE) {

@@ -3,15 +3,9 @@
 import { LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-import type { Role } from "@/lib/authTypes";
 import { useAuth } from "./AuthProvider";
-
-function roleSubtitle(role: Role | null): string {
-  if (role === "admin") return "Администратор";
-  if (role === "manager") return "Руководитель";
-  return "Сотрудник";
-}
 
 export type UserMenuTheme = "light" | "dark" | "marketing";
 
@@ -22,9 +16,15 @@ export function UserMenu({
   className?: string;
   theme?: UserMenuTheme;
 }) {
-  const { canAccessAdminPanel, logout, userLabel, role } = useAuth();
+  const { canAccessAdminPanel, logout, user } = useAuth();
   const router = useRouter();
-  const userName = (userLabel?.trim() || "Пользователь") as string;
+
+  useEffect(() => {
+    console.log(user);
+  }, [user]);
+
+  const displayName = user?.name?.trim() || user?.email?.trim() || "Пользователь";
+  const roleLine = user?.role === "admin" ? "Администратор" : "";
 
   const userShell =
     theme === "dark"
@@ -54,8 +54,8 @@ export function UserMenu({
         <User className={`h-4 w-4 ${avatarIcon}`} strokeWidth={2} />
       </div>
       <div className="flex min-w-0 flex-col justify-center gap-0.5 leading-tight">
-        <span className="truncate text-sm font-medium">{userName}</span>
-        <span className={`truncate text-xs ${roleSub}`}>{roleSubtitle(role)}</span>
+        <span className="truncate text-sm font-medium">{displayName}</span>
+        {roleLine ? <span className={`truncate text-xs ${roleSub}`}>{roleLine}</span> : null}
       </div>
     </>
   );

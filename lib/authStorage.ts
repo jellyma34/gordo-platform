@@ -1,9 +1,31 @@
-import type { ApiSection, AuthSnapshot, Role } from "./authTypes";
+import type { ApiSection, AuthSnapshot, AuthStoredUser, Role } from "./authTypes";
 
 const STORAGE_TOKEN = "gordo_token";
 const STORAGE_ROLE = "gordo_role";
 const STORAGE_SECTIONS = "gordo_allowed_sections";
 const STORAGE_USER_LABEL = "gordo_user_label";
+const STORAGE_USER = "gordo_user";
+
+function parseStoredUser(raw: string | null): AuthStoredUser | null {
+  if (!raw?.trim()) return null;
+  try {
+    const o = JSON.parse(raw) as unknown;
+    if (!o || typeof o !== "object") return null;
+    const rec = o as Record<string, unknown>;
+    const name = typeof rec.name === "string" && rec.name.trim() ? rec.name.trim() : null;
+    const email = typeof rec.email === "string" && rec.email.trim() ? rec.email.trim() : null;
+    if (!name && !email) return null;
+    return { name, email };
+  } catch {
+    return null;
+  }
+}
+
+function legacyUserFromLabel(userLabel: string): AuthStoredUser {
+  const t = userLabel.trim();
+  if (t.includes("@")) return { name: null, email: t };
+  return { name: t, email: null };
+}
 
 function isApiSection(x: string): x is ApiSection {
   return x === "gpr" || x === "tenders" || x === "materials";
@@ -31,14 +53,18 @@ export function loadStoredAuth(): AuthSnapshot | null {
       (roleRaw !== "admin" && roleRaw !== "manager" && roleRaw !== "employee")
     )
       return null;
-    const userLabel = window.localStorage.getItem(STORAGE_USER_LABEL);
+    const userLabelRaw = window.localStorage.getItem(STORAGE_USER_LABEL);
+    const userLabel = userLabelRaw && userLabelRaw.trim() !== "" ? userLabelRaw.trim() : null;
+    let user = parseStoredUser(window.localStorage.getItem(STORAGE_USER));
+    if (!user && userLabel) user = legacyUserFromLabel(userLabel);
     return {
       token,
       role: roleRaw,
       status: "active",
       blockedReason: null,
       allowedSections: parseAllowedSections(sectionsRaw),
-      userLabel: userLabel && userLabel.trim() !== "" ? userLabel : null,
+      userLabel,
+      user,
     };
   } catch {
     return null;
@@ -50,6 +76,7 @@ export function saveAuth(
   role: Role,
   allowedSections: ApiSection[],
   userLabel?: string | null,
+  user?: AuthStoredUser | null,
 ): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_TOKEN, token);
@@ -60,6 +87,11 @@ export function saveAuth(
   } else {
     window.localStorage.removeItem(STORAGE_USER_LABEL);
   }
+  if (user && (user.name || user.email)) {
+    window.localStorage.setItem(STORAGE_USER, JSON.stringify({ name: user.name, email: user.email }));
+  } else {
+    window.localStorage.removeItem(STORAGE_USER);
+  }
 }
 
 export function clearAuth(): void {
@@ -68,4 +100,5 @@ export function clearAuth(): void {
   window.localStorage.removeItem(STORAGE_ROLE);
   window.localStorage.removeItem(STORAGE_SECTIONS);
   window.localStorage.removeItem(STORAGE_USER_LABEL);
+  window.localStorage.removeItem(STORAGE_USER);
 }
