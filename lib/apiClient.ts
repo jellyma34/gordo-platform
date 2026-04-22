@@ -11,8 +11,13 @@ const LOGIN_PATH = "/login";
 /** Локальный backend по умолчанию, если `NEXT_PUBLIC_API_URL` не задан (типичный `uvicorn` без флага порта). */
 const LOCAL_DEV_API_DEFAULT = "http://localhost:8000";
 
-/** Только для production-сборки без `NEXT_PUBLIC_API_URL` (CI/Railway обычно задают переменную). */
-const PROD_BUILD_FALLBACK_API_URL = "https://gordo-platform-dev.up.railway.app";
+/**
+ * Если `NEXT_PUBLIC_API_URL` не задан при production-сборке (например, забыт в Railway).
+ * Явный fallback — тот же хост, что и dev-бэкенд.
+ */
+export const NEXT_PUBLIC_API_URL_FALLBACK = "https://gordo-platform-dev.up.railway.app";
+
+const PROD_BUILD_FALLBACK_API_URL = NEXT_PUBLIC_API_URL_FALLBACK;
 
 const DEV_API_HOST = "gordo-platform-dev.up.railway.app";
 
@@ -38,7 +43,9 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
 }
 
 function resolvePublicApiUrl(): string {
-  const fromEnv = normalizeApiBaseUrl((process.env.NEXT_PUBLIC_API_URL ?? "").trim());
+  const fromEnv = normalizeApiBaseUrl(
+    (process.env.NEXT_PUBLIC_API_URL || "").trim() || "",
+  );
   if (fromEnv) {
     return fromEnv;
   }
@@ -59,12 +66,11 @@ function resolvePublicApiUrl(): string {
   return fallback;
 }
 
-/** Базовый URL API (без завершающего `/`), всегда http(s). Из `NEXT_PUBLIC_API_URL` или `http://localhost:8000` в dev, если env пуст. */
+/**
+ * Базовый URL API: `process.env.NEXT_PUBLIC_API_URL`, в dev без env — localhost,
+ * в production без env — {@link NEXT_PUBLIC_API_URL_FALLBACK}.
+ */
 export const API_URL = resolvePublicApiUrl();
-
-if (typeof console !== "undefined" && typeof console.log === "function") {
-  console.log(API_URL);
-}
 
 function warnIfDevApiInProduction(): void {
   if (process.env.NODE_ENV !== "production" || typeof window === "undefined") return;

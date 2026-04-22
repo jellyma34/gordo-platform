@@ -15,6 +15,7 @@ import {
   AUTH_EXPIRED_EVENT,
   type AuthSnapshot,
   clearAuth,
+  fetchAuthMe,
   loadStoredAuth,
   type Role,
   saveAuth,
@@ -45,6 +46,8 @@ type AuthContextValue = {
   canAccessAdminPanel: boolean;
   setSession: (s: AuthSnapshot) => void;
   logout: () => void;
+  /** Метка из storage (ФИО/email после логина); fallback для шапки, если объект профиля ещё пустой. */
+  sessionUserLabel: string | null;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -55,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
   const [userProfile, setUserProfile] = useState<AuthStoredUser | null>(null);
   const [allowedSections, setAllowedSections] = useState<ApiSection[]>([]);
+  const [sessionUserLabel, setSessionUserLabel] = useState<string | null>(null);
 
   const setSession = useCallback((s: AuthSnapshot) => {
     const label = s.userLabel?.trim();
@@ -81,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(s.role);
     setUserProfile(profile);
     setAllowedSections(s.allowedSections);
+    setSessionUserLabel(s.userLabel?.trim() || null);
   }, []);
 
   const logout = useCallback(() => {
@@ -89,17 +94,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(null);
     setUserProfile(null);
     setAllowedSections([]);
+    setSessionUserLabel(null);
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const s = loadStoredAuth();
     if (s) {
       setToken(s.token);
       setRole(s.role);
       setUserProfile(s.user ?? null);
       setAllowedSections(s.allowedSections);
+      setSessionUserLabel(s.userLabel?.trim() || null);
+      if (s.token) {
+        void fetchAuthMe(s.token)
+          .then((fresh) => {
+            if (cancelled || !fresh) return;
+            setRole(fresh.role);
+            setUserProfile(fresh.user ?? null);
+            setAllowedSections(fresh.allowedSections);
+            setSessionUserLabel(fresh.userLabel?.trim() || null);
+            saveAuth(
+              fresh.token,
+              fresh.role,
+              fresh.allowedSections,
+              fresh.userLabel ?? null,
+              fresh.user ?? null,
+            );
+          })
+          .catch(() => {});
+      }
     }
     setHydrated(true);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -133,8 +162,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canAccessAdminPanel: role === "admin" || role === "manager",
       setSession,
       logout,
+      sessionUserLabel,
     }),
-    [hydrated, token, role, userProfile, allowedSections, setSession, logout],
+    [hydrated, token, role, userProfile, allowedSections, sessionUserLabel, setSession, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

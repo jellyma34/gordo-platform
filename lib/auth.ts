@@ -1,6 +1,11 @@
 import type { GprTaskApiItem, GprTaskWritePayload } from "./gprUtils";
 
-import { buildApiUrl, fetchAuthorizedApi, fetchPublicApi } from "./apiClient";
+import {
+  buildApiUrl,
+  fetchAuthorizedApi,
+  fetchPublicApi,
+  SESSION_EXPIRED_MESSAGE,
+} from "./apiClient";
 import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
 import type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
 
@@ -10,6 +15,7 @@ export {
   apiClient,
   AUTH_EXPIRED_EVENT,
   isApiDebugLoggingEnabled,
+  NEXT_PUBLIC_API_URL_FALLBACK,
   SESSION_EXPIRED_MESSAGE,
 } from "./apiClient";
 export { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
@@ -70,14 +76,108 @@ function pickUserLabelFromLoginUser(user: {
   fullName?: string | null;
   full_name?: string | null;
   name?: string | null;
-}): string {
-  const display =
+}): string | null {
+  return (
     trimLoginStr(user.fio) ||
     trimLoginStr(user.fullName) ||
     trimLoginStr(user.full_name) ||
     trimLoginStr(user.name) ||
-    trimLoginStr(user.email);
-  return display ?? "Пользователь";
+    trimLoginStr(user.email) ||
+    null
+  );
+}
+
+/** Строка для шапки: профиль сессии + необязательная метка из storage (без заглушки «Пользователь» в данных). */
+export function resolveHeaderDisplayName(
+  user: {
+    fio?: string | null;
+    fullName?: string | null;
+    full_name?: string | null;
+    name?: string | null;
+    email?: string | null;
+  } | null,
+  sessionUserLabel?: string | null,
+): string {
+  const line =
+    user?.fio?.trim() ||
+    user?.fullName?.trim() ||
+    user?.full_name?.trim() ||
+    user?.name?.trim() ||
+    user?.email?.trim();
+  if (line) return line;
+  const lab = sessionUserLabel?.trim();
+  if (lab && lab !== "Пользователь") return lab;
+  return "Пользователь";
+}
+
+/** Тело `user` из POST /auth/login и GET /auth/me. */
+export type ApiLoginUser = {
+  email: string;
+  role: Role;
+  status?: UserStatus;
+  blocked_reason?: string | null;
+  allowed_sections?: string[];
+  fio?: string | null;
+  fullName?: string | null;
+  full_name?: string | null;
+  name?: string | null;
+};
+
+function storedUserFromApiUser(user: ApiLoginUser): AuthStoredUser {
+  const fio = trimLoginStr(user.fio);
+  const fullName = trimLoginStr(user.fullName);
+  const full_name = trimLoginStr(user.full_name);
+  const name = trimLoginStr(user.name);
+  const email = trimLoginStr(user.email);
+  const bestDisplayName = fio || fullName || full_name || name || email || null;
+  return {
+    fio,
+    fullName,
+    full_name,
+    name: bestDisplayName,
+    email,
+  };
+}
+
+function allowedSectionsFromApiUser(role: Role, user: ApiLoginUser): ApiSection[] {
+  if (role === "admin" || role === "manager") {
+    return [...SECTION_ORDER];
+  }
+  return (user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+}
+
+export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): AuthSnapshot {
+  const role = user.role;
+  const allowedSections = allowedSectionsFromApiUser(role, user);
+  const storedUser = storedUserFromApiUser(user);
+  const userLabel = pickUserLabelFromLoginUser(user);
+  return {
+    token,
+    role,
+    status: user.status === "blocked" ? "blocked" : "active",
+    blockedReason: user.blocked_reason ?? null,
+    allowedSections,
+    userLabel,
+    user: storedUser,
+  };
+}
+
+/**
+ * Актуальный профиль с бэка (ФИО в fio / fullName / full_name).
+ * Старый бэкенд без маршрута вернёт 404 — сессия из storage сохраняется.
+ */
+export async function fetchAuthMe(token: string): Promise<AuthSnapshot | null> {
+  try {
+    const res = await fetchAuthorizedApi(buildApiUrl("/auth/me"), token, { method: "GET" });
+    if (!res.ok) return null;
+    const user = (await res.json()) as ApiLoginUser;
+    const snap = authSnapshotFromApiUser(token, user);
+    saveAuth(snap.token, snap.role, snap.allowedSections, snap.userLabel ?? null, snap.user ?? null);
+    return snap;
+  } catch (e) {
+    if (e instanceof Error && e.message === SESSION_EXPIRED_MESSAGE) throw e;
+    return null;
+  }
 }
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
@@ -109,48 +209,10 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       throw new Error(`HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as {
-      token: string;
-      user: {
-        email: string;
-        role: Role;
-        status?: UserStatus;
-        blocked_reason?: string | null;
-        allowed_sections?: string[];
-        fio?: string | null;
-        fullName?: string | null;
-        full_name?: string | null;
-        name?: string | null;
-      };
-    };
-    const role = data.user.role;
-    const allowedSections: ApiSection[] =
-      role === "admin" || role === "manager"
-        ? [...SECTION_ORDER]
-        : (data.user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
-    const fio = trimLoginStr(data.user.fio);
-    const fullName = trimLoginStr(data.user.fullName);
-    const full_name = trimLoginStr(data.user.full_name);
-    const name = trimLoginStr(data.user.name);
-    const bestDisplayName = fio || fullName || full_name || name || null;
-    const storedUser: AuthStoredUser = {
-      fio,
-      fullName,
-      full_name,
-      name: bestDisplayName,
-      email: trimLoginStr(data.user.email),
-    };
-    const userLabel = pickUserLabelFromLoginUser(data.user);
-    saveAuth(data.token, role, allowedSections, userLabel, storedUser);
-    return {
-      token: data.token,
-      role,
-      status: data.user.status === "blocked" ? "blocked" : "active",
-      blockedReason: data.user.blocked_reason ?? null,
-      allowedSections,
-      userLabel,
-      user: storedUser,
-    };
+    const data = (await res.json()) as { token: string; user: ApiLoginUser };
+    const snap = authSnapshotFromApiUser(data.token, data.user);
+    saveAuth(snap.token, snap.role, snap.allowedSections, snap.userLabel ?? null, snap.user ?? null);
+    return snap;
   } catch (err) {
     if (err instanceof Error && err.message === INVALID_LOGIN_MESSAGE) {
       throw err;

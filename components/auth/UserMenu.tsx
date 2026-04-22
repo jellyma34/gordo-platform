@@ -4,6 +4,8 @@ import { LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { resolveHeaderDisplayName } from "@/lib/auth";
+
 import { useAuth } from "./AuthProvider";
 
 export type UserMenuTheme = "light" | "dark" | "marketing";
@@ -15,16 +17,10 @@ export function UserMenu({
   className?: string;
   theme?: UserMenuTheme;
 }) {
-  const { canAccessAdminPanel, logout, user } = useAuth();
+  const { canAccessAdminPanel, logout, user, sessionUserLabel } = useAuth();
   const router = useRouter();
 
-  const displayName =
-    user?.fio?.trim() ||
-    user?.fullName?.trim() ||
-    user?.full_name?.trim() ||
-    user?.name?.trim() ||
-    user?.email?.trim() ||
-    "Пользователь";
+  const displayName = resolveHeaderDisplayName(user, sessionUserLabel);
   const roleLine = user?.role === "admin" ? "Администратор" : "";
 
   const userShell =
