@@ -1,13 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
-import { ArrowLeft, BarChart3, CalendarDays, Handshake, LayoutDashboard, Menu } from "lucide-react";
+import { ArrowLeft, BarChart3, CalendarDays, Handshake, Menu, MonitorPlay, PencilLine } from "lucide-react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { MARKETING_PRESENTATION, marketingPresentationUrl } from "@/lib/marketingPresentationRoutes";
-import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
+import {
+  MARKETING_PRESENTATION,
+  marketingPresentationUrl,
+  marketingTabFromPresentationPath,
+  presentationPathForMarketingTab,
+} from "@/lib/marketingPresentationRoutes";
 import { useMarketingLayoutChrome } from "@/components/marketing/marketingLayoutChromeContext";
 import { useMarketingEditTabOptional } from "@/components/marketing/marketingEditTabContext";
 import type { MarketingTab } from "@/components/marketing/marketingTypes";
@@ -49,23 +53,58 @@ type Props = {
   variant: "presentation" | "edit";
 };
 
-function SidebarBottomWorkMode({ variant, collapsed }: { variant: "presentation" | "edit"; collapsed: boolean }) {
+function SidebarModeSwitch({ variant, collapsed }: { variant: "presentation" | "edit"; collapsed: boolean }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const editCtx = useMarketingEditTabOptional();
   const presentation = variant === "presentation";
-  const href = presentation ? "/edit" : SALES_PLAN_SPA.work;
-  const label = presentation ? "В рабочий режим" : "Рабочий режим таблицы";
 
-  const linkClass = `flex w-full items-center rounded-lg bg-slate-100 text-sm font-medium text-slate-700 transition-all duration-300 hover:bg-slate-200 ${
-    collapsed ? "justify-center px-0 py-2" : "justify-start gap-2 px-3 py-2"
-  }`;
+  const tabWhenEditing: MarketingTab = editCtx?.activeTab ?? "sales";
+  const tabFromPresentation = marketingTabFromPresentationPath(pathname);
+  const presentationHref = marketingPresentationUrl(presentationPathForMarketingTab(tabWhenEditing), searchParams);
+  const editHref = `/edit/marketing?tab=${presentation ? tabFromPresentation : tabWhenEditing}`;
+
+  const align = collapsed ? "justify-center gap-0 px-0 py-2" : "justify-start gap-2 px-3 py-2";
+  const inactiveLink = `flex w-full items-center rounded-lg border border-transparent text-sm font-medium text-slate-700 transition-all duration-300 hover:bg-slate-200 ${align}`;
+  const activeRow = `flex w-full items-center rounded-lg bg-blue-500/10 text-sm font-medium text-blue-600 ${align}`;
 
   return (
-    <div className={`shrink-0 border-t border-slate-200 transition-all duration-300 ${collapsed ? "px-1 py-2" : "p-3"}`}>
-      <Link href={href} className={linkClass} title={label}>
-        <LayoutDashboard className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
-        <SidebarLabel collapsed={collapsed}>
-          <span>{label}</span>
-        </SidebarLabel>
-      </Link>
+    <div
+      className={`flex shrink-0 flex-col gap-1 border-t border-slate-200 transition-all duration-300 ${
+        collapsed ? "px-1 pt-2 pb-20" : "px-3 pt-3 pb-20"
+      }`}
+    >
+      {presentation ? (
+        <div className={activeRow} title="Презентация" aria-current="page">
+          <MonitorPlay className="h-4 w-4 shrink-0" aria-hidden />
+          <SidebarLabel collapsed={collapsed}>
+            <span>Презентация</span>
+          </SidebarLabel>
+        </div>
+      ) : (
+        <Link href={presentationHref} className={inactiveLink} title="Презентация">
+          <MonitorPlay className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
+          <SidebarLabel collapsed={collapsed}>
+            <span>Презентация</span>
+          </SidebarLabel>
+        </Link>
+      )}
+
+      {presentation ? (
+        <Link href={editHref} className={inactiveLink} title="Редактирование">
+          <PencilLine className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
+          <SidebarLabel collapsed={collapsed}>
+            <span>Редактирование</span>
+          </SidebarLabel>
+        </Link>
+      ) : (
+        <div className={activeRow} title="Редактирование" aria-current="page">
+          <PencilLine className="h-4 w-4 shrink-0" aria-hidden />
+          <SidebarLabel collapsed={collapsed}>
+            <span>Редактирование</span>
+          </SidebarLabel>
+        </div>
+      )}
     </div>
   );
 }
@@ -108,7 +147,7 @@ export function MarketingAppSidebar({ variant }: Props) {
 
   return (
     <aside
-      className={`flex h-full shrink-0 flex-col justify-between overflow-hidden border-r border-slate-200 bg-slate-50 transition-all duration-300 ${asideWidth}`}
+      className={`sticky top-0 flex h-full min-h-0 shrink-0 flex-col justify-between self-stretch overflow-hidden border-r border-slate-200 bg-slate-50 transition-all duration-300 ${asideWidth}`}
       aria-label="Навигация маркетинга"
     >
       <div className={`min-h-0 flex-1 overflow-hidden transition-all duration-300 ${topPad}`}>
@@ -190,7 +229,7 @@ export function MarketingAppSidebar({ variant }: Props) {
         </div>
       </div>
 
-      <SidebarBottomWorkMode variant={variant} collapsed={collapsed} />
+      <SidebarModeSwitch variant={variant} collapsed={collapsed} />
     </aside>
   );
 }

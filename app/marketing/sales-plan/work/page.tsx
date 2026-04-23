@@ -1,24 +1,47 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { EditLayout } from "@/components/EditLayout";
+import { DealsSection } from "@/components/marketing/DealsSection";
+import { InstallmentsSection } from "@/components/marketing/InstallmentsSection";
 import { SalesPlanWorkMode, type SalesPlanWorkModeHandle } from "@/components/marketing/SalesPlanWorkMode";
-import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
+import { useMarketingEditTab } from "@/components/marketing/marketingEditTabContext";
+import type { MarketingTab } from "@/components/marketing/marketingTypes";
+
+function isMarketingTab(v: string | null): v is MarketingTab {
+  return v === "sales" || v === "deals" || v === "installment";
+}
 
 export default function MarketingSalesPlanWorkPage() {
   const workRef = useRef<SalesPlanWorkModeHandle>(null);
+  const { activeTab, setActiveTab } = useMarketingEditTab();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (isMarketingTab(t)) setActiveTab(t);
+  }, [searchParams, setActiveTab]);
+
+  const showPlanActions = activeTab === "sales";
 
   return (
-    <main className="mx-auto min-h-[60vh] w-full min-w-0 max-w-[1400px] bg-slate-50 px-3 py-4 sm:px-4 md:p-6">
+    <div className="min-h-0 min-w-0 bg-slate-50 px-3 py-4 sm:px-4 md:p-6">
       <EditLayout
-        title="План продаж — рабочий режим"
-        subtitle="Сценарии база / обновлённый / прогноз, метрики шт. и выручка и средняя цена, таблица план/факт и журнал изменений (локальное хранение до API)."
+        showTitle={false}
+        showActions={showPlanActions}
         onSave={() => workRef.current?.save() ?? Promise.resolve()}
         onCancel={() => workRef.current?.cancel()}
       >
-        <SalesPlanWorkMode ref={workRef} dashboardHref={SALES_PLAN_SPA.presentation} />
+        {activeTab === "sales" ? (
+          <SalesPlanWorkMode ref={workRef} hideSectionTabs hideInlineSave />
+        ) : activeTab === "deals" ? (
+          <DealsSection mode="work" />
+        ) : (
+          <InstallmentsSection />
+        )}
       </EditLayout>
-    </main>
+    </div>
   );
 }

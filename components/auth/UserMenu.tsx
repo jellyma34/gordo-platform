@@ -23,35 +23,32 @@ export function UserMenu({
   const displayName = resolveHeaderDisplayName(user, sessionUserLabel);
   const roleLine = user?.role === "admin" ? "Администратор" : "";
 
+  const ghostControl =
+    "cursor-pointer border-0 bg-transparent shadow-none outline-none transition-opacity hover:opacity-70";
+
   const userShell =
     theme === "dark"
-      ? "flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-slate-200 transition-colors hover:bg-white/10"
+      ? `flex items-center gap-2 rounded-lg px-1 py-1.5 text-left text-slate-200 no-underline ${ghostControl}`
       : theme === "marketing"
-        ? "flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 text-left text-slate-900 transition-colors hover:bg-slate-100/90"
-        : "flex items-center gap-3 rounded-xl border border-gray-200 bg-white/60 px-3 py-2 text-left text-gray-900 transition-colors hover:bg-white/80";
+        ? `flex items-center gap-2 rounded-lg px-1 py-1.5 text-left text-slate-800 no-underline ${ghostControl}`
+        : `flex items-center gap-2 rounded-lg px-1 py-1.5 text-left text-gray-900 no-underline ${ghostControl}`;
 
   const logoutShell =
     theme === "dark"
-      ? "flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-200 transition-colors hover:bg-white/10"
+      ? `flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm text-slate-200 ${ghostControl}`
       : theme === "marketing"
-        ? "flex items-center gap-2 rounded-xl bg-transparent px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
-        : "flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50";
+        ? `flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm text-slate-800 ${ghostControl}`
+        : `flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm text-gray-900 ${ghostControl}`;
 
-  const avatarBg = theme === "dark" ? "bg-white/10" : "bg-blue-100";
-  const avatarIcon = theme === "dark" ? "text-sky-300" : "text-blue-600";
   const roleSub = theme === "dark" ? "text-slate-400" : theme === "marketing" ? "text-slate-500" : "text-gray-500";
-  const logoutIcon = theme === "dark" ? "text-slate-400" : "text-slate-500";
 
   const chipInner = (
     <>
-      <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${avatarBg}`}
-        aria-hidden
-      >
-        <User className={`h-4 w-4 ${avatarIcon}`} strokeWidth={2} />
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-transparent" aria-hidden>
+        <User className="h-4 w-4 text-current" strokeWidth={2} />
       </div>
       <div className="flex min-w-0 flex-col justify-center gap-0.5 leading-tight">
-        <span className="truncate text-sm font-medium">{displayName}</span>
+        <span className="truncate text-sm font-normal">{displayName}</span>
         {roleLine ? <span className={`truncate text-xs ${roleSub}`}>{roleLine}</span> : null}
       </div>
     </>
@@ -74,7 +71,7 @@ export function UserMenu({
         }}
         className={logoutShell}
       >
-        <LogOut className={`h-4 w-4 shrink-0 ${logoutIcon}`} strokeWidth={2} aria-hidden />
+        <LogOut className="h-4 w-4 shrink-0 text-current" strokeWidth={2} aria-hidden />
         <span>Выйти</span>
       </button>
     </div>

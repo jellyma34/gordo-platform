@@ -36,6 +36,22 @@ a {
  * marketing-presentation-light: только под .theme-marketing-light (/presentation/marketing/*).
  * Переменные дублируют палитру для Tailwind theme.extend.colors.mpl.*
  */
+/* Заголовок проекта в шапке презентации (логотип + название) */
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-logo {
+  height: 1em;
+  width: auto;
+  flex-shrink: 0;
+  display: block;
+  fill: currentColor;
+  color: inherit;
+}
+
 .theme-marketing-light {
   --mpl-page-bg: #f8fafc;
   --mpl-card-bg: rgb(255 255 255 / 0.72);

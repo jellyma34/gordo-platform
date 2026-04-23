@@ -6,6 +6,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { UserMenu } from "@/components/auth/UserMenu";
+import { Logo } from "@/components/presentation/PresentationHeaderLogo";
+import {
+  resolvePresentationProjectName,
+  type PresentationProjectSource,
+} from "@/lib/presentationProjectName";
 
 type Props = {
   children: ReactNode;
@@ -51,6 +56,10 @@ export function PresentationChrome({ children }: Props) {
 
   const navDarkIdle = "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
 
+  /** Когда появятся данные проекта (API / контекст), задать объект с полем `name`. */
+  const project: PresentationProjectSource | null = null;
+  const projectName = resolvePresentationProjectName(project);
+
   return (
     <div className={shellClass}>
       {isMarketingLight ? (
@@ -61,9 +70,14 @@ export function PresentationChrome({ children }: Props) {
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-5">
               <Link
                 href="/presentation"
-                className="shrink-0 text-sm font-semibold tracking-tight text-[#111827] hover:text-[#1F2937]"
+                className="shrink-0 text-[#111827] hover:text-[#1F2937]"
               >
-                Презентация проекта
+                <h1 className="text-sm font-semibold tracking-tight">
+                  <div className="project-title">
+                    <Logo className="project-logo" />
+                    <span>{projectName}</span>
+                  </div>
+                </h1>
               </Link>
               <nav className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm sm:gap-2">
                 <Link href="/presentation/construction" className={navMarketing("construction")}>
@@ -87,8 +101,13 @@ export function PresentationChrome({ children }: Props) {
         <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] backdrop-blur-sm">
           <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-              <Link href="/presentation" className="text-sm font-semibold tracking-tight text-slate-100 hover:text-white">
-                Презентация проекта
+              <Link href="/presentation" className="text-slate-100 hover:text-white">
+                <h1 className="text-sm font-semibold tracking-tight">
+                  <div className="project-title">
+                    <Logo className="project-logo" />
+                    <span>{projectName}</span>
+                  </div>
+                </h1>
               </Link>
               <span className="text-slate-500">/</span>
               <nav className="flex flex-wrap items-center gap-2 text-sm">
