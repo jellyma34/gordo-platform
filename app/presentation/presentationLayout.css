@@ -1,0 +1,66 @@
+/**
+ * Стили только для /presentation/* (подключается из app/presentation/layout.tsx).
+ * Не затрагает /edit.
+ */
+
+html.presentation-active,
+body.presentation-active {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* Хаб выбора раздела: заполняет main (flex-1) по высоте */
+.presentation-hub {
+  align-items: center;
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  width: 100%;
+}
+
+.presentation-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.presentation-shell > header {
+  border-bottom: 0;
+  box-shadow: none;
+  filter: none;
+  isolation: isolate;
+}
+
+.presentation-shell main {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Бренд-блок: логотип + название проекта в шапке */
+.presentation-shell .project-title {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  margin: 0;
+}
+
+.presentation-shell .project-logo {
+  display: block;
+  flex-shrink: 0;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  width: auto;
+  transform: translateY(2px);
+}
+
+.presentation-shell .project-title-text {
+  align-items: center;
+  display: flex;
+  font-size: 18px;
+  line-height: 1;
+  margin: 0;
+}

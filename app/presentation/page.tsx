@@ -32,7 +32,7 @@ export default function PresentationEntry() {
   ] as const;
 
   return (
-    <div className="presentation-wrapper">
+    <div className="presentation-hub">
       <div className="presentation-content">
         <h1 className="presentation-subtitle text-lg font-medium leading-relaxed text-slate-300 md:text-xl">
           Выберите раздел для анализа
