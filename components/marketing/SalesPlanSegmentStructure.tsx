@@ -293,7 +293,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
       <p className={`mb-4 text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
         Распределение продаж по типам недвижимости.
       </p>
-      <div className={`${gridClass} items-stretch`}>
+      <div className={`sales-structure ${gridClass} items-stretch`}>
         {cards.map((c) => {
           const vs = presDark
             ? SEGMENT_VISUAL_PRESENTATION[c.key]
@@ -312,7 +312,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
           return (
             <div key={c.key} className="flex h-full min-h-0 flex-col">
               <div
-                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
+                className={`sales-structure-card group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
               >
                 <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
                 <div

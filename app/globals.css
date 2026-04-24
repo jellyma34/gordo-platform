@@ -36,22 +36,6 @@ a {
  * marketing-presentation-light: только под .theme-marketing-light (/presentation/marketing/*).
  * Переменные дублируют палитру для Tailwind theme.extend.colors.mpl.*
  */
-/* Заголовок проекта в шапке презентации (логотип + название) */
-.project-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.project-logo {
-  height: 1em;
-  width: auto;
-  flex-shrink: 0;
-  display: block;
-  fill: currentColor;
-  color: inherit;
-}
-
 .theme-marketing-light {
   --mpl-page-bg: #f8fafc;
   --mpl-card-bg: rgb(255 255 255 / 0.72);
@@ -84,6 +68,29 @@ a {
 .top-card {
   width: 100%;
   min-width: 0;
+}
+
+/* KPI «План продаж» в /presentation/marketing/*: фон только под .theme-marketing-light (не строительство, не хаб) */
+.theme-marketing-light .top-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-marketing-light .top-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/building.jpg");
+  background-size: cover;
+  background-position: center;
+  opacity: 0.55;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.theme-marketing-light .top-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Карточки светофора ГПР: мягкий radial сверху справа + внешнее свечение, без жёстких рамок */
@@ -255,7 +262,8 @@ a {
   text-align: center;
 }
 
-.presentation-section-grid {
+.presentation-section-grid,
+.hub-section-grid {
   display: grid;
   gap: 24px;
   grid-template-columns: 1fr;
@@ -263,37 +271,100 @@ a {
 }
 
 @media (min-width: 1024px) {
-  .presentation-section-grid {
+  .presentation-section-grid,
+  .hub-section-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
 
+/* Хаб разделов (/presentation, /edit): фон и оверлей — реальные слои внутри .section-card */
 .section-card {
-  backdrop-filter: blur(10px);
-  background: rgba(20, 30, 50, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  color: inherit;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  padding: 24px;
-  text-decoration: none;
-  transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease,
-    transform 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  min-height: 180px;
 }
 
-.section-card:hover {
-  border-color: rgba(80, 160, 255, 0.5);
-  transform: translateY(-4px);
+.section-card-bg {
+  position: absolute;
+  inset: 0;
+  background: url("/images/building.jpg") center / cover no-repeat;
+  opacity: 0.8;
+  z-index: 0;
 }
 
-.section-card:focus-visible {
-  outline: 2px solid rgba(96, 165, 250, 0.5);
-  outline-offset: 3px;
+/* Градиентный слой убран — перекрывал фото (раньше .section-card-overlay, аналог ::after) */
+
+.card-content {
+  position: relative;
+  z-index: 1;
+  padding: 16px;
+}
+
+/* Хаб: только карточка «Маркетинг → План продаж» (HubSectionCards + marketingPlanEntry), без .section-card */
+.marketing-plan-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.marketing-plan-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/building.jpg");
+  background-size: cover;
+  background-position: center;
+  opacity: 0.5;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.marketing-plan-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* «Структура продаж»: едва заметное фото 2.jpg + градиент-вуаль (только .sales-structure) */
+.sales-structure .sales-structure-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.sales-structure .sales-structure-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/2.jpg");
+  background-size: cover;
+  background-position: right center;
+  background-repeat: no-repeat;
+  opacity: 0.15;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Мягкое выбеливание поверх фото: справа слабее, фото едва заметно */
+.sales-structure .sales-structure-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.85) 40%,
+    rgba(255, 255, 255, 0.6) 70%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* z0 — ::before (фото); z1 — декор в разметке и ::after (градиент, порядок в стеке); z2 — контент */
+.sales-structure .sales-structure-card > *:not(:last-child) {
+  z-index: 1;
+}
+
+.sales-structure .sales-structure-card > *:last-child {
+  z-index: 2;
 }
 
 /* «Структура продаж»: мягкий сдвиг градиента поверх карточки (как KPI, но тоньше) */

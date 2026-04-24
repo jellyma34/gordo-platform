@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect } from "react";
+
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { HubSectionCards } from "@/components/presentation/HubSectionCards";
 
 export default function PresentationEntry() {
   const { setMode } = useAppMode();
@@ -21,6 +22,7 @@ export default function PresentationEntry() {
       title: "Маркетинг",
       description: "План продаж, динамика, воронка и рассрочка по ДДУ — в едином стиле с разделом «Строительство».",
       href: "/presentation/marketing/sales-plan",
+      marketingPlanEntry: true,
     },
     {
       title: "Финансы",
@@ -36,30 +38,7 @@ export default function PresentationEntry() {
           Выберите раздел для анализа
         </h1>
 
-        <section className="presentation-section-grid" aria-label="Разделы платформы">
-          {blocks.map((block) => (
-            <Link key={block.href} href={block.href} className="section-card group">
-              <div className="flex flex-1 flex-col">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-white md:text-2xl">
-                      {block.title}
-                    </h2>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                      {block.description}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 text-xl font-light text-slate-500 transition-colors group-hover:text-sky-400/90"
-                    aria-hidden
-                  >
-                    →
-                  </span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </section>
+        <HubSectionCards blocks={blocks} gridClassName="presentation-section-grid" />
       </div>
     </div>
   );

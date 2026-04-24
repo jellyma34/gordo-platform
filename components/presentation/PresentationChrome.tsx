@@ -72,10 +72,10 @@ export function PresentationChrome({ children }: Props) {
                 href="/presentation"
                 className="shrink-0 text-[#111827] hover:text-[#1F2937]"
               >
-                <h1 className="text-sm font-semibold tracking-tight">
-                  <div className="project-title">
-                    <Logo className="project-logo" />
-                    <span>{projectName}</span>
+                <h1 className="text-base font-medium leading-tight tracking-tight">
+                  <div className="flex items-center gap-3">
+                    <Logo className="h-10 w-auto block shrink-0" />
+                    <span className="leading-none">{projectName}</span>
                   </div>
                 </h1>
               </Link>
@@ -102,10 +102,10 @@ export function PresentationChrome({ children }: Props) {
           <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
               <Link href="/presentation" className="text-slate-100 hover:text-white">
-                <h1 className="text-sm font-semibold tracking-tight">
-                  <div className="project-title">
-                    <Logo className="project-logo" />
-                    <span>{projectName}</span>
+                <h1 className="text-base font-medium leading-tight tracking-tight">
+                  <div className="flex items-center gap-3">
+                    <Logo className="h-10 w-auto block shrink-0" />
+                    <span className="leading-none">{projectName}</span>
                   </div>
                 </h1>
               </Link>

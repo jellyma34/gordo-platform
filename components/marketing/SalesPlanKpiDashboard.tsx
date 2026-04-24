@@ -197,7 +197,9 @@ export function KpiDashboard({
         return (
           <div key={kpi.key} className="flex flex-col">
             <div
-              className={`group relative flex-1 overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}`}
+              className={`group relative flex-1 overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}${
+                mode === "presentationLight" ? " top-card" : ""
+              }`}
               title={kpi.hover}
             >
               {!kpi.hideRadialOverlay ? (
