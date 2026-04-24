@@ -33,7 +33,7 @@ import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
-import { useMarketingDealsJson } from "@/components/marketing/useMarketingDealsJson";
+import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
@@ -632,7 +632,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
-  const dealsFeed = useMarketingDealsJson();
+  const dealsFeed = useMarketingDealsFeed();
   const card = presDark ? CARD : presentation && mplPremium ? CARD_PREMIUM : presentation ? CARD_LIGHT : CARD_EDIT;
   const h4 = presDark
     ? "text-sm font-semibold text-slate-100"
@@ -1992,20 +1992,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} dealsFeed={dealsFeed} />
 
-      {presentation ? (
-        <>
-          <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
-          {!dealsFeed.loading ? (
-            <SalesPlanSegmentPlanFactBarChart
-              dealsRows={marketingDealsFiltered}
-              fallbackTotalPlanRub={rev.planCumulative}
-              marketingPeriod={period}
-              planReportAsOfYmd={report.asOf}
-              presentation
-            />
-          ) : null}
-        </>
-      ) : null}
+      <>
+        <SalesPlanCashflowDynamicsChart
+          rows={cashflowSeriesBase}
+          planScale={revenuePlanScale}
+          presentation={presentation}
+        />
+        {!dealsFeed.loading ? (
+          <SalesPlanSegmentPlanFactBarChart
+            dealsRows={marketingDealsFiltered}
+            fallbackTotalPlanRub={rev.planCumulative}
+            marketingPeriod={period}
+            planReportAsOfYmd={report.asOf}
+            presentation={presentation}
+          />
+        ) : null}
+      </>
 
       {/* KPI summary */}
       <KpiDashboard

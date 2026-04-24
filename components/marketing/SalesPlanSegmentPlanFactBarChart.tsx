@@ -73,7 +73,7 @@ function SegmentBarTooltip({
         </div>
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
-          <span style={{ color: "#EA580C" }} className="font-medium">
+          <span style={{ color: "#F97316" }} className="font-medium">
             {rubFmt.format(Math.round(row.plan))}
           </span>
         </div>
@@ -408,11 +408,7 @@ export function SalesPlanSegmentPlanFactBarChart({
             <Bar
               dataKey="plan"
               name="План"
-              fill="#EA580C"
-              fillOpacity={0.72}
-              stroke="#EA580C"
-              strokeWidth={1}
-              strokeDasharray="4 3"
+              fill="#F97316"
               radius={[8, 8, 0, 0]}
               maxBarSize={52}
               isAnimationActive={false}
@@ -420,7 +416,7 @@ export function SalesPlanSegmentPlanFactBarChart({
               <LabelList
                 dataKey="plan"
                 position="top"
-                fill="#EA580C"
+                fill="#F97316"
                 fontSize={11}
                 fontWeight={500}
                 className="tabular-nums"
@@ -437,7 +433,7 @@ export function SalesPlanSegmentPlanFactBarChart({
           Факт
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-4 rounded-sm border border-dashed border-[#EA580C] bg-[#EA580C]/70" />
+          <span className="inline-block h-2.5 w-4 rounded-sm bg-[#F97316]" />
           План
         </span>
       </div>

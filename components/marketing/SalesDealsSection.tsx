@@ -1,14 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
+import { buildSalesDealsChartDatasetFromRows } from "@/lib/buildSalesDealsChartDatasetFromRows";
 import { numFmt } from "@/lib/salesPlanChartFormat";
-import {
-  funnelStepConversionRates,
-  type SalesDealsMockDataset,
-  type SalesFunnelStageRow,
-} from "@/lib/salesDealsMockData";
+import { funnelStepConversionRates } from "@/lib/salesDealsMockData";
+import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 
 const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
@@ -25,66 +23,6 @@ const CARD_PRESENTATION =
   "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
 
-type TrankeysDealRow = {
-  deal?: {
-    deal_date?: string;
-  };
-};
-
-type TrankeysEnvelope = {
-  status?: string;
-  data?: TrankeysDealRow[];
-};
-
-function normalizeDealsApiJson(json: unknown): SalesDealsMockDataset | null {
-  if (json == null || typeof json !== "object") return null;
-  const root = json as TrankeysEnvelope;
-  if (root.status !== "ok" || !Array.isArray(root.data)) return null;
-
-  const items = root.data;
-  const totalDeals = items.length;
-
-  const byMonth = new Map<string, number>();
-  for (const row of items) {
-    const d = row.deal?.deal_date;
-    if (typeof d !== "string" || d.length < 7) continue;
-    const key = d.slice(0, 7);
-    byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
-  }
-
-  const sortedKeys = [...byMonth.keys()].sort();
-  const monthly = sortedKeys.map((periodKey) => {
-    const factMonth = byMonth.get(periodKey) ?? 0;
-    const [ys, ms] = periodKey.split("-");
-    const y = Number(ys);
-    const m = Number(ms);
-    const label =
-      Number.isFinite(y) && Number.isFinite(m)
-        ? new Date(y, m - 1, 1).toLocaleDateString("ru-RU", { month: "short", year: "2-digit" })
-        : periodKey;
-    return {
-      periodKey,
-      label,
-      factMonth,
-      leadsMonth: 0,
-      conversionPct: 0,
-    };
-  });
-
-  const funnel: SalesFunnelStageRow[] = [
-    { id: "leads", label: "Лиды", count: 0 },
-    { id: "meetings", label: "Встречи", count: 0 },
-    { id: "reservations", label: "Брони", count: 0 },
-    { id: "deals", label: "Сделки", count: totalDeals },
-  ];
-
-  return {
-    funnel,
-    monthly,
-    avgDealCycleDays: null,
-  };
-}
-
 type Props = {
   presentation: boolean;
   period: MarketingPeriodGranularity;
@@ -93,43 +31,13 @@ type Props = {
 };
 
 export function SalesDealsSection({ presentation, period, objectId, dealTypeId }: Props) {
-  const [dataset, setDataset] = useState<SalesDealsMockDataset | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const dealsFeed = useMarketingDealsFeed();
+  const { loading, error, reload, rows } = dealsFeed;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/deals");
-      const json: unknown = await res.json();
-      if (!res.ok) {
-        const msg =
-          json && typeof json === "object" && "error" in json && typeof (json as { error: unknown }).error === "string"
-            ? (json as { error: string }).error
-            : `Ошибка ${res.status}`;
-        setError(msg);
-        setDataset(null);
-        return;
-      }
-      const normalized = normalizeDealsApiJson(json);
-      if (!normalized) {
-        setError("Не удалось разобрать ответ API");
-        setDataset(null);
-        return;
-      }
-      setDataset(normalized);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка загрузки");
-      setDataset(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const dataset = useMemo(() => {
+    if (error) return null;
+    return buildSalesDealsChartDatasetFromRows(rows);
+  }, [error, rows]);
 
   const card = presentation ? CARD_PRESENTATION : CARD_EDIT;
   const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
@@ -189,7 +97,7 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
           <p className={`mt-1 text-xs ${presentation ? "text-rose-300/90" : "text-rose-700"}`}>{error ?? "Неизвестная ошибка"}</p>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className={
               presentation
                 ? "mt-3 rounded-lg border border-slate-500/50 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10"
