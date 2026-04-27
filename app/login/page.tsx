@@ -3,7 +3,13 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
-import { BLOCKED_LOGIN_MESSAGE, firstConstructionPath, INVALID_LOGIN_MESSAGE, loginRequest } from "@/lib/auth";
+import {
+  AUTH_LOGIN_MOCK_ENABLED,
+  BLOCKED_LOGIN_MESSAGE,
+  firstConstructionPath,
+  INVALID_LOGIN_MESSAGE,
+  loginRequest,
+} from "@/lib/auth";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -59,6 +65,11 @@ function LoginForm() {
       <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-slate-900">Вход</h1>
         <p className="mt-2 text-sm text-slate-600">Введите email и пароль.</p>
+        {AUTH_LOGIN_MOCK_ENABLED ? (
+          <p className="mt-1 text-xs text-amber-800">
+            Режим без API: при любой непустой паре email/пароль будет выполнен локальный вход (для разработки).
+          </p>
+        ) : null}
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>

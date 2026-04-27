@@ -6,7 +6,7 @@ import { firstConstructionPath } from "@/lib/auth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 
-export default function HomePageClient() {
+export function HomePage() {
   const router = useRouter();
   const { setMode } = useAppMode();
   const { hydrated, role, allowedSections } = useAuth();
@@ -59,3 +59,5 @@ export default function HomePageClient() {
     </main>
   );
 }
+
+export default HomePage;

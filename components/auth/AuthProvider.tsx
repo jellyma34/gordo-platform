@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useEffect,
   useMemo,
   useState,
@@ -97,7 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionUserLabel(null);
   }, []);
 
-  useEffect(() => {
+  // Раньше обычного useEffect, чтобы снять вечный «Загрузка…» в AuthGate сразу после коммита на клиенте
+  useLayoutEffect(() => {
     let cancelled = false;
     const s = loadStoredAuth();
     if (s) {

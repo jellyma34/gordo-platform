@@ -15,8 +15,11 @@ import {
   calculateDeviation,
   filterByPeriod,
   flattenTasks,
+  getActualProgressPercent,
+  getPlannedProgressPercent,
   getProjectStats,
   getStatusByDeviation,
+  getStatusByGprProgressDelta,
   planRootStageCode,
   type PlanFactPeriodFilterType,
 } from "@/lib/gprUtils";
@@ -81,6 +84,7 @@ import {
 } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
+import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
 
 const ResponsiveContainer = dynamic(
   () => import("recharts").then((m) => m.ResponsiveContainer),
@@ -476,15 +480,10 @@ function buildAggregateProgressPopoverExplanation(
 
 const STATUS_DISTRIBUTION_POPOVER_MAX_TASKS = 5;
 
-function formatDeviationForStatusDistributionPopover(status: Traffic, deviationDays: number | null): string {
-  if (deviationDays === null) return "—";
-  if (status === "green") {
-    return deviationDays > 0 ? `+${deviationDays} дн` : `${deviationDays} дн`;
-  }
-  if (status === "yellow" || status === "red") {
-    return `+${deviationDays} дн`;
-  }
-  return "—";
+function formatDeviationForStatusDistributionPopover(_status: Traffic, deltaPp: number | null): string {
+  if (deltaPp === null) return "—";
+  if (deltaPp >= 0) return `+${deltaPp} п.п.`;
+  return `${deltaPp} п.п.`;
 }
 
 function StatusDistributionTaskChunk({
@@ -747,7 +746,7 @@ function useKvartalyGanttModel(
   };
 }
 
-function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
+function KvartalyGanttChartPanel({ model, gprAsOf }: { model: KvartalyGanttModel; gprAsOf: Date }) {
   const { window: gw, candidates, ganttRows } = model;
 
   if (!gw) {
@@ -957,12 +956,20 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                       lines.push(`Отставание: ${startDelay} дней от плановой даты начала`);
                     }
                   }
-                  const dev = calculateDeviation(task);
+                  const pl = getPlannedProgressPercent(task, gprAsOf);
+                  const fc = getActualProgressPercent(task);
+                  const dev = calculateDeviation(task, gprAsOf);
+                  if (pl !== null) {
+                    lines.push(`План на ${formatDate(gprAsOf)}: ${pl}%`);
+                    lines.push(`Факт: ${fc}%`);
+                  }
                   if (dev !== null) {
-                    if (!task.factStart && !task.factEnd) {
-                      lines.push(`Отклонение от плановой даты старта: +${dev} дн.`);
+                    if (dev < 0) {
+                      lines.push(`Отставание: ${Math.abs(dev)} п.п.`);
+                    } else if (dev > 0) {
+                      lines.push(`Опережение: ${dev} п.п.`);
                     } else {
-                      lines.push(`Отклонение по сроку окончания: ${dev > 0 ? "+" : ""}${dev} дн.`);
+                      lines.push(`По плану (0 п.п.)`);
                     }
                   }
                 }
@@ -1081,6 +1088,7 @@ function computePartAggregate(
   tasks: GPRTask[],
   rootCodes: readonly string[],
   partKey: ProjectPartKey,
+  asOf: Date,
 ): {
   totalPercent: number | null;
   totalDeviation: number | null;
@@ -1127,7 +1135,7 @@ function computePartAggregate(
       sumPlanForCompletionWeight += planD;
     }
 
-    const d = calculateDeviation(t);
+    const d = calculateDeviation(t, asOf);
     if (d !== null && planD !== null && planD > 0) {
       weightedDevSum += d * planD;
       sumPlanForDeviationWeight += planD;
@@ -1178,7 +1186,7 @@ function aggregateProgressStatusFromDistribution(counts: {
   return { status: "red", label: "Отставание", riskScore };
 }
 
-function trafficStatusForTask(task: GPRTask): {
+function trafficStatusForTask(task: GPRTask, asOf: Date): {
   status: Traffic;
   planDays: number | null;
   factDays: number | null;
@@ -1187,9 +1195,9 @@ function trafficStatusForTask(task: GPRTask): {
   const planDays = daysInclusive(task.planStart, task.planEnd);
   if (planDays === null) return { status: "gray", planDays: null, factDays: null, deviationDays: null };
   const factDays = daysInclusive(task.factStart, task.factEnd);
-  const deviationDays = calculateDeviation(task);
+  const deviationDays = calculateDeviation(task, asOf);
   if (deviationDays === null) return { status: "gray", planDays, factDays, deviationDays: null };
-  const st = getStatusByDeviation(deviationDays);
+  const st = getStatusByGprProgressDelta(deviationDays);
   return { status: st as Traffic, planDays, factDays, deviationDays };
 }
 
@@ -1229,6 +1237,7 @@ export function GPRAnalytics({
   mode,
   activePartId,
   planFactDataSource = "tasks",
+  reportDate,
 }: {
   tasks: GPRTask[];
   mode: "edit" | "view";
@@ -1236,6 +1245,8 @@ export function GPRAnalytics({
   activePartId: number;
   /** Источник данных для «План vs Факт»: таблица ГПР или `kvartaly_gpr_quarterly.json`. */
   planFactDataSource?: "tasks" | "kvartaly";
+  /** Дата отчёта для плана/факта (п.п.); иначе «сегодня». */
+  reportDate?: Date | string | null;
 }) {
   /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих разборов и раскрываемых KPI. */
   const presentationAnalyticsSkin = mode === "view";
@@ -1243,6 +1254,10 @@ export function GPRAnalytics({
   const activeProjectPart = partIdToProjectPartKey(activePartId);
   const activePartLabel =
     PROJECT_PARTS.find((p) => p.id === activePartId)?.name ?? "Часть проекта";
+
+  const gprReportAsOf = useMemo(() => resolveGprReportAsOf(reportDate), [reportDate]);
+  const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
+  const gprReportYmd = useMemo(() => toLocalYmd(gprReportAsOf), [gprReportAsOf]);
 
   /** Только задачи выбранной части (жилой дом / автостоянка) — ГПР, donut, «План vs Факт». */
   const tasksForActivePart = useMemo(
@@ -1256,8 +1271,9 @@ export function GPRAnalytics({
         tasksForActivePart,
         AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
         activeProjectPart,
+        gprReportAsOf,
       ),
-    [tasksForActivePart, activeProjectPart],
+    [tasksForActivePart, activeProjectPart, gprReportAsOf],
   );
   const orderedStageRoots = useMemo(() => {
     const codes = AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
@@ -1284,7 +1300,10 @@ export function GPRAnalytics({
       return getTmcData(activeProjectPart);
     }
   }, [activeProjectPart]);
-  const metrics = getProjectStats(tasksForActivePart);
+  const metrics = useMemo(
+    () => getProjectStats(tasksForActivePart, gprReportAsOf),
+    [tasksForActivePart, gprReportAsOf],
+  );
   const projectCompletion = getProjectCompletion(tasksForActivePart);
   const flatTasks = flattenTasks(tasksForActivePart);
   const kvartalyAllFlat = useMemo(
@@ -1300,7 +1319,6 @@ export function GPRAnalytics({
     () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
     [kvartalyAllFlat],
   );
-  const todayIso = new Date().toISOString().slice(0, 10);
   const planFactProjectScheduleTraffic = useMemo((): FactEndVsTodayTraffic => {
     const b = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
     return trafficLightPlanVsFactEnd(b?.planEnd, b?.factEnd);
@@ -1456,10 +1474,13 @@ export function GPRAnalytics({
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-    const rows: TrafficRow[] = flatTasks.map((t) => ({ task: t, ...trafficStatusForTask(t) }));
+    const rows: TrafficRow[] = flatTasks.map((t) => ({
+      task: t,
+      ...trafficStatusForTask(t, gprReportAsOf),
+    }));
     for (const r of rows) counts[r.status] += 1;
     return { counts, rows };
-  }, [flatTasks]);
+  }, [flatTasks, gprReportAsOf]);
 
   const {
     totalPercent: aggTotalPercent,
@@ -1468,8 +1489,8 @@ export function GPRAnalytics({
   } = partProgressAggregate;
 
   const aggregateProblemSignals = useMemo(
-    () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, todayIso),
-    [tasksForActivePart, tmcItemsForPart, todayIso],
+    () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, gprReportYmd),
+    [tasksForActivePart, tmcItemsForPart, gprReportYmd],
   );
 
   const [aggregatePopoverOpen, setAggregatePopoverOpen] = useState(false);
@@ -1533,9 +1554,9 @@ export function GPRAnalytics({
   const statusDistributionGroups = useMemo(() => {
     const m: Record<Traffic, TrafficRow[]> = { green: [], yellow: [], red: [], gray: [] };
     for (const r of traffic.rows) m[r.status].push(r);
-    m.green.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
-    m.yellow.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
-    m.red.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.green.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.yellow.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
+    m.red.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
     m.gray.sort((a, b) => a.task.name.localeCompare(b.task.name, "ru"));
     return m;
   }, [traffic.rows]);
@@ -1600,7 +1621,7 @@ export function GPRAnalytics({
   );
 
   const hasScheduleDeviationsForStatusDistribution = useMemo(
-    () => traffic.rows.some((r) => r.deviationDays !== null && r.deviationDays > 0),
+    () => traffic.rows.some((r) => r.deviationDays !== null && r.deviationDays < 0),
     [traffic.rows],
   );
 
@@ -1649,7 +1670,7 @@ export function GPRAnalytics({
     const red = traffic.rows.filter((r) => r.status === "red");
     if (red.length > 0) {
       const w = red.reduce((a, b) =>
-        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+        (a.deviationDays ?? 0) <= (b.deviationDays ?? 0) ? a : b,
       );
       const g = inferGroup(w.task);
       const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
@@ -1658,7 +1679,7 @@ export function GPRAnalytics({
     const yellow = traffic.rows.filter((r) => r.status === "yellow");
     if (yellow.length > 0) {
       const w = yellow.reduce((a, b) =>
-        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+        (a.deviationDays ?? 0) <= (b.deviationDays ?? 0) ? a : b,
       );
       const g = inferGroup(w.task);
       const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
@@ -1846,10 +1867,10 @@ export function GPRAnalytics({
               <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
             </div>
             <div className="rounded bg-slate-50 p-3">
-              <p className="text-slate-500">Ср. отклонение</p>
+              <p className="text-slate-500">Ср. откл. (факт − план на {gprReportDateLabel})</p>
               <p className="mt-1 text-xl font-semibold text-slate-900">
                 {metrics.avgDeviation > 0 ? "+" : ""}
-                {metrics.avgDeviation} дн.
+                {metrics.avgDeviation} п.п.
               </p>
             </div>
           </div>
@@ -1862,12 +1883,18 @@ export function GPRAnalytics({
     <section className="min-w-0 space-y-6 overflow-x-clip">
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
-          const deviation = calculateDeviation(task);
+          const deviation = calculateDeviation(task, gprReportAsOf);
           const deviationLabel =
-            deviation === null ? "—" : deviation > 0 ? `+${deviation}` : `${deviation}`;
+            deviation === null
+              ? "—"
+              : deviation < 0
+                ? `−${Math.abs(deviation)}`
+                : deviation > 0
+                  ? `+${deviation}`
+                  : "0";
           const progress = task.completion || 0;
           const isNoData = progress === 0;
-          const deviationUi = deviation === null ? null : getStatusByDeviation(deviation);
+          const deviationUi = deviation === null ? null : getStatusByGprProgressDelta(deviation);
           const status: Traffic =
             isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
           const accent =
@@ -1894,7 +1921,7 @@ export function GPRAnalytics({
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
-                    <div className="text-xs text-[#E6EDF3]/70">Отклонение</div>
+                    <div className="text-xs text-[#E6EDF3]/70">Факт − план на {gprReportDateLabel}</div>
                     <div
                       className="mt-1 text-lg font-semibold tabular-nums"
                       style={{
@@ -1908,7 +1935,7 @@ export function GPRAnalytics({
                                 : COLORS.red,
                       }}
                     >
-                      {deviationLabel} дн.
+                      {deviationLabel} п.п.
                     </div>
                   </div>
                 </div>
@@ -2303,7 +2330,7 @@ export function GPRAnalytics({
                     ),
                   }}
                 >
-                  <KvartalyGanttChartPanel model={kvartalyActiveModel} />
+                  <KvartalyGanttChartPanel model={kvartalyActiveModel} gprAsOf={gprReportAsOf} />
                 </div>
               )
             ) : planFactChartRows.length === 0 ? (
@@ -2752,7 +2779,7 @@ export function GPRAnalytics({
             {traffic.rows
               .slice()
               .sort(
-                (a: TrafficRow, b: TrafficRow) => (b.deviationDays ?? -999) - (a.deviationDays ?? -999),
+                (a: TrafficRow, b: TrafficRow) => (a.deviationDays ?? 999) - (b.deviationDays ?? 999),
               )
               .slice(0, 12)
               .map(({ task, status, planDays, factDays, deviationDays }: TrafficRow) => {
@@ -2769,7 +2796,7 @@ export function GPRAnalytics({
                       <div className="mt-1 text-xs text-[#E6EDF3]/80">
                         План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
                         {" • "}
-                        Откл.:{" "}
+                        Откл. (п.п.):{" "}
                         <span
                           className="font-semibold tabular-nums"
                           style={{
@@ -2783,7 +2810,11 @@ export function GPRAnalytics({
                                     : COLORS.gray,
                           }}
                         >
-                          {deviationDays === null ? "—" : deviationDays > 0 ? `+${deviationDays}` : deviationDays}
+                          {deviationDays === null
+                            ? "—"
+                            : deviationDays > 0
+                              ? `+${deviationDays}`
+                              : deviationDays}
                         </span>
                         {" • "}
                         Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
@@ -2808,16 +2839,17 @@ export function GPRAnalytics({
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         <p className="mt-2 text-xs text-slate-300">
-          Положительное значение — отставание \(Факт дольше Плана\), отрицательное — опережение.
+          Отклонение: факт минус план на {gprReportDateLabel} (п.п.). Отрицательное — отставание, положительное —
+          опережение.
         </p>
         {(() => {
-          const MAX = 14;
+          const MAX = 20;
           const allowedGroupKeys = gprStageGroupKeysForProjectPart(activeProjectPart);
 
           const devRows = flatTasks
             .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
             .map((t) => {
-              const deviation = calculateDeviation(t);
+              const deviation = calculateDeviation(t, gprReportAsOf);
               const planDuration = daysInclusive(t.planStart, t.planEnd);
               const factDuration = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
               const group = inferGroup(t);
@@ -2833,7 +2865,7 @@ export function GPRAnalytics({
               const avg = withDev.length
                 ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
                 : 0;
-              const critical = withDev.filter((r) => getStatusByDeviation(r.deviation) === "red").length;
+              const critical = withDev.filter((r) => getStatusByGprProgressDelta(r.deviation) === "red").length;
               const label = gprStageDisplayTitle(tasksForActivePart, g);
               return {
                 key: g,
@@ -2859,18 +2891,18 @@ export function GPRAnalytics({
                   {groupCards.map((g) => {
                     const activeCard = activeGroup === g.key;
                     const stageCardTone: "green" | "red" | "gray" =
-                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
+                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg < 0 ? "red" : "green";
                     const avgColor =
                       g.withDevCount === 0 || g.avg === 0
                         ? "#e2e8f0"
-                        : g.avg > 0
+                        : g.avg < 0
                           ? COLORS.red
                           : COLORS.green;
                     const avgText =
                       g.withDevCount === 0
                         ? "—"
-                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} дн.`;
-                    const iconIsLate = g.withDevCount > 0 && g.avg > 0;
+                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} п.п.`;
+                    const iconIsLate = g.withDevCount > 0 && g.avg < 0;
                     const iconShellClass = iconIsLate
                       ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
                       : "text-[#22c55e] bg-[rgba(34,197,94,0.12)] shadow-[0_0_20px_rgba(34,197,94,0.25)]";
@@ -2946,11 +2978,11 @@ export function GPRAnalytics({
                   <div>
                     <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
                       <div className="relative h-6 text-[11px] text-slate-400">
-                        <span className="absolute left-0 -translate-x-0">-14д</span>
-                        <span className="absolute left-1/4 -translate-x-1/2">-7д</span>
+                        <span className="absolute left-0 -translate-x-0">−20</span>
+                        <span className="absolute left-1/4 -translate-x-1/2">−10</span>
                         <span className="absolute left-1/2 -translate-x-1/2 text-slate-200">0</span>
-                        <span className="absolute left-3/4 -translate-x-1/2">+7д</span>
-                        <span className="absolute right-0 translate-x-0">+14д</span>
+                        <span className="absolute left-3/4 -translate-x-1/2">+10</span>
+                        <span className="absolute right-0 translate-x-0">+20</span>
                       </div>
                     </div>
 
@@ -2958,7 +2990,7 @@ export function GPRAnalytics({
                       {active.rows.map((r, i) => {
                         const deviation = r.deviation;
                         const status =
-                          deviation === null ? "gray" : getStatusByDeviation(deviation);
+                          deviation === null ? "gray" : getStatusByGprProgressDelta(deviation);
                         const color =
                           status === "green"
                             ? COLORS.green
@@ -3009,7 +3041,7 @@ export function GPRAnalytics({
                               <div className="font-semibold tabular-nums" style={{ color }}>
                                 {deviation === null
                                   ? "—"
-                                  : `${deviation > 0 ? `+${deviation}` : deviation} дн${clipMark}`}
+                                  : `${deviation > 0 ? `+${deviation}` : deviation} п.п.${clipMark}`}
                               </div>
                               <div className="text-xs text-slate-400">
                                 {r.factDuration ?? "—"} / {r.planDuration ?? "—"} дн
@@ -3032,12 +3064,16 @@ export function GPRAnalytics({
         tmcItems={tmcItemsForPart}
         activeProjectPart={activeProjectPart}
         analyticDepth={dependencyAnalyticDepth}
+        reportAsOfIso={gprReportYmd}
+        reportDateLabel={gprReportDateLabel}
       />
       <GPRTenderDependencyChart
         tasks={tasksForActivePart}
         tenders={tendersForActivePart}
         activeProjectPart={activeProjectPart}
         analyticDepth={dependencyAnalyticDepth}
+        reportAsOfIso={gprReportYmd}
+        reportDateLabel={gprReportDateLabel}
       />
       <GPRForecastChart
         tasks={tasksForActivePart}

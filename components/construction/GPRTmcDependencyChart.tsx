@@ -17,18 +17,17 @@ import {
 import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
 import { buildGprTmcDependencySeries } from "@/lib/gprTmcDependency";
+import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
+import { toDate } from "@/lib/gprUtils";
 import {
-  GPR_DEP_KPI_THRESHOLD_DAYS,
-  formatDeviationDays,
-  formatAvgDeviationDays,
+  formatGprProgressDeltaPp,
   stageDeviationDotColor,
-  deviationListValueStyle,
+  gprProgressDeviationListStyle,
   KpiMiniIconRuler,
   KpiMiniIconChart,
   KpiMiniIconAlert,
   GprDepKpiAccordionCard,
   type GprDepKpiExplainKey,
-  KPI_THRESHOLD_EXPLAIN,
   buildAvgDeviationExplanation,
 } from "./gprDependencyKpiShared";
 
@@ -38,25 +37,29 @@ const PLAN_LINE = "#e2e8f0";
 const FACT_LINE = "#22c55e";
 const TMC_LINE = "#f97316";
 
-/** Допустимое |факт − план| по оси графика (п.п.) и порог по сроку (дн.). */
-const THRESHOLD_DAYS = GPR_DEP_KPI_THRESHOLD_DAYS;
+/** Порог по отклонению прогресса (п.п.) — синхрон с getStatusByGprProgressDelta в gprUtils. */
+const THRESHOLD_PP = 10;
+
+const PP_THRESHOLD_EXPLAIN =
+  "Порог 10 п.п. — критическое отставание фактического процента выполнения от планового на текущую дату (см. таблицу ГПР).";
 
 function tmcChartRiskLevel(series: { deviationDays: number | null }[]): "high" | "medium" | "low" {
-  const days = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
-  if (days.length === 0) return "medium";
-  if (days.some((d) => d > THRESHOLD_DAYS)) return "high";
-  if (days.every((d) => d <= 0)) return "low";
+  const vals = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
+  if (vals.length === 0) return "medium";
+  if (vals.some((d) => d < -THRESHOLD_PP)) return "high";
+  if (vals.every((d) => d >= 0)) return "low";
   return "medium";
 }
 
-function riskKpiExplanationText(risk: "high" | "medium" | "low"): string {
+function riskKpiExplanationText(risk: "high" | "medium" | "low", reportDateLabel: string): string {
+  const on = reportDateLabel ? ` на ${reportDateLabel}` : "";
   if (risk === "high") {
-    return "Риск считается высоким, так как есть этап с отставанием более 14 дней. Даже при общем опережении это создает риск по срокам.";
+    return `Риск высокий: есть этап с отставанием прогресса глубже 10 п.п. к плану${on}.`;
   }
   if (risk === "low") {
-    return "Критического отставания (>14 дн.) ни по одному этапу нет: в совокупности график в допустимых рамках.";
+    return `По этапам нет отставания от планового прогресса (факт ≥ план${on}) в пределах карты.`;
   }
-  return "Есть умеренные отставания (до 14 дн.) без критического порога — риск средний, важно не допустить накопления задержек.";
+  return `Есть умеренное отставание (до 10 п.п.) — контролировать, чтобы не нарастало.`;
 }
 
 const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
@@ -66,6 +69,8 @@ export function GPRTmcDependencyChart({
   tmcItems,
   activeProjectPart,
   analyticDepth = "work",
+  reportAsOfIso: reportAsOfIsoProp,
+  reportDateLabel: reportDateLabelProp,
 }: {
   tasks: GPRTask[];
   /** Может содержать все части (например после merge localStorage) — расчёт режет по activeProjectPart. */
@@ -73,8 +78,20 @@ export function GPRTmcDependencyChart({
   activeProjectPart: ProjectPartKey;
   /** Презентация: KPI без раскрывающихся пояснений (формулы — только в рабочем разборе). */
   analyticDepth?: "work" | "presentation";
+  /** YYYY-MM-DD (локальный календарь дня), единая с датой отчёта на дашборде ГПР. */
+  reportAsOfIso?: string;
+  /** Подпись DD.MM у KPI «факт − план». */
+  reportDateLabel?: string;
 }) {
-  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
+  const todayIso = reportAsOfIsoProp ?? sessionYmd;
+  const reportDateLabel = useMemo(
+    () =>
+      reportDateLabelProp?.trim()
+        ? reportDateLabelProp.trim()
+        : formatDate(toDate(todayIso) ?? new Date()),
+    [reportDateLabelProp, todayIso],
+  );
 
   const series = useMemo(
     () => buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart),
@@ -133,9 +150,9 @@ export function GPRTmcDependencyChart({
 
   const avgValueColor = useMemo(() => {
     if (kpiStats.avgDev === null) return "#e2e8f0";
-    if (kpiStats.avgDev < 0) return "#22c55e";
-    if (kpiStats.avgDev > 0) return "#ef4444";
-    return "#e2e8f0";
+    if (kpiStats.avgDev >= 0) return "#22c55e";
+    if (kpiStats.avgDev < -THRESHOLD_PP) return "#ef4444";
+    return "#f59e0b";
   }, [kpiStats.avgDev]);
 
   const [kpiExplain, setKpiExplain] = useState<GprDepKpiExplainKey | null>(null);
@@ -145,10 +162,13 @@ export function GPRTmcDependencyChart({
   const kpiInteractive = analyticDepth !== "presentation";
 
   const avgExplainText = useMemo(
-    () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
-    [series, kpiStats.avgDev],
+    () => buildAvgDeviationExplanation(series, kpiStats.avgDev, reportDateLabel),
+    [series, kpiStats.avgDev, reportDateLabel],
   );
-  const riskExplainText = useMemo(() => riskKpiExplanationText(kpiStats.risk), [kpiStats.risk]);
+  const riskExplainText = useMemo(
+    () => riskKpiExplanationText(kpiStats.risk, reportDateLabel),
+    [kpiStats.risk, reportDateLabel],
+  );
 
   const chartData = useMemo(() => {
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
@@ -159,7 +179,7 @@ export function GPRTmcDependencyChart({
         return "rgba(148, 163, 184, 0.08)";
       }
       const deviation = Math.abs(fact - plan);
-      if (deviation <= THRESHOLD_DAYS) {
+      if (deviation <= THRESHOLD_PP) {
         return "rgba(34, 197, 94, 0.25)";
       }
       return "rgba(239, 68, 68, 0.25)";
@@ -292,14 +312,15 @@ export function GPRTmcDependencyChart({
                 lines.push(`Отклонение по %: ${sign}${dev} п.п.`);
               }
               const dd = series[i]?.deviationDays;
-              lines.push(`Отклонение по сроку: ${formatDeviationDays(dd)}`);
+              const dlab = reportDateLabel ? ` на ${reportDateLabel}` : "";
+              lines.push(`По прогрессу (факт − план${dlab}): ${formatGprProgressDeltaPp(dd)}`);
               return lines;
             },
           },
         },
       },
     }),
-    [series, planArr, factArr],
+    [series, planArr, factArr, reportDateLabel],
   );
 
   return (
@@ -342,9 +363,9 @@ export function GPRTmcDependencyChart({
                     </span>
                     <span
                       className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
-                      style={deviationListValueStyle(d)}
+                      style={gprProgressDeviationListStyle(d)}
                     >
-                      {formatDeviationDays(d)}
+                      {formatGprProgressDeltaPp(d)}
                     </span>
                   </li>
                 );
@@ -359,7 +380,7 @@ export function GPRTmcDependencyChart({
               onToggle={toggleKpiExplain}
               interactive={kpiInteractive}
               shellClassName="border border-slate-600/50 bg-slate-900/40"
-              explanation={KPI_THRESHOLD_EXPLAIN}
+              explanation={PP_THRESHOLD_EXPLAIN}
               iconSlot={
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
                   <KpiMiniIconRuler />
@@ -369,9 +390,11 @@ export function GPRTmcDependencyChart({
               <>
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Критический порог</div>
                 <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
-                  {GPR_DEP_KPI_THRESHOLD_DAYS} дней
+                  {THRESHOLD_PP} п.п.
                 </div>
-                <div className="text-[11px] text-slate-500">задержка</div>
+                <div className="text-[11px] text-slate-500">
+                  {reportDateLabel ? `к плану на ${reportDateLabel}` : "к плану на дату"}
+                </div>
               </>
             </GprDepKpiAccordionCard>
 
@@ -394,7 +417,7 @@ export function GPRTmcDependencyChart({
                   className="value mt-0.5 text-base font-bold tabular-nums"
                   style={{ color: avgValueColor }}
                 >
-                  {kpiStats.avgDev === null ? "—" : formatAvgDeviationDays(kpiStats.avgDev)}
+                  {kpiStats.avgDev === null ? "—" : formatGprProgressDeltaPp(kpiStats.avgDev)}
                 </div>
                 <div className="text-[11px] text-slate-500">по проекту</div>
               </>

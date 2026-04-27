@@ -3,7 +3,7 @@
 import { useRef } from "react";
 
 import { EditLayout } from "@/components/EditLayout";
-import { calculateDeviation, getStatusByDeviation, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
+import { calculateDeviation, getStatusByGprProgressDelta, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
 import { GPRAnalytics } from "./GPRAnalytics";
 import { GPRTable, type GPRTableHandle } from "./GPRTable";
 
@@ -95,6 +95,7 @@ export function GPRSection({
   onReloadGprTasks,
   activePartId,
   onChangePart,
+  reportDate,
 }: {
   tasks: GPRTask[];
   /** Полный список задач всех частей (для выбора родителя при создании). */
@@ -105,6 +106,7 @@ export function GPRSection({
   onReloadGprTasks?: () => Promise<void>;
   activePartId: number;
   onChangePart: (partId: number) => void;
+  reportDate?: Date | string | null;
 }) {
   const tableRef = useRef<GPRTableHandle>(null);
 
@@ -123,7 +125,7 @@ export function GPRSection({
             counts.gray += 1;
             continue;
           }
-          const s = getStatusByDeviation(deviation);
+          const s = getStatusByGprProgressDelta(deviation);
           if (s === "green") counts.green += 1;
           else if (s === "yellow") counts.yellow += 1;
           else counts.red += 1;
@@ -189,6 +191,7 @@ export function GPRSection({
         mode="view"
         activePartId={activePartId}
         planFactDataSource="kvartaly"
+        reportDate={reportDate}
       />
     </section>
   );

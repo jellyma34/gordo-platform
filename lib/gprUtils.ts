@@ -88,6 +88,7 @@ export function durationDays(start: string | null | undefined, end: string | nul
  * Отклонение по сроку окончания (календарные дни, локальная полуночь):
  * — есть fact_end → fact_end − plan_end;
  * — нет fact_end → today − plan_end (незавершённые работы).
+ * Для оперативного контроля в таблице ГПР предпочтительнее {@link calculateDeviation} (по % на дату).
  */
 export function planFactEndDeviationDays(
   planEnd: string | null | undefined,
@@ -102,26 +103,57 @@ export function planFactEndDeviationDays(
   return Math.round((endDay - planDay) / MS_PER_DAY);
 }
 
+function roundProgress(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Плановый % выполнения на отчётную дату: линейно по [planStart, planEnd] (0% до начала, 100% после окончания).
+ */
+export function getPlannedProgressPercent(task: GPRTask, asOf: Date = new Date()): number | null {
+  const ps = toDate(task.planStart ?? undefined);
+  const pe = toDate(task.planEnd ?? undefined);
+  if (!ps || !pe) return null;
+  const d0 = startOfLocalDay(ps);
+  const d1 = startOfLocalDay(pe);
+  const dA = startOfLocalDay(asOf);
+  if (dA < d0) return 0;
+  if (dA > d1) return 100;
+  const totalMs = d1 - d0;
+  if (totalMs <= 0) return dA >= d0 && dA <= d1 ? 100 : 0;
+  return roundProgress((100 * (dA - d0)) / totalMs);
+}
+
+/** Фактический % выполнения (карточка задачи). */
+export function getActualProgressPercent(task: GPRTask): number {
+  return roundProgress(Math.min(100, Math.max(0, Number(task.completion) || 0)));
+}
+
+/**
+ * Оперативное отклонение: факт − план на текущую дату (проц. пт., не календарные дни).
+ * Положительное — опережение графика, отрицательное — отставание.
+ */
 export function calculateDeviation(task: GPRTask, asOf: Date = new Date()): number | null {
-  const hasAnyFact = Boolean(task.factStart?.trim() || task.factEnd?.trim());
-  if (!hasAnyFact) {
-    const ps = parseDate(task.planStart ?? undefined);
-    if (!ps) return null;
-    const todayDay = startOfLocalDay(asOf);
-    const planStartDay = startOfLocalDay(ps);
-    if (todayDay < planStartDay) return null;
-    return Math.round((todayDay - planStartDay) / MS_PER_DAY);
-  }
-  return planFactEndDeviationDays(task.planEnd ?? null, task.factEnd, asOf);
+  const planned = getPlannedProgressPercent(task, asOf);
+  if (planned === null) return null;
+  const fact = getActualProgressPercent(task);
+  return roundProgress(fact - planned);
 }
 
-export function getStatus(task: GPRTask): GPRStatus {
-  const deviation = calculateDeviation(task);
-  if (deviation === null || deviation === undefined) return "gray";
-  return getStatusByDeviation(deviation);
+/** Светофор ГПР по отклонению в п.п. к плану на дату: зелёный ≥0, жёлтый (−10;0), красный &lt;−10. */
+export function getStatusByGprProgressDelta(deltaPp: number): "green" | "yellow" | "red" {
+  if (deltaPp >= 0) return "green";
+  if (deltaPp >= -10) return "yellow";
+  return "red";
 }
 
-/** Соответствует {@link getProjectStatus}: green / yellow / red для UI. */
+export function getStatus(task: GPRTask, asOf: Date = new Date()): GPRStatus {
+  const d = calculateDeviation(task, asOf);
+  if (d === null) return "gray";
+  return getStatusByGprProgressDelta(d);
+}
+
+/** Соответствует {@link getProjectStatus} по **дням** (ТМЦ, тендеры, пр.). Для ГПР по % — {@link getStatusByGprProgressDelta}. */
 export function getStatusByDeviation(deviation: number): "green" | "yellow" | "red" {
   const s = getProjectStatus(deviation);
   if (s === "success") return "green";
@@ -143,33 +175,55 @@ export function flattenTasks(tasks: GPRTask[]): GPRTask[] {
   return tasks;
 }
 
-export function getProjectStats(tasks: GPRTask[]) {
+export function getProjectStats(tasks: GPRTask[], asOf: Date = new Date()) {
   const all = flattenTasks(tasks);
-  const deviations = all
-    .map((task) => calculateDeviation(task))
-    .filter((value): value is number => value !== null && value !== undefined);
+  const deltas: number[] = [];
+  let sumPlanned = 0;
+  let sumFact = 0;
+  let nWithPlan = 0;
+  for (const task of all) {
+    const pl = getPlannedProgressPercent(task, asOf);
+    if (pl === null) continue;
+    const fc = getActualProgressPercent(task);
+    const d = calculateDeviation(task, asOf);
+    if (d === null) continue;
+    deltas.push(d);
+    sumPlanned += pl;
+    sumFact += fc;
+    nWithPlan += 1;
+  }
   const total = all.length;
   const completed = all.filter((task) => task.completion >= 100).length;
-  const overdue = deviations.filter((value) => value > 14).length;
+  const overdue = all.filter((task) => {
+    const d = calculateDeviation(task, asOf);
+    return d !== null && d < -10;
+  }).length;
   const avgDeviation =
-    deviations.length > 0
-      ? Number(
-          (deviations.reduce((sum, value) => sum + value, 0) / deviations.length).toFixed(
-            1,
-          ),
-        )
+    deltas.length > 0
+      ? Number((deltas.reduce((sum, value) => sum + value, 0) / deltas.length).toFixed(1))
       : 0;
+  const avgPlannedPercent =
+    nWithPlan > 0 ? Number(((sumPlanned / nWithPlan) as number).toFixed(1)) : 0;
+  const avgFactPercent = nWithPlan > 0 ? Number(((sumFact / nWithPlan) as number).toFixed(1)) : 0;
 
   const statusCounts = all.reduce(
     (acc, task) => {
-      const status = getStatus(task);
+      const status = getStatus(task, asOf);
       acc[status] += 1;
       return acc;
     },
     { green: 0, yellow: 0, red: 0, gray: 0, blocked: 0 } satisfies Record<GPRStatus, number>,
   );
 
-  return { total, completed, overdue, avgDeviation, statusCounts };
+  return {
+    total,
+    completed,
+    overdue,
+    avgDeviation,
+    avgPlannedPercent,
+    avgFactPercent,
+    statusCounts,
+  };
 }
 
 /** Фильтр периода для диаграмм: пересечение планового интервала [planStart, planEnd] с календарным периодом. */

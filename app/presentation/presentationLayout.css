@@ -16,8 +16,9 @@ body.presentation-active {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 100%;
+  padding-top: 0.5rem;
   width: 100%;
 }
 
@@ -58,9 +59,8 @@ body.presentation-active {
 }
 
 .presentation-shell .project-title-text {
-  align-items: center;
-  display: flex;
+  display: block;
   font-size: 18px;
-  line-height: 1;
+  line-height: 1.2;
   margin: 0;
 }

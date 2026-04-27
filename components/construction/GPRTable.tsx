@@ -16,13 +16,15 @@ import {
   analyzeFourPlanFactDates,
   analyzeGprCodeInList,
   calculateDeviation,
+  getPlannedProgressPercent,
+  getActualProgressPercent,
+  getStatusByGprProgressDelta,
   durationDays,
   GPR_CODE_FORMAT_RE,
   gprParentCode,
   gprTaskFromApiItem,
   gprTaskToApiWritePayload,
   getStatus,
-  getStatusByDeviation,
   getStatusLabel,
   mergeGprRowIssues,
   normalizeGprCodeFinal,
@@ -98,7 +100,7 @@ const COLORS = {
 
 function deviationHex(deviation: number | null | undefined): string {
   if (deviation === null || deviation === undefined) return COLORS.gray;
-  const s = getStatusByDeviation(deviation);
+  const s = getStatusByGprProgressDelta(deviation);
   return s === "green" ? COLORS.green : s === "yellow" ? COLORS.yellow : COLORS.red;
 }
 
@@ -568,7 +570,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       const blockedReasons = blockedReasonsByTaskId.get(task.id) ?? [];
       if (blockedReasons.length > 0) return "blocked";
       const d = calculateDeviation(task);
-      if (d != null && d > 0) return "delay";
+      if (d != null && d < 0) return "delay";
       return "ok";
     },
     [blockedReasonsByTaskId],
@@ -996,12 +998,16 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
             {rowsForRender.map((task) => {
               const hasChildren = hasChildrenById.get(task.id) ?? false;
               const deviation = calculateDeviation(task);
-              const deviationText =
+              const planPct = getPlannedProgressPercent(task);
+              const factPct = getActualProgressPercent(task);
+              const deltaLine =
                 deviation === null || deviation === undefined
                   ? "—"
-                  : deviation > 0
-                    ? `+${deviation}`
-                    : `${deviation}`;
+                  : deviation < 0
+                    ? `Отставание: ${Math.abs(deviation)} п.п.`
+                    : deviation > 0
+                      ? `Опережение: ${deviation} п.п.`
+                      : "По плану (0 п.п.)";
               const blockedReasons = blockedReasonsByTaskId.get(task.id) ?? [];
               const status = blockedReasons.length > 0 ? "blocked" : getStatus(task);
               const planDuration = durationDays(task.planStart, task.planEnd);
@@ -1134,14 +1140,19 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                       className={INPUT_ROW}
                       title="% выполнения"
                     />
-                    <div
-                      className="text-center text-sm font-semibold tabular-nums"
-                      style={{ color: deviationHex(deviation) }}
-                    >
-                      {deviationText}
-                      {deviation !== null && deviation !== undefined ? (
-                        <span className="text-xs font-medium text-slate-500"> дн.</span>
-                      ) : null}
+                    <div className="space-y-1.5 text-center text-xs tabular-nums">
+                      <div className="text-[11px] text-slate-500">
+                        План: {planPct === null ? "—" : `${planPct}%`}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Факт: {factPct}%
+                      </div>
+                      <div
+                        className="text-sm font-semibold leading-tight"
+                        style={{ color: deviationHex(deviation) }}
+                      >
+                        {deltaLine}
+                      </div>
                     </div>
                     <div className="flex justify-center">
                       <span

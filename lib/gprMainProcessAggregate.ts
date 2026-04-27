@@ -2,7 +2,7 @@ import { GPR_DATA } from "@/lib/gprData";
 import {
   calculateDeviation,
   durationDays,
-  getStatusByDeviation,
+  getStatusByGprProgressDelta,
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
@@ -198,7 +198,7 @@ export function aggregatedMainProcessStatus(
   if (!isAggregatedMainProcessTask(task)) return "нет данных";
   const d = calculateDeviation(task);
   if (d === null) return "нет данных";
-  const st = getStatusByDeviation(d);
+  const st = getStatusByGprProgressDelta(d);
   return st === "green" ? "в срок" : st === "yellow" ? "риск" : "отставание";
 }
 

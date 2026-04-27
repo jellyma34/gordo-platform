@@ -180,10 +180,23 @@ export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): Auth
 }
 
 /**
+ * Вход без бэкенда: в `next dev` по умолчанию включён. Отключить: `NEXT_PUBLIC_AUTH_MOCK=false`.
+ * В production мок выключен, кроме явного `NEXT_PUBLIC_AUTH_MOCK=true`.
+ */
+export const AUTH_LOGIN_MOCK_ENABLED =
+  (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_AUTH_MOCK !== "false") ||
+  process.env.NEXT_PUBLIC_AUTH_MOCK === "true";
+
+const MOCK_DEV_TOKEN = "mock-dev-token";
+
+/**
  * Актуальный профиль с бэка (ФИО в fio / fullName / full_name).
- * Старый бэкенд без маршрута вернёт 404 — сессия из storage сохраняется.
+ * Для `MOCK_DEV_TOKEN` запрос не делается — сессия берётся из storage после мок-логина.
  */
 export async function fetchAuthMe(token: string): Promise<AuthSnapshot | null> {
+  if (token === MOCK_DEV_TOKEN) {
+    return null;
+  }
   try {
     const res = await fetchAuthorizedApi(buildApiUrl("/auth/me"), token, { method: "GET" });
     if (!res.ok) return null;
@@ -198,6 +211,23 @@ export async function fetchAuthMe(token: string): Promise<AuthSnapshot | null> {
 }
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
+  if (AUTH_LOGIN_MOCK_ENABLED) {
+    const e = email.trim();
+    if (!e || !password) {
+      throw new Error(INVALID_LOGIN_MESSAGE);
+    }
+    const user: ApiLoginUser = {
+      email: e,
+      role: "manager",
+      status: "active",
+      allowed_sections: [...API_SECTION_KEYS],
+      name: e,
+    };
+    const snap = authSnapshotFromApiUser(MOCK_DEV_TOKEN, user);
+    saveAuth(snap.token, snap.role, snap.allowedSections, snap.userLabel ?? null, snap.user ?? null);
+    return snap;
+  }
+
   try {
     const res = await fetchPublicApi(buildApiUrl("/auth/login"), {
       method: "POST",

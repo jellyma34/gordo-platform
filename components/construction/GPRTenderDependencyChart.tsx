@@ -35,6 +35,8 @@ import {
   KPI_THRESHOLD_EXPLAIN,
   buildAvgDeviationExplanation,
 } from "./gprDependencyKpiShared";
+import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
+import { toDate } from "@/lib/gprUtils";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -77,13 +79,25 @@ export function GPRTenderDependencyChart({
   tenders,
   activeProjectPart,
   analyticDepth = "work",
+  reportAsOfIso: reportAsOfIsoProp,
+  reportDateLabel: reportDateLabelProp,
 }: {
   tasks: GPRTask[];
   tenders: Tender[];
   activeProjectPart: ProjectPartKey;
   analyticDepth?: "work" | "presentation";
+  reportAsOfIso?: string;
+  reportDateLabel?: string;
 }) {
-  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
+  const todayIso = reportAsOfIsoProp ?? sessionYmd;
+  const reportDateLabel = useMemo(
+    () =>
+      reportDateLabelProp?.trim()
+        ? reportDateLabelProp.trim()
+        : formatDate(toDate(todayIso) ?? new Date()),
+    [reportDateLabelProp, todayIso],
+  );
 
   const series = useMemo(
     () => buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart),
@@ -154,8 +168,8 @@ export function GPRTenderDependencyChart({
   const kpiInteractive = analyticDepth !== "presentation";
 
   const avgExplainText = useMemo(
-    () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
-    [series, kpiStats.avgDev],
+    () => buildAvgDeviationExplanation(series, kpiStats.avgDev, reportDateLabel),
+    [series, kpiStats.avgDev, reportDateLabel],
   );
   const riskExplainText = useMemo(() => tenderRiskKpiExplanationText(kpiStats.risk), [kpiStats.risk]);
 

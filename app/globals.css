@@ -248,14 +248,14 @@ a {
 }
 
 .presentation-subtitle {
-  margin-bottom: 32px;
+  margin-bottom: 12px;
   text-align: center;
 }
 
 .presentation-section-grid,
 .hub-section-grid {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   grid-template-columns: 1fr;
   width: 100%;
 }
@@ -271,7 +271,7 @@ a {
 .section-card {
   position: relative;
   overflow: hidden;
-  min-height: 180px;
+  min-height: 220px;
 }
 
 .section-card-bg {
@@ -290,7 +290,7 @@ a {
   padding: 16px;
 }
 
-/* Хаб: только карточка «Маркетинг → План продаж» (HubSectionCards + marketingPlanEntry), без .section-card */
+/* Хаб /presentation и /edit: навигационные карточки в HubSectionCards (тёмные блоки, без .section-card) */
 .marketing-plan-card {
   position: relative;
   overflow: hidden;

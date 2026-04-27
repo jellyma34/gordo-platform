@@ -9,6 +9,7 @@ import { UserMenu } from "@/components/auth/UserMenu";
 import { Logo } from "@/components/presentation/PresentationHeaderLogo";
 import {
   resolvePresentationProjectName,
+  resolvePresentationProjectPhase,
   type PresentationProjectSource,
 } from "@/lib/presentationProjectName";
 
@@ -84,6 +85,7 @@ export function PresentationChrome({ children }: Props) {
   /** Когда появятся данные проекта (API / контекст), задать объект с полем `name`. */
   const project: PresentationProjectSource | null = null;
   const projectName = resolvePresentationProjectName(project);
+  const projectPhase = resolvePresentationProjectPhase(project);
 
   return (
     <div
@@ -103,7 +105,16 @@ export function PresentationChrome({ children }: Props) {
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
                     <Logo className="project-logo" />
-                    <span className="project-title-text">{projectName}</span>
+                    <div className="min-w-0">
+                      <span className="project-title-text block">{projectName}</span>
+                      <span
+                        className={`mt-0.5 block text-sm leading-tight ${
+                          isMarketingLight ? "text-gray-400" : "text-slate-400"
+                        }`}
+                      >
+                        {projectPhase}
+                      </span>
+                    </div>
                   </div>
                 </h1>
               </Link>
@@ -133,7 +144,12 @@ export function PresentationChrome({ children }: Props) {
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
                     <Logo className="project-logo" />
-                    <span className="project-title-text">{projectName}</span>
+                    <div className="min-w-0">
+                      <span className="project-title-text block text-slate-100">{projectName}</span>
+                      <span className="mt-0.5 block text-sm leading-tight text-slate-400">
+                        {projectPhase}
+                      </span>
+                    </div>
                   </div>
                 </h1>
               </Link>
