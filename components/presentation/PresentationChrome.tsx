@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { UserMenu } from "@/components/auth/UserMenu";
+import { ConstructionPresentationBreadcrumb } from "@/components/presentation/ConstructionPresentationBreadcrumb";
 import { Logo } from "@/components/presentation/PresentationHeaderLogo";
 import {
   resolvePresentationProjectName,
@@ -24,6 +25,7 @@ type Props = {
 export function PresentationChrome({ children }: Props) {
   const pathname = usePathname() ?? "";
   const isMarketingLight = pathname.startsWith("/presentation/marketing");
+  const isConstructionPres = pathname.startsWith("/presentation/construction");
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -137,48 +139,67 @@ export function PresentationChrome({ children }: Props) {
           </div>
         </header>
       ) : (
-        <header className="sticky top-0 z-40 m-0 mb-0 border-0 border-b-0 bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] shadow-none ring-0 [box-shadow:none]">
-          <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 py-3 pl-5 pr-3 sm:pl-6 sm:pr-6">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-              <Link
-                href="/presentation"
-                className="inline-flex max-w-full shrink-0 items-center text-slate-100 hover:text-white"
-              >
-                <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
-                  <div className="project-title">
-                    <Logo className="project-logo" />
-                    <div className="min-w-0">
-                      <span className="project-title-text block text-slate-100">{projectName}</span>
-                      <span className="mt-0.5 block text-sm leading-tight text-slate-400">
-                        {projectPhase}
-                      </span>
+        <header
+          className={`sticky top-0 z-40 m-0 mb-0 shrink-0 border-0 bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] shadow-none ring-0 [box-shadow:none] ${
+            isConstructionPres ? "border-b border-white/[0.06]" : "border-b-0"
+          }`}
+        >
+          <div className="mx-auto w-full min-w-0 max-w-[1400px] px-4 sm:px-5">
+            <div
+              className={`flex flex-wrap items-center justify-between gap-3 ${
+                isConstructionPres ? "min-h-0 py-2.5" : "min-h-[3.25rem] py-2.5 sm:py-3"
+              }`}
+            >
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-5">
+                <Link
+                  href="/presentation"
+                  className="inline-flex max-w-full shrink-0 items-center text-slate-100 hover:text-white"
+                >
+                  <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
+                    <div className="project-title">
+                      <Logo className="project-logo" />
+                      <div className="min-w-0">
+                        <span className="project-title-text block text-slate-100">{projectName}</span>
+                        <span className="mt-0.5 block text-sm leading-tight text-slate-400">{projectPhase}</span>
+                      </div>
                     </div>
-                  </div>
-                </h1>
-              </Link>
-              <span className="text-slate-500">/</span>
-              <nav className="flex flex-wrap items-center gap-2 text-sm">
-                <Link href="/presentation/construction" className={navDarkIdle}>
-                  Строительство
+                  </h1>
                 </Link>
-                <Link href="/presentation/marketing/sales-plan" className={navDarkIdle}>
-                  Маркетинг
-                </Link>
-                <Link href="/presentation/finance" className={navDarkIdle}>
-                  Финансы
-                </Link>
-              </nav>
-            </div>
+                <nav
+                  className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm sm:gap-2"
+                  aria-label="Разделы презентации"
+                >
+                  <Link href="/presentation/construction" className={navDarkIdle}>
+                    Строительство
+                  </Link>
+                  <Link href="/presentation/marketing/sales-plan" className={navDarkIdle}>
+                    Маркетинг
+                  </Link>
+                  <Link href="/presentation/finance" className={navDarkIdle}>
+                    Финансы
+                  </Link>
+                </nav>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <UserMenu theme="dark" />
-              <Link
-                href="/edit"
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
-              >
-                В рабочий режим
-              </Link>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <UserMenu theme="dark" className="gap-2 sm:gap-3" />
+                <Link
+                  href="/edit"
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm leading-snug text-slate-200 hover:bg-white/10"
+                >
+                  В рабочий режим
+                </Link>
+              </div>
             </div>
+            {isConstructionPres ? (
+              <div className="pb-2.5 pt-0.5">
+                <Suspense
+                  fallback={<div className="h-4 w-full max-w-xl animate-pulse rounded bg-white/[0.04]" aria-hidden />}
+                >
+                  <ConstructionPresentationBreadcrumb project={project} />
+                </Suspense>
+              </div>
+            ) : null}
           </div>
         </header>
       )}

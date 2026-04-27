@@ -3,6 +3,7 @@
 import { useRef } from "react";
 
 import { EditLayout } from "@/components/EditLayout";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { calculateDeviation, getStatusByGprProgressDelta, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
 import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
 import { GPRAnalytics } from "./GPRAnalytics";
@@ -97,6 +98,7 @@ export function GPRSection({
   activePartId,
   onChangePart,
   reportDate,
+  hidePresentationPartStrip,
 }: {
   tasks: GPRTask[] | null | undefined;
   /** Полный список задач всех частей (для выбора родителя при создании). */
@@ -108,6 +110,8 @@ export function GPRSection({
   activePartId: number;
   onChangePart: (partId: number) => void;
   reportDate?: Date | string | null;
+  /** В презентации: переключатель части перенесён в общий фильтр. */
+  hidePresentationPartStrip?: boolean;
 }) {
   const tableRef = useRef<GPRTableHandle>(null);
   const taskList = Array.isArray(tasks) ? tasks : [];
@@ -177,24 +181,27 @@ export function GPRSection({
     );
   }
 
-  return (
-    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip rounded-2xl bg-[#0f172a] p-3 sm:p-4 md:p-6">
-      <div className="flex flex-wrap justify-center gap-2">
-        {PROJECT_PARTS.map((part) => (
-          <button
-            key={part.id}
-            type="button"
-            onClick={() => onChangePart(part.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              activePartId === part.id
-                ? "bg-slate-100 text-slate-900"
-                : "bg-white/10 text-slate-200 hover:bg-white/20"
-            }`}
-          >
-            {part.name}
-          </button>
-        ))}
+  const partStrip =
+    hidePresentationPartStrip ? null : (
+      <div className="flex flex-wrap justify-center sm:justify-start">
+        <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+          {PROJECT_PARTS.map((part) => (
+            <button
+              key={part.id}
+              type="button"
+              onClick={() => onChangePart(part.id)}
+              className={segmentedControlTabClass(activePartId === part.id, "dark")}
+            >
+              {part.name}
+            </button>
+          ))}
+        </div>
       </div>
+    );
+
+  return (
+    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-4 overflow-x-clip rounded-2xl bg-[#0f172a] p-3 sm:p-4 md:p-5">
+      {partStrip}
       {SHOW_SUMMARY_STATS && statusSummary ? (
         <SummaryStats statusSummary={statusSummary} />
       ) : null}

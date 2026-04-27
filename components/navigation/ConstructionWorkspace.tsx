@@ -23,7 +23,14 @@ import {
   type GprTaskApiItem,
   type GPRTask,
 } from "@/lib/gprUtils";
+import {
+  ConstructionPresentationFilters,
+  type ConstructionPeriodFilter,
+  type ConstructionTypeFilter,
+} from "@/components/construction/ConstructionPresentationFilters";
 import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
+import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -132,6 +139,15 @@ function ConstructionWorkspaceInner({
 
   const isPresentation = useMemo(() => pathname.startsWith("/presentation"), [pathname]);
   const mode: "edit" | "presentation" = isPresentation ? "presentation" : "edit";
+
+  const chromeRegistration = useMemo(
+    () => ({ modeLabel, onBackToBlocks }),
+    [modeLabel, onBackToBlocks],
+  );
+  useRegisterConstructionLayoutChrome(chromeRegistration);
+
+  const [presPeriod, setPresPeriod] = useState<ConstructionPeriodFilter>("month");
+  const [presTypeFilter, setPresTypeFilter] = useState<ConstructionTypeFilter>("all");
 
   const [tasks, setTasks] = useState<GPRTask[]>(() => {
     try {
@@ -320,35 +336,83 @@ function ConstructionWorkspaceInner({
   );
 
   if (isPresentation) {
+    const presFilterWell = "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5";
     return (
-      <section className="w-full min-w-0 overflow-x-clip">
-        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 px-3 sm:px-4 md:px-6">
-          <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm text-slate-300">
-                <span className="font-semibold text-slate-50">Строительство</span>
-              </div>
-              {tabBar}
+      <section className="w-full min-w-0 text-[13px] leading-normal">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-4">
+          <div>
+            <h2 className="m-0 text-base font-semibold leading-snug tracking-tight text-slate-100">Строительство</h2>
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">Презентация показателей по выбранным фильтрам</p>
+            <div className="mt-3 inline-flex max-w-full flex-wrap gap-0.5 rounded-lg border border-slate-600/70 bg-slate-900/40 p-0.5">
+              {showSection("gpr") && (
+                <button
+                  type="button"
+                  onClick={() => goSection("gpr")}
+                  className={segmentedControlTabClass(activeTab === "gpr", "dark")}
+                >
+                  ГПР
+                </button>
+              )}
+              {showSection("tenders") && (
+                <button
+                  type="button"
+                  onClick={() => goSection("tenders")}
+                  className={segmentedControlTabClass(activeTab === "tenders", "dark")}
+                >
+                  Тендеры
+                </button>
+              )}
+              {showSection("tmc") && (
+                <button
+                  type="button"
+                  onClick={() => goSection("tmc")}
+                  className={segmentedControlTabClass(activeTab === "tmc", "dark")}
+                >
+                  ТМЦ
+                </button>
+              )}
             </div>
           </div>
 
-          {activeTab === "gpr" && (
-            <GPRSection
-              mode={mode}
-              tasks={gprTasksForActivePart}
-              allGprTasks={Array.isArray(tasks) ? tasks : []}
-              onSaveTasks={saveGprTasksForActivePart}
-              onReloadGprTasks={reloadGprTasksFromApi}
+          <div className={presFilterWell}>
+            <ConstructionPresentationFilters
+              period={presPeriod}
+              onPeriodChange={setPresPeriod}
               activePartId={activeGprPartId}
-              onChangePart={commitPartId}
+              onPartIdChange={commitPartId}
+              typeFilter={presTypeFilter}
+              onTypeFilterChange={setPresTypeFilter}
             />
-          )}
-          {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
-          )}
-          {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
-          )}
+          </div>
+
+          <div className="min-w-0 space-y-4">
+            {activeTab === "gpr" && (
+              <GPRSection
+                mode={mode}
+                tasks={gprTasksForActivePart}
+                allGprTasks={Array.isArray(tasks) ? tasks : []}
+                onSaveTasks={saveGprTasksForActivePart}
+                onReloadGprTasks={reloadGprTasksFromApi}
+                activePartId={activeGprPartId}
+                onChangePart={commitPartId}
+                hidePresentationPartStrip
+              />
+            )}
+            {activeTab === "tenders" && (
+              <TendersSection
+                activePartId={activeGprPartId}
+                onChangePart={commitPartId}
+                hidePresentationPartStrip
+              />
+            )}
+            {activeTab === "tmc" && (
+              <TMCSection
+                activePartId={activeGprPartId}
+                onChangePart={commitPartId}
+                hidePresentationPartStrip
+              />
+            )}
+          </div>
         </div>
       </section>
     );

@@ -10,15 +10,23 @@ import { PROJECT_PARTS } from "@/lib/gprUtils";
 export function TendersSection({
   activePartId,
   onChangePart,
+  hidePresentationPartStrip,
 }: {
   activePartId: number;
   onChangePart: (partId: number) => void;
+  hidePresentationPartStrip?: boolean;
 }) {
   const { mode } = useAppMode();
   const tableRef = useRef<TendersTableHandle>(null);
 
   if (mode === "presentation") {
-    return <TendersPresentation activePartId={activePartId} onChangePart={onChangePart} />;
+    return (
+      <TendersPresentation
+        activePartId={activePartId}
+        onChangePart={onChangePart}
+        hidePartTabs={hidePresentationPartStrip}
+      />
+    );
   }
 
   const partTabs = (

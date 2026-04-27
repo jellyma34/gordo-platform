@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { PROJECT_PARTS, partIdToProjectPartKey } from "@/lib/gprUtils";
 import { gprMockData } from "@/lib/gprMockData";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
@@ -87,9 +88,11 @@ function loadTendersForPart(partId: number): Tender[] {
 export function TendersPresentation({
   activePartId,
   onChangePart,
+  hidePartTabs,
 }: {
   activePartId: number;
   onChangePart: (partId: number) => void;
+  hidePartTabs?: boolean;
 }) {
   const [tick, setTick] = useState(0);
 
@@ -261,28 +264,28 @@ export function TendersPresentation({
     };
   }, [tenders, contractPlanDates, contractFactDates, today]);
 
-  const partTabs = (
-    <div className="mb-4 flex flex-wrap gap-2">
-      {PROJECT_PARTS.map((part) => {
-        const active = activePartId === part.id;
-        return (
-          <button
-            key={part.id}
-            type="button"
-            onClick={() => onChangePart(part.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              active ? "bg-slate-100 text-slate-900" : "bg-white/10 text-slate-200 hover:bg-white/20"
-            }`}
-          >
-            {part.name}
-          </button>
-        );
-      })}
+  const partTabs = hidePartTabs ? null : (
+    <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
+      <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+        {PROJECT_PARTS.map((part) => {
+          const active = activePartId === part.id;
+          return (
+            <button
+              key={part.id}
+              type="button"
+              onClick={() => onChangePart(part.id)}
+              className={segmentedControlTabClass(active, "dark")}
+            >
+              {part.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       {partTabs}
 
       <div className="flex flex-wrap items-start justify-between gap-3">

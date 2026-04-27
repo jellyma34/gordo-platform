@@ -1908,28 +1908,28 @@ export function GPRAnalytics({
 
   const aggregateProgressCardMain = (
     <div>
-      <div className="text-base font-semibold text-[#E6EDF3]">
+      <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">
         {PART_SHORT_TITLE[activeProjectPart]}
       </div>
-      <div className="mt-3 flex items-end justify-between gap-4">
+      <div className="mt-2 flex items-end justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-sm text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
+          <div className="text-xs leading-snug text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
             Общий прогресс
           </div>
-          <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+          <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
             {aggregateTotalProgressUi.display}
           </div>
         </div>
         <div className="max-w-[min(100%,11rem)] shrink-0 text-right text-sm text-[#E6EDF3]/85 sm:max-w-none">
-          <div className="text-xs text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
+          <div className="text-[11px] leading-snug text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
             Вклад этапов
           </div>
-          <div className="mt-1 text-lg font-semibold tabular-nums leading-none text-[#E6EDF3]">
+          <div className="mt-1 text-base font-semibold tabular-nums leading-none text-[#E6EDF3]">
             {aggregateStagesKpiLine}
           </div>
         </div>
       </div>
-      <div className="mt-4">
+      <div className="mt-3">
         <div className="h-1.5 w-full rounded-full bg-white/10">
           <div
             className="h-1.5 rounded-full"
@@ -1975,7 +1975,7 @@ export function GPRAnalytics({
   }
 
   return (
-    <section className="min-w-0 space-y-6 overflow-x-clip">
+    <section className="min-w-0 space-y-4 overflow-x-clip">
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
           const deviation = calculateDeviation(task, gprReportAsOf);
@@ -2005,14 +2005,14 @@ export function GPRAnalytics({
             <div
               key={task.id}
               data-traffic-card={status}
-              className="top-card card relative w-full overflow-hidden p-6"
+              className="top-card card relative w-full overflow-hidden p-4"
             >
               <div>
-                <div className="text-base font-semibold text-[#E6EDF3]">{task.name}</div>
-                <div className="mt-3 flex items-end justify-between gap-4">
+                <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{task.name}</div>
+                <div className="mt-2 flex items-end justify-between gap-4">
                   <div>
-                    <div className="text-sm text-[#E6EDF3]/85">% выполнения</div>
-                    <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+                    <div className="text-xs leading-snug text-[#E6EDF3]/85">% выполнения</div>
+                    <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
                       {progressClamped}%
                     </div>
                   </div>
@@ -2036,7 +2036,7 @@ export function GPRAnalytics({
                   </div>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-3">
                   <div className="h-1.5 w-full rounded-full bg-white/10">
                     <div
                       className="h-1.5 rounded-full"
@@ -2056,7 +2056,7 @@ export function GPRAnalytics({
           <div
             key="part-aggregate"
             data-traffic-card={statusAgg}
-            className="top-card card relative w-full overflow-hidden p-6 text-left"
+            className="top-card card relative w-full overflow-hidden p-4 text-left"
           >
             {aggregateProgressCardMain}
           </div>
@@ -2071,7 +2071,7 @@ export function GPRAnalytics({
               aria-haspopup="dialog"
               title="Нажмите для пояснения расчёта"
               data-traffic-card={statusAgg}
-              className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="top-card card relative w-full cursor-pointer overflow-hidden p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               {aggregateProgressCardMain}
             </button>

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { getStatusByDeviation, partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
 import {
   getTmcData,
@@ -72,9 +73,11 @@ function statusOf(item: TMCItem): Traffic {
 export function TMCSection({
   activePartId,
   onChangePart,
+  hidePresentationPartStrip,
 }: {
   activePartId: number;
   onChangePart: (partId: number) => void;
+  hidePresentationPartStrip?: boolean;
 }) {
   const { mode } = useAppMode();
   const isPresentationSkin = mode === "presentation";
@@ -82,39 +85,46 @@ export function TMCSection({
   const tmcRef = useRef<TmcTableHandle>(null);
   const activeProjectPart = partIdToProjectPartKey(activePartId);
 
-  const partTabs = (
-    <div className="mb-4 flex flex-wrap gap-2">
-      {PROJECT_PARTS.map((part) => {
-        const active = activePartId === part.id;
-        if (isPresentationSkin) {
-          return (
-            <button
-              key={part.id}
-              type="button"
-              onClick={() => onChangePart(part.id)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                active ? "bg-slate-100 text-slate-900" : "bg-white/10 text-slate-200 hover:bg-white/20"
-              }`}
-            >
-              {part.name}
-            </button>
-          );
-        }
-        return (
-          <button
-            key={part.id}
-            type="button"
-            onClick={() => onChangePart(part.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            {part.name}
-          </button>
-        );
-      })}
-    </div>
-  );
+  const partTabs =
+    isPresentationSkin && hidePresentationPartStrip ? null : (
+      <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
+        {isPresentationSkin ? (
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {PROJECT_PARTS.map((part) => {
+              const active = activePartId === part.id;
+              return (
+                <button
+                  key={part.id}
+                  type="button"
+                  onClick={() => onChangePart(part.id)}
+                  className={segmentedControlTabClass(active, "dark")}
+                >
+                  {part.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {PROJECT_PARTS.map((part) => {
+              const active = activePartId === part.id;
+              return (
+                <button
+                  key={part.id}
+                  type="button"
+                  onClick={() => onChangePart(part.id)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {part.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
 
   if (mode !== "presentation") {
     return (
@@ -173,7 +183,7 @@ export function TMCSection({
   }, [activeDrill, enriched]);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       {partTabs}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
