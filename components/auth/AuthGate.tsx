@@ -10,12 +10,24 @@ import { useAuth } from "./AuthProvider";
 const HYDRATION_WARN_MS = 12_000;
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const pathname = usePathname() ?? "";
+  const pathRaw = usePathname();
+  const pathname = pathRaw ?? "";
   const router = useRouter();
   const { hydrated, token, role, allowedSections } = useAuth();
   const [hydrationTimedOut, setHydrationTimedOut] = useState(false);
 
+  const sections = Array.isArray(allowedSections) ? allowedSections : [];
+
   const isLogin = pathname === "/login";
+
+  /** Маршрут ещё не готов (редко) — тот же каркас, что при ожидании гидрации. */
+  if (pathRaw === null) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+        Загрузка…
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (hydrated) return;
@@ -35,7 +47,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (isLogin) {
       if (token && role) {
         if (role === "admin" || role === "manager") router.replace("/");
-        else router.replace(firstConstructionPath(role, allowedSections, "presentation"));
+        else router.replace(firstConstructionPath(role, sections, "presentation"));
       }
       return;
     }

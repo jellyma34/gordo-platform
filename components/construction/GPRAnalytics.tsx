@@ -75,12 +75,11 @@ import {
   projectOverviewEndDelayDays,
 } from "@/lib/gprProjectOverview";
 import {
-  factColorForPlanFactEnd,
-  ganttFactColorForScheduleToday,
-  statusLabelForPlanFactEnd,
-  trafficLightPlanVsFactEnd,
-  type FactEndVsTodayTraffic,
-} from "@/lib/gprScheduleDelayToday";
+  buildPlanFactWorkTypeChartModel,
+  formatPlanEndMonthYearOnly,
+  formatPlanFactGridMonthLabel,
+} from "@/lib/planFactWorkTypeTimeline";
+import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
@@ -102,16 +101,6 @@ function shortGprCodeForAxis(code: string): string {
   if (parts.length <= 3) return code.trim();
   return parts.slice(0, 3).join(".");
 }
-
-type PlanFactDurationRow = {
-  task: GPRTask;
-  plan: number;
-  fact: number;
-  /** Факт − план по длительности (дни). */
-  durationDev: number;
-  /** Короткая подпись по оси X (шифр этапа). */
-  xLabel: string;
-};
 
 /** Локальная календарная дата для шкалы Ганта (как у origin окна). */
 function localTodayIso(): string {
@@ -187,6 +176,47 @@ const ganttTodayLinePlugin: Plugin<"bar"> = {
   },
 };
 
+type PlanFactMonthTodayLineOpts = { x: number | null };
+
+/** Вертикаль «Сегодня» на шкале в месяцах (плавающие bar по видам работ). */
+const planFactMonthTodayLinePlugin: Plugin<"bar"> = {
+  id: "planFactMonthToday",
+  beforeDatasetsDraw(chart) {
+    const opts = (chart.options.plugins as { planFactMonthToday?: PlanFactMonthTodayLineOpts } | undefined)
+      ?.planFactMonthToday;
+    if (!opts || opts.x == null || !Number.isFinite(opts.x) || !chart.scales.x) return;
+
+    const xScale = chart.scales.x;
+    const x = xScale.getPixelForValue(opts.x);
+    const { ctx, chartArea } = chart;
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
+
+    const label = "Сегодня";
+    const xi = Math.round(x) + 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(163, 179, 199, 0.52)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 5]);
+    ctx.moveTo(xi, chartArea.top);
+    ctx.lineTo(xi, chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const textY = chartArea.top - 3;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(label, x, textY);
+    ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
+    ctx.fillText(label, x, textY);
+    ctx.restore();
+  },
+};
+
 ChartJS.register(
   BarController,
   CategoryScale,
@@ -197,6 +227,7 @@ ChartJS.register(
   ChartTooltip,
   ChartLegend,
   ganttTodayLinePlugin,
+  planFactMonthTodayLinePlugin,
 );
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
@@ -319,43 +350,6 @@ const COLORS = {
   card: "#1e293b",
 } as const;
 
-function PlanFactProjectStatusLabel({ status }: { status: FactEndVsTodayTraffic }) {
-  return (
-    <div className="flex shrink-0 flex-col items-end gap-1 text-right text-xs text-slate-300">
-      <span className="font-medium leading-snug text-slate-100">Статус на сегодня</span>
-      <span
-        className="inline-flex w-fit items-center rounded-full px-2 py-0.5 font-semibold"
-        style={{
-          backgroundColor:
-            status === "green"
-              ? "rgba(34,197,94,0.15)"
-              : status === "yellow"
-                ? "rgba(245,158,11,0.15)"
-                : status === "gray"
-                  ? "rgba(148,163,184,0.12)"
-                  : "rgba(239,68,68,0.15)",
-          color:
-            status === "green"
-              ? COLORS.green
-              : status === "yellow"
-                ? COLORS.yellow
-                : status === "gray"
-                  ? "#94a3b8"
-                  : COLORS.red,
-        }}
-      >
-        {status === "green"
-          ? "В срок"
-          : status === "yellow"
-            ? "Риск"
-            : status === "gray"
-              ? "Нет данных"
-              : "Отставание"}
-      </span>
-    </div>
-  );
-}
-
 /** Пояснение к «Риск проекта (%)» в donut «Распределение статусов». */
 const STATUS_DISTRIBUTION_RISK_EXPLANATION =
   "Процент риска рассчитывается на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический.";
@@ -407,6 +401,8 @@ const AGGREGATE_WEIGHT_BASIS_RU: Record<AggregateWeightBasis, string> = {
 
 const AGGREGATE_PROGRESS_TOOLTIP =
   "Взвешенный прогресс по объёму/стоимости (если в данных нет объёма и стоимости — по длительности плана, явная догрузка веса см. в пояснении).";
+
+const AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP = "Прогресс рассчитан с учётом веса этапов";
 
 function shortWeightLabelForPart(name: string, index: number): string {
   const n = name.trim();
@@ -1409,10 +1405,6 @@ export function GPRAnalytics({
     () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
     [kvartalyAllFlat],
   );
-  const planFactProjectScheduleTraffic = useMemo((): FactEndVsTodayTraffic => {
-    const b = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-    return trafficLightPlanVsFactEnd(b?.planEnd, b?.factEnd);
-  }, [tasksForActivePart]);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
@@ -1511,56 +1503,20 @@ export function GPRAnalytics({
     [quarterlyBucketsAll],
   );
 
-  /** Задачи с полными интервалами план/факт — режим `tasks` (ось X — работы). */
-  const planFactChartRows = useMemo((): PlanFactDurationRow[] => {
-    if (planFactDataSource === "kvartaly") return [];
-    const codeUses = new Map<string, number>();
-    for (const task of planFactFilteredTasks) {
-      const c = task.code.trim();
-      codeUses.set(c, (codeUses.get(c) ?? 0) + 1);
-    }
-    const rows = planFactFilteredTasks
-      .map((task) => {
-        const plan = daysInclusive(task.planStart, task.planEnd);
-        const fact =
-          task.factStart && task.factEnd ? daysInclusive(task.factStart, task.factEnd) : null;
-        if (plan === null || fact === null) return null;
-        if (!Number.isFinite(plan) || !Number.isFinite(fact)) return null;
-        if (plan <= 0 || fact <= 0) return null;
-        const durationDev = fact - plan;
-        const short = shortGprCodeForAxis(task.code);
-        const dupCode = (codeUses.get(task.code.trim()) ?? 0) > 1;
-        const xLabel =
-          dupCode && task.kvartalyQuarter ? `${short} (${task.kvartalyQuarter})` : short;
-        return {
-          task,
-          plan,
-          fact,
-          durationDev,
-          xLabel,
-        };
-      })
-      .filter((r): r is PlanFactDurationRow => r != null);
-    rows.sort((a, b) => {
-      const byStage = planRootStageCode(a.task.code).localeCompare(planRootStageCode(b.task.code), undefined, {
-        numeric: true,
-      });
-      if (byStage !== 0) return byStage;
-      return a.task.code.localeCompare(b.task.code, undefined, { numeric: true });
-    });
-    return rows;
-  }, [planFactDataSource, planFactFilteredTasks]);
+  /** Плановая дата окончания (часть проекта) — одна строка, без сравнений. */
+  const planFactPlannedEndLine = useMemo(() => {
+    const b =
+      planFactDataSource === "kvartaly"
+        ? aggregateWorksToProjectPlanFactBounds(planFactFlatTasks)
+        : aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
+    if (!b?.planEnd) return null;
+    return formatPlanEndMonthYearOnly(b.planEnd);
+  }, [planFactDataSource, planFactFlatTasks, tasksForActivePart]);
 
-  const planFactSummary = useMemo(() => {
-    if (planFactDataSource === "kvartaly") {
-      return kvartalyActiveModel.planFactSummary;
-    }
-    if (planFactChartRows.length === 0) return null;
-    const avg =
-      planFactChartRows.reduce((s, r) => s + r.durationDev, 0) / planFactChartRows.length;
-    const severeLate = planFactChartRows.filter((r) => r.durationDev > 14).length;
-    return { avg, severeLate };
-  }, [planFactDataSource, kvartalyActiveModel.planFactSummary, planFactChartRows]);
+  const planFactWorkTypeChartModel = useMemo(() => {
+    if (planFactDataSource !== "tasks") return null;
+    return buildPlanFactWorkTypeChartModel(planFactFilteredTasks, activeProjectPart, gprReportYmd);
+  }, [planFactDataSource, planFactFilteredTasks, activeProjectPart, gprReportYmd]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
@@ -1879,12 +1835,23 @@ export function GPRAnalytics({
         : statusAgg === "red"
           ? COLORS.red
           : COLORS.gray;
-  const aggPctDisplay =
-    aggTotalPercent === null
-      ? "—"
-      : `${aggTotalPercent % 1 === 0 ? String(Math.round(aggTotalPercent)) : aggTotalPercent.toFixed(1)}%`;
-  const aggBarPct =
-    aggTotalPercent === null ? 0 : Math.max(0, Math.min(100, aggTotalPercent));
+  /** Одно число для подписи и ширины полосы (без двойного округления). */
+  const aggregateTotalProgressUi = useMemo(() => {
+    if (aggTotalPercent === null || !Number.isFinite(Number(aggTotalPercent))) {
+      return { display: "—" as const, widthPct: 0 };
+    }
+    const clamped = Math.max(0, Math.min(100, Number(aggTotalPercent)));
+    const progress = Math.round(clamped * 10) / 10;
+    const isInt = Math.abs(progress - Math.round(progress)) < 1e-6;
+    const display = isInt ? `${Math.round(progress)}%` : `${progress.toFixed(1)}%`;
+    return { display, widthPct: progress };
+  }, [aggTotalPercent]);
+
+  /** «64% / 28%» — округлённые % выполнения по корневым этапам (как в карточках слева). */
+  const aggregateStagesKpiLine = useMemo(() => {
+    if (!aggregateStages.length) return "—";
+    return aggregateStages.map((s) => `${Math.round(s.completion)}%`).join(" / ");
+  }, [aggregateStages]);
 
   const handleAggregateCardClick = () => {
     if (aggregatePopoverOpen) {
@@ -1939,6 +1906,44 @@ export function GPRAnalytics({
       : null,
   ].filter((x): x is string => x != null);
 
+  const aggregateProgressCardMain = (
+    <div>
+      <div className="text-base font-semibold text-[#E6EDF3]">
+        {PART_SHORT_TITLE[activeProjectPart]}
+      </div>
+      <div className="mt-3 flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
+            Общий прогресс
+          </div>
+          <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+            {aggregateTotalProgressUi.display}
+          </div>
+        </div>
+        <div className="max-w-[min(100%,11rem)] shrink-0 text-right text-sm text-[#E6EDF3]/85 sm:max-w-none">
+          <div className="text-xs text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
+            Вклад этапов
+          </div>
+          <div className="mt-1 text-lg font-semibold tabular-nums leading-none text-[#E6EDF3]">
+            {aggregateStagesKpiLine}
+          </div>
+        </div>
+      </div>
+      <div className="mt-4">
+        <div className="h-1.5 w-full rounded-full bg-white/10">
+          <div
+            className="h-1.5 rounded-full"
+            style={{
+              width: `${aggregateTotalProgressUi.widthPct}%`,
+              backgroundColor: accentAgg,
+            }}
+            aria-hidden
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   if (mode === "edit") {
     return (
       <section className="min-w-0 space-y-4 overflow-x-clip">
@@ -1982,8 +1987,9 @@ export function GPRAnalytics({
                 : deviation > 0
                   ? `+${deviation}`
                   : "0";
-          const progress = task.completion || 0;
-          const isNoData = progress === 0;
+          const cNum = Number(task.completion);
+          const progressClamped = Math.max(0, Math.min(100, Number.isFinite(cNum) ? cNum : 0));
+          const isNoData = progressClamped === 0;
           const deviationUi = deviation === null ? null : getStatusByGprProgressDelta(deviation);
           const status: Traffic =
             isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
@@ -2007,7 +2013,7 @@ export function GPRAnalytics({
                   <div>
                     <div className="text-sm text-[#E6EDF3]/85">% выполнения</div>
                     <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                      {task.completion}%
+                      {progressClamped}%
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
@@ -2035,7 +2041,7 @@ export function GPRAnalytics({
                     <div
                       className="h-1.5 rounded-full"
                       style={{
-                        width: `${Math.max(0, Math.min(100, task.completion))}%`,
+                        width: `${progressClamped}%`,
                         backgroundColor: accent,
                       }}
                       aria-hidden
@@ -2052,32 +2058,7 @@ export function GPRAnalytics({
             data-traffic-card={statusAgg}
             className="top-card card relative w-full overflow-hidden p-6 text-left"
           >
-            <div>
-              <div className="text-base font-semibold text-[#E6EDF3]">
-                {PART_SHORT_TITLE[activeProjectPart]}
-              </div>
-              <div
-                className="mt-1 text-xs font-medium text-[#E6EDF3]/75"
-                title={AGGREGATE_PROGRESS_TOOLTIP}
-              >
-                Общий прогресс
-              </div>
-              <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                {aggPctDisplay}
-              </div>
-              <div className="mt-4">
-                <div className="h-1.5 w-full rounded-full bg-white/10">
-                  <div
-                    className="h-1.5 rounded-full"
-                    style={{
-                      width: `${aggBarPct}%`,
-                      backgroundColor: accentAgg,
-                    }}
-                    aria-hidden
-                  />
-                </div>
-              </div>
-            </div>
+            {aggregateProgressCardMain}
           </div>
         ) : (
           <>
@@ -2092,32 +2073,7 @@ export function GPRAnalytics({
               data-traffic-card={statusAgg}
               className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
-              <div>
-                <div className="text-base font-semibold text-[#E6EDF3]">
-                  {PART_SHORT_TITLE[activeProjectPart]}
-                </div>
-                <div
-                  className="mt-1 text-xs font-medium text-[#E6EDF3]/75"
-                  title={AGGREGATE_PROGRESS_TOOLTIP}
-                >
-                  Общий прогресс
-                </div>
-                <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                  {aggPctDisplay}
-                </div>
-                <div className="mt-4">
-                  <div className="h-1.5 w-full rounded-full bg-white/10">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{
-                        width: `${aggBarPct}%`,
-                        backgroundColor: accentAgg,
-                      }}
-                      aria-hidden
-                    />
-                  </div>
-                </div>
-              </div>
+              {aggregateProgressCardMain}
             </button>
             {aggregatePortalMounted &&
               aggregatePopoverOpen &&
@@ -2138,7 +2094,7 @@ export function GPRAnalytics({
             >
               <div className="border-b border-white/10 pb-3">
                 <div className="text-sm font-semibold text-slate-100">
-                  Общий прогресс: {aggPctDisplay}
+                  Общий прогресс: {aggregateTotalProgressUi.display}
                 </div>
                 <p className="mt-2 text-[11px] leading-snug text-slate-400">
                   Формула: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × % выполнения<sub className="align-baseline text-[9px]">i</sub>
@@ -2211,110 +2167,12 @@ export function GPRAnalytics({
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6 lg:col-span-2">
           <div>
             <div className="flex flex-col gap-2">
-              <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-                <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
-                <PlanFactProjectStatusLabel status={planFactProjectScheduleTraffic} />
-              </div>
+              <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
             </div>
-            {planFactSummary ? (
-              <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
-                {(() => {
-                  const avg = planFactSummary.avg;
-                  const calBounds = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-                  const calStatus = statusLabelForPlanFactEnd(calBounds?.planEnd, calBounds?.factEnd);
-                  const calColor =
-                    calStatus === "нет данных"
-                      ? "#94a3b8"
-                      : calStatus === "отставание"
-                        ? COLORS.red
-                        : calStatus === "риск"
-                          ? COLORS.yellow
-                          : COLORS.green;
-                  const endDel =
-                    calBounds?.planEnd && calBounds?.factEnd
-                      ? projectOverviewEndDelayDays(calBounds.planEnd, calBounds.factEnd)
-                      : null;
-                  const calLine =
-                    calStatus === "нет данных"
-                      ? "Нет данных по окончанию факта относительно плана"
-                      : `${calStatus.charAt(0).toUpperCase()}${calStatus.slice(1)} — факт ${calBounds?.factEnd ? fmt(calBounds.factEnd) : "—"} vs план ${calBounds?.planEnd ? fmt(calBounds.planEnd) : "—"}${
-                          endDel !== null ? ` (${endDel > 0 ? "+" : ""}${endDel} дн.)` : ""
-                        }`;
-
-                  const durationLabel =
-                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview"
-                      ? "Отклонение окончания проекта (факт − план)"
-                      : planFactDataSource === "kvartaly"
-                        ? planFactKvartalyGranularity === "aggregated"
-                          ? "Среднее отклонение длительности по видимым процессам (факт − план)"
-                          : "Среднее отклонение длительности по видимым работам (факт − план)"
-                        : "Среднее отклонение длительности (факт − план)";
-                  const isKvOverviewEndSlip =
-                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview";
-                  let durationValueLine: string;
-                  if (isKvOverviewEndSlip) {
-                    if (avg < 0) {
-                      durationValueLine = `Окончание факта раньше плана на ${Math.abs(avg).toFixed(1)} дн.`;
-                    } else if (avg > 0) {
-                      durationValueLine = `Окончание факта позже плана на ${avg.toFixed(1)} дн.`;
-                    } else {
-                      durationValueLine = "Окончание по плану";
-                    }
-                  } else if (avg < 0) {
-                    durationValueLine = `Факт короче плана на ${Math.abs(avg).toFixed(1)} дн.`;
-                  } else if (avg > 0) {
-                    durationValueLine = `Факт дольше плана на ${avg.toFixed(1)} дн.`;
-                  } else {
-                    durationValueLine = "Длительности совпадают";
-                  }
-                  const durationTone = getStatusByDeviation(Math.round(avg));
-                  const durationColor =
-                    durationTone === "green"
-                      ? COLORS.green
-                      : durationTone === "yellow"
-                        ? COLORS.yellow
-                        : COLORS.red;
-                  return (
-                    <>
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">
-                          Статус по сроку окончания (факт − план)
-                        </span>
-                        <span
-                          className="value text-sm font-semibold leading-snug tabular-nums"
-                          style={{ color: calColor }}
-                        >
-                          {calLine}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">{durationLabel}</span>
-                        <span className="text-[11px] leading-snug text-slate-500">
-                          {isKvOverviewEndSlip
-                            ? "Сводка по проекту: отклонение даты окончания; цвет по порогам ≤0 / 1–14 / >14 дн."
-                            : "Отклонение длительностей работ (факт − план); цвет по тем же порогам ≤0 / 1–14 / >14 дн."}
-                        </span>
-                        <span
-                          className="value text-sm font-semibold leading-snug tabular-nums"
-                          style={{ color: durationColor }}
-                        >
-                          {durationValueLine}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">
-                          {`Критические отклонения (>14 дн.)`}
-                        </span>
-                        <span
-                          className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
-                        >
-                          {planFactSummary.severeLate}
-                        </span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
+            {planFactPlannedEndLine ? (
+              <p className="mt-3 border-t border-slate-600/40 pt-3 text-sm leading-snug text-slate-200">
+                Плановая дата окончания: {planFactPlannedEndLine}
+              </p>
             ) : null}
           </div>
 
@@ -2453,164 +2311,134 @@ export function GPRAnalytics({
                   <KvartalyGanttChartPanel model={kvartalyActiveModel} gprAsOf={gprReportAsOf} />
                 </div>
               )
-            ) : planFactChartRows.length === 0 ? (
+            ) : planFactWorkTypeChartModel == null || planFactWorkTypeChartModel.labels.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
                 {planFactFilter.filterType === "all"
-                  ? "Нет задач с парами дат план/факт для расчёта длительности (дни)."
-                  : "Нет работ с план/факт, у которых плановый интервал пересекается с выбранным периодом."}
+                  ? "Нет плановых границ по этапам 2.04 / 2.05 (жилой дом) или 2.06 / 2.07 (стоянка) в загруженных работах."
+                  : "В выбранном периоде нет работ с плановыми датами, по которым строятся границы по видам."}
               </div>
             ) : (
               (() => {
-                const labels = planFactChartRows.map((r) => r.xLabel);
-                const planArr = planFactChartRows.map((r) => r.plan);
-                const factArr = planFactChartRows.map((r) => r.fact);
-                const maxVal = Math.max(...planFactChartRows.flatMap((r) => [r.plan, r.fact]), 1);
-                const yMax = Math.max(60, Math.ceil(maxVal / 20) * 20);
-
-                const factPointColor = (i: number) => {
-                  const row = planFactChartRows[i];
-                  if (!row) return "#94a3b8";
-                  return factColorForPlanFactEnd(row.task.planEnd, row.task.factEnd);
+                const m = planFactWorkTypeChartModel;
+                const { originMonth } = m;
+                const xTickLabel = (v: string | number) => {
+                  const t = Number(v);
+                  if (!Number.isFinite(t)) return "";
+                  const d = new Date(
+                    originMonth.getFullYear(),
+                    originMonth.getMonth() + Math.floor(t + 0.0001),
+                    1,
+                  );
+                  return formatPlanFactGridMonthLabel(d);
                 };
-
-                const aggLegend = aggregateWorksToProjectPlanFactBounds(planFactChartRows.map((r) => r.task));
-                const factLineLegendMarker = aggLegend
-                  ? factColorForPlanFactEnd(aggLegend.planEnd, aggLegend.factEnd)
-                  : "#94a3b8";
-
-                const PLAN_LINE = "rgba(148, 163, 184, 0.6)";
-                const PLAN_POINT = "rgba(148, 163, 184, 0.45)";
-                const PLAN_POINT_BORDER = "rgba(148, 163, 184, 0.35)";
-
-                const planLineLegendMarker = "#94a3b8";
-
+                const planLegend = m.planColors[0] ?? "#94a3b8";
+                const factLegend = pickGanttFactLegendColor(m.factColors, m.factRanges);
                 return (
                   <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
                     <div className="min-h-0 min-w-0 flex-1">
                       <Chart
-                    type="line"
-                    data={{
-                      labels,
-                      datasets: [
-                        {
-                          label: "План",
-                          data: planArr,
-                          order: 0,
-                          borderColor: PLAN_LINE,
-                          backgroundColor: "transparent",
-                          borderWidth: 2,
-                          tension: 0,
-                          pointRadius: 2,
-                          pointHoverRadius: 4,
-                          pointBackgroundColor: PLAN_POINT,
-                          pointBorderColor: PLAN_POINT_BORDER,
-                          pointBorderWidth: 1,
-                          fill: false,
-                        },
-                        {
-                          label: "Факт",
-                          data: factArr,
-                          order: 1,
-                          borderWidth: 3,
-                          tension: 0,
-                          segment: {
-                            borderColor: (ctx: { p1DataIndex: number }) =>
-                              factPointColor(ctx.p1DataIndex),
-                          },
-                          borderColor: factLineLegendMarker,
-                          backgroundColor: "transparent",
-                          pointRadius: 5,
-                          pointHoverRadius: 7,
-                          pointBackgroundColor: (ctx: { dataIndex?: number }) =>
-                            factPointColor(ctx.dataIndex ?? 0),
-                          pointBorderColor: "rgba(255,255,255,0.5)",
-                          pointBorderWidth: 1,
-                          fill: false,
-                        },
-                      ],
-                    } as any}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      layout: { padding: { top: 10, right: 10, left: 4, bottom: 4 } },
-                      interaction: { mode: "index", intersect: false },
-                      elements: {
-                        line: { borderJoinStyle: "round" as const },
-                        point: { hoverBorderWidth: 2 },
-                      },
-                      plugins: {
-                        legend: {
-                          display: false,
-                        },
-                        tooltip: {
-                          enabled: true,
-                          backgroundColor: "rgba(15,23,42,0.94)",
-                          borderColor: "rgba(148,163,184,0.35)",
-                          borderWidth: 1,
-                          titleColor: "#f8fafc",
-                          bodyColor: "#e2e8f0",
-                          padding: 10,
-                          callbacks: {
-                            title: (tooltipItems: { dataIndex?: number }[]) => {
-                              const idx = tooltipItems[0]?.dataIndex;
-                              if (typeof idx !== "number") return "";
-                              const row = planFactChartRows[idx];
-                              return row ? row.task.name.trim() : "";
+                        type="bar"
+                        data={
+                          {
+                            labels: m.labels,
+                            datasets: [
+                              {
+                                label: "План",
+                                data: m.planRanges,
+                                backgroundColor: m.planColors,
+                                borderColor: m.planColors,
+                                borderWidth: 0,
+                                borderRadius: 4,
+                                maxBarThickness: 18,
+                                order: 1,
+                              },
+                              {
+                                label: "Факт",
+                                data: m.factRanges,
+                                backgroundColor: m.factColors,
+                                borderColor: m.factColors,
+                                borderWidth: 0,
+                                borderRadius: 4,
+                                maxBarThickness: 18,
+                                order: 0,
+                              },
+                            ],
+                          } as any
+                        }
+                        options={
+                          {
+                            indexAxis: "y",
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            layout: { padding: { top: 20, right: 10, left: 4, bottom: 8 } },
+                            interaction: { mode: "nearest", axis: "y", intersect: true },
+                            plugins: {
+                              legend: { display: false },
+                              planFactMonthToday: { x: m.todayX },
+                              tooltip: {
+                                enabled: true,
+                                backgroundColor: "rgba(15,23,42,0.94)",
+                                borderColor: "rgba(148,163,184,0.35)",
+                                borderWidth: 1,
+                                titleColor: "#f8fafc",
+                                bodyColor: "#e2e8f0",
+                                padding: 10,
+                                callbacks: {
+                                  title: (items: { dataIndex?: number }[]) => {
+                                    const i = items[0]?.dataIndex;
+                                    if (typeof i !== "number" || i < 0) return "";
+                                    return m.labels[i] ?? "";
+                                  },
+                                  label: (ctx: { datasetIndex?: number; dataIndex?: number }) => {
+                                    const i = ctx.dataIndex ?? 0;
+                                    const d = m.rowDetails[i];
+                                    if (!d) return "";
+                                    if (ctx.datasetIndex === 0) {
+                                      return `План: ${fmt(d.planStart)} — ${fmt(d.planEnd)}`;
+                                    }
+                                    if (d.factStart && d.factEnd) {
+                                      return `Факт: ${fmt(d.factStart)} — ${fmt(d.factEnd)}`;
+                                    }
+                                    return "Факт: нет данных";
+                                  },
+                                },
+                              },
                             },
-                            label: (ctx: { datasetIndex?: number; parsed: { y?: number | null } }) => {
-                              const y = ctx.parsed.y;
-                              if (y == null || typeof y !== "number") return "";
-                              if (ctx.datasetIndex === 0) return `План: ${y} дн.`;
-                              if (ctx.datasetIndex === 1) return `Факт: ${y} дн.`;
-                              return "";
+                            scales: {
+                              x: {
+                                type: "linear",
+                                min: m.xMin,
+                                max: m.xMax,
+                                grid: { color: "rgba(148,163,184,0.12)" },
+                                border: { display: false },
+                                ticks: {
+                                  color: "#94a3b8",
+                                  stepSize: 1,
+                                  maxRotation: 0,
+                                  font: { size: 10 },
+                                  callback: xTickLabel,
+                                },
+                                title: {
+                                  display: true,
+                                  text: "Сроки (мес.)",
+                                  color: "#94a3b8",
+                                  font: { size: 11 },
+                                },
+                              },
+                              y: {
+                                grid: { display: false },
+                                border: { display: false },
+                                ticks: { color: "#cbd5e1", font: { size: 11 } },
+                              },
                             },
-                            afterBody: (tooltipItems: { dataIndex?: number }[]) => {
-                              const idx = tooltipItems[0]?.dataIndex;
-                              if (typeof idx !== "number") return [];
-                              const row = planFactChartRows[idx];
-                              if (!row) return [];
-                              const dev = row.durationDev;
-                              return [`Отклонение: ${dev > 0 ? "+" : ""}${dev} дн.`];
-                            },
-                          },
-                        },
-                      },
-                      scales: {
-                        x: {
-                          grid: { display: false },
-                          ticks: {
-                            color: "#94a3b8",
-                            maxRotation: 0,
-                            minRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 12,
-                            font: { size: 10 },
-                          },
-                        },
-                        y: {
-                          min: 0,
-                          max: yMax,
-                          grid: { color: "rgba(148,163,184,0.14)" },
-                          border: { display: false },
-                          title: {
-                            display: true,
-                            text: "Длительность, дни",
-                            color: "#cbd5e1",
-                            font: { size: 12, weight: "bold" },
-                          },
-                          ticks: {
-                            color: "#94a3b8",
-                            stepSize: 20,
-                          },
-                        },
-                      },
-                    } as any}
+                          } as any
+                        }
                       />
                     </div>
                     <div className="w-full shrink-0 pt-2">
                       <AnalyticsLegendList>
-                        <AnalyticsLegendItem markerColor={planLineLegendMarker} label="План" />
-                        <AnalyticsLegendItem markerColor={factLineLegendMarker} label="Факт" />
+                        <AnalyticsLegendItem markerColor={planLegend} label="План" />
+                        <AnalyticsLegendItem markerColor={factLegend} label="Факт" />
                       </AnalyticsLegendList>
                     </div>
                   </div>
