@@ -381,7 +381,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   ref,
 ) {
   const { token, isAdmin } = useAuth();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const constructionBasePath = pathname.startsWith("/presentation")
     ? "/presentation/construction"
     : pathname.startsWith("/edit")

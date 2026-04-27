@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -30,6 +29,7 @@ import {
   type GprDepKpiExplainKey,
   buildAvgDeviationExplanation,
 } from "./gprDependencyKpiShared";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -62,8 +62,6 @@ function riskKpiExplanationText(risk: "high" | "medium" | "low", reportDateLabel
   return `Есть умеренное отставание (до 10 п.п.) — контролировать, чтобы не нарастало.`;
 }
 
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
-
 export function GPRTmcDependencyChart({
   tasks,
   tmcItems,
@@ -80,7 +78,7 @@ export function GPRTmcDependencyChart({
   analyticDepth?: "work" | "presentation";
   /** YYYY-MM-DD (локальный календарь дня), единая с датой отчёта на дашборде ГПР. */
   reportAsOfIso?: string;
-  /** Подпись DD.MM у KPI «факт − план». */
+  /** Подпись DD.MM у KPI «отклонение на …». */
   reportDateLabel?: string;
 }) {
   const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
@@ -313,7 +311,7 @@ export function GPRTmcDependencyChart({
               }
               const dd = series[i]?.deviationDays;
               const dlab = reportDateLabel ? ` на ${reportDateLabel}` : "";
-              lines.push(`По прогрессу (факт − план${dlab}): ${formatGprProgressDeltaPp(dd)}`);
+              lines.push(`По прогрессу (отклонение${dlab}): ${formatGprProgressDeltaPp(dd)}`);
               return lines;
             },
           },

@@ -10,7 +10,7 @@ import { useAuth } from "./AuthProvider";
 const HYDRATION_WARN_MS = 12_000;
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const router = useRouter();
   const { hydrated, token, role, allowedSections } = useAuth();
   const [hydrationTimedOut, setHydrationTimedOut] = useState(false);

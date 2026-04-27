@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { firstConstructionPath } from "@/lib/auth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
@@ -10,6 +10,17 @@ export function HomePage() {
   const router = useRouter();
   const { setMode } = useAppMode();
   const { hydrated, role, allowedSections } = useAuth();
+  const didLogDev = useRef(false);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || !hydrated) return;
+    if (didLogDev.current) return;
+    didLogDev.current = true;
+    console.debug("[HomePage] client auth ready", {
+      role: role ?? null,
+      allowedSections: allowedSections?.length ?? 0,
+    });
+  }, [hydrated, role, allowedSections]);
 
   useEffect(() => {
     if (!hydrated || !role) return;

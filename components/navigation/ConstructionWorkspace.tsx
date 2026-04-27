@@ -17,7 +17,13 @@ import {
   updateGprTaskApi,
   type UiConstructionSection,
 } from "@/lib/auth";
-import { gprTaskFromApiItem, gprTaskToApiWritePayload, type GPRTask } from "@/lib/gprUtils";
+import {
+  gprTaskFromApiItem,
+  gprTaskToApiWritePayload,
+  type GprTaskApiItem,
+  type GPRTask,
+} from "@/lib/gprUtils";
+import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -39,11 +45,26 @@ function parseSectionParam(v: string | null): UiConstructionSection | null {
 
 function firstAllowedTab(isAdmin: boolean, allowed: string[]): UiConstructionSection {
   if (isAdmin) return "gpr";
+  const safe = Array.isArray(allowed) ? allowed : [];
   const order: UiConstructionSection[] = ["gpr", "tenders", "tmc"];
   for (const ui of order) {
-    if (allowed.includes(uiToApi(ui))) return ui;
+    if (safe.includes(uiToApi(ui))) return ui;
   }
   return "gpr";
+}
+
+/** Безопасный разбор ответа API: битая строка не валит страницу. */
+function safeMapGprApiRows(rows: unknown): GPRTask[] {
+  if (!Array.isArray(rows)) return [];
+  const out: GPRTask[] = [];
+  for (const row of rows) {
+    try {
+      out.push(gprTaskFromApiItem(row as GprTaskApiItem));
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
+  }
+  return out;
 }
 
 function resolveTab(
@@ -102,7 +123,7 @@ function ConstructionWorkspaceInner({
   onBackToBlocks: () => void;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const { role, hasFullConstructionAccess, allowedSections, token, hydrated } = useAuth();
 
@@ -112,16 +133,27 @@ function ConstructionWorkspaceInner({
   const isPresentation = useMemo(() => pathname.startsWith("/presentation"), [pathname]);
   const mode: "edit" | "presentation" = isPresentation ? "presentation" : "edit";
 
-  const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
+  const [tasks, setTasks] = useState<GPRTask[]>(() => {
+    try {
+      return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+      return [];
+    }
+  });
   const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
-  const gprTasksForActivePart = useMemo(
-    () => tasks.filter((task) => task.partId === activeGprPartId),
-    [tasks, activeGprPartId],
-  );
+  const gprTasksForActivePart = useMemo(() => {
+    const list = Array.isArray(tasks) ? tasks : [];
+    return list.filter((task) => task && task.partId === activeGprPartId);
+  }, [tasks, activeGprPartId]);
 
   const saveGprTasksForActivePart = async (partTasks: GPRTask[]) => {
-    const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
-    setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
+    const list = Array.isArray(partTasks) ? partTasks : [];
+    const normalized = list.map((task) => ({ ...task, partId: activeGprPartId }));
+    setTasks((prev) => [
+      ...Array.isArray(prev) ? prev.filter((task) => task.partId !== activeGprPartId) : [],
+      ...normalized,
+    ]);
 
     if (!token) {
       console.warn("[GPR] Сохранение без токена: запрос к API не отправляется");
@@ -135,13 +167,26 @@ function ConstructionWorkspaceInner({
         const body = gprTaskToApiWritePayload(t);
         if (Number.isFinite(idNum)) {
           const row = await updateGprTaskApi(token, idNum, body);
-          synced.push(gprTaskFromApiItem(row));
+          try {
+            synced.push(gprTaskFromApiItem(row));
+          } catch (e) {
+            console.error("Construction edit error:", e);
+          }
         } else {
           const row = await createGprTaskApi(token, body);
-          synced.push(gprTaskFromApiItem(row));
+          try {
+            synced.push(gprTaskFromApiItem(row));
+          } catch (e) {
+            console.error("Construction edit error:", e);
+          }
         }
       }
-      setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
+      if (synced.length > 0) {
+        setTasks((prev) => [
+          ...(Array.isArray(prev) ? prev.filter((task) => task.partId !== activeGprPartId) : []),
+          ...synced,
+        ]);
+      }
     } catch (e) {
       console.error("[GPR] Сохранение в backend не удалось:", e);
       throw e;
@@ -150,11 +195,19 @@ function ConstructionWorkspaceInner({
 
   const reloadGprTasksFromApi = useCallback(async () => {
     if (!token) return;
-    const rows = await listGprTasksApi(token);
-    setTasks(rows.map(gprTaskFromApiItem));
+    try {
+      const rows = await listGprTasksApi(token);
+      const mapped = safeMapGprApiRows(rows);
+      if (mapped.length > 0) setTasks(mapped);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
   }, [token]);
 
-  const allowedApi = useMemo(() => allowedSections, [allowedSections]);
+  const allowedApi = useMemo(
+    () => (Array.isArray(allowedSections) ? allowedSections : []),
+    [allowedSections],
+  );
 
   const showSection = (ui: UiConstructionSection) =>
     role ? canAccessConstructionSection(role, allowedApi, ui) : false;
@@ -177,8 +230,10 @@ function ConstructionWorkspaceInner({
         const rows = await listGprTasksApi(token);
         if (cancelled) return;
         gprTasksFetchDoneRef.current = true;
-        if (rows.length > 0) setTasks(rows.map(gprTaskFromApiItem));
-      } catch {
+        const mapped = safeMapGprApiRows(rows);
+        if (mapped.length > 0) setTasks(mapped);
+      } catch (e) {
+        console.error("Construction edit error:", e);
         if (!cancelled) gprTasksFetchDoneRef.current = true;
       }
     })();
@@ -281,7 +336,7 @@ function ConstructionWorkspaceInner({
             <GPRSection
               mode={mode}
               tasks={gprTasksForActivePart}
-              allGprTasks={tasks}
+              allGprTasks={Array.isArray(tasks) ? tasks : []}
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
@@ -402,7 +457,7 @@ function ConstructionWorkspaceInner({
             <GPRSection
               mode={mode}
               tasks={gprTasksForActivePart}
-              allGprTasks={tasks}
+              allGprTasks={Array.isArray(tasks) ? tasks : []}
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
               activePartId={activeGprPartId}
@@ -429,13 +484,7 @@ export function ConstructionWorkspace({
   onBackToBlocks: () => void;
 }) {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[30vh] items-center justify-center text-sm text-slate-500">
-          Загрузка раздела…
-        </div>
-      }
-    >
+    <Suspense fallback={<ConstructionRouteSuspenseFallback />}>
       <ConstructionWorkspaceInner modeLabel={modeLabel} onBackToBlocks={onBackToBlocks} />
     </Suspense>
   );

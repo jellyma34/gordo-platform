@@ -4,6 +4,7 @@ import { useRef } from "react";
 
 import { EditLayout } from "@/components/EditLayout";
 import { calculateDeviation, getStatusByGprProgressDelta, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
+import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
 import { GPRAnalytics } from "./GPRAnalytics";
 import { GPRTable, type GPRTableHandle } from "./GPRTable";
 
@@ -97,7 +98,7 @@ export function GPRSection({
   onChangePart,
   reportDate,
 }: {
-  tasks: GPRTask[];
+  tasks: GPRTask[] | null | undefined;
   /** Полный список задач всех частей (для выбора родителя при создании). */
   allGprTasks?: GPRTask[];
   mode: "edit" | "presentation";
@@ -109,30 +110,42 @@ export function GPRSection({
   reportDate?: Date | string | null;
 }) {
   const tableRef = useRef<GPRTableHandle>(null);
+  const taskList = Array.isArray(tasks) ? tasks : [];
 
   const statusSummary: StatusSummary | null = SHOW_SUMMARY_STATS
     ? (() => {
-        const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-        let completionSum = 0;
-        let completionN = 0;
+        try {
+          const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
+          let completionSum = 0;
+          let completionN = 0;
 
-        for (const task of tasks) {
-          completionSum += task.completion;
-          completionN += 1;
+          for (const task of taskList) {
+            if (!task) continue;
+            try {
+              completionSum += Number(task.completion) || 0;
+              completionN += 1;
 
-          const deviation = calculateDeviation(task);
-          if (deviation === null) {
-            counts.gray += 1;
-            continue;
+              const deviation = calculateDeviation(task);
+              if (deviation === null) {
+                counts.gray += 1;
+                continue;
+              }
+              const s = getStatusByGprProgressDelta(deviation);
+              if (s === "green") counts.green += 1;
+              else if (s === "yellow") counts.yellow += 1;
+              else counts.red += 1;
+            } catch (e) {
+              console.error("Construction edit error:", e);
+              counts.gray += 1;
+            }
           }
-          const s = getStatusByGprProgressDelta(deviation);
-          if (s === "green") counts.green += 1;
-          else if (s === "yellow") counts.yellow += 1;
-          else counts.red += 1;
-        }
 
-        const completionPct = completionN > 0 ? Math.round(completionSum / completionN) : 0;
-        return { counts, completionPct };
+          const completionPct = completionN > 0 ? Math.round(completionSum / completionN) : 0;
+          return { counts, completionPct };
+        } catch (e) {
+          console.error("Construction edit error:", e);
+          return { counts: { green: 0, yellow: 0, red: 0, gray: 0 }, completionPct: 0 };
+        }
       })()
     : null;
 
@@ -150,8 +163,8 @@ export function GPRSection({
         >
           <GPRTable
             ref={tableRef}
-            tasks={tasks}
-            allTasks={allGprTasks ?? tasks}
+            tasks={taskList}
+            allTasks={Array.isArray(allGprTasks) ? allGprTasks : taskList}
             onSaveTasks={onSaveTasks}
             onReloadGprTasks={onReloadGprTasks}
             activePartId={activePartId}
@@ -186,13 +199,15 @@ export function GPRSection({
         <SummaryStats statusSummary={statusSummary} />
       ) : null}
 
-      <GPRAnalytics
-        tasks={tasks}
-        mode="view"
-        activePartId={activePartId}
-        planFactDataSource="kvartaly"
-        reportDate={reportDate}
-      />
+      <ConstructionEditErrorBoundary>
+        <GPRAnalytics
+          tasks={taskList}
+          mode="view"
+          activePartId={activePartId}
+          planFactDataSource="kvartaly"
+          reportDate={reportDate}
+        />
+      </ConstructionEditErrorBoundary>
     </section>
   );
 }

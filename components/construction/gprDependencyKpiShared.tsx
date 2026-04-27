@@ -18,7 +18,7 @@ export function formatAvgDeviationDays(avg: number): string {
   return `${sign}${r} дн.`;
 }
 
-/** Отображение отклонения «факт − план на дату» (п.п.) по задачам ГПР. */
+/** Отображение отклонения (п.п. по прогрессу на дату отчёта) по задачам ГПР. */
 export function formatGprProgressDeltaPp(d: number | null): string {
   if (d === null) return "—";
   if (d === 0) return "0 п.п.";
@@ -104,7 +104,7 @@ export function buildAvgDeviationExplanation(
     .filter((d): d is number => d !== null)
     .map((d) => formatGprProgressDeltaPp(d));
   if (parts.length === 0) {
-    return `Рассчитывается как среднее арифметическое (факт − план${datePhrase}) по этапам, когда появятся данные.`;
+    return `Рассчитывается как среднее арифметическое отклонение${datePhrase} по этапам, когда появятся данные.`;
   }
   const joined = parts.join(" и ");
   const itog = avgDev === null ? "—" : formatGprProgressDeltaPp(avgDev);

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,6 +36,7 @@ import {
 } from "./gprDependencyKpiShared";
 import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
 import { toDate } from "@/lib/gprUtils";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -71,8 +71,6 @@ function tenderRiskKpiExplanationText(risk: "high" | "medium" | "low"): string {
   }
   return "Готовность тендеров не отстаёт от факта ГПР по этапам с данными, но нет устойчивого опережения по всем точкам — риск оценивается как средний.";
 }
-
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
 export function GPRTenderDependencyChart({
   tasks,

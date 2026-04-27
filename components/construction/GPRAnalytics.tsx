@@ -2,7 +2,6 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 
 import {
   partIdToProjectPartKey,
@@ -85,21 +84,17 @@ import {
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
-
-const ResponsiveContainer = dynamic(
-  () => import("recharts").then((m) => m.ResponsiveContainer),
-  { ssr: false },
-);
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), {
-  ssr: false,
-});
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
-const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
+import {
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
 /** Короткий шифр для оси X: «2.05.01.2» → «2.05.01». */
 function shortGprCodeForAxis(code: string): string {
@@ -383,14 +378,35 @@ const RESIDENTIAL_AGGREGATE_STAGE_TITLES: readonly [string, string] = [
 ];
 const RESIDENTIAL_WEIGHT_LABELS: readonly [string, string] = ["Подготовка", "Строительство"];
 
+/** Источник веса для взвешенного «Общий прогресс» (сумма нормированных весов = 1). */
+type AggregateWeightBasis = "plannedWorkVolume" | "contractValue" | "planDuration" | "imputedUnit";
+
 type AggregateStageBreakdown = {
+  code: string;
   composeTitle: string;
   weightShortLabel: string;
   completion: number;
   planDays: number | null;
-  /** Доля плановой длительности среди корневых этапов части, % */
+  /** Сырой вес до нормировки (объём / стоимость / дни / 1 при явной догрузке). */
+  rawWeight: number;
+  /** Доля в общем весе, % (сумма по этапам = 100%). */
   weightPercent: number | null;
+  /** Вклад этапа в общий %: вес × выполнение (п.п., для отладки и подсказки). */
+  contributionPercent: number | null;
+  weightBasis: AggregateWeightBasis;
+  /** Явная догрузка веса (не «тихий» пропуск данных). */
+  imputation: "none" | "equalAll" | "unitForMissingSource";
 };
+
+const AGGREGATE_WEIGHT_BASIS_RU: Record<AggregateWeightBasis, string> = {
+  plannedWorkVolume: "объём работ (план)",
+  contractValue: "стоимость по договору",
+  planDuration: "длительность плана (дн.)",
+  imputedUnit: "равный единичный вес (нет объёма/стоимости/плана)",
+};
+
+const AGGREGATE_PROGRESS_TOOLTIP =
+  "Взвешенный прогресс по объёму/стоимости (если в данных нет объёма и стоимости — по длительности плана, явная догрузка веса см. в пояснении).";
 
 function shortWeightLabelForPart(name: string, index: number): string {
   const n = name.trim();
@@ -1078,11 +1094,29 @@ function inferGroup(task: GPRTask): GroupKey {
   return "build";
 }
 
+function resolveAggregateRawWeight(
+  t: GPRTask,
+  planD: number | null,
+): { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] } {
+  const vol = t.plannedWorkVolume;
+  if (typeof vol === "number" && Number.isFinite(vol) && vol > 0) {
+    return { raw: vol, basis: "plannedWorkVolume", imputation: "none" };
+  }
+  const rub = t.contractValue;
+  if (typeof rub === "number" && Number.isFinite(rub) && rub > 0) {
+    return { raw: rub, basis: "contractValue", imputation: "none" };
+  }
+  if (planD !== null && planD > 0) {
+    return { raw: planD, basis: "planDuration", imputation: "none" };
+  }
+  return { raw: 0, basis: "imputedUnit", imputation: "unitForMissingSource" };
+}
+
 /**
- * Общий % по части: взвешенное по длительности плана выполнение корневых этапов
- * (prep*prepDuration + build*buildDuration + …) / sum(planDuration).
- * Не требует полных фактов по срокам — опирается на % выполнения карточек этапов.
- * totalDeviation — взвешенное по плану отклонение по сроку (цвет карточки).
+ * Общий % по части: sum_i(progress_i × w_i), где w_i нормированы к 1.
+ * Вес: plannedWorkVolume → contractValue → длительность плана; при нуле — явная догрузка 1, при полном нуле — 1/n.
+ * totalDeviation: то же w_i, средневзвешенное отклонение (только этапы с ненулевым w и известным d).
+ * Ошибки расчёта не рвут рендер: пустой безопасный результат + лог в development.
  */
 function computePartAggregate(
   tasks: GPRTask[],
@@ -1094,71 +1128,135 @@ function computePartAggregate(
   totalDeviation: number | null;
   stages: AggregateStageBreakdown[];
 } {
-  let weightedCompletionSum = 0;
-  let sumPlanForCompletionWeight = 0;
-  let weightedDevSum = 0;
-  let sumPlanForDeviationWeight = 0;
-  let sumPlanForWeights = 0;
-  const stages: AggregateStageBreakdown[] = [];
+  try {
+    return computePartAggregateCore(tasks, rootCodes, partKey, asOf);
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      const list = Array.isArray(tasks) ? tasks : [];
+      console.error("[GPR] computePartAggregate failed:", err, {
+        tasksLength: list.length,
+        rootCodes: rootCodes?.length ?? 0,
+        partKey,
+      });
+    }
+    return { totalPercent: null, totalDeviation: null, stages: [] };
+  }
+}
 
+function computePartAggregateCore(
+  tasks: GPRTask[],
+  rootCodes: readonly string[],
+  partKey: ProjectPartKey,
+  asOf: Date,
+): {
+  totalPercent: number | null;
+  totalDeviation: number | null;
+  stages: AggregateStageBreakdown[];
+} {
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const codes = Array.isArray(rootCodes) ? rootCodes : [];
+  const asOfSafe = asOf instanceof Date && !Number.isNaN(asOf.getTime()) ? asOf : new Date();
+
+  type Row = {
+    t: GPRTask;
+    code: string;
+    composeTitle: string;
+    weightShortLabel: string;
+    c: number;
+    planD: number | null;
+    rw: { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] };
+  };
+  const rows: Row[] = [];
   let residentialStageIndex = 0;
-  for (const code of rootCodes) {
-    const t = tasks.find(
-      (x) => x.code.trim() === code && (x.level ?? x.code.split(".").length - 1) === 1,
-    );
+  for (const code of codes) {
+    const codeStr = String(code ?? "").trim();
+    if (!codeStr) continue;
+    const t = taskList.find((x) => {
+      const xc = String(x?.code ?? "").trim();
+      const lvl = x?.level ?? xc.split(".").length - 1;
+      return xc === codeStr && lvl === 1;
+    });
     if (!t) continue;
-
     const planD = daysInclusive(t.planStart, t.planEnd);
-    if (planD !== null && planD > 0) sumPlanForWeights += planD;
-
+    const nameSafe = String(t.name ?? t.code ?? "").trim() || codeStr;
     const composeTitle =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_AGGREGATE_STAGE_TITLES.length
         ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
-        : t.name;
+        : nameSafe;
     const weightShortLabel =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_WEIGHT_LABELS.length
         ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
-        : shortWeightLabelForPart(t.name, residentialStageIndex);
+        : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
-
-    const c = Math.max(0, Math.min(100, Number(t.completion) || 0));
-    stages.push({
-      composeTitle,
-      weightShortLabel,
-      completion: c,
-      planDays: planD,
-      weightPercent: null,
-    });
-
-    if (planD !== null && planD > 0) {
-      weightedCompletionSum += c * planD;
-      sumPlanForCompletionWeight += planD;
-    }
-
-    const d = calculateDeviation(t, asOf);
-    if (d !== null && planD !== null && planD > 0) {
-      weightedDevSum += d * planD;
-      sumPlanForDeviationWeight += planD;
-    }
+    const cRaw = Number(t.completion);
+    const c = Number.isFinite(cRaw) ? Math.max(0, Math.min(100, cRaw)) : 0;
+    const rw = resolveAggregateRawWeight(t, planD);
+    rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, rw });
   }
 
-  if (sumPlanForWeights > 0) {
-    for (const s of stages) {
-      if (s.planDays !== null && s.planDays > 0) {
-        s.weightPercent = Math.round((s.planDays / sumPlanForWeights) * 1000) / 10;
+  if (rows.length === 0) {
+    return { totalPercent: null, totalDeviation: null, stages: [] };
+  }
+
+  let raws = rows.map((r) => r.rw.raw);
+  const allZero = raws.every((x) => !Number.isFinite(x) || x <= 0);
+  if (allZero) {
+    raws = raws.map(() => 1);
+    for (let i = 0; i < rows.length; i += 1) {
+      rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "equalAll" };
+    }
+  } else {
+    for (let i = 0; i < raws.length; i += 1) {
+      if (!Number.isFinite(raws[i]) || raws[i]! <= 0) {
+        raws[i] = 1;
+        rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "unitForMissingSource" };
       }
     }
   }
 
-  const totalPercent =
-    sumPlanForCompletionWeight > 0
-      ? Math.round((weightedCompletionSum / sumPlanForCompletionWeight) * 10) / 10
-      : null;
+  const sumRaw = raws.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const norm = raws.map((w) => (sumRaw > 0 && Number.isFinite(w) ? w / sumRaw : 0));
 
-  const totalDeviation =
-    sumPlanForDeviationWeight > 0
-      ? weightedDevSum / sumPlanForDeviationWeight
+  const stages: AggregateStageBreakdown[] = rows.map((r, i) => {
+    const w = norm[i] ?? 0;
+    const contribution = Math.round(w * r.c * 10) / 10;
+    return {
+      code: r.code,
+      composeTitle: r.composeTitle,
+      weightShortLabel: r.weightShortLabel,
+      completion: r.c,
+      planDays: r.planD,
+      rawWeight: raws[i]!,
+      weightPercent: sumRaw > 0 ? Math.round(w * 1000) / 10 : null,
+      contributionPercent: sumRaw > 0 ? contribution : null,
+      weightBasis: r.rw.basis,
+      imputation: r.rw.imputation,
+    };
+  });
+
+  let totalPercent: number | null =
+    sumRaw > 0
+      ? Math.round(
+          rows.reduce((acc, r, i) => acc + (norm[i] ?? 0) * r.c, 0) * 10,
+        ) / 10
       : null;
+  if (totalPercent !== null && !Number.isFinite(totalPercent)) {
+    totalPercent = null;
+  }
+
+  let weightedDevSum = 0;
+  let sumWDev = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const w = norm[i] ?? 0;
+    const d = calculateDeviation(rows[i]!.t, asOfSafe);
+    if (d === null || !Number.isFinite(d) || w <= 0) continue;
+    weightedDevSum += d * w;
+    sumWDev += w;
+  }
+  let totalDeviation: number | null = sumWDev > 0 ? weightedDevSum / sumWDev : null;
+  if (totalDeviation !== null && !Number.isFinite(totalDeviation)) {
+    totalDeviation = null;
+  }
 
   return { totalPercent, totalDeviation, stages };
 }
@@ -1223,13 +1321,6 @@ function kpiCard({
       <div className="mt-2 text-3xl font-bold text-slate-50 tabular-nums">{value}</div>
     </div>
   );
-}
-
-function getProjectCompletion(tasks: GPRTask[]) {
-  const all = flattenTasks(tasks);
-  if (all.length === 0) return 0;
-  const avg = all.reduce((sum, task) => sum + task.completion, 0) / all.length;
-  return Math.round(avg);
 }
 
 export function GPRAnalytics({
@@ -1304,7 +1395,6 @@ export function GPRAnalytics({
     () => getProjectStats(tasksForActivePart, gprReportAsOf),
     [tasksForActivePart, gprReportAsOf],
   );
-  const projectCompletion = getProjectCompletion(tasksForActivePart);
   const flatTasks = flattenTasks(tasksForActivePart);
   const kvartalyAllFlat = useMemo(
     () =>
@@ -1867,7 +1957,7 @@ export function GPRAnalytics({
               <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
             </div>
             <div className="rounded bg-slate-50 p-3">
-              <p className="text-slate-500">Ср. откл. (факт − план на {gprReportDateLabel})</p>
+              <p className="text-slate-500">Среднее отклонение на {gprReportDateLabel}</p>
               <p className="mt-1 text-xl font-semibold text-slate-900">
                 {metrics.avgDeviation > 0 ? "+" : ""}
                 {metrics.avgDeviation} п.п.
@@ -1921,7 +2011,7 @@ export function GPRAnalytics({
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
-                    <div className="text-xs text-[#E6EDF3]/70">Факт − план на {gprReportDateLabel}</div>
+                    <div className="text-xs text-[#E6EDF3]/70">Отклонение на {gprReportDateLabel}</div>
                     <div
                       className="mt-1 text-lg font-semibold tabular-nums"
                       style={{
@@ -1966,7 +2056,12 @@ export function GPRAnalytics({
               <div className="text-base font-semibold text-[#E6EDF3]">
                 {PART_SHORT_TITLE[activeProjectPart]}
               </div>
-              <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
+              <div
+                className="mt-1 text-xs font-medium text-[#E6EDF3]/75"
+                title={AGGREGATE_PROGRESS_TOOLTIP}
+              >
+                Общий прогресс
+              </div>
               <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
                 {aggPctDisplay}
               </div>
@@ -2001,7 +2096,12 @@ export function GPRAnalytics({
                 <div className="text-base font-semibold text-[#E6EDF3]">
                   {PART_SHORT_TITLE[activeProjectPart]}
                 </div>
-                <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
+                <div
+                  className="mt-1 text-xs font-medium text-[#E6EDF3]/75"
+                  title={AGGREGATE_PROGRESS_TOOLTIP}
+                >
+                  Общий прогресс
+                </div>
                 <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
                   {aggPctDisplay}
                 </div>
@@ -2040,17 +2140,37 @@ export function GPRAnalytics({
                 <div className="text-sm font-semibold text-slate-100">
                   Общий прогресс: {aggPctDisplay}
                 </div>
+                <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                  Формула: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × % выполнения<sub className="align-baseline text-[9px]">i</sub>
+                  ); веса нормированы, суммарно 100%. Приоритет веса: объём → стоимость → длительность плана.
+                </p>
               </div>
 
               <div className="mt-3 space-y-3">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Состав
+                    Состав и вклад
                   </div>
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
                     {aggregateStages.map((s, i) => (
                       <li key={`agg-stage-${i}`}>
-                        {s.composeTitle} — {Math.round(s.completion)}%
+                        <span className="font-medium text-slate-200">{s.composeTitle}</span>
+                        {": "}
+                        {Math.round(s.completion)}% выполнения
+                        {s.weightPercent != null
+                          ? `, вес ${s.weightPercent}% (${AGGREGATE_WEIGHT_BASIS_RU[s.weightBasis]})`
+                          : ""}
+                        {s.contributionPercent != null
+                          ? `, вклад в сумму ${s.contributionPercent} п.п.`
+                          : ""}
+                        {s.imputation !== "none" ? (
+                          <span className="text-slate-500">
+                            {" "}
+                            {s.imputation === "equalAll"
+                              ? "— вес: равный по всем этапам (нечем взвесить)"
+                              : "— вес: единица (нет объёма, стоимости и плана дат)"}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -2839,8 +2959,7 @@ export function GPRAnalytics({
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         <p className="mt-2 text-xs text-slate-300">
-          Отклонение: факт минус план на {gprReportDateLabel} (п.п.). Отрицательное — отставание, положительное —
-          опережение.
+          Отклонение на {gprReportDateLabel} (п.п.): отрицательное значение — отставание, положительное — опережение.
         </p>
         {(() => {
           const MAX = 20;

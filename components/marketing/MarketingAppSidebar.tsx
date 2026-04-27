@@ -54,7 +54,7 @@ type Props = {
 };
 
 function SidebarModeSwitch({ variant, collapsed }: { variant: "presentation" | "edit"; collapsed: boolean }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const editCtx = useMarketingEditTabOptional();
   const presentation = variant === "presentation";
@@ -111,7 +111,7 @@ function SidebarModeSwitch({ variant, collapsed }: { variant: "presentation" | "
 
 export function MarketingAppSidebar({ variant }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const chrome = useMarketingLayoutChrome();
   const editCtx = useMarketingEditTabOptional();

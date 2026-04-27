@@ -7,6 +7,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
+/** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
 const DealsPresentationPanel = dynamic(() => import("./DealsPresentation"), { ssr: false });
 
 /** Пустое текстовое поле (менеджер, источник, вид сделки и т.д.). */

@@ -18,6 +18,16 @@ export type GPRTask = {
   level?: number;
   /** Квартал из `kvartaly_gpr_quarterly.json` (для подписи оси при совпадении шифров). */
   kvartalyQuarter?: string;
+  /**
+   * Плановый объём работ (усл. ед., напр. тыс. м³ или нормо-часы) — приоритетный вес для «Общий прогресс».
+   * Если задано положительное значение, используется вместо contractValue и длительности плана.
+   */
+  plannedWorkVolume?: number | null;
+  /**
+   * Стоимость по договору (₽ и т.д.) — вес этапа, если объём не задан.
+   * Иначе вес: длительность плана (дн.).
+   */
+  contractValue?: number | null;
 };
 
 export type ProjectPart = {

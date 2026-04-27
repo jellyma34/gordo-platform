@@ -1,14 +1,9 @@
 import type { ReactNode } from "react";
 
-import { PresentationBody } from "@/components/presentation/PresentationBody";
-import { PresentationChrome } from "@/components/presentation/PresentationChrome";
+import { PresentationRouteShell } from "@/components/presentation/PresentationRouteShell";
 
 import "./presentationLayout.css";
 
 export default function PresentationLayout({ children }: { children: ReactNode }) {
-  return (
-    <PresentationChrome>
-      <PresentationBody>{children}</PresentationBody>
-    </PresentationChrome>
-  );
+  return <PresentationRouteShell>{children}</PresentationRouteShell>;
 }

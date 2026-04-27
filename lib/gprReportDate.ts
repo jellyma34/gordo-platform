@@ -25,7 +25,7 @@ export function resolveGprReportAsOf(reportDate?: Date | string | null): Date {
   return new Date();
 }
 
-/** Короткий формат для подписей «факт − план на …» (DD.MM). */
+/** Короткий формат для подписей «отклонение на …» (DD.MM). */
 export function formatDate(date: Date): string {
   const d = Number.isNaN(date.getTime()) ? new Date() : date;
   const day = String(d.getDate()).padStart(2, "0");

@@ -41,7 +41,7 @@ export function MarketingWorkspace({
   initialPlanScenario,
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const mplLight = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";

@@ -96,11 +96,11 @@ export function PresentationChrome({ children }: Props) {
         <header
           className={`sticky top-0 z-40 m-0 mb-0 min-h-[3.5rem] shrink-0 border-0 border-b-0 py-2 shadow-none ring-0 transition-[background-color] duration-200 [box-shadow:none] ${marketingHeaderBg}`}
         >
-          <div className="mx-auto flex min-h-[3.25rem] w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 sm:gap-5 sm:px-8">
+          <div className="mx-auto flex min-h-[3.25rem] w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 pl-5 pr-4 sm:gap-5 sm:pl-6 sm:pr-6">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-5">
               <Link
                 href="/presentation"
-                className="shrink-0 text-[#111827] hover:text-[#1F2937]"
+                className="inline-flex max-w-full shrink-0 items-center text-[#111827] hover:text-[#1F2937]"
               >
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
@@ -138,9 +138,12 @@ export function PresentationChrome({ children }: Props) {
         </header>
       ) : (
         <header className="sticky top-0 z-40 m-0 mb-0 border-0 border-b-0 bg-[#0b1220] bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] shadow-none ring-0 [box-shadow:none]">
-          <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
+          <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-wrap items-center justify-between gap-3 py-3 pl-5 pr-3 sm:pl-6 sm:pr-6">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-              <Link href="/presentation" className="text-slate-100 hover:text-white">
+              <Link
+                href="/presentation"
+                className="inline-flex max-w-full shrink-0 items-center text-slate-100 hover:text-white"
+              >
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
                     <Logo className="project-logo" />

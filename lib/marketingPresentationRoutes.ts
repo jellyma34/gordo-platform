@@ -11,6 +11,7 @@ export type MarketingPresentationPath =
   (typeof MARKETING_PRESENTATION)[keyof typeof MARKETING_PRESENTATION];
 
 export function marketingTabFromPresentationPath(pathname: string): MarketingTab {
+  if (!pathname) return "sales";
   if (pathname.includes("/presentation/marketing/deals")) return "deals";
   if (pathname.includes("/presentation/marketing/installments")) return "installment";
   return "sales";

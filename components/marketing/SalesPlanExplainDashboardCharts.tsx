@@ -1,19 +1,19 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import type { CSSProperties } from "react";
 
 import type { SalesPlanRootCauseExplainSnapshot, SalesPlanStructureBalanceDiagnostic } from "@/lib/buildSalesPlanPresentationExplain";
 import { compactRub, structureBalanceBarLabelLine } from "@/lib/salesPlanChartFormat";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 const axisColor = "#94a3b8";
 const gridColor = "rgba(148,163,184,0.12)";

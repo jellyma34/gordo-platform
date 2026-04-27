@@ -4,7 +4,7 @@ import "@/lib/chartSetup";
 import "./globals.css";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { AuthProvider } from "@/components/auth/AuthProvider";
-import { ModeBar } from "@/components/mode/ModeBar";
+import { ModeBarDynamic } from "@/components/mode/ModeBarDynamic";
 import { ModeProvider } from "@/components/mode/ModeProvider";
 
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ export default function RootLayout({
         <ModeProvider>
           <AuthProvider>
             <AuthGate>
-              <ModeBar />
+              <ModeBarDynamic />
               {children}
             </AuthGate>
           </AuthProvider>
