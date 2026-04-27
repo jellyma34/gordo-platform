@@ -4,7 +4,13 @@ import { useRef } from "react";
 
 import { EditLayout } from "@/components/EditLayout";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
-import { calculateDeviation, getStatusByGprProgressDelta, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
+import {
+  calculateDeviation,
+  getStatusByGprProgressDelta,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+  type GPRTask,
+} from "@/lib/gprUtils";
 import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
 import { GPRAnalytics } from "./GPRAnalytics";
 import { GPRTable, type GPRTableHandle } from "./GPRTable";
@@ -95,8 +101,8 @@ export function GPRSection({
   mode,
   onSaveTasks,
   onReloadGprTasks,
-  activePartId,
-  onChangePart,
+  activePartScope,
+  onChangePartScope,
   reportDate,
   hidePresentationPartStrip,
 }: {
@@ -107,14 +113,15 @@ export function GPRSection({
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** Перезагрузка списка с API после создания задачи. */
   onReloadGprTasks?: () => Promise<void>;
-  activePartId: number;
-  onChangePart: (partId: number) => void;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
   reportDate?: Date | string | null;
   /** В презентации: переключатель части перенесён в общий фильтр. */
   hidePresentationPartStrip?: boolean;
 }) {
   const tableRef = useRef<GPRTableHandle>(null);
   const taskList = Array.isArray(tasks) ? tasks : [];
+  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
 
   const statusSummary: StatusSummary | null = SHOW_SUMMARY_STATS
     ? (() => {
@@ -171,8 +178,8 @@ export function GPRSection({
             allTasks={Array.isArray(allGprTasks) ? allGprTasks : taskList}
             onSaveTasks={onSaveTasks}
             onReloadGprTasks={onReloadGprTasks}
-            activePartId={activePartId}
-            onChangePart={onChangePart}
+            activePartId={editPartId}
+            onChangePart={(id) => onChangePartScope(id)}
             hideEditToolbar
             embedded
           />
@@ -185,12 +192,12 @@ export function GPRSection({
     hidePresentationPartStrip ? null : (
       <div className="flex flex-wrap justify-center sm:justify-start">
         <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-          {PROJECT_PARTS.map((part) => (
+            {PROJECT_PARTS.map((part) => (
             <button
               key={part.id}
               type="button"
-              onClick={() => onChangePart(part.id)}
-              className={segmentedControlTabClass(activePartId === part.id, "dark")}
+              onClick={() => onChangePartScope(part.id)}
+              className={segmentedControlTabClass(activePartScope === part.id, "dark")}
             >
               {part.name}
             </button>
@@ -210,7 +217,7 @@ export function GPRSection({
         <GPRAnalytics
           tasks={taskList}
           mode="view"
-          activePartId={activePartId}
+          activePartScope={activePartScope}
           planFactDataSource="kvartaly"
           reportDate={reportDate}
         />

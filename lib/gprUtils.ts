@@ -57,6 +57,29 @@ export const PROJECT_PARTS: ProjectPart[] = [
   { id: 2, name: "Встроенно-пристроенная автостоянка" },
 ];
 
+/** Область в презентации: две части проекта или агрегат «весь проект». */
+export type ConstructionObjectScope = 1 | 2 | "project";
+
+export function isProjectWideScope(s: ConstructionObjectScope | number): s is "project" {
+  return s === "project";
+}
+
+export function partScopeToUrlParam(s: ConstructionObjectScope): string {
+  return s === "project" ? "project" : String(s);
+}
+
+/**
+ * Разбор `partId` из query. Любые неожиданные значения → 1 (безопасный fallback для SSR/URL).
+ */
+export function urlParamToPartScope(p: string | null | undefined): ConstructionObjectScope {
+  if (p == null) return 1;
+  const t = String(p).trim().toLowerCase();
+  if (t === "project") return "project";
+  if (t === "2") return 2;
+  if (t === "1") return 1;
+  return 1;
+}
+
 export type GPRStatus = "green" | "yellow" | "red" | "gray" | "blocked";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;

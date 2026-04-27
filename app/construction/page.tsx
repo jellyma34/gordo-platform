@@ -7,7 +7,7 @@ import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { gprMockData } from "@/lib/gprMockData";
-import type { GPRTask } from "@/lib/gprUtils";
+import type { ConstructionObjectScope, GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | "gpr" | "tenders" | "tmc";
 
@@ -21,12 +21,16 @@ export default function ConstructionPage() {
   const { mode: appMode } = useAppMode();
   const mode: "edit" | "presentation" = appMode === "edit" ? "edit" : "presentation";
   const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
-  const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
-  const gprTasksForPart = tasks.filter((task) => task.partId === activeGprPartId);
+  const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
+  const gprTasksForPart =
+    activePartScope === "project"
+      ? tasks
+      : tasks.filter((task) => task.partId === activePartScope);
   const saveGprTasksForPart = (partTasks: GPRTask[]) => {
+    const partId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
     setTasks((prev) => [
-      ...prev.filter((task) => task.partId !== activeGprPartId),
-      ...partTasks.map((task) => ({ ...task, partId: activeGprPartId })),
+      ...prev.filter((task) => task.partId !== partId),
+      ...partTasks.map((task) => ({ ...task, partId })),
     ]);
   };
 
@@ -131,15 +135,15 @@ export default function ConstructionPage() {
               mode={mode}
               tasks={gprTasksForPart}
               onSaveTasks={saveGprTasksForPart}
-              activePartId={activeGprPartId}
-              onChangePart={setActiveGprPartId}
+              activePartScope={activePartScope}
+              onChangePartScope={setActivePartScope}
             />
           )}
           {activeSection === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TendersSection activePartScope={activePartScope} onChangePartScope={setActivePartScope} />
           )}
           {activeSection === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TMCSection activePartScope={activePartScope} onChangePartScope={setActivePartScope} />
           )}
         </>
       )}

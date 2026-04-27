@@ -7,6 +7,7 @@ import {
   partIdToProjectPartKey,
   PROJECT_PART_KEY_TO_ID,
   PROJECT_PARTS,
+  type ConstructionObjectScope,
   type GPRTask,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
@@ -38,7 +39,12 @@ import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependenc
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
-import { gprStageDisplayTitle, gprStageGroupKeysForProjectPart } from "@/lib/gprTmcDependency";
+import {
+  gprStageDisplayTitle,
+  gprStageGroupKeysForProjectPart,
+  gprStageGroupKeysProjectWide,
+  type ForecastPart,
+} from "@/lib/gprTmcDependency";
 import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import { filterTmcByProjectPart, getTmcData, mergeTmcSnapshotWithSeed } from "@/lib/tmcData";
 import {
@@ -360,9 +366,16 @@ const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = 
   parking: ["2.06", "2.07"],
 };
 
+const AGGREGATE_ROOT_CODES_PROJECT: readonly string[] = ["2.04", "2.05", "2.06", "2.07"];
+
 const PART_SHORT_TITLE: Record<ProjectPartKey, string> = {
   residential: "Жилой дом",
   parking: "Автостоянка",
+};
+
+const PART_SHORT_TITLE_OR_PROJECT: Record<ProjectPartKey | "project", string> = {
+  ...PART_SHORT_TITLE,
+  project: "Проект",
 };
 
 /** Подписи для блока «Состав» (жилой дом) — совпадают с корневыми этапами 2.04 / 2.05. */
@@ -438,7 +451,7 @@ function computeTmcProblemSignals(
 const AGGREGATE_POPOVER_STAGE_GAP_PTS = 15;
 
 function buildAggregateProgressPopoverExplanation(
-  partKey: ProjectPartKey,
+  partKey: ProjectPartKey | "project",
   stages: AggregateStageBreakdown[],
   tmc: { notPurchased: boolean; overdueDelivery: boolean },
   scheduleLag: boolean,
@@ -461,7 +474,7 @@ function buildAggregateProgressPopoverExplanation(
     const build = buildProgress as number;
     if (prep + AGGREGATE_POPOVER_STAGE_GAP_PTS <= build) {
       const line =
-        partKey === "residential"
+        partKey === "residential" || partKey === "project"
           ? "Прогресс снижен из-за отставания на этапе подготовки территории."
           : "Прогресс снижен из-за отставания по первому корневому этапу относительно второго.";
       return scheduleLag
@@ -470,7 +483,7 @@ function buildAggregateProgressPopoverExplanation(
     }
     if (build + AGGREGATE_POPOVER_STAGE_GAP_PTS <= prep) {
       const line =
-        partKey === "residential"
+        partKey === "residential" || partKey === "project"
           ? "Прогресс снижен из-за того, что этап строительства выполнен значительно меньше по сравнению с подготовкой."
           : "Общий прогресс в большей степени ограничен вторым корневым этапом: он заметно отстаёт от первого.";
       return scheduleLag
@@ -1117,7 +1130,7 @@ function resolveAggregateRawWeight(
 function computePartAggregate(
   tasks: GPRTask[],
   rootCodes: readonly string[],
-  partKey: ProjectPartKey,
+  partKey: ProjectPartKey | "project",
   asOf: Date,
 ): {
   totalPercent: number | null;
@@ -1142,7 +1155,7 @@ function computePartAggregate(
 function computePartAggregateCore(
   tasks: GPRTask[],
   rootCodes: readonly string[],
-  partKey: ProjectPartKey,
+  partKey: ProjectPartKey | "project",
   asOf: Date,
 ): {
   totalPercent: number | null;
@@ -1178,11 +1191,19 @@ function computePartAggregateCore(
     const composeTitle =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_AGGREGATE_STAGE_TITLES.length
         ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
-        : nameSafe;
+        : partKey === "project" && residentialStageIndex < 2
+          ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
+          : nameSafe;
     const weightShortLabel =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_WEIGHT_LABELS.length
         ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
-        : shortWeightLabelForPart(nameSafe, residentialStageIndex);
+        : partKey === "project" && residentialStageIndex < 2
+          ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
+          : partKey === "project" && residentialStageIndex < 4
+            ? residentialStageIndex === 2
+              ? "Сети"
+              : "Благоустройство"
+            : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
     const cRaw = Number(t.completion);
     const c = Number.isFinite(cRaw) ? Math.max(0, Math.min(100, cRaw)) : 0;
@@ -1322,14 +1343,14 @@ function kpiCard({
 export function GPRAnalytics({
   tasks,
   mode,
-  activePartId,
+  activePartScope,
   planFactDataSource = "tasks",
   reportDate,
 }: {
   tasks: GPRTask[];
   mode: "edit" | "view";
-  /** Часть проекта для графика «ГПР — ТМЦ» (только ТМЦ этой части). */
-  activePartId: number;
+  /** Часть проекта или агрегат «Проект» для графиков и ТМЦ. */
+  activePartScope: ConstructionObjectScope;
   /** Источник данных для «План vs Факт»: таблица ГПР или `kvartaly_gpr_quarterly.json`. */
   planFactDataSource?: "tasks" | "kvartaly";
   /** Дата отчёта для плана/факта (п.п.); иначе «сегодня». */
@@ -1338,32 +1359,38 @@ export function GPRAnalytics({
   /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих разборов и раскрываемых KPI. */
   const presentationAnalyticsSkin = mode === "view";
   const dependencyAnalyticDepth = presentationAnalyticsSkin ? "presentation" : "work";
-  const activeProjectPart = partIdToProjectPartKey(activePartId);
-  const activePartLabel =
-    PROJECT_PARTS.find((p) => p.id === activePartId)?.name ?? "Часть проекта";
+  const isProjectWide = activePartScope === "project";
+  const activeProjectPart = partIdToProjectPartKey(
+    activePartScope === "project" ? 1 : activePartScope,
+  );
+  const aggregatePartKey: ProjectPartKey | "project" = isProjectWide ? "project" : activeProjectPart;
+  const chartPart: ForecastPart = isProjectWide ? "project" : activeProjectPart;
+  const activePartLabel = isProjectWide
+    ? "Проект"
+    : (PROJECT_PARTS.find((p) => p.id === activePartScope)?.name ?? "Часть проекта");
 
   const gprReportAsOf = useMemo(() => resolveGprReportAsOf(reportDate), [reportDate]);
   const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
   const gprReportYmd = useMemo(() => toLocalYmd(gprReportAsOf), [gprReportAsOf]);
 
-  /** Только задачи выбранной части (жилой дом / автостоянка) — ГПР, donut, «План vs Факт». */
+  /** Задачи выбранного объекта или все части при «Проект». */
   const tasksForActivePart = useMemo(
-    () => tasks.filter((t) => t.partId === activePartId),
-    [tasks, activePartId],
+    () => (isProjectWide ? tasks : tasks.filter((t) => t.partId === activePartScope)),
+    [tasks, activePartScope, isProjectWide],
   );
 
   const partProgressAggregate = useMemo(
     () =>
       computePartAggregate(
         tasksForActivePart,
-        AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
-        activeProjectPart,
+        isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
+        aggregatePartKey,
         gprReportAsOf,
       ),
-    [tasksForActivePart, activeProjectPart, gprReportAsOf],
+    [tasksForActivePart, isProjectWide, activeProjectPart, aggregatePartKey, gprReportAsOf],
   );
   const orderedStageRoots = useMemo(() => {
-    const codes = AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
+    const codes = isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
     return codes
       .map((code) =>
         tasksForActivePart.find(
@@ -1372,21 +1399,27 @@ export function GPRAnalytics({
         ),
       )
       .filter((t): t is GPRTask => t != null);
-  }, [tasksForActivePart, activeProjectPart]);
+  }, [tasksForActivePart, isProjectWide, activeProjectPart]);
 
   /** Сид + localStorage (как в TMCSection), затем жёсткая фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
-    if (typeof window === "undefined") {
-      return getTmcData(activeProjectPart);
+    const fromMerged = (part: ProjectPartKey) => {
+      if (typeof window === "undefined") {
+        return getTmcData(part);
+      }
+      try {
+        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
+        const merged = mergeTmcSnapshotWithSeed(raw ? (JSON.parse(raw) as unknown) : undefined);
+        return filterTmcByProjectPart(merged, part);
+      } catch {
+        return getTmcData(part);
+      }
+    };
+    if (isProjectWide) {
+      return [...fromMerged("residential"), ...fromMerged("parking")];
     }
-    try {
-      const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-      const merged = mergeTmcSnapshotWithSeed(raw ? (JSON.parse(raw) as unknown) : undefined);
-      return filterTmcByProjectPart(merged, activeProjectPart);
-    } catch {
-      return getTmcData(activeProjectPart);
-    }
-  }, [activeProjectPart]);
+    return fromMerged(activeProjectPart);
+  }, [isProjectWide, activeProjectPart]);
   const metrics = useMemo(
     () => getProjectStats(tasksForActivePart, gprReportAsOf),
     [tasksForActivePart, gprReportAsOf],
@@ -1419,15 +1452,15 @@ export function GPRAnalytics({
 
   useEffect(() => {
     setActiveGroup(null);
-  }, [activeProjectPart]);
+  }, [activePartScope]);
 
   useEffect(() => {
     setPlanFactFilter({ filterType: "all" });
-  }, [activePartId]);
+  }, [activePartScope]);
 
   useEffect(() => {
     setPlanFactKvartalyGranularity("overview");
-  }, [activePartId]);
+  }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {
     if (planFactDataSource !== "kvartaly") return [];
@@ -1445,16 +1478,26 @@ export function GPRAnalytics({
     return parkingKvartalyTasks;
   }, [planFactDataSource, planFactKvartalyGranularity, parkingKvartalyTasks]);
 
+  const projectKvartalyForChart = useMemo(
+    () => [...residentialKvartalyForChart, ...parkingKvartalyForChart],
+    [residentialKvartalyForChart, parkingKvartalyForChart],
+  );
+
   const planFactFlatTasks = useMemo(() => {
     if (planFactDataSource === "kvartaly") {
-      return activePartId === PROJECT_PART_KEY_TO_ID.parking
+      if (isProjectWide) {
+        return projectKvartalyForChart;
+      }
+      return activePartScope === PROJECT_PART_KEY_TO_ID.parking
         ? parkingKvartalyForChart
         : residentialKvartalyForChart;
     }
     return flattenTasks(tasksForActivePart);
   }, [
     planFactDataSource,
-    activePartId,
+    isProjectWide,
+    activePartScope,
+    projectKvartalyForChart,
     parkingKvartalyForChart,
     residentialKvartalyForChart,
     tasksForActivePart,
@@ -1466,8 +1509,8 @@ export function GPRAnalytics({
       typeof window !== "undefined"
         ? mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage())
         : mergeTenderSnapshotWithSeed(undefined);
-    return merged.filter((t) => t.partId === activePartId);
-  }, [activePartId, tenderRevision]);
+    return merged.filter((t) => isProjectWide || t.partId === activePartScope);
+  }, [activePartScope, isProjectWide, tenderRevision]);
 
   const planFactFilteredTasks = useMemo(() => {
     if (planFactDataSource === "kvartaly") return planFactFlatTasks;
@@ -1485,18 +1528,27 @@ export function GPRAnalytics({
   const mRes = useKvartalyGanttModel(
     residentialKvartalyForChart,
     planFactFilter,
-    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.residential,
+    kvartalyGanttEnabled && !isProjectWide && activePartScope === PROJECT_PART_KEY_TO_ID.residential,
     planFactKvartalyGranularity,
   );
   const mPark = useKvartalyGanttModel(
     parkingKvartalyForChart,
     planFactFilter,
-    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.parking,
+    kvartalyGanttEnabled && !isProjectWide && activePartScope === PROJECT_PART_KEY_TO_ID.parking,
+    planFactKvartalyGranularity,
+  );
+  const mProjectKv = useKvartalyGanttModel(
+    projectKvartalyForChart,
+    planFactFilter,
+    kvartalyGanttEnabled && isProjectWide,
     planFactKvartalyGranularity,
   );
 
-  const kvartalyActiveModel =
-    activePartId === PROJECT_PART_KEY_TO_ID.parking ? mPark : mRes;
+  const kvartalyActiveModel = isProjectWide
+    ? mProjectKv
+    : activePartScope === PROJECT_PART_KEY_TO_ID.parking
+      ? mPark
+      : mRes;
 
   const timelineYearsAvailable = useMemo(
     () => distinctYearsFromBuckets(quarterlyBucketsAll),
@@ -1515,8 +1567,9 @@ export function GPRAnalytics({
 
   const planFactWorkTypeChartModel = useMemo(() => {
     if (planFactDataSource !== "tasks") return null;
-    return buildPlanFactWorkTypeChartModel(planFactFilteredTasks, activeProjectPart, gprReportYmd);
-  }, [planFactDataSource, planFactFilteredTasks, activeProjectPart, gprReportYmd]);
+    const workTypePart = isProjectWide ? "project" : activeProjectPart;
+    return buildPlanFactWorkTypeChartModel(planFactFilteredTasks, workTypePart, gprReportYmd);
+  }, [planFactDataSource, planFactFilteredTasks, isProjectWide, activeProjectPart, gprReportYmd]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
@@ -1806,7 +1859,7 @@ export function GPRAnalytics({
   const aggregatePopoverExplanation = useMemo(
     () =>
       buildAggregateProgressPopoverExplanation(
-        activeProjectPart,
+        aggregatePartKey,
         aggregateStages,
         {
           notPurchased: aggregateProblemSignals.notPurchased,
@@ -1815,7 +1868,7 @@ export function GPRAnalytics({
         scheduleLagForAggregate,
       ),
     [
-      activeProjectPart,
+      aggregatePartKey,
       aggregateStages,
       aggregateProblemSignals.notPurchased,
       aggregateProblemSignals.overdueDelivery,
@@ -1909,7 +1962,7 @@ export function GPRAnalytics({
   const aggregateProgressCardMain = (
     <div>
       <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">
-        {PART_SHORT_TITLE[activeProjectPart]}
+        {PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
       </div>
       <div className="mt-2 flex items-end justify-between gap-4">
         <div className="min-w-0">
@@ -2295,7 +2348,7 @@ export function GPRAnalytics({
                 </div>
               ) : (
                 <div
-                  key={`kvartaly-gantt-${planFactKvartalyGranularity}-${activePartId}-${[...kvartalyActiveModel.ganttRows].map((r) => r.id).sort().join(":")}`}
+                  key={`kvartaly-gantt-${planFactKvartalyGranularity}-${String(activePartScope)}-${[...(kvartalyActiveModel.ganttRows ?? [])].map((r) => r.id).sort().join(":")}`}
                   className="w-full min-w-0 max-h-[min(85vh,1200px)] overflow-y-auto overflow-x-hidden"
                   style={{
                     minHeight: planFactKvartalyGranularity === "overview" ? 220 : 280,
@@ -2791,7 +2844,9 @@ export function GPRAnalytics({
         </p>
         {(() => {
           const MAX = 20;
-          const allowedGroupKeys = gprStageGroupKeysForProjectPart(activeProjectPart);
+          const allowedGroupKeys = isProjectWide
+            ? gprStageGroupKeysProjectWide()
+            : gprStageGroupKeysForProjectPart(activeProjectPart);
 
           const devRows = flatTasks
             .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
@@ -3009,7 +3064,7 @@ export function GPRAnalytics({
       <GPRTmcDependencyChart
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
         analyticDepth={dependencyAnalyticDepth}
         reportAsOfIso={gprReportYmd}
         reportDateLabel={gprReportDateLabel}
@@ -3017,7 +3072,7 @@ export function GPRAnalytics({
       <GPRTenderDependencyChart
         tasks={tasksForActivePart}
         tenders={tendersForActivePart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
         analyticDepth={dependencyAnalyticDepth}
         reportAsOfIso={gprReportYmd}
         reportDateLabel={gprReportDateLabel}
@@ -3026,7 +3081,7 @@ export function GPRAnalytics({
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
         tenders={tendersForActivePart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
       />
     </section>
   );

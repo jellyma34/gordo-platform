@@ -15,7 +15,11 @@ import {
 } from "chart.js";
 import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
-import { buildGprTmcDependencySeries } from "@/lib/gprTmcDependency";
+import {
+  buildGprTmcDependencySeries,
+  buildGprTmcDependencySeriesProjectWide,
+  type ForecastPart,
+} from "@/lib/gprTmcDependency";
 import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
 import { toDate } from "@/lib/gprUtils";
 import {
@@ -73,7 +77,7 @@ export function GPRTmcDependencyChart({
   tasks: GPRTask[];
   /** Может содержать все части (например после merge localStorage) — расчёт режет по activeProjectPart. */
   tmcItems: TMCItem[];
-  activeProjectPart: ProjectPartKey;
+  activeProjectPart: ForecastPart;
   /** Презентация: KPI без раскрывающихся пояснений (формулы — только в рабочем разборе). */
   analyticDepth?: "work" | "presentation";
   /** YYYY-MM-DD (локальный календарь дня), единая с датой отчёта на дашборде ГПР. */
@@ -92,7 +96,10 @@ export function GPRTmcDependencyChart({
   );
 
   const series = useMemo(
-    () => buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart),
+    () =>
+      activeProjectPart === "project"
+        ? buildGprTmcDependencySeriesProjectWide(tasks, tmcItems, todayIso)
+        : buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart),
     [tasks, tmcItems, todayIso, activeProjectPart],
   );
 

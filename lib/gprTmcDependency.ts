@@ -80,6 +80,11 @@ export function gprStageGroupKeysForProjectPart(part: ProjectPartKey): GprStageG
   return keys;
 }
 
+/** Все четыре группы этапов (агрегат «Проект» на графиках отклонений). */
+export function gprStageGroupKeysProjectWide(): GprStageGroupKey[] {
+  return ["prep", "build", "network", "improve"];
+}
+
 function inferGroup(task: GPRTask): GprStageGroupKey {
   const n = `${task.code} ${task.name}`.toLowerCase();
   if (/благоустрой|озелен|тротуар|покрыт|дорож|асфальт/.test(n)) return "improve";
@@ -180,6 +185,9 @@ export function buildGprTmcDependencySeries(
   activeProjectPart: ProjectPartKey,
 ): GprTmcDependencyPoint[] {
   const labels = GPR_TMC_CHART_STAGE_SHORT_BY_PART[activeProjectPart] ?? [];
+  if (labels.length === 0) {
+    return [];
+  }
 
   const allowedKeys = new Set<GprStageGroupKey>();
   for (const short of labels) {
@@ -293,6 +301,9 @@ export function buildGprTenderDependencySeries(
   activeProjectPart: ProjectPartKey,
 ): GprTenderDependencyPoint[] {
   const partId = PROJECT_PART_KEY_TO_ID[activeProjectPart];
+  if (partId == null || !Number.isFinite(partId)) {
+    return [];
+  }
   const tendersForPart = tenders.filter((t) => t.partId === partId);
 
   const labels = GPR_TMC_CHART_STAGE_SHORT_BY_PART[activeProjectPart] ?? [];
@@ -336,6 +347,49 @@ export function buildGprTenderDependencySeries(
       insight,
     };
   });
+}
+
+/** Агрегат «Проект»: серии жилой части и автостоянки подряд. */
+export function buildGprTmcDependencySeriesProjectWide(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+): GprTmcDependencyPoint[] {
+  return [
+    ...buildGprTmcDependencySeries(
+      tasks.filter((t) => t.partId === 1),
+      filterTmcByProjectPart(tmcItems, "residential"),
+      todayIso,
+      "residential",
+    ),
+    ...buildGprTmcDependencySeries(
+      tasks.filter((t) => t.partId === 2),
+      filterTmcByProjectPart(tmcItems, "parking"),
+      todayIso,
+      "parking",
+    ),
+  ];
+}
+
+export function buildGprTenderDependencySeriesProjectWide(
+  tasks: GPRTask[],
+  tenders: Tender[],
+  todayIso: string,
+): GprTenderDependencyPoint[] {
+  return [
+    ...buildGprTenderDependencySeries(
+      tasks.filter((t) => t.partId === 1),
+      tenders.filter((t) => t.partId === 1),
+      todayIso,
+      "residential",
+    ),
+    ...buildGprTenderDependencySeries(
+      tasks.filter((t) => t.partId === 2),
+      tenders.filter((t) => t.partId === 2),
+      todayIso,
+      "parking",
+    ),
+  ];
 }
 
 /**
@@ -445,6 +499,15 @@ const PART_ROOT_CODES_FOR_FORECAST: Record<ProjectPartKey, readonly string[]> = 
   parking: ["2.06", "2.07"],
 };
 
+const ALL_PROJECT_ROOT_FORECAST: readonly string[] = ["2.04", "2.05", "2.06", "2.07"];
+
+export type ForecastPart = ProjectPartKey | "project";
+
+function rootCodesForForecast(part: ForecastPart): readonly string[] {
+  if (part === "project") return ALL_PROJECT_ROOT_FORECAST;
+  return PART_ROOT_CODES_FOR_FORECAST[part];
+}
+
 function findRootByCode(tasks: GPRTask[], code: string): GPRTask | null {
   return (
     tasks.find(
@@ -456,11 +519,11 @@ function findRootByCode(tasks: GPRTask[], code: string): GPRTask | null {
 
 function partPlanBounds(
   tasks: GPRTask[],
-  part: ProjectPartKey,
+  part: ForecastPart,
 ): { startIso: string; endIso: string } | null {
   let minS: string | null = null;
   let maxE: string | null = null;
-  for (const code of PART_ROOT_CODES_FOR_FORECAST[part]) {
+  for (const code of rootCodesForForecast(part)) {
     const t = findRootByCode(tasks, code);
     if (!t) continue;
     const ps = t.planStart?.trim();
@@ -499,10 +562,10 @@ function eachMonthStartMs(fromIso: string, toIso: string): number[] {
   return out;
 }
 
-function weightedFactGprPart(tasks: GPRTask[], part: ProjectPartKey): number | null {
+function weightedFactGprPart(tasks: GPRTask[], part: ForecastPart): number | null {
   let wSum = 0;
   let dSum = 0;
-  for (const code of PART_ROOT_CODES_FOR_FORECAST[part]) {
+  for (const code of rootCodesForForecast(part)) {
     const t = findRootByCode(tasks, code);
     if (!t) continue;
     const pd = durationDays(t.planStart, t.planEnd);
@@ -517,12 +580,12 @@ function weightedFactGprPart(tasks: GPRTask[], part: ProjectPartKey): number | n
 
 function weightedPlanGprPartAtDate(
   tasks: GPRTask[],
-  part: ProjectPartKey,
+  part: ForecastPart,
   dateIso: string,
 ): number | null {
   let wSum = 0;
   let dSum = 0;
-  for (const code of PART_ROOT_CODES_FOR_FORECAST[part]) {
+  for (const code of rootCodesForForecast(part)) {
     const t = findRootByCode(tasks, code);
     if (!t) continue;
     const pd = durationDays(t.planStart, t.planEnd);
@@ -539,7 +602,7 @@ function weightedPlanGprPartAtDate(
 function weightedAvgFromStageSeries(
   series: { groupKey: GprStageGroupKey; value: number | null }[],
   tasks: GPRTask[],
-  part: ProjectPartKey,
+  part: ForecastPart,
 ): number | null {
   let wSum = 0;
   let dSum = 0;
@@ -603,13 +666,19 @@ export function buildGprTimeForecastModel(
   tmcItems: TMCItem[],
   tenders: Tender[],
   todayIso: string,
-  activeProjectPart: ProjectPartKey,
+  activeProjectPart: ForecastPart,
 ): GprTimeForecastModel | null {
   const bounds = partPlanBounds(tasks, activeProjectPart);
   if (!bounds) return null;
 
-  const tmcSeries = buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart);
-  const tenderSeries = buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart);
+  const tmcSeries =
+    activeProjectPart === "project"
+      ? buildGprTmcDependencySeriesProjectWide(tasks, tmcItems, todayIso)
+      : buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart);
+  const tenderSeries =
+    activeProjectPart === "project"
+      ? buildGprTenderDependencySeriesProjectWide(tasks, tenders, todayIso)
+      : buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart);
 
   const factNow = weightedFactGprPart(tasks, activeProjectPart);
   const planAtToday = weightedPlanGprPartAtDate(tasks, activeProjectPart, todayIso);

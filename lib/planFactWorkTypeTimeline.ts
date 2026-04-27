@@ -42,14 +42,26 @@ const WORK_TYPE_GROUPS: Record<
   ],
 };
 
+/** Виды работ по всему проекту (корневые 2.04–2.07) для агрегатного слайда. */
+const WORK_TYPE_GROUPS_PROJECT: { key: string; label: string; match: (code: string) => boolean }[] = [
+  ...WORK_TYPE_GROUPS.residential,
+  ...WORK_TYPE_GROUPS.parking,
+];
+
+export type PlanFactWorkTypePartKey = ProjectPartKey | "project";
+
 export type PlanFactWorkTypeRow = {
   key: string;
   label: string;
   bounds: ReturnType<typeof aggregateWorksToProjectPlanFactBounds>;
 };
 
-export function buildPlanFactWorkTypeRows(tasks: GPRTask[], partKey: ProjectPartKey): PlanFactWorkTypeRow[] {
-  return WORK_TYPE_GROUPS[partKey].map((g) => ({
+export function buildPlanFactWorkTypeRows(
+  tasks: GPRTask[],
+  partKey: PlanFactWorkTypePartKey,
+): PlanFactWorkTypeRow[] {
+  const groups = partKey === "project" ? WORK_TYPE_GROUPS_PROJECT : WORK_TYPE_GROUPS[partKey];
+  return groups.map((g) => ({
     key: g.key,
     label: g.label,
     bounds: aggregateWorksToProjectPlanFactBounds(tasks.filter((t) => g.match(t.code.trim()))),
@@ -106,7 +118,7 @@ export type PlanFactWorkTypeChartModel = {
  */
 export function buildPlanFactWorkTypeChartModel(
   tasks: GPRTask[],
-  partKey: ProjectPartKey,
+  partKey: PlanFactWorkTypePartKey,
   todayIso: string,
 ): PlanFactWorkTypeChartModel | null {
   if (!Array.isArray(tasks) || tasks.length === 0) return null;

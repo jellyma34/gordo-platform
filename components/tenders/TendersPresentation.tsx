@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
-import { PROJECT_PARTS, partIdToProjectPartKey } from "@/lib/gprUtils";
+import { PROJECT_PARTS, partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
 import { gprMockData } from "@/lib/gprMockData";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import { buildGprTenderDependencySeries } from "@/lib/gprTmcDependency";
+import {
+  buildGprTenderDependencySeries,
+  buildGprTenderDependencySeriesProjectWide,
+  type ForecastPart,
+} from "@/lib/gprTmcDependency";
 import {
   CartesianGrid,
   Cell,
@@ -73,7 +77,7 @@ function addMonths(d: Date, n: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + n, 1, 12, 0, 0);
 }
 
-function loadTendersForPart(partId: number): Tender[] {
+function loadTendersForScope(scope: ConstructionObjectScope): Tender[] {
   let list = mergeTenderSnapshotWithSeed(undefined);
   if (typeof window !== "undefined") {
     try {
@@ -82,16 +86,19 @@ function loadTendersForPart(partId: number): Tender[] {
       list = mergeTenderSnapshotWithSeed(undefined);
     }
   }
-  return list.filter((t) => t.partId === partId);
+  if (scope === "project") {
+    return list.filter((t) => t.partId === 1 || t.partId === 2);
+  }
+  return list.filter((t) => t.partId === scope);
 }
 
 export function TendersPresentation({
-  activePartId,
-  onChangePart,
+  activePartScope,
+  onChangePartScope,
   hidePartTabs,
 }: {
-  activePartId: number;
-  onChangePart: (partId: number) => void;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
   hidePartTabs?: boolean;
 }) {
   const [tick, setTick] = useState(0);
@@ -104,13 +111,19 @@ export function TendersPresentation({
 
   const tenders = useMemo(() => {
     void tick;
-    return loadTendersForPart(activePartId);
-  }, [activePartId, tick]);
+    return loadTendersForScope(activePartScope);
+  }, [activePartScope, tick]);
 
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);
-  const activeProjectPart = useMemo(() => partIdToProjectPartKey(activePartId), [activePartId]);
-  const gprTasksForPart = useMemo(() => gprMockData.filter((t) => t.partId === activePartId), [activePartId]);
+  const chartPart: ForecastPart = useMemo(
+    () => (activePartScope === "project" ? "project" : partIdToProjectPartKey(activePartScope)),
+    [activePartScope],
+  );
+  const gprTasksForPart = useMemo(() => {
+    if (activePartScope === "project") return gprMockData;
+    return gprMockData.filter((t) => t.partId === activePartScope);
+  }, [activePartScope]);
 
   const contractPlanDates = useMemo(
     () => tenders.map((t) => parseIsoDate(t.planContractDate)).filter((d): d is Date => d !== null),
@@ -192,8 +205,11 @@ export function TendersPresentation({
   );
 
   const dependencySeries = useMemo(
-    () => buildGprTenderDependencySeries(gprTasksForPart, tenders, todayIso, activeProjectPart),
-    [gprTasksForPart, tenders, todayIso, activeProjectPart],
+    () =>
+      chartPart === "project"
+        ? buildGprTenderDependencySeriesProjectWide(gprTasksForPart, tenders, todayIso)
+        : buildGprTenderDependencySeries(gprTasksForPart, tenders, todayIso, chartPart),
+    [gprTasksForPart, tenders, todayIso, chartPart],
   );
 
   const dependencyInsights = useMemo(() => {
@@ -268,12 +284,12 @@ export function TendersPresentation({
     <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
       <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
         {PROJECT_PARTS.map((part) => {
-          const active = activePartId === part.id;
+          const active = activePartScope === part.id;
           return (
             <button
               key={part.id}
               type="button"
-              onClick={() => onChangePart(part.id)}
+              onClick={() => onChangePartScope(part.id)}
               className={segmentedControlTabClass(active, "dark")}
             >
               {part.name}
@@ -528,7 +544,7 @@ export function TendersPresentation({
         <GPRTenderDependencyChart
           tasks={gprTasksForPart}
           tenders={tenders}
-          activeProjectPart={activeProjectPart}
+          activeProjectPart={chartPart}
           analyticDepth="presentation"
         />
         <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-4 text-xs text-slate-300">

@@ -9,6 +9,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
 import { canAccessConstructionSection, type UiConstructionSection } from "@/lib/auth";
+import { partScopeToUrlParam, urlParamToPartScope } from "@/lib/gprUtils";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "gordo-construction-sidebar-collapsed";
 
@@ -79,7 +80,7 @@ export function ConstructionAppSidebar() {
   const showSection = (ui: UiConstructionSection) =>
     role ? canAccessConstructionSection(role, allowedApi, ui) : false;
 
-  const partId = searchParams.get("partId") === "2" ? 2 : 1;
+  const partId = partScopeToUrlParam(urlParamToPartScope(searchParams.get("partId")));
   const sectionParam = searchParams.get("section");
   const resolvedSection: UiConstructionSection =
     sectionParam === "tenders" || sectionParam === "tmc" || sectionParam === "gpr" ? sectionParam : "gpr";

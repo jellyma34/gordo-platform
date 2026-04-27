@@ -59,10 +59,12 @@ export function computeConstructionStructureDiagnostic(
   tasks: GPRTask[],
   tenders: Tender[],
   tmcItems: TMCItem[],
-  partId: number,
+  /** Часть 1/2 или `"all"` — весь проект (сводная диагностика). */
+  partId: number | "all",
 ): ConstructionStructureDiagnosticSnapshot {
-  const list = tasks.filter((t) => t.partId === partId);
-  const tendersForPart = tenders.filter((t) => t.partId === partId);
+  const list = partId === "all" ? tasks : tasks.filter((t) => t.partId === partId);
+  const tendersForPart =
+    partId === "all" ? tenders : tenders.filter((t) => t.partId === partId);
   const tmcById = new Map(tmcItems.map((i) => [i.id, i]));
 
   const totalTasks = list.length;

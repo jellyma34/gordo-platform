@@ -53,7 +53,12 @@ function ModeBarWithSearch() {
     pathname === "/construction/explain"
       ? {
           section: searchParams.get("section") ?? "gpr",
-          partId: searchParams.get("partId") === "2" ? "2" : "1",
+          partId:
+            searchParams.get("partId") === "project"
+              ? "project"
+              : searchParams.get("partId") === "2"
+                ? "2"
+                : "1",
         }
       : null;
 

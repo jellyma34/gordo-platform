@@ -159,12 +159,15 @@ export type ConstructionExplainSection = {
 };
 
 export function buildConstructionPresentationExplain(
-  partId: number,
+  partId: number | "all",
   tasks: GPRTask[],
   tenders: Tender[],
   tmcItems: TMCItem[],
 ): { partName: string; sections: ConstructionExplainSection[] } {
-  const partName = PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта";
+  const partName =
+    partId === "all"
+      ? "Проект (сводно)"
+      : (PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта");
   const today = new Date();
   const stats = getProjectStats(tasks);
   const completedPct = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;

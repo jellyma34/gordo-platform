@@ -5,7 +5,12 @@ import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
-import { getStatusByDeviation, partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
+import {
+  getStatusByDeviation,
+  partIdToProjectPartKey,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+} from "@/lib/gprUtils";
 import {
   getTmcData,
   mergeTmcSnapshotWithSeed,
@@ -71,19 +76,20 @@ function statusOf(item: TMCItem): Traffic {
 }
 
 export function TMCSection({
-  activePartId,
-  onChangePart,
+  activePartScope,
+  onChangePartScope,
   hidePresentationPartStrip,
 }: {
-  activePartId: number;
-  onChangePart: (partId: number) => void;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
   hidePresentationPartStrip?: boolean;
 }) {
   const { mode } = useAppMode();
   const isPresentationSkin = mode === "presentation";
   const [activeDrill, setActiveDrill] = useState<DrillKey | null>(null);
   const tmcRef = useRef<TmcTableHandle>(null);
-  const activeProjectPart = partIdToProjectPartKey(activePartId);
+  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
+  const activeProjectPart = partIdToProjectPartKey(editPartId);
 
   const partTabs =
     isPresentationSkin && hidePresentationPartStrip ? null : (
@@ -91,12 +97,12 @@ export function TMCSection({
         {isPresentationSkin ? (
           <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
             {PROJECT_PARTS.map((part) => {
-              const active = activePartId === part.id;
+              const active = activePartScope === part.id;
               return (
                 <button
                   key={part.id}
                   type="button"
-                  onClick={() => onChangePart(part.id)}
+                  onClick={() => onChangePartScope(part.id)}
                   className={segmentedControlTabClass(active, "dark")}
                 >
                   {part.name}
@@ -107,12 +113,12 @@ export function TMCSection({
         ) : (
           <div className="flex flex-wrap gap-2">
             {PROJECT_PARTS.map((part) => {
-              const active = activePartId === part.id;
+              const active = activePartScope === part.id;
               return (
                 <button
                   key={part.id}
                   type="button"
-                  onClick={() => onChangePart(part.id)}
+                  onClick={() => onChangePartScope(part.id)}
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
                     active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
@@ -135,28 +141,34 @@ export function TMCSection({
         onCancel={() => tmcRef.current?.cancel()}
       >
         {partTabs}
-        <TmcTable ref={tmcRef} embedded activePartId={activePartId} />
+        <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
       </EditLayout>
     );
   }
 
   const enriched = useMemo(() => {
-    let items: TMCItem[] = getTmcData(activeProjectPart);
-    if (typeof window !== "undefined") {
+    const fromSnapshot = (part: "residential" | "parking"): TMCItem[] => {
+      if (typeof window === "undefined") {
+        return getTmcData(part);
+      }
       try {
         const raw = window.localStorage.getItem("gordo_tmc_snapshot");
         const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
-        items = mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === activeProjectPart);
+        return mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === part);
       } catch {
-        items = getTmcData(activeProjectPart);
+        return getTmcData(part);
       }
-    }
+    };
+    let items: TMCItem[] =
+      activePartScope === "project"
+        ? [...fromSnapshot("residential"), ...fromSnapshot("parking")]
+        : fromSnapshot(activeProjectPart);
     return items.map((item) => {
       const status = statusOf(item);
       const dev = deviationDays(item);
       return { ...item, status, deviation: dev };
     });
-  }, [activeProjectPart]);
+  }, [activePartScope, activeProjectPart]);
 
   const totals = useMemo(() => {
     const plan = enriched.reduce((sum, i) => sum + i.planCost, 0);

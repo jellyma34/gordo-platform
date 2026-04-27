@@ -20,17 +20,15 @@ import {
 import {
   gprTaskFromApiItem,
   gprTaskToApiWritePayload,
+  partScopeToUrlParam,
+  urlParamToPartScope,
   type GprTaskApiItem,
   type GPRTask,
+  type ConstructionObjectScope,
 } from "@/lib/gprUtils";
-import {
-  ConstructionPresentationFilters,
-  type ConstructionPeriodFilter,
-  type ConstructionTypeFilter,
-} from "@/components/construction/ConstructionPresentationFilters";
+import { ConstructionPresentationFilters } from "@/components/construction/ConstructionPresentationFilters";
 import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
 import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
-import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -146,9 +144,6 @@ function ConstructionWorkspaceInner({
   );
   useRegisterConstructionLayoutChrome(chromeRegistration);
 
-  const [presPeriod, setPresPeriod] = useState<ConstructionPeriodFilter>("month");
-  const [presTypeFilter, setPresTypeFilter] = useState<ConstructionTypeFilter>("all");
-
   const [tasks, setTasks] = useState<GPRTask[]>(() => {
     try {
       return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
@@ -157,17 +152,19 @@ function ConstructionWorkspaceInner({
       return [];
     }
   });
-  const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
+  const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForActivePart = useMemo(() => {
     const list = Array.isArray(tasks) ? tasks : [];
-    return list.filter((task) => task && task.partId === activeGprPartId);
-  }, [tasks, activeGprPartId]);
+    if (activePartScope === "project") return list.filter(Boolean);
+    return list.filter((task) => task && task.partId === activePartScope);
+  }, [tasks, activePartScope]);
 
   const saveGprTasksForActivePart = async (partTasks: GPRTask[]) => {
+    const partId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
     const list = Array.isArray(partTasks) ? partTasks : [];
-    const normalized = list.map((task) => ({ ...task, partId: activeGprPartId }));
+    const normalized = list.map((task) => ({ ...task, partId }));
     setTasks((prev) => [
-      ...Array.isArray(prev) ? prev.filter((task) => task.partId !== activeGprPartId) : [],
+      ...Array.isArray(prev) ? prev.filter((task) => task.partId !== partId) : [],
       ...normalized,
     ]);
 
@@ -199,7 +196,7 @@ function ConstructionWorkspaceInner({
       }
       if (synced.length > 0) {
         setTasks((prev) => [
-          ...(Array.isArray(prev) ? prev.filter((task) => task.partId !== activeGprPartId) : []),
+          ...(Array.isArray(prev) ? prev.filter((task) => task.partId !== partId) : []),
           ...synced,
         ]);
       }
@@ -261,32 +258,49 @@ function ConstructionWorkspaceInner({
   const partIdParam = searchParams.get("partId");
 
   useEffect(() => {
-    if (partIdParam === "2") setActiveGprPartId((p) => (p === 2 ? p : 2));
-    else if (partIdParam === "1") setActiveGprPartId((p) => (p === 1 ? p : 1));
-  }, [partIdParam]);
+    const s = urlParamToPartScope(partIdParam);
+    if (!isPresentation && s === "project") {
+      setActivePartScope(1);
+      return;
+    }
+    setActivePartScope(s);
+  }, [partIdParam, isPresentation]);
+
+  useEffect(() => {
+    if (isPresentation || partIdParam !== "project") return;
+    const tab =
+      !sectionParam || sectionParam === "menu"
+        ? "gpr"
+        : resolveTab(false, sectionParam, hasFullConstructionAccess, allowedApi);
+    if (!sectionParam) {
+      router.replace(`${prefix}/construction?partId=1`);
+    } else {
+      router.replace(`${prefix}/construction?section=${tab}&partId=1`);
+    }
+  }, [isPresentation, partIdParam, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router]);
 
   useEffect(() => {
     if (!isPresentation && !sectionParam) return;
     const resolved = resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
     const partQ = searchParams.get("partId");
-    const partForUrl = partQ === "2" ? 2 : 1;
+    const partForUrl = partQ ? partScopeToUrlParam(urlParamToPartScope(partQ)) : "1";
     if (sectionParam !== resolved) {
       router.replace(`${prefix}/construction?section=${resolved}&partId=${partForUrl}`);
     }
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router, searchParams]);
 
-  const commitPartId = useCallback(
-    (partId: number) => {
-      setActiveGprPartId(partId);
+  const commitPartScope = useCallback(
+    (scope: ConstructionObjectScope) => {
+      setActivePartScope(scope);
       if (activeTab === "menu") return;
       if (!isPresentation && !sectionParam) return;
-      router.replace(`${prefix}/construction?section=${activeTab}&partId=${partId}`);
+      router.replace(`${prefix}/construction?section=${activeTab}&partId=${partScopeToUrlParam(scope)}`);
     },
     [activeTab, isPresentation, sectionParam, prefix, router],
   );
 
   function goSection(ui: UiConstructionSection) {
-    router.replace(`${prefix}/construction?section=${ui}&partId=${activeGprPartId}`);
+    router.replace(`${prefix}/construction?section=${ui}&partId=${partScopeToUrlParam(activePartScope)}`);
   }
 
   function goMenu() {
@@ -336,82 +350,44 @@ function ConstructionWorkspaceInner({
   );
 
   if (isPresentation) {
-    const presFilterWell = "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5";
+    const filterWell = "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5";
     return (
       <section className="w-full min-w-0 text-[13px] leading-normal">
-        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-4">
-          <div>
-            <h2 className="m-0 text-base font-semibold leading-snug tracking-tight text-slate-100">Строительство</h2>
-            <p className="mt-0.5 text-xs leading-snug text-slate-500">Презентация показателей по выбранным фильтрам</p>
-            <div className="mt-3 inline-flex max-w-full flex-wrap gap-0.5 rounded-lg border border-slate-600/70 bg-slate-900/40 p-0.5">
-              {showSection("gpr") && (
-                <button
-                  type="button"
-                  onClick={() => goSection("gpr")}
-                  className={segmentedControlTabClass(activeTab === "gpr", "dark")}
-                >
-                  ГПР
-                </button>
+        <div className="mx-auto w-full min-w-0 max-w-[1400px]">
+          <div className={filterWell}>
+            <ConstructionPresentationFilters
+              activePartScope={activePartScope}
+              onPartScopeChange={commitPartScope}
+            />
+
+            <div className="mt-4 min-w-0 space-y-4">
+              {activeTab === "gpr" && (
+                <GPRSection
+                  mode={mode}
+                  tasks={gprTasksForActivePart}
+                  allGprTasks={Array.isArray(tasks) ? tasks : []}
+                  onSaveTasks={saveGprTasksForActivePart}
+                  onReloadGprTasks={reloadGprTasksFromApi}
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
               )}
-              {showSection("tenders") && (
-                <button
-                  type="button"
-                  onClick={() => goSection("tenders")}
-                  className={segmentedControlTabClass(activeTab === "tenders", "dark")}
-                >
-                  Тендеры
-                </button>
+              {activeTab === "tenders" && (
+                <TendersSection
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
               )}
-              {showSection("tmc") && (
-                <button
-                  type="button"
-                  onClick={() => goSection("tmc")}
-                  className={segmentedControlTabClass(activeTab === "tmc", "dark")}
-                >
-                  ТМЦ
-                </button>
+              {activeTab === "tmc" && (
+                <TMCSection
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
               )}
             </div>
-          </div>
-
-          <div className={presFilterWell}>
-            <ConstructionPresentationFilters
-              period={presPeriod}
-              onPeriodChange={setPresPeriod}
-              activePartId={activeGprPartId}
-              onPartIdChange={commitPartId}
-              typeFilter={presTypeFilter}
-              onTypeFilterChange={setPresTypeFilter}
-            />
-          </div>
-
-          <div className="min-w-0 space-y-4">
-            {activeTab === "gpr" && (
-              <GPRSection
-                mode={mode}
-                tasks={gprTasksForActivePart}
-                allGprTasks={Array.isArray(tasks) ? tasks : []}
-                onSaveTasks={saveGprTasksForActivePart}
-                onReloadGprTasks={reloadGprTasksFromApi}
-                activePartId={activeGprPartId}
-                onChangePart={commitPartId}
-                hidePresentationPartStrip
-              />
-            )}
-            {activeTab === "tenders" && (
-              <TendersSection
-                activePartId={activeGprPartId}
-                onChangePart={commitPartId}
-                hidePresentationPartStrip
-              />
-            )}
-            {activeTab === "tmc" && (
-              <TMCSection
-                activePartId={activeGprPartId}
-                onChangePart={commitPartId}
-                hidePresentationPartStrip
-              />
-            )}
           </div>
         </div>
       </section>
@@ -447,14 +423,16 @@ function ConstructionWorkspaceInner({
             <button
               type="button"
               onClick={() =>
-                router.push(`/presentation/construction?section=${activeTab}&partId=${activeGprPartId}`)
+                router.push(
+                  `/presentation/construction?section=${activeTab}&partId=${partScopeToUrlParam(activePartScope)}`,
+                )
               }
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
             >
               Сформировать презентацию
             </button>
             <Link
-              href={`/construction/explain?source=work&section=${activeTab}&partId=${activeGprPartId}`}
+              href={`/construction/explain?source=work&section=${activeTab}&partId=${partScopeToUrlParam(activePartScope)}`}
               className="rounded-lg border border-sky-600/40 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
             >
               Пояснение к показателям
@@ -524,15 +502,15 @@ function ConstructionWorkspaceInner({
               allGprTasks={Array.isArray(tasks) ? tasks : []}
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
-              activePartId={activeGprPartId}
-              onChangePart={commitPartId}
+              activePartScope={activePartScope}
+              onChangePartScope={commitPartScope}
             />
           )}
           {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
+            <TendersSection activePartScope={activePartScope} onChangePartScope={commitPartScope} />
           )}
           {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
+            <TMCSection activePartScope={activePartScope} onChangePartScope={commitPartScope} />
           )}
         </>
       )}

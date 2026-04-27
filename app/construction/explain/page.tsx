@@ -8,13 +8,9 @@ import { ConstructionWorkExplainView } from "@/components/construction/Construct
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { buildConstructionPresentationExplain } from "@/lib/buildConstructionPresentationExplain";
 import { gprMockData } from "@/lib/gprMockData";
-import { partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
+import { partIdToProjectPartKey, PROJECT_PARTS, urlParamToPartScope, type ConstructionObjectScope } from "@/lib/gprUtils";
 import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
 import { getTmcData, mergeTmcSnapshotWithSeed, type TMCItem } from "@/lib/tmcData";
-
-function parsePartId(v: string | null): number {
-  return v === "2" ? 2 : 1;
-}
 
 function parseFocusSection(v: string | null): string | null {
   if (v === "gpr" || v === "structure" || v === "tenders" || v === "tmc") return v;
@@ -25,9 +21,13 @@ function ConstructionExplainPageInner() {
   const { setMode } = useAppMode();
   const sp = useSearchParams();
   const source = sp.get("source");
-  const partId = parsePartId(sp.get("partId"));
+  const partScope: ConstructionObjectScope = urlParamToPartScope(sp.get("partId"));
+  const partId = partScope === "project" ? 1 : partScope;
   const focusSection = parseFocusSection(sp.get("section"));
-  const partLabel = PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта";
+  const partLabel =
+    partScope === "project"
+      ? "Проект (сводно)"
+      : (PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта");
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -46,27 +46,49 @@ function ConstructionExplainPageInner() {
 
   const { partName, sections } = useMemo(() => {
     void tick;
-    const tasks = gprMockData.filter((t) => t.partId === partId);
-    let tenders: Tender[] = mergeTenderSnapshotWithSeed(undefined).filter((t) => t.partId === partId);
-    let tmcItems: TMCItem[] = getTmcData(partIdToProjectPartKey(partId));
+    const tasks =
+      partScope === "project"
+        ? gprMockData
+        : gprMockData.filter((t) => t.partId === partId);
+    const tenderFilter = (t: Tender) =>
+      partScope === "project" ? t.partId === 1 || t.partId === 2 : t.partId === partId;
+    let tenders: Tender[] = mergeTenderSnapshotWithSeed(undefined).filter(tenderFilter);
+    let tmcItems: TMCItem[] =
+      partScope === "project"
+        ? [...getTmcData("residential"), ...getTmcData("parking")]
+        : getTmcData(partIdToProjectPartKey(partId));
     if (typeof window !== "undefined") {
       try {
-        tenders = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage()).filter((t) => t.partId === partId);
+        tenders = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage()).filter(tenderFilter);
       } catch {
-        tenders = mergeTenderSnapshotWithSeed(undefined).filter((t) => t.partId === partId);
+        tenders = mergeTenderSnapshotWithSeed(undefined).filter(tenderFilter);
       }
       try {
         const raw = window.localStorage.getItem("gordo_tmc_snapshot");
         const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
-        tmcItems = mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === partIdToProjectPartKey(partId));
+        const merged = mergeTmcSnapshotWithSeed(parsed);
+        tmcItems =
+          partScope === "project"
+            ? merged.filter((i) => i.projectPart === "residential" || i.projectPart === "parking")
+            : merged.filter((i) => i.projectPart === partIdToProjectPartKey(partId));
       } catch {
-        tmcItems = getTmcData(partIdToProjectPartKey(partId));
+        tmcItems =
+          partScope === "project"
+            ? [...getTmcData("residential"), ...getTmcData("parking")]
+            : getTmcData(partIdToProjectPartKey(partId));
       }
     }
-    return buildConstructionPresentationExplain(partId, tasks, tenders, tmcItems);
-  }, [partId, tick]);
+    return buildConstructionPresentationExplain(
+      partScope === "project" ? "all" : partId,
+      tasks,
+      tenders,
+      tmcItems,
+    );
+  }, [partId, partScope, tick]);
 
-  const backHref = `/edit/construction?section=${focusSection ?? "gpr"}&partId=${partId}`;
+  const backHref = `/edit/construction?section=${focusSection ?? "gpr"}&partId=${
+    partScope === "project" ? "project" : partId
+  }`;
 
   if (source !== "work") {
     return (

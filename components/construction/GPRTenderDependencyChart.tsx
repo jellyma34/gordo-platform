@@ -14,10 +14,12 @@ import {
   type ScriptableContext,
   type ScriptableLineSegmentContext,
 } from "chart.js";
-import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { type GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import {
   buildGprTenderDependencySeries,
+  buildGprTenderDependencySeriesProjectWide,
+  type ForecastPart,
   type GprTenderDependencyPoint,
 } from "@/lib/gprTmcDependency";
 import {
@@ -82,7 +84,7 @@ export function GPRTenderDependencyChart({
 }: {
   tasks: GPRTask[];
   tenders: Tender[];
-  activeProjectPart: ProjectPartKey;
+  activeProjectPart: ForecastPart;
   analyticDepth?: "work" | "presentation";
   reportAsOfIso?: string;
   reportDateLabel?: string;
@@ -98,7 +100,10 @@ export function GPRTenderDependencyChart({
   );
 
   const series = useMemo(
-    () => buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart),
+    () =>
+      activeProjectPart === "project"
+        ? buildGprTenderDependencySeriesProjectWide(tasks, tenders, todayIso)
+        : buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart),
     [tasks, tenders, todayIso, activeProjectPart],
   );
 

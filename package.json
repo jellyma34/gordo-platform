@@ -19,6 +19,7 @@
     "test:gpr-code": "tsx lib/gprCodeSort.selftest.ts"
   },
   "dependencies": {
+    "is-number": "^7.0.0",
     "chart.js": "^4.5.1",
     "lucide-react": "^1.8.0",
     "next": "^15.0.0",
