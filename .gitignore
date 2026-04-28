@@ -8,6 +8,9 @@ build
 *.log
 node_modules
 
+# Локальные снимки импорта ГПР (MVP API `app/api/gpr/import`)
+data/gpr-import-*.json
+
 # Python / backend
 __pycache__/
 *.py[cod]

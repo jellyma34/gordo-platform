@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -29,6 +37,12 @@ import {
 import { ConstructionPresentationFilters } from "@/components/construction/ConstructionPresentationFilters";
 import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
 import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
+import {
+  getGprProjectId,
+  loadPersistedGprTasks,
+  postGprImportToApi,
+  saveGprTasksToLocalStorage,
+} from "@/lib/gprImportPersistence";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -144,6 +158,8 @@ function ConstructionWorkspaceInner({
   );
   useRegisterConstructionLayoutChrome(chromeRegistration);
 
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
   const [tasks, setTasks] = useState<GPRTask[]>(() => {
     try {
       return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
@@ -152,6 +168,53 @@ function ConstructionWorkspaceInner({
       return [];
     }
   });
+
+  const lastSavedGprJsonRef = useRef<string | null>(null);
+  const [gprPersistReady, setGprPersistReady] = useState(false);
+  const gprTasksFetchDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (!token) gprTasksFetchDoneRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    gprTasksFetchDoneRef.current = false;
+    lastSavedGprJsonRef.current = null;
+    setGprPersistReady(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
+        if (cancelled) return;
+        setTasks(cloneTasks(r.tasks));
+        lastSavedGprJsonRef.current = r.bootstrapJson;
+        if (r.skipRemoteListFetch) gprTasksFetchDoneRef.current = true;
+      } catch (e) {
+        console.error("Construction edit error:", e);
+        if (!cancelled) {
+          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
+        }
+      } finally {
+        if (!cancelled) setGprPersistReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gprProjectId]);
+
+  useEffect(() => {
+    if (!gprPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(tasks);
+      if (next === lastSavedGprJsonRef.current) return;
+      lastSavedGprJsonRef.current = next;
+      saveGprTasksToLocalStorage(gprProjectId, tasks);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
+  }, [tasks, gprPersistReady, gprProjectId]);
+
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForActivePart = useMemo(() => {
     const list = Array.isArray(tasks) ? tasks : [];
@@ -230,13 +293,15 @@ function ConstructionWorkspaceInner({
     return resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi]);
 
-  const gprTasksFetchDoneRef = useRef(false);
   useEffect(() => {
-    if (!token) gprTasksFetchDoneRef.current = false;
-  }, [token]);
-
-  useEffect(() => {
-    if (!hydrated || !token || activeTab !== "gpr" || gprTasksFetchDoneRef.current) return;
+    if (
+      !hydrated ||
+      !token ||
+      activeTab !== "gpr" ||
+      gprTasksFetchDoneRef.current ||
+      !gprPersistReady
+    )
+      return;
     let cancelled = false;
     (async () => {
       try {
@@ -253,7 +318,7 @@ function ConstructionWorkspaceInner({
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, activeTab]);
+  }, [hydrated, token, activeTab, gprPersistReady]);
 
   const partIdParam = searchParams.get("partId");
 
@@ -297,6 +362,15 @@ function ConstructionWorkspaceInner({
       router.replace(`${prefix}/construction?section=${activeTab}&partId=${partScopeToUrlParam(scope)}`);
     },
     [activeTab, isPresentation, sectionParam, prefix, router],
+  );
+
+  const replaceAllGprTasks = useCallback(
+    (next: GPRTask[]) => {
+      const list = cloneTasks(Array.isArray(next) ? next : []);
+      setTasks(list);
+      void postGprImportToApi(gprProjectId, list);
+    },
+    [gprProjectId],
   );
 
   function goSection(ui: UiConstructionSection) {
@@ -368,6 +442,7 @@ function ConstructionWorkspaceInner({
                   allGprTasks={Array.isArray(tasks) ? tasks : []}
                   onSaveTasks={saveGprTasksForActivePart}
                   onReloadGprTasks={reloadGprTasksFromApi}
+                  onReplaceAllGprTasks={replaceAllGprTasks}
                   activePartScope={activePartScope}
                   onChangePartScope={commitPartScope}
                   hidePresentationPartStrip
@@ -502,6 +577,7 @@ function ConstructionWorkspaceInner({
               allGprTasks={Array.isArray(tasks) ? tasks : []}
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
+              onReplaceAllGprTasks={replaceAllGprTasks}
               activePartScope={activePartScope}
               onChangePartScope={commitPartScope}
             />

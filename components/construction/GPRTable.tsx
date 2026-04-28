@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
 } from "react";
 import Link from "next/link";
@@ -54,6 +55,8 @@ import { historyDetailToVersionDetail, historyRowsToVersionListItems } from "@/l
 import { isoToRuDmy, toIsoDateOnly } from "@/lib/ruIsoDate";
 import { GprDateField } from "@/components/ui/GprDateField";
 import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
+import { readCsvFileTextSmart } from "@/lib/csvTextEncoding";
+import { mergeGprTasksFromReportCsv } from "@/lib/gprTasksMergeFromReportCsv";
 
 type FlatTask = GPRTask & { level: number; parentId?: string };
 
@@ -358,6 +361,8 @@ type GPRTableProps = {
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** После успешного POST создания — обновить список с API. */
   onReloadGprTasks?: () => Promise<void>;
+  /** Полная замена набора задач (импорт отчёта CSV по всем частям проекта). */
+  onReplaceAllGprTasks?: (tasks: GPRTask[]) => void;
   /** Часть проекта: ТМЦ и блокировки считаются только по ней. */
   activePartId: number;
   onChangePart?: (partId: number) => void;
@@ -373,6 +378,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
     allTasks,
     onSaveTasks,
     onReloadGprTasks,
+    onReplaceAllGprTasks,
     activePartId,
     onChangePart,
     hideEditToolbar = false,
@@ -414,6 +420,8 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
   const [createPlanEnd, setCreatePlanEnd] = useState("");
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [csvImportNotice, setCsvImportNotice] = useState<string | null>(null);
+  const gprCsvInputRef = useRef<HTMLInputElement>(null);
   const historySelectedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -513,6 +521,25 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       setCreateBusy(false);
     }
   };
+
+  const onGprReportCsvPick = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file || !onReplaceAllGprTasks) return;
+      try {
+        const text = await readCsvFileTextSmart(file);
+        const { tasks: merged, stats } = mergeGprTasksFromReportCsv(allTasks, text);
+        onReplaceAllGprTasks(merged);
+        setCsvImportNotice(
+          `Файл: уникальных шифров ${stats.csvRows}. Обновлено: ${stats.updated}, добавлено: ${stats.added}. Нет в файле (скрыты в презентации): ${stats.markedAbsentFromReport}.`,
+        );
+      } catch (err) {
+        setCsvImportNotice(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
+      }
+    },
+    [allTasks, onReplaceAllGprTasks],
+  );
 
   const sourceTasks = draftTasks;
   const blockedReasonsByTaskId = useMemo(() => {
@@ -933,6 +960,22 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
             <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+              <input
+                ref={gprCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(ev) => void onGprReportCsvPick(ev)}
+              />
+              {onReplaceAllGprTasks ? (
+                <button
+                  type="button"
+                  onClick={() => gprCsvInputRef.current?.click()}
+                  className="h-9 shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Импорт из CSV отчёта
+                </button>
+              ) : null}
               {token ? (
                 <button
                   type="button"
@@ -971,6 +1014,9 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               ))}
             </div>
           </div>
+          {csvImportNotice ? (
+            <p className="text-xs leading-snug text-slate-600">{csvImportNotice}</p>
+          ) : null}
         </div>
 
         <div className="relative">
@@ -1024,7 +1070,16 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
               return (
                 <div
                   key={task.id}
-                  className={`group grid w-full ${XL_TASK_GRID_TEMPLATE} rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md`}
+                  title={
+                    task.missingFromImport
+                      ? "Шифра не было в последнем CSV — строка скрыта в презентации и не удалена"
+                      : undefined
+                  }
+                  className={`group grid w-full ${XL_TASK_GRID_TEMPLATE} rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${
+                    task.missingFromImport
+                      ? "border-dashed border-amber-300/90 bg-amber-50/40"
+                      : "border-slate-200"
+                  }`}
                 >
                   <div className="min-w-0" style={{ marginLeft: treePad }}>
                     <div className="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-2">

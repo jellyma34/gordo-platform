@@ -101,6 +101,7 @@ export function GPRSection({
   mode,
   onSaveTasks,
   onReloadGprTasks,
+  onReplaceAllGprTasks,
   activePartScope,
   onChangePartScope,
   reportDate,
@@ -113,6 +114,8 @@ export function GPRSection({
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** Перезагрузка списка с API после создания задачи. */
   onReloadGprTasks?: () => Promise<void>;
+  /** Полная замена списка задач (импорт CSV по всем частям проекта). Только режим редактирования. */
+  onReplaceAllGprTasks?: (tasks: GPRTask[]) => void;
   activePartScope: ConstructionObjectScope;
   onChangePartScope: (scope: ConstructionObjectScope) => void;
   reportDate?: Date | string | null;
@@ -178,6 +181,7 @@ export function GPRSection({
             allTasks={Array.isArray(allGprTasks) ? allGprTasks : taskList}
             onSaveTasks={onSaveTasks}
             onReloadGprTasks={onReloadGprTasks}
+            onReplaceAllGprTasks={onReplaceAllGprTasks}
             activePartId={editPartId}
             onChangePart={(id) => onChangePartScope(id)}
             hideEditToolbar
@@ -215,7 +219,7 @@ export function GPRSection({
 
       <ConstructionEditErrorBoundary>
         <GPRAnalytics
-          tasks={taskList}
+          tasks={taskList.filter((t) => !t.missingFromImport)}
           mode="view"
           activePartScope={activePartScope}
           planFactDataSource="kvartaly"

@@ -1,5 +1,12 @@
 import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
+import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
+
+export {
+  buildAggregatedProjectWideStagesSummary,
+  type AggregatedProjectWideStage,
+  type AggregatedProjectWideStageId,
+} from "@/lib/gprProjectPlanFactStages";
 
 const RU_MONTH_SHORT = [
   "Янв",
@@ -42,12 +49,6 @@ const WORK_TYPE_GROUPS: Record<
   ],
 };
 
-/** Виды работ по всему проекту (корневые 2.04–2.07) для агрегатного слайда. */
-const WORK_TYPE_GROUPS_PROJECT: { key: string; label: string; match: (code: string) => boolean }[] = [
-  ...WORK_TYPE_GROUPS.residential,
-  ...WORK_TYPE_GROUPS.parking,
-];
-
 export type PlanFactWorkTypePartKey = ProjectPartKey | "project";
 
 export type PlanFactWorkTypeRow = {
@@ -60,7 +61,10 @@ export function buildPlanFactWorkTypeRows(
   tasks: GPRTask[],
   partKey: PlanFactWorkTypePartKey,
 ): PlanFactWorkTypeRow[] {
-  const groups = partKey === "project" ? WORK_TYPE_GROUPS_PROJECT : WORK_TYPE_GROUPS[partKey];
+  if (partKey === "project") {
+    return buildPlanFactProjectWideRows(tasks);
+  }
+  const groups = WORK_TYPE_GROUPS[partKey];
   return groups.map((g) => ({
     key: g.key,
     label: g.label,
