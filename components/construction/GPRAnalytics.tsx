@@ -45,8 +45,8 @@ import {
   gprStageGroupKeysProjectWide,
   type ForecastPart,
 } from "@/lib/gprTmcDependency";
-import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
-import { filterTmcByProjectPart, getTmcData, mergeTmcSnapshotWithSeed } from "@/lib/tmcData";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { filterTmcByProjectPart, getTmcData, loadTmcInitialItems, tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import {
   buildTenderStageInsight,
   getGprStageFromTenderCode,
@@ -1369,6 +1369,8 @@ export function GPRAnalytics({
     ? "Проект"
     : (PROJECT_PARTS.find((p) => p.id === activePartScope)?.name ?? "Часть проекта");
 
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
   const gprReportAsOf = useMemo(() => resolveGprReportAsOf(reportDate), [reportDate]);
   const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
   const gprReportYmd = useMemo(() => toLocalYmd(gprReportAsOf), [gprReportAsOf]);
@@ -1401,15 +1403,14 @@ export function GPRAnalytics({
       .filter((t): t is GPRTask => t != null);
   }, [tasksForActivePart, isProjectWide, activeProjectPart]);
 
-  /** Сид + localStorage (как в TMCSection), затем жёсткая фильтрация по части проекта для графика. */
+  /** Реестр ТМЦ из `tmc_${projectId}` / legacy + seed; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
     const fromMerged = (part: ProjectPartKey) => {
       if (typeof window === "undefined") {
         return getTmcData(part);
       }
       try {
-        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-        const merged = mergeTmcSnapshotWithSeed(raw ? (JSON.parse(raw) as unknown) : undefined);
+        const merged = loadTmcInitialItems(gprProjectId);
         return filterTmcByProjectPart(merged, part);
       } catch {
         return getTmcData(part);
@@ -1419,7 +1420,7 @@ export function GPRAnalytics({
       return [...fromMerged("residential"), ...fromMerged("parking")];
     }
     return fromMerged(activeProjectPart);
-  }, [isProjectWide, activeProjectPart]);
+  }, [isProjectWide, activeProjectPart, gprProjectId]);
   const metrics = useMemo(
     () => getProjectStats(tasksForActivePart, gprReportAsOf),
     [tasksForActivePart, gprReportAsOf],

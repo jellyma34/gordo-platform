@@ -11,9 +11,10 @@ import {
   PROJECT_PARTS,
   type ConstructionObjectScope,
 } from "@/lib/gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 import {
   getTmcData,
-  mergeTmcSnapshotWithSeed,
+  loadTmcInitialItems,
   tmcFactReferenceDate,
   tmcPlanReferenceDate,
   type TMCItem,
@@ -152,9 +153,7 @@ export function TMCSection({
         return getTmcData(part);
       }
       try {
-        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-        const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
-        return mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === part);
+        return loadTmcInitialItems(getGprProjectId()).filter((i) => i.projectPart === part);
       } catch {
         return getTmcData(part);
       }

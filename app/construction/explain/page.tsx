@@ -9,8 +9,9 @@ import { useAppMode } from "@/components/mode/ModeProvider";
 import { buildConstructionPresentationExplain } from "@/lib/buildConstructionPresentationExplain";
 import { gprMockData } from "@/lib/gprMockData";
 import { partIdToProjectPartKey, PROJECT_PARTS, urlParamToPartScope, type ConstructionObjectScope } from "@/lib/gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
-import { getTmcData, mergeTmcSnapshotWithSeed, type TMCItem } from "@/lib/tmcData";
+import { getTmcData, loadTmcInitialItems, type TMCItem } from "@/lib/tmcData";
 
 function parseFocusSection(v: string | null): string | null {
   if (v === "gpr" || v === "structure" || v === "tenders" || v === "tmc") return v;
@@ -37,9 +38,11 @@ function ConstructionExplainPageInner() {
   useEffect(() => {
     const bump = () => setTick((x) => x + 1);
     window.addEventListener("gordo-tenders-saved", bump);
+    window.addEventListener("gordo-tmc-saved", bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener("gordo-tenders-saved", bump);
+      window.removeEventListener("gordo-tmc-saved", bump);
       window.removeEventListener("storage", bump);
     };
   }, []);
@@ -64,9 +67,7 @@ function ConstructionExplainPageInner() {
         tenders = mergeTenderSnapshotWithSeed(undefined).filter(tenderFilter);
       }
       try {
-        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-        const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
-        const merged = mergeTmcSnapshotWithSeed(parsed);
+        const merged = loadTmcInitialItems(getGprProjectId());
         tmcItems =
           partScope === "project"
             ? merged.filter((i) => i.projectPart === "residential" || i.projectPart === "parking")

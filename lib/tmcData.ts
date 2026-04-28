@@ -1,4 +1,5 @@
 import { gprCodeToNumericSegments, type ProjectPartKey } from "./gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 
 export type TMCItem = {
   id: string;
@@ -261,4 +262,57 @@ export function mergeTmcSnapshotWithSeed(stored: unknown): TMCItem[] {
     if (n) map.set(n.id, n);
   }
   return [...map.values()];
+}
+
+/** Старый ключ localStorage (слияние с seed). */
+export const LEGACY_TMC_STORAGE_KEY = "gordo_tmc_snapshot";
+
+export function tmcStorageKey(projectId: string): string {
+  return `tmc_${projectId}`;
+}
+
+export function readTmcSnapshotFromStorage(projectId: string = getGprProjectId()): unknown {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const primary = window.localStorage.getItem(tmcStorageKey(projectId));
+    if (primary) return JSON.parse(primary) as unknown;
+    const legacy = window.localStorage.getItem(LEGACY_TMC_STORAGE_KEY);
+    if (legacy) return JSON.parse(legacy) as unknown;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeTmcSnapshotToStorage(projectId: string, items: TMCItem[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(tmcStorageKey(projectId), JSON.stringify(items));
+  } catch {
+    /* quota */
+  }
+}
+
+/**
+ * Загрузка реестра ТМЦ: приоритет полного снимка `tmc_${projectId}`, иначе legacy + seed.
+ */
+export function loadTmcInitialItems(projectId: string): TMCItem[] {
+  if (typeof window === "undefined") {
+    return TMC_DATA.map((x) => ({ ...x }));
+  }
+  try {
+    const rawNew = window.localStorage.getItem(tmcStorageKey(projectId));
+    if (rawNew) {
+      const parsed = JSON.parse(rawNew) as unknown;
+      if (Array.isArray(parsed)) {
+        const rows = parsed.map(normalizeTmcRowLoose).filter((x): x is TMCItem => x !== null);
+        if (rows.length > 0) return rows;
+      }
+    }
+    const rawLegacy = window.localStorage.getItem(LEGACY_TMC_STORAGE_KEY);
+    const legacyParsed = rawLegacy ? (JSON.parse(rawLegacy) as unknown) : undefined;
+    return mergeTmcSnapshotWithSeed(legacyParsed);
+  } catch {
+    return mergeTmcSnapshotWithSeed(undefined);
+  }
 }

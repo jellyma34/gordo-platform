@@ -1,6 +1,15 @@
 "use client";
 
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import {
   analyzeFourPlanFactDates,
   analyzeGprCodeInList,
@@ -13,13 +22,17 @@ import {
   sanitizeGprCodeTyping,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
+import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
-  mergeTmcSnapshotWithSeed,
+  loadTmcInitialItems,
   suggestNextTmcItemCode,
   TMC_DATA,
   tmcFactReferenceDate,
   tmcLifecycleLabel,
   tmcPlanReferenceDate,
+  writeTmcSnapshotToStorage,
   type TMCItem,
 } from "@/lib/tmcData";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
@@ -104,17 +117,6 @@ type TmcTableProps = {
   activePartId: number;
 };
 
-function readStoredTmcSnapshot(): unknown {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-    if (!raw) return undefined;
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
 function sortTmcInPart(items: TMCItem[], part: ProjectPartKey): TMCItem[] {
   const rest = items.filter((x) => x.projectPart !== part);
   const partRows = items.filter((x) => x.projectPart === part);
@@ -136,14 +138,20 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
 ) {
   const activeProjectPart: ProjectPartKey = partIdToProjectPartKey(activePartId);
 
-  const [items, setItems] = useState<TMCItem[]>(() =>
-    mergeTmcSnapshotWithSeed(readStoredTmcSnapshot()),
-  );
+  const projectId = useMemo(() => getGprProjectId(), []);
+
+  const [items, setItems] = useState<TMCItem[]>(() => loadTmcInitialItems(getGprProjectId()));
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Traffic>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<EditableTmc>(EMPTY_FORM);
+
+  useEffect(() => {
+    setItems(loadTmcInitialItems(projectId));
+  }, [projectId]);
 
   const rows = useMemo(
     () =>
@@ -253,11 +261,50 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       }
     }
     try {
-      localStorage.setItem("gordo_tmc_snapshot", JSON.stringify(items));
+      writeTmcSnapshotToStorage(projectId, items);
+      window.dispatchEvent(new Event("gordo-tmc-saved"));
     } catch {
       /* ignore */
     }
-  }, [items, activeProjectPart]);
+  }, [items, activeProjectPart, projectId]);
+
+  const handleTmcCsvImport = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const { rows, headers } = await parseTmcCsvFile(file);
+        const normalized = normalizeTmcCsvRows(rows, headers);
+        console.log("Строк данных (после поиска шапки):", rows.length);
+        console.log("После фильтра и группировки:", normalized.length);
+
+        if (normalized.length === 0) {
+          setImportStats({
+            total: 0,
+            added: 0,
+            updated: 0,
+            unchanged: 0,
+            skippedInvalid: rows.length,
+          });
+          window.alert(
+            "В файле нет строк с распознаваемым наименованием позиции (или некорректный формат). Смотрите консоль: CSV columns.",
+          );
+          return;
+        }
+
+        const { result, stats } = diffTmcImport(items, normalized, rows.length);
+        setImportStats(stats);
+        setItems(result);
+        writeTmcSnapshotToStorage(projectId, result);
+        window.dispatchEvent(new Event("gordo-tmc-saved"));
+      } catch (err) {
+        console.error(err);
+        window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
+      }
+    },
+    [projectId, items],
+  );
 
   const resetToSeed = useCallback(() => {
     setItems((prev) => {
@@ -353,6 +400,20 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
 
       <div className={`rounded-xl border border-slate-200 bg-white p-3 ${embedded ? "" : "mt-4"}`}>
         <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(ev) => void handleTmcCsvImport(ev)}
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Импорт CSV
+          </button>
           <button
             type="button"
             onClick={openCreate}
@@ -379,6 +440,16 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
             <option value="gray">Нет данных</option>
           </select>
         </div>
+        {importStats ? (
+          <p className="mt-2 text-xs leading-snug text-slate-600">
+            Файл: {importStats.total} записей после разбора.
+            {importStats.skippedInvalid > 0 ? (
+              <> Пропущено строк без наименования: {importStats.skippedInvalid}.</>
+            ) : null}{" "}
+            Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
+            {importStats.unchanged}.
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-4 overflow-x-auto">
