@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { PROJECT_PARTS, partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
@@ -81,7 +82,7 @@ function loadTendersForScope(scope: ConstructionObjectScope): Tender[] {
   let list = mergeTenderSnapshotWithSeed(undefined);
   if (typeof window !== "undefined") {
     try {
-      list = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage());
+      list = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage(getGprProjectId()));
     } catch {
       list = mergeTenderSnapshotWithSeed(undefined);
     }

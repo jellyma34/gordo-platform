@@ -1,4 +1,5 @@
 import { compareGprCodesByNumericPath, daysBetween } from "@/lib/gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 
 /**
  * Реестр тендеров (таблица из PDF закупок услуг).
@@ -182,7 +183,12 @@ export function tenderTrafficLabel(traffic: TenderTraffic): string {
   return "Нет договора";
 }
 
-const STORAGE_KEY = "gordo_tenders_snapshot";
+/** @deprecated Используйте {@link tendersStorageKey} */
+export const LEGACY_TENDER_STORAGE_KEY = "gordo_tenders_snapshot";
+
+export function tendersStorageKey(projectId: string): string {
+  return `tenders_${projectId}`;
+}
 
 export const TENDER_DATA: Tender[] = [
   {
@@ -390,7 +396,8 @@ function coerceIsoOrNull(v: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 }
 
-function coerceTender(row: Record<string, unknown>): Tender | null {
+/** Нормализация сохранённого объекта / импорта в `Tender`. */
+export function coerceTender(row: Record<string, unknown>): Tender | null {
   const id = row.id;
   const code = row.code;
   const name = row.name;
@@ -443,14 +450,25 @@ export function mergeTenderSnapshotWithSeed(snapshot: unknown): Tender[] {
   return parsed.length > 0 ? parsed : TENDER_DATA.map((t) => ({ ...t }));
 }
 
-export function readTenderSnapshotFromStorage(): unknown {
+export function readTenderSnapshotFromStorage(projectId: string = getGprProjectId()): unknown {
   if (typeof window === "undefined") return undefined;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return undefined;
-    return JSON.parse(raw) as unknown;
+    const primary = window.localStorage.getItem(tendersStorageKey(projectId));
+    if (primary) return JSON.parse(primary) as unknown;
+    const legacy = window.localStorage.getItem(LEGACY_TENDER_STORAGE_KEY);
+    if (legacy) return JSON.parse(legacy) as unknown;
+    return undefined;
   } catch {
     return undefined;
+  }
+}
+
+export function writeTenderSnapshotToStorage(projectId: string, snapshot: Tender[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(tendersStorageKey(projectId), JSON.stringify(snapshot));
+  } catch {
+    /* ignore quota */
   }
 }
 
