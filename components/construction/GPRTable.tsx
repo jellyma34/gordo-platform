@@ -38,7 +38,7 @@ import {
 import { filterTaskTree, useTaskFilter, type TaskStatusFilter } from "@/lib/filters/useTaskFilter";
 import { getRelatedDeviations, type RelatedDeviation } from "@/lib/gprRelatedDeviations";
 import type { GprWorkCatalogItem } from "@/lib/gprWorkCatalog";
-import { getTmcData, tmcPlanReferenceDate } from "@/lib/tmcData";
+import { getTmcData, tmcFactReferenceDate, tmcPlanReferenceDate } from "@/lib/tmcData";
 import { GPRWorkTypeCombobox } from "@/components/construction/GPRWorkTypeCombobox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
@@ -554,7 +554,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
         const item = tmcById.get(tmcId);
         if (!item) continue;
         const planRef = tmcPlanReferenceDate(item);
-        const factRef = item.factEnd?.trim() || item.factStart?.trim() || null;
+        const factRef = tmcFactReferenceDate(item);
         const planMs = planRef ? new Date(`${planRef}T00:00:00`).getTime() : NaN;
         const factMs = factRef ? new Date(`${factRef}T00:00:00`).getTime() : null;
         const notPurchasedOverdue = !factRef && Number.isFinite(planMs) && planMs < todayMs;

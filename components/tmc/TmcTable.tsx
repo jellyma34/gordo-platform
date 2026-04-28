@@ -86,10 +86,10 @@ type EditableTmc = {
   itemCode: string;
   name: string;
   gprStage: string;
-  planStart: string;
-  planEnd: string;
-  factStart: string;
-  factEnd: string;
+  supplyPlanDate: string;
+  supplyFactDate: string;
+  contractPlanDate: string;
+  contractFactDate: string;
   planCost: string;
   factCost: string;
 };
@@ -99,10 +99,10 @@ const EMPTY_FORM: EditableTmc = {
   itemCode: "",
   name: "",
   gprStage: "",
-  planStart: "",
-  planEnd: "",
-  factStart: "",
-  factEnd: "",
+  supplyPlanDate: "",
+  supplyFactDate: "",
+  contractPlanDate: "",
+  contractFactDate: "",
   planCost: "",
   factCost: "",
 };
@@ -194,10 +194,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       const merged = mergeGprRowIssues(
         analyzeGprCodeInList(rowAsCode, peersAsCode),
         analyzeFourPlanFactDates({
-          planStart: row.planStart,
-          planEnd: row.planEnd,
-          factStart: row.factStart,
-          factEnd: row.factEnd,
+          planStart: row.supplyPlanDate,
+          planEnd: row.contractPlanDate,
+          factStart: row.supplyFactDate,
+          factEnd: row.contractFactDate,
         }),
       );
       if (merged.errors.length > 0 || merged.warnings.length > 0) m.set(row.id, merged);
@@ -226,10 +226,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       itemCode: row.itemCode,
       name: row.name,
       gprStage: row.gprStage,
-      planStart: row.planStart ?? "",
-      planEnd: row.planEnd ?? "",
-      factStart: row.factStart ?? "",
-      factEnd: row.factEnd ?? "",
+      supplyPlanDate: row.supplyPlanDate ?? "",
+      supplyFactDate: row.supplyFactDate ?? "",
+      contractPlanDate: row.contractPlanDate ?? "",
+      contractFactDate: row.contractFactDate ?? "",
       planCost: String(row.planCost),
       factCost: row.factCost === null ? "" : String(row.factCost),
     });
@@ -249,10 +249,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       const merged = mergeGprRowIssues(
         analyzeGprCodeInList({ id: t.id, code: t.itemCode }, asCodes),
         analyzeFourPlanFactDates({
-          planStart: t.planStart,
-          planEnd: t.planEnd,
-          factStart: t.factStart,
-          factEnd: t.factEnd,
+          planStart: t.supplyPlanDate,
+          planEnd: t.contractPlanDate,
+          factStart: t.supplyFactDate,
+          factEnd: t.contractFactDate,
         }),
       );
       if (merged.errors.length > 0) {
@@ -324,10 +324,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       return;
     }
     if (
-      !isoOrEmptyOk(form.planStart) ||
-      !isoOrEmptyOk(form.planEnd) ||
-      !isoOrEmptyOk(form.factStart) ||
-      !isoOrEmptyOk(form.factEnd)
+      !isoOrEmptyOk(form.supplyPlanDate) ||
+      !isoOrEmptyOk(form.supplyFactDate) ||
+      !isoOrEmptyOk(form.contractPlanDate) ||
+      !isoOrEmptyOk(form.contractFactDate)
     ) {
       window.alert("Даты должны быть пустыми или в формате ГГГГ-ММ-ДД.");
       return;
@@ -342,10 +342,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       gprStage: form.gprStage.trim(),
       planCost: Number(form.planCost) || 0,
       factCost: form.factCost.trim() ? Number(form.factCost) || 0 : null,
-      planStart: form.planStart.trim() || null,
-      planEnd: form.planEnd.trim() || null,
-      factStart: form.factStart.trim() || null,
-      factEnd: form.factEnd.trim() || null,
+      supplyPlanDate: form.supplyPlanDate.trim() || null,
+      supplyFactDate: form.supplyFactDate.trim() || null,
+      contractPlanDate: form.contractPlanDate.trim() || null,
+      contractFactDate: form.contractFactDate.trim() || null,
       projectPart: editingId
         ? items.find((x) => x.id === editingId)?.projectPart ?? activeProjectPart
         : activeProjectPart,
@@ -358,10 +358,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         { id: probeRow.id, code: probeRow.itemCode },
       ]),
       analyzeFourPlanFactDates({
-        planStart: probeRow.planStart,
-        planEnd: probeRow.planEnd,
-        factStart: probeRow.factStart,
-        factEnd: probeRow.factEnd,
+        planStart: probeRow.supplyPlanDate,
+        planEnd: probeRow.contractPlanDate,
+        factStart: probeRow.supplyFactDate,
+        factEnd: probeRow.contractFactDate,
       }),
     );
     if (merged.errors.length > 0) {
@@ -456,19 +456,45 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         <table className="min-w-full border-separate border-spacing-y-2 text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500">
-              <th className="px-3 py-2">Код</th>
-              <th className="px-3 py-2">Название</th>
-              <th className="px-3 py-2">Этап ГПР</th>
-              <th className="px-3 py-2">Цикл</th>
-              <th className="px-3 py-2">План нач.</th>
-              <th className="px-3 py-2">План кон.</th>
-              <th className="px-3 py-2">Факт нач.</th>
-              <th className="px-3 py-2">Факт кон.</th>
-              <th className="px-3 py-2">План ₽</th>
-              <th className="px-3 py-2">Факт ₽</th>
-              <th className="px-3 py-2">Отклонение</th>
-              <th className="px-3 py-2">Статус</th>
-              <th className="px-3 py-2 text-right">Действия</th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Код
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Название
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Этап ГПР
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Цикл
+              </th>
+              <th colSpan={2} className="px-3 py-2 text-center">
+                Дата поставки
+              </th>
+              <th colSpan={2} className="px-3 py-2 text-center">
+                Дата договора
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                План ₽
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Факт ₽
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Отклонение
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Статус
+              </th>
+              <th rowSpan={2} className="px-3 py-2 text-right align-bottom">
+                Действия
+              </th>
+            </tr>
+            <tr className="text-left text-xs text-slate-500">
+              <th className="px-3 py-2">План</th>
+              <th className="px-3 py-2">Факт</th>
+              <th className="px-3 py-2">План</th>
+              <th className="px-3 py-2">Факт</th>
             </tr>
           </thead>
           <tbody>
@@ -495,10 +521,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                   <td className="px-3 py-3 font-medium">{row.name}</td>
                   <td className="px-3 py-3 text-slate-600">{row.gprStage}</td>
                   <td className="px-3 py-3 text-xs text-slate-700">{tmcLifecycleLabel(row)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.planStart)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.planEnd)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.factStart)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.factEnd)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.supplyPlanDate)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.supplyFactDate)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.contractPlanDate)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatStoredDateForUi(row.contractFactDate)}</td>
                   <td className="px-3 py-3 tabular-nums">{(row.planCost / 1_000_000).toFixed(2)} млн</td>
                   <td className="px-3 py-3 tabular-nums">
                     {row.factCost === null ? "—" : `${(row.factCost / 1_000_000).toFixed(2)} млн`}
@@ -578,27 +604,27 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 md:col-span-2"
               />
               <GprDateField
-                value={form.planStart}
-                onIso={(iso) => setForm((p) => ({ ...p, planStart: iso }))}
-                title="План: начало"
+                value={form.supplyPlanDate}
+                onIso={(iso) => setForm((p) => ({ ...p, supplyPlanDate: iso }))}
+                title="Дата поставки: план"
                 fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <GprDateField
-                value={form.planEnd}
-                onIso={(iso) => setForm((p) => ({ ...p, planEnd: iso }))}
-                title="План: окончание"
+                value={form.supplyFactDate}
+                onIso={(iso) => setForm((p) => ({ ...p, supplyFactDate: iso }))}
+                title="Дата поставки: факт"
                 fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <GprDateField
-                value={form.factStart}
-                onIso={(iso) => setForm((p) => ({ ...p, factStart: iso }))}
-                title="Факт: начало"
+                value={form.contractPlanDate}
+                onIso={(iso) => setForm((p) => ({ ...p, contractPlanDate: iso }))}
+                title="Дата договора: план"
                 fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <GprDateField
-                value={form.factEnd}
-                onIso={(iso) => setForm((p) => ({ ...p, factEnd: iso }))}
-                title="Факт: окончание"
+                value={form.contractFactDate}
+                onIso={(iso) => setForm((p) => ({ ...p, contractFactDate: iso }))}
+                title="Дата договора: факт"
                 fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
               <input

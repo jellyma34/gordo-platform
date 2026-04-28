@@ -22,10 +22,10 @@ export function tmcComparableFingerprint(t: TMCItem): string {
     gprStage: String(t.gprStage ?? "").trim(),
     planCost: t.planCost ?? 0,
     factCost: t.factCost ?? null,
-    planStart: t.planStart ?? null,
-    planEnd: t.planEnd ?? null,
-    factStart: t.factStart ?? null,
-    factEnd: t.factEnd ?? null,
+    supplyPlanDate: t.supplyPlanDate ?? null,
+    supplyFactDate: t.supplyFactDate ?? null,
+    contractPlanDate: t.contractPlanDate ?? null,
+    contractFactDate: t.contractFactDate ?? null,
     projectPart: (t.projectPart ?? "residential") as ProjectPartKey,
   });
 }

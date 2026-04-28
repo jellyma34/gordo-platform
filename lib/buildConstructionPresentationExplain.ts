@@ -573,7 +573,8 @@ export function buildConstructionPresentationExplain(
     },
     {
       name: "Отклонение по дате (поставка)",
-      formula: "Δ = day(fact_ref) − day(plan_ref); plan_ref = planStart|planEnd, fact_ref = factEnd|factStart",
+      formula:
+        "Δ = day(fact_ref) − day(plan_ref); plan_ref = supplyPlanDate|contractPlanDate, fact_ref = contractFactDate|supplyFactDate",
       variables: sampleTmc
         ? [
             { symbol: "plan_ref", label: "опорная плановая дата", value: tmcPlanReferenceDate(sampleTmc) ?? "—" },

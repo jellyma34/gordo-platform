@@ -69,13 +69,13 @@ export const normalizeDate = normalizeImportedDate;
 
 export type TmcDateColumnContext = {
   headers: string[];
-  /** Дата поставки план → planStart */
+  /** Дата поставки план → supplyPlanDate */
   deliveryPlanIdx: number;
-  /** Дата поставки факт → factStart */
+  /** Дата поставки факт → supplyFactDate */
   deliveryFactIdx: number;
-  /** Дата договора план → planEnd */
+  /** Дата договора план → contractPlanDate */
   contractPlanIdx: number;
-  /** Дата договора факт → factEnd */
+  /** Дата договора факт → contractFactDate */
   contractFactIdx: number;
   /**
    * Четыре даты подряд после колонки «Этап»: план поставки, факт поставки, план договора, факт договора.
@@ -139,8 +139,8 @@ function buildTmcDateColumnContext(headers: string[]): TmcDateColumnContext {
       headers,
       stageIdx,
       relativeToStage,
-      planStartIdx: deliveryPlanIdx,
-      factStartIdx: deliveryFactIdx,
+      supplyPlanIdx: deliveryPlanIdx,
+      supplyFactIdx: deliveryFactIdx,
       contractPlanIdx,
       contractFactIdx,
     });
@@ -510,21 +510,21 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
     "Код ГПР",
   ]);
 
-  let planStart: string | null = null;
-  let planEnd: string | null = null;
-  let factStart: string | null = null;
-  let factEnd: string | null = null;
+  let supplyPlanDate: string | null = null;
+  let contractPlanDate: string | null = null;
+  let supplyFactDate: string | null = null;
+  let contractFactDate: string | null = null;
 
   if (dateCtx) {
     const { headers, relativeToStage } = dateCtx;
 
     if (relativeToStage) {
-      planStart = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryPlanIdx));
-      factStart = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryFactIdx));
-      planEnd = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractPlanIdx));
-      factEnd = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractFactIdx));
+      supplyPlanDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryPlanIdx));
+      supplyFactDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryFactIdx));
+      contractPlanDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractPlanIdx));
+      contractFactDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractFactIdx));
     } else {
-      planStart =
+      supplyPlanDate =
         normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryPlanIdx)) ??
         firstDateByHeaderPatterns(row, [
           ["дата", "постав", "план"],
@@ -532,7 +532,7 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
           ["план", "нач"],
           ["начало", "план"],
         ]);
-      factStart =
+      supplyFactDate =
         normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryFactIdx)) ??
         firstDateByHeaderPatterns(row, [
           ["дата", "постав", "факт"],
@@ -540,14 +540,14 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
           ["факт", "нач"],
           ["начало", "факт"],
         ]);
-      planEnd =
+      contractPlanDate =
         normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractPlanIdx)) ??
         firstDateByHeaderPatterns(row, [
           ["дата", "договор", "план"],
           ["договор", "план"],
           ["план", "договор"],
         ]);
-      factEnd =
+      contractFactDate =
         normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractFactIdx)) ??
         firstDateByHeaderPatterns(row, [
           ["дата", "договор", "факт"],
@@ -556,22 +556,22 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
         ]);
     }
   } else {
-    planStart = firstDateByHeaderPatterns(row, [
+    supplyPlanDate = firstDateByHeaderPatterns(row, [
       ["план", "нач"],
       ["начало", "план"],
       ["дата", "план"],
     ]);
-    factStart = firstDateByHeaderPatterns(row, [
+    supplyFactDate = firstDateByHeaderPatterns(row, [
       ["факт", "нач"],
       ["начало", "факт"],
       ["дата", "факт"],
     ]);
-    planEnd = firstDateByHeaderPatterns(row, [
+    contractPlanDate = firstDateByHeaderPatterns(row, [
       ["план", "кон"],
       ["окончание", "план"],
       ["план", "оконч"],
     ]);
-    factEnd = firstDateByHeaderPatterns(row, [
+    contractFactDate = firstDateByHeaderPatterns(row, [
       ["факт", "кон"],
       ["окончание", "факт"],
     ]);
@@ -644,10 +644,10 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
     itemCodeRaw,
     planCost,
     factCost,
-    planStart,
-    planEnd,
-    factStart,
-    factEnd,
+    supplyPlanDate,
+    contractPlanDate,
+    supplyFactDate,
+    contractFactDate,
     projectPart,
   };
 }
@@ -658,10 +658,10 @@ type TmcGroupAcc = {
   planCost: number;
   factCostSum: number;
   factRowCount: number;
-  planStart: string | null;
-  planEnd: string | null;
-  factStart: string | null;
-  factEnd: string | null;
+  supplyPlanDate: string | null;
+  contractPlanDate: string | null;
+  supplyFactDate: string | null;
+  contractFactDate: string | null;
   itemCode: string;
   projectPart: ProjectPartKey;
   id: string;
@@ -717,10 +717,10 @@ export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: s
         planCost: 0,
         factCostSum: 0,
         factRowCount: 0,
-        planStart: null,
-        planEnd: null,
-        factStart: null,
-        factEnd: null,
+        supplyPlanDate: null,
+        contractPlanDate: null,
+        supplyFactDate: null,
+        contractFactDate: null,
         itemCode: "",
         projectPart: slice.projectPart,
         id: newIdFallback(synth),
@@ -734,10 +734,10 @@ export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: s
       acc.factRowCount += 1;
     }
 
-    acc.planStart = mergeIsoMin(acc.planStart, slice.planStart);
-    acc.planEnd = mergeIsoMax(acc.planEnd, slice.planEnd);
-    acc.factStart = mergeIsoMin(acc.factStart, slice.factStart);
-    acc.factEnd = mergeIsoMax(acc.factEnd, slice.factEnd);
+    acc.supplyPlanDate = mergeIsoMin(acc.supplyPlanDate, slice.supplyPlanDate);
+    acc.contractPlanDate = mergeIsoMax(acc.contractPlanDate, slice.contractPlanDate);
+    acc.supplyFactDate = mergeIsoMin(acc.supplyFactDate, slice.supplyFactDate);
+    acc.contractFactDate = mergeIsoMax(acc.contractFactDate, slice.contractFactDate);
 
     if (!acc.itemCode.trim() && slice.itemCodeRaw.trim()) {
       acc.itemCode = slice.itemCodeRaw.trim();
@@ -760,10 +760,10 @@ export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: s
       gprStage: acc.gprStage,
       planCost: acc.planCost,
       factCost,
-      planStart: acc.planStart,
-      planEnd: acc.planEnd,
-      factStart: acc.factStart,
-      factEnd: acc.factEnd,
+      supplyPlanDate: acc.supplyPlanDate,
+      contractPlanDate: acc.contractPlanDate,
+      supplyFactDate: acc.supplyFactDate,
+      contractFactDate: acc.contractFactDate,
       projectPart: acc.projectPart,
     });
   }

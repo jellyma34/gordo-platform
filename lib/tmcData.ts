@@ -9,10 +9,14 @@ export type TMCItem = {
   gprStage: string;
   planCost: number;
   factCost: number | null;
-  planStart: string | null;
-  planEnd: string | null;
-  factStart: string | null;
-  factEnd: string | null;
+  /** Дата поставки по плану. */
+  supplyPlanDate: string | null;
+  /** Дата поставки по факту. */
+  supplyFactDate: string | null;
+  /** Дата договора по плану. */
+  contractPlanDate: string | null;
+  /** Дата договора по факту. */
+  contractFactDate: string | null;
   /** Часть проекта: жилой дом или автостоянка. */
   projectPart: ProjectPartKey;
 };
@@ -26,11 +30,11 @@ export const TMC_GPR_STAGE_ROOT_CODE: Record<string, string> = {
 };
 
 export function tmcPlanReferenceDate(item: TMCItem): string | null {
-  return item.planStart?.trim() || item.planEnd?.trim() || null;
+  return item.supplyPlanDate?.trim() || item.contractPlanDate?.trim() || null;
 }
 
 export function tmcFactReferenceDate(item: TMCItem): string | null {
-  return item.factEnd?.trim() || item.factStart?.trim() || null;
+  return item.contractFactDate?.trim() || item.supplyFactDate?.trim() || null;
 }
 
 export function tmcLifecycleLabel(item: TMCItem): string {
@@ -72,10 +76,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Строительство зданий и сооружений",
     planCost: 4_200_000,
     factCost: 3_980_000,
-    planStart: "2025-09-10",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2025-09-08",
+    supplyPlanDate: "2025-09-10",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2025-09-08",
   },
   {
     id: "tmc-02",
@@ -84,10 +88,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Строительство зданий и сооружений",
     planCost: 2_500_000,
     factCost: 2_710_000,
-    planStart: "2025-10-01",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2025-10-12",
+    supplyPlanDate: "2025-10-01",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2025-10-12",
   },
   {
     id: "tmc-03",
@@ -96,10 +100,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Устройство сетей",
     planCost: 3_100_000,
     factCost: 3_550_000,
-    planStart: "2025-11-05",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2025-11-28",
+    supplyPlanDate: "2025-11-05",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2025-11-28",
   },
   {
     id: "tmc-04",
@@ -108,10 +112,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Устройство сетей",
     planCost: 2_800_000,
     factCost: null,
-    planStart: "2025-11-20",
-    planEnd: null,
-    factStart: null,
-    factEnd: null,
+    supplyPlanDate: "2025-11-20",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: null,
   },
   {
     id: "tmc-05",
@@ -120,10 +124,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Благоустройство",
     planCost: 980_000,
     factCost: 940_000,
-    planStart: "2026-04-12",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2026-04-10",
+    supplyPlanDate: "2026-04-12",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2026-04-10",
   },
   {
     id: "tmc-06",
@@ -132,10 +136,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Благоустройство",
     planCost: 1_670_000,
     factCost: 1_695_000,
-    planStart: "2026-04-25",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2026-05-03",
+    supplyPlanDate: "2026-04-25",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2026-05-03",
   },
   {
     id: "tmc-07",
@@ -144,10 +148,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Подготовка территории",
     planCost: 1_250_000,
     factCost: 1_210_000,
-    planStart: "2025-08-15",
-    planEnd: null,
-    factStart: null,
-    factEnd: "2025-08-14",
+    supplyPlanDate: "2025-08-15",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: "2025-08-14",
   },
   {
     id: "tmc-08",
@@ -156,10 +160,10 @@ const RESIDENTIAL_SEED: Omit<TMCItem, "projectPart">[] = [
     gprStage: "Подготовка территории",
     planCost: 890_000,
     factCost: null,
-    planStart: "2025-08-20",
-    planEnd: null,
-    factStart: null,
-    factEnd: null,
+    supplyPlanDate: "2025-08-20",
+    contractPlanDate: null,
+    supplyFactDate: null,
+    contractFactDate: null,
   },
 ];
 
@@ -172,10 +176,10 @@ const PARKING_SEED: Omit<TMCItem, "projectPart">[] = RESIDENTIAL_SEED.map((r) =>
   id: `tmc-p-${r.id.replace("tmc-", "")}`,
 })).map((row) => {
   if (row.id === "tmc-p-04") {
-    return { ...row, factCost: 1_400_000, factEnd: "2025-11-25" };
+    return { ...row, factCost: 1_400_000, contractFactDate: "2025-11-25" };
   }
   if (row.id === "tmc-p-08") {
-    return { ...row, factCost: 600_000, factEnd: "2025-08-18" };
+    return { ...row, factCost: 600_000, contractFactDate: "2025-08-18" };
   }
   return row;
 });
@@ -215,10 +219,16 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
   const legacyPlan = typeof o.planDate === "string" ? o.planDate.trim() : null;
   const legacyFact = o.factDate === null || o.factDate === undefined ? null : coerceIsoNullable(o.factDate);
 
-  const planStart = coerceIsoNullable(o.planStart) ?? (legacyPlan && /^\d{4}-\d{2}-\d{2}$/.test(legacyPlan) ? legacyPlan : null);
-  const planEnd = coerceIsoNullable(o.planEnd);
-  const factStart = coerceIsoNullable(o.factStart);
-  const factEnd = coerceIsoNullable(o.factEnd) ?? legacyFact;
+  const supplyPlanDate =
+    coerceIsoNullable(o.supplyPlanDate) ??
+    coerceIsoNullable(o.planStart) ??
+    (legacyPlan && /^\d{4}-\d{2}-\d{2}$/.test(legacyPlan) ? legacyPlan : null);
+  const contractPlanDate =
+    coerceIsoNullable(o.contractPlanDate) ?? coerceIsoNullable(o.planEnd);
+  const supplyFactDate =
+    coerceIsoNullable(o.supplyFactDate) ?? coerceIsoNullable(o.factStart);
+  const contractFactDate =
+    coerceIsoNullable(o.contractFactDate) ?? coerceIsoNullable(o.factEnd) ?? legacyFact;
 
   if (!id || !name || !gprStage) return null;
 
@@ -246,10 +256,10 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
     gprStage,
     planCost,
     factCost,
-    planStart,
-    planEnd,
-    factStart,
-    factEnd,
+    supplyPlanDate,
+    contractPlanDate,
+    supplyFactDate,
+    contractFactDate,
     projectPart,
   };
 }
