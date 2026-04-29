@@ -1,8 +1,15 @@
 /**
- * Разбор экспорта отчёта ГПР (разделитель `;`, локаль ru-RU).
+ * Разбор экспорта отчёта ГПР: разделитель `;`, BOM снимается до разбивки по строкам.
+ * Колонка 0 — шифр, колонка 1 — наименование; даты/прогресс — по фиксированным индексам при наличии ячеек.
  */
 
+import { normalizeCode } from "@/lib/gprUtils";
+
 export type GprReportCsvRow = {
+  /** Индекс строки в массиве после `split(/\r?\n/)` (0-based). */
+  sourceRowIndex: number;
+  /** Последний объявленный в файле объект (заголовок секции без шифра в первой колонке). */
+  objectType: string;
   rawCode: string;
   code: string;
   name: string;
@@ -12,33 +19,6 @@ export type GprReportCsvRow = {
   factEnd: string | null;
   completion: number;
 };
-
-/** Разбор строки CSV с разделителем `;` и кавычками RFC-style (удвоение "). */
-export function splitCsvSemicolon(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        cur += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (!inQuotes && c === ";") {
-      out.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += c;
-  }
-  out.push(cur);
-  return out.map((s) => s.trim());
-}
 
 const RU_DATE_RE = /^(\d{2})\.(\d{2})\.(\d{4})$/;
 
@@ -53,6 +33,7 @@ export function ruDateCellToIsoOrNull(cell: string | undefined): string | null {
   const yyyy = m[3]!;
   if (yyyy === "1900") return null;
   if (dd === "00" || mm === "00") return null;
+  if (raw.includes("00.01.1900")) return null;
   const d = Number(dd);
   const mo = Number(mm);
   const y = Number(yyyy);
@@ -71,76 +52,121 @@ function parseCompletionCell(raw: string | undefined): number {
   return Math.round(n * 100) / 100;
 }
 
-function detectPlanStartIdx(lines: string[]): number {
-  const subLine =
-    lines.find((l) => l.includes("Дата начала") && l.includes("Длительность")) ?? "";
-  const sub = splitCsvSemicolon(subLine);
-  const idx = sub.findIndex((c) => c.includes("Дата начала"));
-  return idx >= 0 ? idx : 10;
+/**
+ * Нормализация шифра после чтения из CSV (часто «2.06.01.» с точкой в конце).
+ */
+export function normalizeGprWorkCodeFromCsvRaw(rawInput: unknown): string | null {
+  const s = String(rawInput ?? "").trim().replace(/\.+$/, "");
+  const parts = s.split(".").filter(Boolean);
+  if (parts.length < 2) return null;
+  return parts.join(".");
 }
 
-/** Строка данных: первый столбец — шифр вида «2.05.01.». */
-function looksLikeGprCodeCell(cell: string): boolean {
-  const t = cell.trim();
+function extractCodeDigitsFallback(raw: string): string | null {
+  const digitsOnly = raw.replace(/[^\d.]/g, "").replace(/\.+$/, "");
+  const parts = digitsOnly.split(".").filter(Boolean);
+  if (parts.length < 2) return null;
+  return parts.join(".");
+}
+
+function ensureWorkCode(rawTrimmed: string, rowIndex: number): string {
+  const normalized = normalizeGprWorkCodeFromCsvRaw(rawTrimmed);
+  if (normalized) return normalized;
+  const digits = extractCodeDigitsFallback(rawTrimmed);
+  if (digits) return digits;
+  return `9.99.${rowIndex + 1}`;
+}
+
+/** Типичная разметка экспорта ГПР: план/факт начиная с 10-й колонки; без проверки `cols.length`. */
+const PLAN_START_IDX = 10;
+
+/**
+ * Строка задачи: первая колонка похожа на шифр (`2.05.01`), не дата ДД.ММ.ГГГГ.
+ * Строки вроде «Жилой дом» сюда не попадают — это заголовки секций (`currentObject`).
+ */
+function firstCellLooksLikeTaskCode(cell: string): boolean {
+  const rawTrim = cell.trim();
+  if (RU_DATE_RE.test(rawTrim)) return false;
+  const t = normalizeCode(cell);
+  if (!t) return false;
   return /^\d+\.\d+/.test(t);
 }
 
-/**
- * Извлекает строки отчёта. Ошибки разбора по строке не прерывают весь импорт.
- */
-export function parseGprReportCsv(text: string): GprReportCsvRow[] {
-  const normalized = text.replace(/^\uFEFF/, "");
-  const lines = normalized.split(/\r?\n/).filter((l) => l.length > 0);
-  if (lines.length === 0) return [];
-
-  const planStartIdx = detectPlanStartIdx(lines);
-  const progressIdx = planStartIdx + 6;
-
-  const out: GprReportCsvRow[] = [];
-
-  for (const line of lines) {
-    try {
-      const cols = splitCsvSemicolon(line);
-      const rawCode = cols[0]?.trim() ?? "";
-      if (!looksLikeGprCodeCell(rawCode)) continue;
-
-      const rawClean = rawCode.replace(/\s+/g, "");
-      const codeDigits = rawClean.replace(/[^\d.]/g, "");
-      const segments = codeDigits.split(".").filter((p) => p.length > 0);
-      if (segments.length < 2) continue;
-
-      const code = segments.join(".");
-
-      let name = (cols[1] ?? "").trim();
-      if (!name) name = code;
-
-      const planStart = ruDateCellToIsoOrNull(cols[planStartIdx]);
-      const planEnd = ruDateCellToIsoOrNull(cols[planStartIdx + 1]);
-      const factStart = ruDateCellToIsoOrNull(cols[planStartIdx + 3]);
-      const factEnd = ruDateCellToIsoOrNull(cols[planStartIdx + 4]);
-
-      const completion = parseCompletionCell(cols[progressIdx]);
-
-      out.push({
-        rawCode: rawClean,
-        code,
-        name,
-        planStart,
-        planEnd,
-        factStart,
-        factEnd,
-        completion,
-      });
-    } catch {
-      /* строка пропущена */
-    }
-  }
-
-  return dedupeByCodeLastWins(out);
+/** Текст названия секции из строки без шифра в первой колонке. */
+function sectionTitleFromCols(cols: string[]): string {
+  return cols.filter((c) => c.length > 0).join(" ").trim();
 }
 
-function dedupeByCodeLastWins(rows: GprReportCsvRow[]): GprReportCsvRow[] {
-  const map = new Map<string, GprReportCsvRow>();
-  for (const r of rows) map.set(r.code, r);
-  return [...map.values()];
+export type ParseGprReportCsvResult = {
+  rows: GprReportCsvRow[];
+  /** Число строк после `split(/\r?\n/)` (включая пустые). */
+  csvPapaRowCount: number;
+};
+
+/**
+ * Разбор: только `;`, BOM, строки через `split(/\r?\n/)`.
+ * Пропускаются только полностью пустые строки (после trim).
+ * Строка без шифра в первой колонке задаёт объект (`currentObject`), задачи не создаёт.
+ */
+export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResult {
+  const normalized = text.replace(/^\uFEFF/, "");
+  const rows = normalized.split(/\r?\n/);
+
+  console.log("TOTAL ROWS:", rows.length);
+
+  const out: GprReportCsvRow[] = [];
+  let currentObject = "";
+
+  for (let i = 0; i < rows.length; i++) {
+    const line = rows[i]!;
+    if (line.trim() === "") continue;
+
+    const cols = line.split(";").map((c) => c.trim());
+    const firstCell = (cols[0] ?? "").trim();
+
+    if (!firstCellLooksLikeTaskCode(firstCell)) {
+      const title = sectionTitleFromCols(cols);
+      if (title.length > 0) {
+        currentObject = title;
+      }
+      continue;
+    }
+
+    const rawCode = cols[0] ?? "";
+    const nameCell = cols[1] ?? "";
+
+    const rawTrimmed = normalizeCode(String(rawCode));
+    const code = ensureWorkCode(rawTrimmed, i);
+    const rawClean = code;
+
+    let name = String(nameCell).trim();
+    if (!name) name = code;
+
+    const planStart = ruDateCellToIsoOrNull(cols[PLAN_START_IDX]);
+    const planEnd = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 1]);
+    const factStart = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 3]);
+    const factEnd = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 4]);
+    const completion = parseCompletionCell(cols[PLAN_START_IDX + 6]);
+
+    out.push({
+      sourceRowIndex: i,
+      objectType: currentObject,
+      rawCode: rawClean,
+      code,
+      name,
+      planStart,
+      planEnd,
+      factStart,
+      factEnd,
+      completion,
+    });
+  }
+
+  console.log("PARSED TASKS:", out.length);
+
+  return { rows: out, csvPapaRowCount: rows.length };
+}
+
+export function parseGprReportCsv(text: string): GprReportCsvRow[] {
+  return parseGprReportCsvWithStats(text).rows;
 }

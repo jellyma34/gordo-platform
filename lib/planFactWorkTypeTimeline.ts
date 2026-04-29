@@ -1,4 +1,13 @@
-import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
+import {
+  compareGprCodesByNumericPath,
+  gprPlanFactCompositeKey,
+  gprPlanFactScopeFromTask,
+  matchesGprCodeBranch,
+  normalizeGprCodeFinal,
+  parseDateSafe,
+  type GPRTask,
+  type ProjectPartKey,
+} from "@/lib/gprUtils";
 import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
 
@@ -40,12 +49,11 @@ const WORK_TYPE_GROUPS: Record<
   { key: string; label: string; match: (code: string) => boolean }[]
 > = {
   residential: [
-    { key: "prep", label: "Подготовка", match: (c) => c === "2.04" || c.startsWith("2.04.") },
-    { key: "build", label: "Строительство", match: (c) => c === "2.05" || c.startsWith("2.05.") },
+    { key: "build", label: "Строительство", match: (c) => normalizeGprCodeFinal(c).startsWith("2.05") },
   ],
   parking: [
-    { key: "net", label: "Инженерные сети", match: (c) => c === "2.06" || c.startsWith("2.06.") },
-    { key: "improve", label: "Благоустройство", match: (c) => c === "2.07" || c.startsWith("2.07.") },
+    { key: "net", label: "Инженерные сети", match: (c) => matchesGprCodeBranch(c, "2.06") },
+    { key: "improve", label: "Благоустройство", match: (c) => matchesGprCodeBranch(c, "2.07") },
   ],
 };
 
@@ -68,7 +76,9 @@ export function buildPlanFactWorkTypeRows(
   return groups.map((g) => ({
     key: g.key,
     label: g.label,
-    bounds: aggregateWorksToProjectPlanFactBounds(tasks.filter((t) => g.match(t.code.trim()))),
+    bounds: aggregateWorksToProjectPlanFactBounds(
+      tasks.filter((t) => g.match(normalizeGprCodeFinal(t.code))),
+    ),
   }));
 }
 
@@ -94,22 +104,28 @@ function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
+function isoDayMs(iso: string | null | undefined): number | null {
+  const s = parseDateSafe(iso ?? undefined);
+  if (!s) return null;
+  const ms = new Date(`${s}T12:00:00`).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export type PlanFactWorkTypeRowDetail = {
   planStart: string;
   planEnd: string;
   factStart: string | null;
   factEnd: string | null;
+  /** Ложь — только серые полосы «нет данных», без отсева задачи. */
+  hasDates?: boolean;
 };
 
 export type PlanFactWorkTypeChartModel = {
-  /** Подписи по Y. */
   labels: string[];
-  /** [x0, x1] плана в единицах `monthFloat` (от `originMonth`). */
   planRanges: Array<[number, number] | null>;
   factRanges: Array<[number, number] | null>;
   planColors: string[];
   factColors: string[];
-  /** Исходные даты для подсказки. */
   rowDetails: PlanFactWorkTypeRowDetail[];
   originMonth: Date;
   xMin: number;
@@ -117,8 +133,155 @@ export type PlanFactWorkTypeChartModel = {
   todayX: number | null;
 };
 
+const PLAN_BAR = "rgba(148, 163, 184, 0.5)";
+const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
+const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
+const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
+
+function buildResidential205PlanFactChartModel(
+  tasks: GPRTask[],
+  todayIso: string,
+): PlanFactWorkTypeChartModel | null {
+  const list = tasks
+    .filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"))
+    .sort((a, b) => {
+      const cmp = compareGprCodesByNumericPath(a.code, b.code);
+      if (cmp !== 0) return cmp;
+      return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
+    });
+
+  if (list.length === 0) return null;
+
+  const today = new Date(`${todayIso.trim()}T12:00:00`);
+  if (Number.isNaN(today.getTime())) return null;
+
+  type Entry = {
+    task: GPRTask;
+    label: string;
+    hasDates: boolean;
+    ps: string | null;
+    pe: string | null;
+    fs: string | null;
+    fe: string | null;
+  };
+
+  const entries: Entry[] = [];
+  const allDates: string[] = [];
+
+  for (const task of list) {
+    const ps = parseDateSafe(task.planStart);
+    const pe = parseDateSafe(task.planEnd);
+    const fs = parseDateSafe(task.factStart);
+    const fe = parseDateSafe(task.factEnd);
+    const psm = isoDayMs(ps);
+    const pem = isoDayMs(pe);
+    const hasDates = Boolean(psm != null && pem != null && pem >= psm);
+    const scope = gprPlanFactScopeFromTask(task);
+    const nm = task.name.length > 52 ? `${task.name.slice(0, 49)}…` : task.name;
+    const label = `${scope}_${task.code} · ${nm}`;
+    entries.push({ task, label, hasDates, ps, pe, fs, fe });
+    if (hasDates && ps && pe) {
+      allDates.push(ps, pe);
+      if (fs) allDates.push(fs);
+      if (fe) allDates.push(fe);
+    }
+  }
+
+  let originMonth: Date;
+  let maxD: Date;
+
+  if (allDates.length > 0) {
+    const parsed = allDates
+      .map((s) => new Date(`${s.trim()}T12:00:00`))
+      .filter((d) => !Number.isNaN(d.getTime()));
+    const minD = new Date(Math.min(...parsed.map((d) => d.getTime())));
+    maxD = new Date(Math.max(...parsed.map((d) => d.getTime())));
+    if (maxD.getTime() < today.getTime()) maxD = today;
+    originMonth = startOfMonth(minD);
+  } else {
+    originMonth = startOfMonth(today);
+    maxD = today;
+  }
+
+  const todayF = monthFloatFromIso(todayIso, originMonth);
+
+  const labels: string[] = [];
+  const planRanges: Array<[number, number] | null> = [];
+  const factRanges: Array<[number, number] | null> = [];
+  const planColors: string[] = [];
+  const factColors: string[] = [];
+  const rowDetails: PlanFactWorkTypeRowDetail[] = [];
+
+  for (const e of entries) {
+    labels.push(e.label);
+    rowDetails.push({
+      planStart: e.ps ?? "",
+      planEnd: e.pe ?? "",
+      factStart: e.fs,
+      factEnd: e.fe,
+      hasDates: e.hasDates,
+    });
+
+    const anchor = todayF ?? 0.5;
+
+    if (e.hasDates && e.ps && e.pe) {
+      const pfS = monthFloatFromIso(e.ps, originMonth);
+      const pfE = monthFloatFromIso(e.pe, originMonth);
+      if (pfS != null && pfE != null && pfE >= pfS) {
+        planRanges.push([pfS, pfE]);
+        planColors.push(PLAN_BAR);
+        if (e.fs && e.fe) {
+          const ffS = monthFloatFromIso(e.fs, originMonth);
+          const ffE = monthFloatFromIso(e.fe, originMonth);
+          if (ffS != null && ffE != null && ffE >= ffS) {
+            factRanges.push([ffS, ffE]);
+            factColors.push(overviewFactBarColor(e.ps, e.pe, e.fs, e.fe));
+          } else {
+            factRanges.push(null);
+            factColors.push(FACT_WEAK);
+          }
+        } else {
+          factRanges.push(null);
+          factColors.push(FACT_WEAK);
+        }
+      } else {
+        planRanges.push([anchor - 0.1, anchor + 0.1]);
+        planColors.push(NO_DATE_PLAN);
+        factRanges.push(null);
+        factColors.push(NO_DATE_FACT);
+      }
+    } else {
+      planRanges.push([anchor - 0.12, anchor + 0.12]);
+      planColors.push(NO_DATE_PLAN);
+      factRanges.push(null);
+      factColors.push(NO_DATE_FACT);
+    }
+  }
+
+  const yMax = maxD.getFullYear();
+  const mMax = String(maxD.getMonth() + 1).padStart(2, "0");
+  const dMax = String(maxD.getDate()).padStart(2, "0");
+  let xMax = monthFloatFromIso(`${yMax}-${mMax}-${dMax}`, originMonth) ?? 1;
+  if (todayF != null && todayF > xMax) xMax = todayF;
+  xMax = Math.max(xMax + 0.25, 0.5);
+
+  return {
+    labels,
+    planRanges,
+    factRanges,
+    planColors,
+    factColors,
+    rowDetails,
+    originMonth,
+    xMin: 0,
+    xMax,
+    todayX: todayF,
+  };
+}
+
 /**
- * Модель для горизонтального bar-chart: план/факт по видам работ, ось X — дробные месяцы, подписи «Янв 26».
+ * Модель горизонтального bar-chart «План vs факт».
+ * Для «Жилой дом» и «Проект» — по одной строке на каждую задачу с шифром `2.05*` (вложенные `2.05.01.1` и т.д.), только фильтр `code.startsWith('2.05')` после нормализации.
  */
 export function buildPlanFactWorkTypeChartModel(
   tasks: GPRTask[],
@@ -126,6 +289,10 @@ export function buildPlanFactWorkTypeChartModel(
   todayIso: string,
 ): PlanFactWorkTypeChartModel | null {
   if (!Array.isArray(tasks) || tasks.length === 0) return null;
+
+  if (partKey === "residential" || partKey === "project") {
+    return buildResidential205PlanFactChartModel(tasks, todayIso);
+  }
 
   const rows = buildPlanFactWorkTypeRows(tasks, partKey).filter((r) => r.bounds != null);
   if (rows.length === 0) return null;
@@ -155,7 +322,6 @@ export function buildPlanFactWorkTypeChartModel(
   const planColors: string[] = [];
   const factColors: string[] = [];
   const rowDetails: PlanFactWorkTypeRowDetail[] = [];
-  const PLAN = "rgba(148, 163, 184, 0.5)";
 
   for (const r of rows) {
     const b = r.bounds;
@@ -166,12 +332,13 @@ export function buildPlanFactWorkTypeChartModel(
     if (pe < ps) continue;
     planRanges.push([ps, pe]);
     labels.push(r.label);
-    planColors.push(PLAN);
+    planColors.push(PLAN_BAR);
     rowDetails.push({
       planStart: b.planStart,
       planEnd: b.planEnd,
       factStart: b.factStart,
       factEnd: b.factEnd,
+      hasDates: true,
     });
 
     if (b.factStart && b.factEnd) {
@@ -179,16 +346,14 @@ export function buildPlanFactWorkTypeChartModel(
       const fe = monthFloatFromIso(b.factEnd, originMonth);
       if (fs != null && fe != null && fe >= fs) {
         factRanges.push([fs, fe]);
-        factColors.push(
-          overviewFactBarColor(b.planStart, b.planEnd, b.factStart, b.factEnd),
-        );
+        factColors.push(overviewFactBarColor(b.planStart, b.planEnd, b.factStart, b.factEnd));
       } else {
         factRanges.push(null);
-        factColors.push("rgba(148, 163, 184, 0.25)");
+        factColors.push(FACT_WEAK);
       }
     } else {
       factRanges.push(null);
-      factColors.push("rgba(148, 163, 184, 0.25)");
+      factColors.push(FACT_WEAK);
     }
   }
 

@@ -4,24 +4,24 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  partIdToProjectPartKey,
-  PROJECT_PART_KEY_TO_ID,
-  PROJECT_PARTS,
-  type ConstructionObjectScope,
-  type GPRTask,
-  type ProjectPartKey,
-} from "@/lib/gprUtils";
-import {
   calculateDeviation,
   filterByPeriod,
+  filterZhDomPlanFactTasksTo205Branch,
   flattenTasks,
   getActualProgressPercent,
   getPlannedProgressPercent,
   getProjectStats,
   getStatusByDeviation,
   getStatusByGprProgressDelta,
+  normalizeGprCodeFinal,
+  partIdToProjectPartKey,
   planRootStageCode,
+  PROJECT_PART_KEY_TO_ID,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+  type GPRTask,
   type PlanFactPeriodFilterType,
+  type ProjectPartKey,
 } from "@/lib/gprUtils";
 import {
   BarController,
@@ -1381,6 +1381,17 @@ export function GPRAnalytics({
     [tasks, activePartScope, isProjectWide],
   );
 
+  /**
+   * Данные только для «План vs факт» и связанной временной шкалы:
+   * на «Жилой дом» — только шифры 2.05* (до суммирования и осей); на «Проект» — полный набор без отсечения по 2.05.
+   */
+  const tasksForPlanFactAnalytics = useMemo(() => {
+    if (activePartScope !== PROJECT_PART_KEY_TO_ID.residential) {
+      return tasksForActivePart;
+    }
+    return filterZhDomPlanFactTasksTo205Branch(tasksForActivePart);
+  }, [tasksForActivePart, activePartScope]);
+
   const partProgressAggregate = useMemo(
     () =>
       computePartAggregate(
@@ -1397,7 +1408,8 @@ export function GPRAnalytics({
       .map((code) =>
         tasksForActivePart.find(
           (t) =>
-            t.code.trim() === code && (t.level ?? t.code.split(".").length - 1) === 1,
+            normalizeGprCodeFinal(t.code) === normalizeGprCodeFinal(code) &&
+            (t.level ?? normalizeGprCodeFinal(t.code).split(".").length - 1) === 1,
         ),
       )
       .filter((t): t is GPRTask => t != null);
@@ -1431,10 +1443,13 @@ export function GPRAnalytics({
       planFactDataSource === "kvartaly" ? flattenTasks(kvartalyRowsToGprTasksForAllParts()) : [],
     [planFactDataSource],
   );
-  const residentialKvartalyTasks = useMemo(
-    () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential),
-    [kvartalyAllFlat],
-  );
+  const residentialKvartalyTasks = useMemo(() => {
+    const partResidential = kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential);
+    if (activePartScope === PROJECT_PART_KEY_TO_ID.residential) {
+      return filterZhDomPlanFactTasksTo205Branch(partResidential);
+    }
+    return partResidential;
+  }, [kvartalyAllFlat, activePartScope]);
   const parkingKvartalyTasks = useMemo(
     () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
     [kvartalyAllFlat],
@@ -1493,7 +1508,7 @@ export function GPRAnalytics({
         ? parkingKvartalyForChart
         : residentialKvartalyForChart;
     }
-    return flattenTasks(tasksForActivePart);
+    return flattenTasks(tasksForPlanFactAnalytics);
   }, [
     planFactDataSource,
     isProjectWide,
@@ -1501,7 +1516,7 @@ export function GPRAnalytics({
     projectKvartalyForChart,
     parkingKvartalyForChart,
     residentialKvartalyForChart,
-    tasksForActivePart,
+    tasksForPlanFactAnalytics,
   ]);
 
   const tendersForActivePart: Tender[] = useMemo(() => {
@@ -1561,16 +1576,22 @@ export function GPRAnalytics({
     const b =
       planFactDataSource === "kvartaly"
         ? aggregateWorksToProjectPlanFactBounds(planFactFlatTasks)
-        : aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
+        : aggregateWorksToProjectPlanFactBounds(tasksForPlanFactAnalytics);
     if (!b?.planEnd) return null;
     return formatPlanEndMonthYearOnly(b.planEnd);
-  }, [planFactDataSource, planFactFlatTasks, tasksForActivePart]);
+  }, [planFactDataSource, planFactFlatTasks, tasksForPlanFactAnalytics]);
 
   const planFactWorkTypeChartModel = useMemo(() => {
     if (planFactDataSource !== "tasks") return null;
     const workTypePart = isProjectWide ? "project" : activeProjectPart;
     return buildPlanFactWorkTypeChartModel(planFactFilteredTasks, workTypePart, gprReportYmd);
   }, [planFactDataSource, planFactFilteredTasks, isProjectWide, activeProjectPart, gprReportYmd]);
+
+  const planFactTasksChartHeightPx = useMemo(() => {
+    if (planFactDataSource !== "tasks" || !planFactWorkTypeChartModel) return null;
+    const n = planFactWorkTypeChartModel.labels.length;
+    return Math.min(1200, Math.max(280, n * 22 + 140));
+  }, [planFactDataSource, planFactWorkTypeChartModel]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
@@ -2336,7 +2357,18 @@ export function GPRAnalytics({
           ) : null}
 
           <div
-            className={`mt-4 w-full min-w-0 overflow-hidden ${planFactDataSource === "kvartaly" ? "" : "h-[240px] sm:h-[300px] md:h-[320px]"}`}
+            className={`mt-4 w-full min-w-0 ${
+              planFactDataSource === "kvartaly"
+                ? "overflow-hidden"
+                : planFactTasksChartHeightPx != null
+                  ? "max-h-[min(85vh,1200px)] overflow-x-hidden overflow-y-auto"
+                  : "h-[240px] overflow-hidden sm:h-[300px] md:h-[320px]"
+            }`}
+            style={
+              planFactTasksChartHeightPx != null
+                ? { height: planFactTasksChartHeightPx, minHeight: 280 }
+                : undefined
+            }
           >
             {planFactDataSource === "kvartaly" ? (
               kvartalyAllFlat.length === 0 ? (
@@ -2368,8 +2400,8 @@ export function GPRAnalytics({
             ) : planFactWorkTypeChartModel == null || planFactWorkTypeChartModel.labels.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
                 {planFactFilter.filterType === "all"
-                  ? "Нет плановых границ по этапам 2.04 / 2.05 (жилой дом) или 2.06 / 2.07 (стоянка) в загруженных работах."
-                  : "В выбранном периоде нет работ с плановыми датами, по которым строятся границы по видам."}
+                  ? "Нет задач с шифром 2.05 (жилой дом) или 2.06 / 2.07 (стоянка) для диаграммы, либо данные не загружены."
+                  : "В выбранном периоде нет задач (учтены и строки без плановых дат)."}
               </div>
             ) : (
               (() => {
@@ -2447,6 +2479,9 @@ export function GPRAnalytics({
                                     const i = ctx.dataIndex ?? 0;
                                     const d = m.rowDetails[i];
                                     if (!d) return "";
+                                    if (d.hasDates === false) {
+                                      return ctx.datasetIndex === 0 ? "План: нет данных" : "Факт: нет данных";
+                                    }
                                     if (ctx.datasetIndex === 0) {
                                       return `План: ${fmt(d.planStart)} — ${fmt(d.planEnd)}`;
                                     }

@@ -530,9 +530,14 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       try {
         const text = await readCsvFileTextSmart(file);
         const { tasks: merged, stats } = mergeGprTasksFromReportCsv(allTasks, text);
+        console.log("[GPR CSV import]", {
+          csvPapaRowCount: stats.csvPapaRowCount,
+          parsedRowCount: stats.parsedRowCount,
+          finalTasks: merged.length,
+        });
         onReplaceAllGprTasks(merged);
         setCsvImportNotice(
-          `Файл: уникальных шифров ${stats.csvRows}. Обновлено: ${stats.updated}, добавлено: ${stats.added}. Нет в файле (скрыты в презентации): ${stats.markedAbsentFromReport}.`,
+          `Файл: всего строк ${stats.csvPapaRowCount}, задач из непустых строк ${stats.parsedRowCount} (импорт без слияния, без перезаписи старых данных в памяти).`,
         );
       } catch (err) {
         setCsvImportNotice(err instanceof Error ? err.message : "Не удалось разобрать CSV.");

@@ -105,7 +105,9 @@ export function PresentationChrome({ children }: Props) {
               >
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
-                    <Logo className="project-logo" />
+                    <div className="flex shrink-0 items-center">
+                      <Logo className="project-logo" />
+                    </div>
                     <div className="min-w-0">
                       <span className="project-title-text block">{projectName}</span>
                       <span
@@ -147,7 +149,9 @@ export function PresentationChrome({ children }: Props) {
               >
                 <h1 className="m-0 font-medium leading-[1] tracking-tight [font-size:unset]">
                   <div className="project-title">
-                    <Logo className="project-logo" />
+                    <div className="flex shrink-0 items-center">
+                      <Logo className="project-logo" />
+                    </div>
                     <div className="min-w-0">
                       <span className="project-title-text block text-slate-100">{projectName}</span>
                       <span className="mt-0.5 block text-sm leading-tight text-slate-400">{projectPhase}</span>

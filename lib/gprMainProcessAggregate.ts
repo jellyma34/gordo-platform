@@ -3,6 +3,8 @@ import {
   calculateDeviation,
   durationDays,
   getStatusByGprProgressDelta,
+  matchesGprCodeBranch,
+  normalizeGprCodeFinal,
   partIdToProjectPartKey,
   type GPRTask,
 } from "@/lib/gprUtils";
@@ -49,11 +51,7 @@ export const MAIN_PROCESS_TITLE: Record<string, string> = {
  * `2.05.01.1` → ведро `2.05.01`; `2.05.011` к `2.05.01` не относится.
  */
 export function gprTaskCodeMatchesBucket(taskCode: string, bucketId: string): boolean {
-  const c = taskCode.trim();
-  const b = bucketId.trim();
-  if (!c || !b) return false;
-  if (c === b) return true;
-  return c.startsWith(`${b}.`);
+  return matchesGprCodeBranch(taskCode, bucketId);
 }
 
 /**
@@ -62,7 +60,7 @@ export function gprTaskCodeMatchesBucket(taskCode: string, bucketId: string): bo
  */
 export function filterWorksForResidentialGprAggregation(works: GPRTask[]): GPRTask[] {
   return works.filter((t) => {
-    const c = t.code.trim();
+    const c = normalizeGprCodeFinal(t.code);
     if (c === "2.04" || c.startsWith("2.04.")) return true;
     if (c.startsWith("2.05.")) return true;
     return false;
@@ -70,7 +68,7 @@ export function filterWorksForResidentialGprAggregation(works: GPRTask[]): GPRTa
 }
 
 function isParkingRootOnlyDataset(works: GPRTask[]): boolean {
-  return works.length > 0 && works.every((t) => t.code.trim() === "2.05");
+  return works.length > 0 && works.every((t) => normalizeGprCodeFinal(t.code) === "2.05");
 }
 
 function parseIsoDay(iso: string | null | undefined): number {
@@ -104,7 +102,7 @@ function bucketDisplayName(bucketId: string, children: GPRTask[]): string {
   const sorted = [...children].sort((a, b) =>
     a.code.localeCompare(b.code, undefined, { numeric: true }),
   );
-  const exact = sorted.find((c) => c.code.trim() === bucketId);
+  const exact = sorted.find((c) => normalizeGprCodeFinal(c.code) === normalizeGprCodeFinal(bucketId));
   if (exact?.name?.trim()) return exact.name.trim();
   const named = sorted.find((c) => c.name?.trim());
   return named?.name?.trim() ?? `Процесс ${bucketId}`;

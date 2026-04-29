@@ -2,6 +2,7 @@ import { GPR_DATA } from "./gprData";
 import {
   calculateDeviation,
   durationDays,
+  normalizeGprCodeFinal,
   PROJECT_PART_KEY_TO_ID,
   toDate,
   type GPRTask,
@@ -509,10 +510,12 @@ function rootCodesForForecast(part: ForecastPart): readonly string[] {
 }
 
 function findRootByCode(tasks: GPRTask[], code: string): GPRTask | null {
+  const rc = normalizeGprCodeFinal(code);
   return (
     tasks.find(
       (t) =>
-        t.code.trim() === code && (t.level ?? t.code.split(".").length - 1) === 1,
+        normalizeGprCodeFinal(t.code) === rc &&
+        (t.level ?? normalizeGprCodeFinal(t.code).split(".").length - 1) === 1,
     ) ?? null
   );
 }

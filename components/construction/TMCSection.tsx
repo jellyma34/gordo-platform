@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { SuppliersBlock } from "@/components/tmc/SuppliersBlock";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import {
@@ -143,6 +144,7 @@ export function TMCSection({
       >
         {partTabs}
         <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
+        <SuppliersBlock activePartId={editPartId} />
       </EditLayout>
     );
   }
@@ -163,11 +165,20 @@ export function TMCSection({
         ? [...fromSnapshot("residential"), ...fromSnapshot("parking")]
         : fromSnapshot(activeProjectPart);
     return items.map((item) => {
-      const status = statusOf(item);
+      const traffic = statusOf(item);
       const dev = deviationDays(item);
-      return { ...item, status, deviation: dev };
+      return { ...item, traffic, deviation: dev };
     });
   }, [activePartScope, activeProjectPart]);
+
+  const supplierFeedItems = useMemo(
+    () =>
+      enriched.map((row) => {
+        const { traffic: _tr, deviation: _dv, ...rest } = row;
+        return rest;
+      }),
+    [enriched],
+  );
 
   const totals = useMemo(() => {
     const plan = enriched.reduce((sum, i) => sum + i.planCost, 0);
@@ -177,9 +188,9 @@ export function TMCSection({
     const delays = enriched.filter((i) => (i.deviation ?? -999) > 0).length;
     const planned = enriched.filter((i) => !tmcFactReferenceDate(i)).length;
     const pie = {
-      delivered: enriched.filter((i) => i.status === "green").length,
-      risk: enriched.filter((i) => i.status === "yellow").length,
-      overdue: enriched.filter((i) => i.status === "red").length,
+      delivered: enriched.filter((i) => i.traffic === "green").length,
+      risk: enriched.filter((i) => i.traffic === "yellow").length,
+      overdue: enriched.filter((i) => i.traffic === "red").length,
       planned,
     };
     return { plan, fact, completionPct, saving, delays, planned, pie };
@@ -306,6 +317,8 @@ export function TMCSection({
         </div>
       </div>
 
+      <SuppliersBlock activePartId={editPartId} items={supplierFeedItems} variant="dark" />
+
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Детализация</h3>
         {!activeDrill ? (
@@ -314,11 +327,11 @@ export function TMCSection({
           <div className="mt-4 space-y-2">
             {drillRows.map((i) => {
               const color =
-                i.status === "green"
+                i.traffic === "green"
                   ? COLORS.green
-                  : i.status === "yellow"
+                  : i.traffic === "yellow"
                     ? COLORS.yellow
-                    : i.status === "red" || i.status === "overdue_not_started"
+                    : i.traffic === "red" || i.traffic === "overdue_not_started"
                       ? COLORS.red
                       : COLORS.gray;
               return (
@@ -334,13 +347,13 @@ export function TMCSection({
                       {i.deviation === null ? "—" : i.deviation > 0 ? `+${i.deviation}` : i.deviation} дн
                     </div>
                     <div className="mt-1 rounded-full px-2 py-0.5 text-[11px] text-slate-900" style={{ backgroundColor: color }}>
-                      {i.status === "green"
+                      {i.traffic === "green"
                         ? "поставлено"
-                        : i.status === "yellow"
+                        : i.traffic === "yellow"
                           ? "риск"
-                          : i.status === "red"
+                          : i.traffic === "red"
                             ? "просрочка"
-                            : i.status === "overdue_not_started"
+                            : i.traffic === "overdue_not_started"
                               ? "не закуплено"
                               : "не закуплено"}
                     </div>

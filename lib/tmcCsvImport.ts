@@ -3,18 +3,52 @@ import Papa from "papaparse";
 import { readCsvFileTextSmart } from "@/lib/csvTextEncoding";
 import { ruDateCellToIsoOrNull } from "@/lib/gprReportCsv";
 import type { ProjectPartKey } from "@/lib/gprUtils";
-import { TMC_GPR_STAGE_ROOT_CODE, type TMCItem } from "@/lib/tmcData";
+import {
+  parseTmcSupplyStatus,
+  syncTmcFinancials,
+  TMC_GPR_STAGE_ROOT_CODE,
+  type TMCItem,
+  type TmcSupplyStatus,
+} from "@/lib/tmcData";
 
-/** Число из ячейки Excel (пробелы в числе, запятая как десятичный разделитель). */
+/** Число из ячейки Excel (пробелы в числе, запятая как десятичный разделитель). Legacy: пустое → 0. */
 export function cleanNumber(val: unknown): number {
-  if (val == null || val === "") return 0;
-  const s = String(val)
-    .replace(/\s/g, "")
-    .replace(/\u00a0/g, "")
-    .replace(",", ".")
-    .replace(/[^\d.-]/g, "");
-  const n = Number.parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
+  const n = parseImportNumber(val);
+  return n ?? 0;
+}
+
+/** Число для импорта; пустая ячейка → null (не 0). */
+export function parseImportNumber(val: unknown): number | null {
+  if (val == null) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  const normalized = s.replace(/\s/g, "").replace(/\u00a0/g, "").replace(",", ".").replace(/[^\d.-]/g, "");
+  const n = Number.parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function normalizeHeaderCell(h: string): string {
+  return String(h).replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Индекс первого столбца, у которого нормализованный заголовок содержит ВСЕ подстроки из `includesList`.
+ */
+export function findColumnIndex(headers: string[], includesList: string[]): number {
+  const normalized = headers.map((x) => normalizeHeaderCell(String(x)));
+  return normalized.findIndex((h) =>
+    includesList.every((part) => h.includes(String(part).toLowerCase())),
+  );
+}
+
+/** Первое совпадение по одному из синонимов (includes(name)), паттерны от более длинных к коротким. */
+export function findColumnByIncludes(headersNorm: string[], possibleNames: string[]): number {
+  const sorted = [...possibleNames].sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    const idx = headersNorm.findIndex((h) => h.includes(name));
+    if (idx >= 0) return idx;
+  }
+  return -1;
 }
 
 function looksLikeHeaderRow(row: unknown[]): boolean {
@@ -22,27 +56,6 @@ function looksLikeHeaderRow(row: unknown[]): boolean {
     const s = String(cell ?? "").toLowerCase();
     return s.includes("наименование") || s.includes("номенклатур");
   });
-}
-
-/**
- * Индекс первого столбца, у которого нормализованный заголовок содержит ВСЕ подстроки из `includesList`.
- */
-export function findColumnIndex(headers: string[], includesList: string[]): number {
-  const normalized = headers.map((h) =>
-    String(h).replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, " "),
-  );
-  return normalized.findIndex((h) =>
-    includesList.every((part) => h.includes(String(part).toLowerCase())),
-  );
-}
-
-/** Первое совпадение по одному из наборов подстрок (приоритет сверху вниз). */
-function pickColumnIndexByPatterns(headers: string[], patterns: string[][]): number {
-  for (const parts of patterns) {
-    const i = findColumnIndex(headers, parts);
-    if (i >= 0) return i;
-  }
-  return -1;
 }
 
 /** ISO ГГГГ-ММ-ДД из произвольной ячейки (ДД.MM.ГГГГ, Excel serial опционально через gpr). */
@@ -67,94 +80,363 @@ export function normalizeImportedDate(val: unknown): string | null {
 /** Алиас для импорта ТМЦ (ДД.MM.ГГГГ → ISO). */
 export const normalizeDate = normalizeImportedDate;
 
-export type TmcDateColumnContext = {
-  headers: string[];
-  /** Дата поставки план → supplyPlanDate */
-  deliveryPlanIdx: number;
-  /** Дата поставки факт → supplyFactDate */
-  deliveryFactIdx: number;
-  /** Дата договора план → contractPlanDate */
-  contractPlanIdx: number;
-  /** Дата договора факт → contractFactDate */
-  contractFactIdx: number;
-  /**
-   * Четыре даты подряд после колонки «Этап»: план поставки, факт поставки, план договора, факт договора.
-   * Без подбора колонок по именам — только индексы.
-   */
-  relativeToStage?: boolean;
-  /** Индекс колонки с этапом (для отладки). */
-  stageIdx?: number;
-};
+export type TmcColumnMapKey =
+  | "deliveryPlan"
+  | "deliveryFact"
+  | "contractPlan"
+  | "contractFact"
+  | "volumePlan"
+  | "volumeFact"
+  | "pricePlan"
+  | "priceFact"
+  | "costPlan"
+  | "costFact"
+  | "name"
+  | "itemCode"
+  | "stage"
+  | "unit"
+  | "supplier"
+  | "contract"
+  | "status"
+  | "projectPart";
 
-function buildTmcDateColumnContext(headers: string[]): TmcDateColumnContext {
-  const normalizedHeaders = headers.map((h) =>
-    String(h).replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, " "),
-  );
-  const stageIdx = normalizedHeaders.findIndex((h) => h.includes("этап"));
+export type TmcColumnMap = Record<TmcColumnMapKey, number>;
 
-  let deliveryPlanIdx = -1;
-  let deliveryFactIdx = -1;
-  let contractPlanIdx = -1;
-  let contractFactIdx = -1;
-  let relativeToStage = false;
+/** Колонки метрик идут блоками по 3: План / Факт / Отклонение (откл игнорируется). */
+export const TMC_METRIC_TRIPLET_STEP = 3;
 
-  /** Плоская схема Excel: после колонки этапа идут 4 даты подряд */
-  if (stageIdx >= 0 && stageIdx + 4 < headers.length) {
-    deliveryPlanIdx = stageIdx + 1;
-    deliveryFactIdx = stageIdx + 2;
-    contractPlanIdx = stageIdx + 3;
-    contractFactIdx = stageIdx + 4;
-    relativeToStage = true;
-  } else {
-    deliveryPlanIdx = pickColumnIndexByPatterns(headers, [
-      ["дата", "постав", "план"],
-      ["поставк", "план"],
-      ["отгруз", "план"],
-      ["план", "постав"],
-      ["постав", "план"],
-    ]);
-    deliveryFactIdx = pickColumnIndexByPatterns(headers, [
-      ["дата", "постав", "факт"],
-      ["поставк", "факт"],
-      ["отгруз", "факт"],
-      ["факт", "постав"],
-      ["постав", "факт"],
-    ]);
-    contractPlanIdx = pickColumnIndexByPatterns(headers, [
-      ["дата", "договор", "план"],
-      ["договор", "план"],
-      ["план", "договор"],
-      ["контракт", "план"],
-    ]);
-    contractFactIdx = pickColumnIndexByPatterns(headers, [
-      ["дата", "договор", "факт"],
-      ["договор", "факт"],
-      ["факт", "договор"],
-      ["контракт", "факт"],
-    ]);
+/** Число блоков метрик подряд: дата поставки, дата договора, объём, цена, стоимость. */
+export const TMC_METRIC_TRIPLET_BLOCKS = 5;
+
+export type TmcMetricLayout = "triplet" | "legacy";
+
+/** Описание колонок для лога и отладки. */
+export function describeTmcColumnMap(headers: string[], colMap: TmcColumnMap): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const key of Object.keys(colMap) as TmcColumnMapKey[]) {
+    const idx = colMap[key];
+    out[key] = idx >= 0 && idx < headers.length ? `${idx}:${headers[idx]}` : -1;
+  }
+  return out;
+}
+
+/**
+ * Порядок важен: сначала колонки с длинными уникальными подстроками, чтобы не занимать индекс «чужим» полем.
+ */
+const COLUMN_DEFINITIONS: { key: TmcColumnMapKey; patterns: string[] }[] = [
+  {
+    key: "deliveryPlan",
+    patterns: [
+      "дата поставки план",
+      "дата отгрузки план",
+      "дата поставки (план)",
+      "поставки план",
+      "отгрузка план",
+      "план поставки",
+    ],
+  },
+  {
+    key: "deliveryFact",
+    patterns: [
+      "дата поставки факт",
+      "дата отгрузки факт",
+      "дата поставки (факт)",
+      "поставки факт",
+      "отгрузка факт",
+      "факт поставки",
+    ],
+  },
+  {
+    key: "contractPlan",
+    patterns: [
+      "дата заключения договора план",
+      "дата заключения договора (план)",
+      "заключения договора план",
+      "дата договора план",
+      "контракт план",
+      "договор план",
+    ],
+  },
+  {
+    key: "contractFact",
+    patterns: [
+      "дата заключения договора факт",
+      "дата заключения договора (факт)",
+      "заключения договора факт",
+      "дата договора факт",
+      "контракт факт",
+      "договор факт",
+    ],
+  },
+  {
+    key: "volumePlan",
+    patterns: [
+      "объем поставки план",
+      "объём поставки план",
+      "объем план",
+      "объём план",
+      "количество план",
+      "объем (план)",
+    ],
+  },
+  {
+    key: "volumeFact",
+    patterns: [
+      "объем поставки факт",
+      "объём поставки факт",
+      "объем факт",
+      "объём факт",
+      "количество факт",
+      "объем (факт)",
+    ],
+  },
+  {
+    key: "pricePlan",
+    patterns: [
+      "цена закупки за ед. план",
+      "цена закупки за единицу план",
+      "цена закупки план",
+      "цена за ед план",
+      "цена за ед. план",
+    ],
+  },
+  {
+    key: "priceFact",
+    patterns: [
+      "цена закупки за ед. факт",
+      "цена закупки за единицу факт",
+      "цена закупки факт",
+      "цена за ед факт",
+      "цена за ед. факт",
+    ],
+  },
+  {
+    key: "costPlan",
+    patterns: [
+      "стоимость план",
+      "стоимость (руб.) план",
+      "сумма план",
+      "план ₽",
+      "план стоимость",
+      "бюджет",
+      "плановая стоимость",
+    ],
+  },
+  {
+    key: "costFact",
+    patterns: [
+      "стоимость факт",
+      "стоимость (руб.) факт",
+      "сумма факт",
+      "факт ₽",
+      "факт стоимость",
+    ],
+  },
+  {
+    key: "name",
+    patterns: [
+      "наименование тмц",
+      "наименование позиции",
+      "номенклатура",
+      "наименование",
+      "название",
+      "материал",
+      "позиция",
+    ],
+  },
+  {
+    key: "itemCode",
+    patterns: ["шифр гпр", "код позиции", "шифр", "код гпр", "код", "itemcode"],
+  },
+  {
+    key: "stage",
+    patterns: ["этап работ гпр", "этап гпр", "этап работ", "этап", "gprstage"],
+  },
+  {
+    key: "unit",
+    patterns: ["единица измерения", "ед. изм.", "ед изм", "единица", "ед."],
+  },
+  { key: "supplier", patterns: ["поставщик", "supplier"] },
+  {
+    key: "contract",
+    patterns: ["номер договора", "реквизиты договора", "договор", "контракт", "контракт №"],
+  },
+  { key: "status", patterns: ["статус поставки", "статус поставк", "статус"] },
+  { key: "projectPart", patterns: ["часть проекта", "projectpart", "объект", "зона", "часть"] },
+];
+
+export function buildTmcColumnMap(headers: string[]): TmcColumnMap {
+  const norm = headers.map((h) => normalizeHeaderCell(String(h)));
+  const used = new Set<number>();
+  const map = {} as TmcColumnMap;
+
+  const emptyKeys: TmcColumnMapKey[] = [
+    "deliveryPlan",
+    "deliveryFact",
+    "contractPlan",
+    "contractFact",
+    "volumePlan",
+    "volumeFact",
+    "pricePlan",
+    "priceFact",
+    "costPlan",
+    "costFact",
+    "name",
+    "itemCode",
+    "stage",
+    "unit",
+    "supplier",
+    "contract",
+    "status",
+    "projectPart",
+  ];
+  for (const k of emptyKeys) map[k] = -1;
+
+  for (const def of COLUMN_DEFINITIONS) {
+    const ordered = [...def.patterns].sort((a, b) => b.length - a.length);
+    outer: for (const pattern of ordered) {
+      for (let i = 0; i < norm.length; i++) {
+        if (used.has(i)) continue;
+        if (norm[i].includes(pattern)) {
+          map[def.key] = i;
+          used.add(i);
+          break outer;
+        }
+      }
+    }
   }
 
-  if (typeof console !== "undefined") {
-    console.log({
-      headers,
-      stageIdx,
-      relativeToStage,
-      supplyPlanIdx: deliveryPlanIdx,
-      supplyFactIdx: deliveryFactIdx,
-      contractPlanIdx,
-      contractFactIdx,
-    });
+  return map;
+}
+
+/** Заголовок первого столбца блока «дата поставки» (план) — точка входа для шага по 3 колонки. */
+const TRIPLET_DELIVERY_PLAN_SYNONYMS = [
+  "дата поставки план",
+  "дата отгрузки план",
+  "дата поставки (план)",
+  "поставки план",
+  "отгрузка план",
+  "план поставки",
+];
+
+export function findDeliveryPlanColumnStart(headersNorm: string[]): number {
+  const ordered = [...TRIPLET_DELIVERY_PLAN_SYNONYMS].sort((a, b) => b.length - a.length);
+  for (const p of ordered) {
+    const idx = headersNorm.findIndex((h) => h.includes(p));
+    if (idx >= 0) return idx;
   }
+  const need = TMC_METRIC_TRIPLET_STEP * TMC_METRIC_TRIPLET_BLOCKS;
+  for (let i = 0; i <= headersNorm.length - need; i++) {
+    const h0 = headersNorm[i]!;
+    const h1 = headersNorm[i + 1]!;
+    const h2 = headersNorm[i + 2]!;
+    const deviationOk = h2.includes("откл") || h2.includes("отклон");
+    const factOk = h1.includes("факт");
+    const deliveryOk =
+      (h0.includes("постав") || h0.includes("отгруз")) &&
+      !h0.includes("объем") &&
+      !h0.includes("объём") &&
+      !h0.includes("цена") &&
+      !h0.includes("стоимост");
+    if (deviationOk && factOk && deliveryOk) return i;
+  }
+  return -1;
+}
+
+export function detectTripletMetricLayout(headers: string[]): {
+  layout: TmcMetricLayout;
+  tripletStart: number;
+} {
+  const norm = headers.map((h) => normalizeHeaderCell(String(h)));
+  const tripletStart = findDeliveryPlanColumnStart(norm);
+  const needCols = TMC_METRIC_TRIPLET_STEP * TMC_METRIC_TRIPLET_BLOCKS;
+  if (tripletStart >= 0 && tripletStart + needCols <= headers.length) {
+    return { layout: "triplet", tripletStart };
+  }
+  return { layout: "legacy", tripletStart: -1 };
+}
+
+function rawCellAt(headers: string[], row: Record<string, unknown>, idx: number): unknown {
+  if (idx < 0 || idx >= headers.length) return undefined;
+  const k = headers[idx];
+  if (k === undefined || !(k in row)) return undefined;
+  return row[k];
+}
+
+/**
+ * Пять блоков подряд: дата поставки, дата договора, объём, цена, стоимость — в каждом [план, факт, откл.].
+ */
+function parseTripletMetricCells(
+  row: Record<string, unknown>,
+  headers: string[],
+  startIdx: number,
+): {
+  supplyPlanDate: string | null;
+  supplyFactDate: string | null;
+  contractPlanDate: string | null;
+  contractFactDate: string | null;
+  volumePlanRaw: unknown;
+  volumeFactRaw: unknown;
+  pricePlanRaw: unknown;
+  priceFactRaw: unknown;
+  planCostRaw: unknown;
+  factCostRaw: unknown;
+} {
+  let i = startIdx;
+
+  const deliveryPlan = rawCellAt(headers, row, i);
+  const deliveryFact = rawCellAt(headers, row, i + 1);
+  i += TMC_METRIC_TRIPLET_STEP;
+
+  const contractPlan = rawCellAt(headers, row, i);
+  const contractFact = rawCellAt(headers, row, i + 1);
+  i += TMC_METRIC_TRIPLET_STEP;
+
+  const volumePlanRaw = rawCellAt(headers, row, i);
+  const volumeFactRaw = rawCellAt(headers, row, i + 1);
+  i += TMC_METRIC_TRIPLET_STEP;
+
+  const pricePlanRaw = rawCellAt(headers, row, i);
+  const priceFactRaw = rawCellAt(headers, row, i + 1);
+  i += TMC_METRIC_TRIPLET_STEP;
+
+  const planCostRaw = rawCellAt(headers, row, i);
+  const factCostRaw = rawCellAt(headers, row, i + 1);
 
   return {
-    headers,
-    deliveryPlanIdx,
-    deliveryFactIdx,
-    contractPlanIdx,
-    contractFactIdx,
-    relativeToStage,
-    stageIdx: stageIdx >= 0 ? stageIdx : undefined,
+    supplyPlanDate: normalizeImportedDate(deliveryPlan),
+    supplyFactDate: normalizeImportedDate(deliveryFact),
+    contractPlanDate: normalizeImportedDate(contractPlan),
+    contractFactDate: normalizeImportedDate(contractFact),
+    volumePlanRaw,
+    volumeFactRaw,
+    pricePlanRaw,
+    priceFactRaw,
+    planCostRaw,
+    factCostRaw,
   };
+}
+
+/** Контрольная первая строка шаблона (объём / цена / стоимость план). */
+const TRIPLET_FIRST_ROW_EXPECT = {
+  volumePlan: 47,
+  pricePlan: 36307,
+  planCost: 1706438,
+} as const;
+
+function approxEq(a: number, b: number, eps: number): boolean {
+  return Math.abs(a - b) <= eps;
+}
+
+function assertTripletFirstRowSample(volumePlan: number, pricePlan: number, planCost: number): void {
+  const okVol = approxEq(volumePlan, TRIPLET_FIRST_ROW_EXPECT.volumePlan, 1e-4);
+  const okPrice = approxEq(pricePlan, TRIPLET_FIRST_ROW_EXPECT.pricePlan, 2);
+  const okCost = approxEq(planCost, TRIPLET_FIRST_ROW_EXPECT.planCost, 12);
+  if (okVol && okPrice && okCost) return;
+
+  throw new Error(
+    `[тмц CSV] Контроль первой строки не пройден (формат План/Факт/Откл.). Ожидалось: объём≈${TRIPLET_FIRST_ROW_EXPECT.volumePlan}, цена за ед. план≈${TRIPLET_FIRST_ROW_EXPECT.pricePlan}, стоимость план≈${TRIPLET_FIRST_ROW_EXPECT.planCost}; получено: объём=${volumePlan}, цена=${pricePlan}, стоимость=${planCost}.`,
+  );
 }
 
 export function cellAtColumnIndex(
@@ -180,6 +462,53 @@ function makeUniqueHeaderKeys(headerCells: string[]): string[] {
   });
 }
 
+function forwardFillHeaderRow(cells: string[]): string[] {
+  let last = "";
+  return cells.map((c) => {
+    const t = c.trim();
+    if (t) last = t;
+    return last;
+  });
+}
+
+/** Вторая строка шапки: подписи «план» / «факт», без главного заголовка позиций. */
+function looksLikeSecondHeaderRow(sub: unknown[], primary: unknown[]): boolean {
+  const subS = sub.map((c) => String(c ?? "").trim().toLowerCase());
+  if (subS.some((s) => s.includes("наименование") || s.includes("номенклатур"))) return false;
+
+  let planFactTokens = 0;
+  let deviationTokens = 0;
+  for (const s of subS) {
+    if (!s) continue;
+    if (s === "план" || s === "факт") planFactTokens += 1;
+    else if (/^план[\s.),]/u.test(s) || /^факт[\s.),]/u.test(s)) planFactTokens += 1;
+    else if ((s.startsWith("план") || s.startsWith("факт")) && s.length < 18) planFactTokens += 1;
+    if (s.includes("откл") || s.includes("отклон")) deviationTokens += 1;
+  }
+
+  return planFactTokens >= 2 || (planFactTokens >= 1 && deviationTokens >= 1);
+}
+
+/** Склейка двух строк заголовка Excel в один подписанный столбец на колонку. */
+function mergeTwoHeaderRows(primary: unknown[], secondary: unknown[]): string[] {
+  const a = primary.map((c) =>
+    String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
+  );
+  const bRaw = secondary.map((c) =>
+    String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
+  );
+  const b = forwardFillHeaderRow(bRaw);
+  const len = Math.max(a.length, b.length);
+  const out: string[] = [];
+  for (let i = 0; i < len; i++) {
+    const top = a[i] ?? "";
+    const bot = b[i] ?? "";
+    const merged = [top, bot].filter(Boolean).join(" ").trim().replace(/\s+/g, " ");
+    out.push(merged || `__col_${i}`);
+  }
+  return out;
+}
+
 /**
  * Парсинг без `header: true`: многострочная шапка Excel не ломает колонки.
  * Строка заголовков ищется по ячейке с «наименование» / «номенклатура».
@@ -203,10 +532,6 @@ export function parseTmcCsvText(csvText: string): TmcCsvParsed {
     (row) => Array.isArray(row) && row.some((c) => String(c ?? "").trim() !== ""),
   );
 
-  if (typeof console !== "undefined") {
-    console.log("TOTAL ROWS:", rows.length);
-  }
-
   const headerRowIndex = rows.findIndex((row) => looksLikeHeaderRow(row));
 
   if (headerRowIndex === -1) {
@@ -215,15 +540,28 @@ export function parseTmcCsvText(csvText: string): TmcCsvParsed {
     );
   }
 
-  const headerRaw = rows[headerRowIndex]!.map((h, i) =>
-    String(h ?? "")
-      .replace(/^\uFEFF/, "")
-      .trim()
-      .replace(/\s+/g, " "),
-  );
+  const primaryHeaderRow = rows[headerRowIndex]!;
+  const nextRow = rows[headerRowIndex + 1];
+
+  let headerRaw: string[];
+  let dataSliceStart: number;
+
+  if (nextRow && looksLikeSecondHeaderRow(nextRow, primaryHeaderRow)) {
+    headerRaw = mergeTwoHeaderRows(primaryHeaderRow, nextRow);
+    dataSliceStart = headerRowIndex + 2;
+  } else {
+    headerRaw = primaryHeaderRow.map((h) =>
+      String(h ?? "")
+        .replace(/^\uFEFF/, "")
+        .trim()
+        .replace(/\s+/g, " "),
+    );
+    dataSliceStart = headerRowIndex + 1;
+  }
+
   const headers = makeUniqueHeaderKeys(headerRaw);
 
-  const dataRows = rows.slice(headerRowIndex + 1);
+  const dataRows = rows.slice(dataSliceStart);
 
   const objects: Record<string, string>[] = dataRows.map((row) => {
     const obj: Record<string, string> = {};
@@ -282,21 +620,36 @@ function pickCellSubstring(row: Record<string, unknown>, needles: string[]): str
   return "";
 }
 
+function getMappedCell(
+  row: Record<string, unknown>,
+  headers: string[],
+  colMap: TmcColumnMap,
+  key: TmcColumnMapKey,
+): string | null {
+  const idx = colMap[key];
+  if (idx === undefined || idx < 0 || idx >= headers.length) return null;
+  const k = headers[idx];
+  if (k === undefined || !(k in row)) return null;
+  const v = row[k];
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+
 /** Этап ГПР для группировки дублей строк по одной позиции. */
-function getTmcRowStage(row: Record<string, unknown>): string {
-  const exact = pickCell(row, [
-    "Этап работ ГПР",
-    "Этап ГПР",
-    "Этап",
-    "gprStage",
-    "stage",
-  ]);
+function getTmcRowStage(row: Record<string, unknown>, headers: string[], colMap: TmcColumnMap): string {
+  const mapped = getMappedCell(row, headers, colMap, "stage");
+  if (mapped) return mapped.trim();
+  const exact = pickCell(row, ["Этап работ ГПР", "Этап ГПР", "Этап", "gprStage", "stage"]);
   if (exact.trim()) return exact.trim();
   return pickCellSubstring(row, ["этап работ гпр", "этап гпр", "этап гп", "этап", "gprstage", "stage"]).trim();
 }
 
-/** Наименование: известные заголовки, затем первое значение строки / первое непустое значение ячейки. */
-function getTmcRowName(row: Record<string, unknown>): string {
+/** Наименование: колонка из карты, затем известные заголовки. */
+function getTmcRowName(row: Record<string, unknown>, headers: string[], colMap: TmcColumnMap): string {
+  const mapped = getMappedCell(row, headers, colMap, "name");
+  if (mapped?.trim()) return mapped.trim();
+
   const fromKeys = pickCell(row, [
     "Наименование ТМЦ",
     "Название",
@@ -326,10 +679,6 @@ function getTmcRowName(row: Record<string, unknown>): string {
   return "";
 }
 
-/**
- * Строка похожа на данные ТМЦ, а не на шапку / служебную строку.
- * Имя берётся через {@link getTmcRowName} (те же синонимы и fallback по ячейкам).
- */
 /** Отсечение заголовков и служебных подписей по тексту наименования (без учёта строки CSV целиком). */
 function isJunkTmcLabel(name: string): boolean {
   const cleaned = name
@@ -338,7 +687,6 @@ function isJunkTmcLabel(name: string): boolean {
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ");
 
-  /** Точные совпадения с типичными заголовками и подписями отчётов */
   const junkExact = new Set([
     "№ п/п",
     "№п/п",
@@ -361,33 +709,26 @@ function isJunkTmcLabel(name: string): boolean {
 
   if (junkExact.has(cleaned)) return true;
 
-  /** Шапка «№ п/п» с вариациями пунктуации */
   if (/^№\s*п[/\\]?п\.?$/iu.test(name.trim())) return true;
 
-  /** Только цифры — номер строки */
   if (/^\d+$/.test(cleaned)) return true;
 
-  /** Только номер позиции: «12» или «3.» */
   if (/^\d+\s*[.)]\s*$/.test(cleaned)) return true;
 
-  /** Строка из дефисов / точек */
   if (/^[\s\-–—.]+$/.test(cleaned)) return true;
 
   return false;
 }
 
 export function isValidTmcRow(row: Record<string, unknown>): boolean {
-  const name = getTmcRowName(row);
+  const name = getTmcRowName(row, [], {} as TmcColumnMap);
   if (!name) return false;
   return !isJunkTmcLabel(name);
 }
 
-/**
- * Убирает «двойную шапку»: первые 1–5 строк, пока они не проходят {@link isValidTmcRow}.
- */
 function dropLeadingJunkRows(rows: Record<string, unknown>[], maxLeadingSkip = 5): Record<string, unknown>[] {
   let i = 0;
-  while (i < rows.length && i < maxLeadingSkip && !isValidTmcRow(rows[i])) {
+  while (i < rows.length && i < maxLeadingSkip && !isValidTmcRow(rows[i]!)) {
     i += 1;
   }
   return rows.slice(i);
@@ -428,38 +769,20 @@ function newIdFallback(index: number): string {
   return `tmc-import-${Date.now()}-${index}`;
 }
 
-function normGroupKey(name: string, stage: string): string {
-  const n = name.trim().toLowerCase().replace(/\s+/g, " ");
-  const s = stage.trim().toLowerCase().replace(/\s+/g, " ");
-  return `${n}__${s}`;
-}
-
-function mergeIsoMin(a: string | null, b: string | null): string | null {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  return a <= b ? a : b;
-}
-
-function mergeIsoMax(a: string | null, b: string | null): string | null {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  return a >= b ? a : b;
-}
-
 type ResolvedTmcRow = { row: Record<string, unknown>; name: string; stage: string };
 
-/**
- * Подстановка наименования и этапа с предыдущей строки (lastValidName / lastValidStage)
- * — строки блока без повторённого «Наименование» и «Этап» не теряются.
- */
-function resolveTmcRowsWithCarryForward(rows: Record<string, unknown>[]): ResolvedTmcRow[] {
+function resolveTmcRowsWithCarryForward(
+  rows: Record<string, unknown>[],
+  headers: string[],
+  colMap: TmcColumnMap,
+): ResolvedTmcRow[] {
   let lastValidName = "";
   let lastValidStage = "";
   const result: ResolvedTmcRow[] = [];
 
   for (const row of rows) {
-    let name = getTmcRowName(row).trim();
-    let stage = getTmcRowStage(row).trim();
+    let name = getTmcRowName(row, headers, colMap).trim();
+    let stage = getTmcRowStage(row, headers, colMap).trim();
 
     if (name) lastValidName = name;
     else name = lastValidName;
@@ -467,14 +790,9 @@ function resolveTmcRowsWithCarryForward(rows: Record<string, unknown>[]): Resolv
     if (stage) lastValidStage = stage;
     else stage = lastValidStage;
 
-    const code = pickCell(row, [
-      "Шифр",
-      "Код",
-      "Код позиции",
-      "itemCode",
-      "Шифр ГПР",
-      "Код ГПР",
-    ]).trim();
+    const code =
+      getMappedCell(row, headers, colMap, "itemCode") ??
+      pickCell(row, ["Шифр", "Код", "Код позиции", "itemCode", "Шифр ГПР", "Код ГПР"]).trim();
 
     if (!stage && code) stage = inferGprStageFromItemCode(code);
 
@@ -483,165 +801,172 @@ function resolveTmcRowsWithCarryForward(rows: Record<string, unknown>[]): Resolv
   return result;
 }
 
-/**
- * Первая непустая дата по совпадению заголовков колонок строки (`includes` для каждого набора подстрок).
- */
-function firstDateByHeaderPatterns(row: Record<string, unknown>, patterns: string[][]): string | null {
-  const keys = Object.keys(row);
-  for (const parts of patterns) {
-    const idx = findColumnIndex(keys, parts);
-    if (idx >= 0) {
-      const k = keys[idx];
-      const iso = normalizeImportedDate(k !== undefined ? row[k] : "");
-      if (iso) return iso;
-    }
-  }
-  return null;
-}
-
-/** Разбор чисел и дат одной строки CSV перед агрегацией по группе (name + stage). */
-function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColumnContext) {
-  const itemCodeRaw = pickCell(row, [
-    "Шифр",
-    "Код",
-    "Код позиции",
-    "itemCode",
-    "Шифр ГПР",
-    "Код ГПР",
-  ]);
+function parseTmcCsvRowSlice(
+  row: Record<string, unknown>,
+  headers: string[],
+  colMap: TmcColumnMap,
+  metric: { layout: TmcMetricLayout; tripletStart: number },
+) {
+  const itemCodeRaw =
+    getMappedCell(row, headers, colMap, "itemCode") ??
+    pickCell(row, ["Шифр", "Код", "Код позиции", "itemCode", "Шифр ГПР", "Код ГПР"]);
 
   let supplyPlanDate: string | null = null;
-  let contractPlanDate: string | null = null;
   let supplyFactDate: string | null = null;
+  let contractPlanDate: string | null = null;
   let contractFactDate: string | null = null;
+  let volumePlanRaw: unknown;
+  let volumeFactRaw: unknown;
+  let priceRaw: unknown;
+  let priceFactRaw: unknown;
+  let planCostRaw: unknown;
+  let factCostRaw: unknown;
 
-  if (dateCtx) {
-    const { headers, relativeToStage } = dateCtx;
-
-    if (relativeToStage) {
-      supplyPlanDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryPlanIdx));
-      supplyFactDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryFactIdx));
-      contractPlanDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractPlanIdx));
-      contractFactDate = normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractFactIdx));
-    } else {
-      supplyPlanDate =
-        normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryPlanIdx)) ??
-        firstDateByHeaderPatterns(row, [
-          ["дата", "постав", "план"],
-          ["постав", "план"],
-          ["план", "нач"],
-          ["начало", "план"],
-        ]);
-      supplyFactDate =
-        normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.deliveryFactIdx)) ??
-        firstDateByHeaderPatterns(row, [
-          ["дата", "постав", "факт"],
-          ["постав", "факт"],
-          ["факт", "нач"],
-          ["начало", "факт"],
-        ]);
-      contractPlanDate =
-        normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractPlanIdx)) ??
-        firstDateByHeaderPatterns(row, [
-          ["дата", "договор", "план"],
-          ["договор", "план"],
-          ["план", "договор"],
-        ]);
-      contractFactDate =
-        normalizeImportedDate(cellAtColumnIndex(headers, row, dateCtx.contractFactIdx)) ??
-        firstDateByHeaderPatterns(row, [
-          ["дата", "договор", "факт"],
-          ["договор", "факт"],
-          ["факт", "договор"],
-        ]);
-    }
+  if (metric.layout === "triplet" && metric.tripletStart >= 0) {
+    const tm = parseTripletMetricCells(row, headers, metric.tripletStart);
+    supplyPlanDate = tm.supplyPlanDate;
+    supplyFactDate = tm.supplyFactDate;
+    contractPlanDate = tm.contractPlanDate;
+    contractFactDate = tm.contractFactDate;
+    volumePlanRaw = tm.volumePlanRaw;
+    volumeFactRaw = tm.volumeFactRaw;
+    priceRaw = tm.pricePlanRaw;
+    priceFactRaw = tm.priceFactRaw;
+    planCostRaw = tm.planCostRaw;
+    factCostRaw = tm.factCostRaw;
   } else {
-    supplyPlanDate = firstDateByHeaderPatterns(row, [
-      ["план", "нач"],
-      ["начало", "план"],
-      ["дата", "план"],
-    ]);
-    supplyFactDate = firstDateByHeaderPatterns(row, [
-      ["факт", "нач"],
-      ["начало", "факт"],
-      ["дата", "факт"],
-    ]);
-    contractPlanDate = firstDateByHeaderPatterns(row, [
-      ["план", "кон"],
-      ["окончание", "план"],
-      ["план", "оконч"],
-    ]);
-    contractFactDate = firstDateByHeaderPatterns(row, [
-      ["факт", "кон"],
-      ["окончание", "факт"],
-    ]);
+    supplyPlanDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "deliveryPlan"));
+    supplyFactDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "deliveryFact"));
+    contractPlanDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "contractPlan"));
+    contractFactDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "contractFact"));
+    volumePlanRaw =
+      getMappedCell(row, headers, colMap, "volumePlan") ??
+      pickCell(row, [
+        "Объем поставки План",
+        "Объем план",
+        "Объем поставки",
+        "Количество",
+        "Qty",
+        "quantity",
+      ]);
+    volumeFactRaw =
+      getMappedCell(row, headers, colMap, "volumeFact") ??
+      pickCell(row, ["Объем факт", "Объем поставки Факт", "Объем поставки факт", "Объем (факт)"]);
+    priceRaw =
+      getMappedCell(row, headers, colMap, "pricePlan") ??
+      pickCell(row, [
+        "Цена закупки за ед. (руб.) План",
+        "Цена закупки за ед. (руб.)",
+        "Цена закупки за ед",
+        "Цена план",
+        "Цена",
+        "price",
+        "Цена за ед.",
+        "Цена за единицу",
+      ]);
+    priceFactRaw =
+      getMappedCell(row, headers, colMap, "priceFact") ??
+      pickCell(row, ["Цена закупки за ед. (руб.) Факт", "Цена факт", "Цена закупки факт", "Цена (факт)"]);
+    planCostRaw =
+      getMappedCell(row, headers, colMap, "costPlan") ??
+      pickCell(row, [
+        "Стоимость (руб.) План",
+        "Стоимость (руб) план",
+        "План ₽",
+        "План стоимость",
+        "Сумма план",
+        "Бюджет",
+        "Плановая стоимость",
+        "Сумма",
+        "Итого",
+        "total",
+        "planCost",
+        "План",
+      ]);
+    factCostRaw =
+      getMappedCell(row, headers, colMap, "costFact") ??
+      pickCell(row, [
+        "Стоимость (руб.) Факт",
+        "Стоимость (руб) факт",
+        "Факт ₽",
+        "Факт стоимость",
+        "Факт",
+        "factCost",
+      ]);
   }
 
-  const planCostRaw = pickCell(row, [
-    "Стоимость (руб.) План",
-    "Стоимость (руб) план",
-    "План ₽",
-    "План стоимость",
-    "Сумма план",
-    "Бюджет",
-    "Плановая стоимость",
-    "Сумма",
-    "Итого",
-    "total",
-    "planCost",
-    "План",
-  ]);
+  const unit =
+    (getMappedCell(row, headers, colMap, "unit") ??
+      pickCell(row, ["Ед. изм.", "Ед изм.", "Единица измерения", "Ед.", "unit"]).trim()) ||
+    pickCellSubstring(row, ["ед изм", "ед.изм", "единица измерения"]).trim();
 
-  const qtyRaw = pickCell(row, [
-    "Объем поставки План",
-    "Объем поставки",
-    "Количество",
-    "Qty",
-    "quantity",
-  ]);
-  const priceRaw = pickCell(row, [
-    "Цена закупки за ед. (руб.) План",
-    "Цена закупки за ед. (руб.)",
-    "Цена закупки за ед",
-    "Цена",
-    "price",
-    "Цена за ед.",
-    "Цена за единицу",
-  ]);
+  const supplier =
+    (getMappedCell(row, headers, colMap, "supplier") ??
+      pickCell(row, ["Поставщик", "supplier"]).trim()) ||
+    pickCellSubstring(row, ["поставщик"]).trim();
 
-  let planCost: number | undefined = planCostRaw ? cleanNumber(planCostRaw) : undefined;
-  if (planCost === undefined && qtyRaw && priceRaw) {
-    const q = cleanNumber(qtyRaw);
-    const p = cleanNumber(priceRaw);
-    planCost = q * p;
+  const contract =
+    (getMappedCell(row, headers, colMap, "contract") ??
+      pickCell(row, ["Договор", "Номер договора", "Контракт"]).trim()) ||
+    pickCellSubstring(row, ["договор", "контракт №", "номер договора"]).trim();
+
+  const statusLine =
+    (getMappedCell(row, headers, colMap, "status") ??
+      pickCell(row, ["Статус поставки", "Статус"]).trim()) ||
+    pickCellSubstring(row, ["статус"]).trim();
+  const status = parseTmcSupplyStatus(statusLine);
+
+  let planCost = parseImportNumber(planCostRaw);
+  let volumePlan = parseImportNumber(volumePlanRaw);
+  let pricePlan = parseImportNumber(priceRaw);
+  let volumeFact = parseImportNumber(volumeFactRaw);
+  let priceFact = parseImportNumber(priceFactRaw);
+
+  if (volumePlan == null) volumePlan = 0;
+  if (volumeFact == null) volumeFact = 0;
+  if (pricePlan == null) pricePlan = 0;
+  if (priceFact == null) priceFact = 0;
+
+  if (
+    planCost == null &&
+    String(volumePlanRaw ?? "").trim() !== "" &&
+    String(priceRaw ?? "").trim() !== ""
+  ) {
+    planCost = volumePlan * pricePlan;
   }
-  if (planCost === undefined) planCost = 0;
+  if (planCost == null) planCost = 0;
 
-  const factRaw = pickCell(row, [
-    "Стоимость (руб.) Факт",
-    "Стоимость (руб) факт",
-    "Факт ₽",
-    "Факт стоимость",
-    "Факт",
-    "factCost",
-  ]);
-  let factCost: number | null = null;
-  if (factRaw.trim()) {
-    factCost = cleanNumber(factRaw);
+  if (metric.layout !== "triplet") {
+    if (volumePlan === 0 && pricePlan === 0 && planCost > 0) {
+      volumePlan = 1;
+      pricePlan = planCost;
+    }
   }
 
-  const projectPart = parseProjectPart(
-    pickCell(row, [
-      "Часть проекта",
-      "projectPart",
-      "Объект",
-      "Часть",
-      "Зона",
-    ]),
-  );
+  const factCost: number | null = parseImportNumber(factCostRaw ?? "");
+
+  if (metric.layout !== "triplet") {
+    if (volumeFact === 0 && priceFact === 0 && factCost != null && factCost > 0) {
+      volumeFact = 1;
+      priceFact = factCost;
+    }
+  }
+
+  const projectPartRaw =
+    getMappedCell(row, headers, colMap, "projectPart") ??
+    pickCell(row, ["Часть проекта", "projectPart", "Объект", "Часть", "Зона"]);
+  const projectPart = parseProjectPart(projectPartRaw ?? "");
 
   return {
     itemCodeRaw,
+    unit,
+    supplier,
+    contract,
+    status,
+    volumePlan,
+    volumeFact,
+    pricePlan,
+    priceFact,
     planCost,
     factCost,
     supplyPlanDate,
@@ -652,120 +977,87 @@ function parseTmcCsvRowSlice(row: Record<string, unknown>, dateCtx?: TmcDateColu
   };
 }
 
-type TmcGroupAcc = {
-  name: string;
-  gprStage: string;
-  planCost: number;
-  factCostSum: number;
-  factRowCount: number;
-  supplyPlanDate: string | null;
-  contractPlanDate: string | null;
-  supplyFactDate: string | null;
-  contractFactDate: string | null;
-  itemCode: string;
-  projectPart: ProjectPartKey;
-  id: string;
-};
-
 /**
  * Полная замена реестра из CSV.
- * Строки с одним наименованием и этапом ГПР объединяются: суммы и факт суммируются, даты — min/max по строкам.
+ * Одна строка файла → одна позиция ТМЦ (без склейки дубликатов по имени/этапу).
  */
 export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: string[]): TMCItem[] {
-  const dateCtx =
-    headers && headers.length > 0 ? buildTmcDateColumnContext(headers) : undefined;
+  if (!headers || headers.length === 0) {
+    console.warn("[tmc CSV] normalizeTmcCsvRows: не переданы заголовки столбцов");
+    return [];
+  }
+
+  const metric = detectTripletMetricLayout(headers);
+  const colMap = buildTmcColumnMap(headers);
 
   const trimmed = dropLeadingJunkRows(rows);
-  const resolved = resolveTmcRowsWithCarryForward(trimmed);
+  const resolved = resolveTmcRowsWithCarryForward(trimmed, headers, colMap);
 
   const usable = resolved.filter((x) => {
     if (!x.name.trim()) return false;
     if (isJunkTmcLabel(x.name)) return false;
-    if (!x.stage.trim()) return false;
     return true;
   });
 
-  const map = new Map<string, TmcGroupAcc>();
-  let synth = 0;
-  let loggedSampleRow = false;
-
-  for (const { row, name, stage } of usable) {
-    if (!loggedSampleRow && dateCtx && typeof console !== "undefined") {
-      loggedSampleRow = true;
-      const h = dateCtx.headers;
-      const supplyPlan = cellAtColumnIndex(h, row, dateCtx.deliveryPlanIdx);
-      const supplyFact = cellAtColumnIndex(h, row, dateCtx.deliveryFactIdx);
-      const contractPlan = cellAtColumnIndex(h, row, dateCtx.contractPlanIdx);
-      const contractFact = cellAtColumnIndex(h, row, dateCtx.contractFactIdx);
-      console.log({
-        row,
-        supplyPlan,
-        supplyFact,
-        contractPlan,
-        contractFact,
-      });
-    }
-
-    const slice = parseTmcCsvRowSlice(row, dateCtx);
-    const key = normGroupKey(name, stage);
-    let acc = map.get(key);
-    if (!acc) {
-      synth += 1;
-      acc = {
-        name: name.trim(),
-        gprStage: stage.trim(),
-        planCost: 0,
-        factCostSum: 0,
-        factRowCount: 0,
-        supplyPlanDate: null,
-        contractPlanDate: null,
-        supplyFactDate: null,
-        contractFactDate: null,
-        itemCode: "",
-        projectPart: slice.projectPart,
-        id: newIdFallback(synth),
-      };
-      map.set(key, acc);
-    }
-
-    acc.planCost += slice.planCost;
-    if (slice.factCost != null) {
-      acc.factCostSum += slice.factCost;
-      acc.factRowCount += 1;
-    }
-
-    acc.supplyPlanDate = mergeIsoMin(acc.supplyPlanDate, slice.supplyPlanDate);
-    acc.contractPlanDate = mergeIsoMax(acc.contractPlanDate, slice.contractPlanDate);
-    acc.supplyFactDate = mergeIsoMin(acc.supplyFactDate, slice.supplyFactDate);
-    acc.contractFactDate = mergeIsoMax(acc.contractFactDate, slice.contractFactDate);
-
-    if (!acc.itemCode.trim() && slice.itemCodeRaw.trim()) {
-      acc.itemCode = slice.itemCodeRaw.trim();
-    }
-    acc.projectPart = slice.projectPart;
+  if (typeof console !== "undefined") {
+    console.log({
+      parsedRows: usable.length,
+      mappedColumns: describeTmcColumnMap(headers, colMap),
+      metricLayout: metric.layout,
+      tripletColumnStart: metric.tripletStart,
+    });
   }
 
   const out: TMCItem[] = [];
   let idx = 0;
-  for (const acc of map.values()) {
-    idx += 1;
-    const itemCode =
-      acc.itemCode.trim() || `2.05.99.${String(idx).padStart(3, "0")}`;
-    const factCost: number | null = acc.factRowCount > 0 ? acc.factCostSum : null;
+  let tripletSampleDone = false;
 
-    out.push({
-      id: acc.id,
+  for (const { row, name, stage } of usable) {
+    idx += 1;
+    const slice = parseTmcCsvRowSlice(row, headers, colMap, metric);
+
+    if (metric.layout === "triplet" && !tripletSampleDone) {
+      tripletSampleDone = true;
+      assertTripletFirstRowSample(slice.volumePlan, slice.pricePlan, slice.planCost);
+      if (typeof console !== "undefined") {
+        console.log({
+          volumePlan: slice.volumePlan,
+          pricePlan: slice.pricePlan,
+          costPlan: slice.planCost,
+        });
+      }
+    }
+
+    let gprStage = stage.trim();
+    if (!gprStage) gprStage = inferGprStageFromItemCode(slice.itemCodeRaw.trim());
+
+    const itemCode = slice.itemCodeRaw.trim() || `2.05.99.${String(idx).padStart(3, "0")}`;
+
+    const draft: TMCItem = {
+      id: newIdFallback(idx),
       itemCode,
-      name: acc.name,
-      gprStage: acc.gprStage,
-      planCost: acc.planCost,
-      factCost,
-      supplyPlanDate: acc.supplyPlanDate,
-      contractPlanDate: acc.contractPlanDate,
-      supplyFactDate: acc.supplyFactDate,
-      contractFactDate: acc.contractFactDate,
-      projectPart: acc.projectPart,
-    });
+      name: name.trim(),
+      gprStage,
+      unit: slice.unit.trim() || "шт",
+      volumePlan: slice.volumePlan,
+      volumeFact: slice.volumeFact,
+      pricePlan: slice.pricePlan,
+      priceFact: slice.priceFact,
+      totalPlan: 0,
+      totalFact: 0,
+      supplier: slice.supplier.trim(),
+      contract: slice.contract.trim(),
+      status: slice.status,
+      planCost: slice.planCost,
+      factCost: slice.factCost,
+      supplyPlanDate: slice.supplyPlanDate,
+      contractPlanDate: slice.contractPlanDate,
+      supplyFactDate: slice.supplyFactDate,
+      contractFactDate: slice.contractFactDate,
+      projectPart: slice.projectPart,
+    };
+
+    out.push(syncTmcFinancials(draft));
   }
 
   return out;

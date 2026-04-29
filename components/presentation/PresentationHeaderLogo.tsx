@@ -5,7 +5,7 @@
 export function Logo({ className }: { className?: string }) {
   return (
     <svg
-      className={["h-9 w-auto max-h-none shrink-0", className].filter(Boolean).join(" ")}
+      className={["h-10 w-auto max-w-[140px] shrink-0 object-contain", className].filter(Boolean).join(" ")}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 4138 1814"
       fill="currentColor"

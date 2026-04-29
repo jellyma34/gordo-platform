@@ -1,5 +1,8 @@
 import { getProjectStatus } from "@/utils/status";
 
+/** Жилой дом / автостоянка — разводка одинаковых шифров в «План vs факт». */
+export type GprPlanFactScopeKey = "house" | "parking";
+
 export type GPRTask = {
   id: string;
   globalTaskId: string;
@@ -22,6 +25,12 @@ export type GPRTask = {
    * Задача не попала в последний импорт CSV — не показывается в презентации (не удаляется).
    */
   missingFromImport?: boolean;
+  /**
+   * Объект стройки из секции CSV (строка «Жилой дом», «…автостоянка» и т.д.), задаётся перед задачами с кодами.
+   */
+  objectType?: string;
+  /** Явная зона для диаграммы План/факт (`house` / `parking`); иначе выводится из объекта и partId. */
+  planFactScope?: GprPlanFactScopeKey;
   /**
    * Плановый объём работ (усл. ед., напр. тыс. м³ или нормо-часы) — приоритетный вес для «Общий прогресс».
    * Если задано положительное значение, используется вместо contractValue и длительности плана.
@@ -82,6 +91,64 @@ export function urlParamToPartScope(p: string | null | undefined): ConstructionO
   if (t === "2") return 2;
   if (t === "1") return 1;
   return 1;
+}
+
+/**
+ * Грязный шифр из CSV/PDF: пробелы, лишние точки.
+ * Дальше по цепочке используйте {@link normalizeGprCodeFinal} для канона «только цифры.точки».
+ */
+export function normalizeCode(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\s+/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\.$/, "");
+}
+
+/**
+ * ISO-дата с полей задачи ГПР: без sentinel Excel (`1900`, `00.01.1900` в ISO-виде), без мусора.
+ * Возвращает `YYYY-MM-DD` или `null`. Задачи без дат не отбрасываются снаружи — только поле даты null.
+ */
+export function parseDateSafe(iso: string | null | undefined): string | null {
+  if (iso == null) return null;
+  const t = String(iso).trim();
+  if (!t || t === "—") return null;
+  if (/^1900-/.test(t) || t.startsWith("1899-")) return null;
+  if (t.includes("1900-01-00") || t === "0000-00-00") return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    const [ys, ms, ds] = t.split("-");
+    const y = Number(ys);
+    const mo = Number(ms);
+    const d = Number(ds);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+    if (y < 1901 || y > 2100) return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    if (y === 1900 && mo === 1 && d <= 1) return null;
+    const dt = new Date(`${t}T12:00:00`);
+    return Number.isNaN(dt.getTime()) ? null : t;
+  }
+  const dt = new Date(t);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  if (y < 1901 || y > 2100) return null;
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
+/** Корень шифра ГПР: совпадение с `root` или вложенность `root.*` (после нормализации шифров). */
+export function matchesGprCodeBranch(code: string, root: string): boolean {
+  const c = normalizeGprCodeFinal(code);
+  const r = normalizeGprCodeFinal(root);
+  return c === r || c.startsWith(`${r}.`);
+}
+
+/**
+ * Для блока «План vs факт» на уровне «Жилой дом»: только работы ветки 2.05 (строительство),
+ * без 2.04 (подготовка). На уровне «Проект» фильтр не применяется — см. {@link ConstructionObjectScope}.
+ */
+export function filterZhDomPlanFactTasksTo205Branch(tasks: GPRTask[]): GPRTask[] {
+  return tasks.filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"));
 }
 
 export type GPRStatus = "green" | "yellow" | "red" | "gray" | "blocked";
@@ -363,12 +430,22 @@ export function filterByPeriod<T extends { planStart?: string | null; planEnd?: 
 
   if (filterType === "month") {
     if (value == null || value < 1 || value > 12) return data;
-    return data.filter((item) => taskOverlapsCalendarMonth(item, value));
+    return data.filter(
+      (item) =>
+        parseDateSafe(item.planStart) == null ||
+        parseDateSafe(item.planEnd) == null ||
+        taskOverlapsCalendarMonth(item, value),
+    );
   }
 
   if (filterType === "quarter") {
     if (value == null || value < 1 || value > 4) return data;
-    return data.filter((item) => taskOverlapsCalendarQuarter(item, value));
+    return data.filter(
+      (item) =>
+        parseDateSafe(item.planStart) == null ||
+        parseDateSafe(item.planEnd) == null ||
+        taskOverlapsCalendarQuarter(item, value),
+    );
   }
 
   return data;
@@ -454,13 +531,31 @@ export function sanitizeGprCodeTyping(raw: string): string {
   return raw.replace(/[^\d.]/g, "");
 }
 
-/** После blur / перед сохранением: убрать лишние точки и пустые сегменты. */
+/** После blur / перед сохранением: пробелы/мусор из CSV, затем только цифры и точки по сегментам. */
 export function normalizeGprCodeFinal(raw: string): string {
-  return raw
+  return normalizeCode(raw)
     .replace(/[^\d.]/g, "")
     .split(".")
     .filter((p) => p.length > 0)
     .join(".");
+}
+
+export function gprPlanFactScopeFromTask(task: GPRTask): GprPlanFactScopeKey {
+  if (task.planFactScope === "house" || task.planFactScope === "parking") {
+    return task.planFactScope;
+  }
+  const pk = task.projectPartKey;
+  if (pk === "parking") return "parking";
+  if (pk === "residential") return "house";
+  const ot = (task.objectType ?? "").toLowerCase();
+  if (ot.includes("автостоянк") || ot.includes("паркинг")) return "parking";
+  if (ot.includes("жилой")) return "house";
+  return task.partId === 2 ? "parking" : "house";
+}
+
+/** Уникальный ключ строки «План vs факт»: домен + шифр + id. */
+export function gprPlanFactCompositeKey(task: GPRTask): string {
+  return `${gprPlanFactScopeFromTask(task)}_${normalizeGprCodeFinal(task.code)}_${task.id}`;
 }
 
 /**

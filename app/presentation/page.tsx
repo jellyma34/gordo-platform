@@ -4,7 +4,6 @@ import { useEffect, useMemo } from "react";
 
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
-import { ProjectStatus } from "@/components/presentation/ProjectStatus";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
 export default function PresentationEntry() {
@@ -44,9 +43,7 @@ export default function PresentationEntry() {
         </h1>
         <p className="mb-4 text-center text-sm text-slate-400">Нажмите на блок, чтобы открыть раздел</p>
 
-        <ProjectStatus project={snapshot.project} className="w-full" />
-
-        <div className="mt-4 w-full">
+        <div className="mt-2 w-full">
           <HubSectionCards blocks={blocks} gridClassName="presentation-section-grid" />
         </div>
       </div>

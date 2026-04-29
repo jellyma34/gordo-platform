@@ -1,4 +1,4 @@
-import type { GPRTask } from "@/lib/gprUtils";
+import { matchesGprCodeBranch, normalizeGprCodeFinal, type GPRTask } from "@/lib/gprUtils";
 import { aggregateWorksToProjectPlanFactBounds, type ProjectPlanFactOverviewBounds } from "@/lib/gprProjectOverview";
 
 /** Три строки свода для режима «Проект»: ЖД (2.04+2.05), автостоянка 2.06 и 2.07. */
@@ -20,16 +20,11 @@ function clampPct(x: number): number {
   return Math.round(Math.max(0, Math.min(100, x)) * 10) / 10;
 }
 
-function matchesBranch(code: string, root: string): boolean {
-  const c = code.trim();
-  return c === root || c.startsWith(`${root}.`);
-}
-
 export function tasksResidential204205(tasks: GPRTask[]): GPRTask[] {
   return tasks.filter(
     (t) =>
       t.partId === 1 &&
-      (matchesBranch(t.code, "2.04") || matchesBranch(t.code, "2.05")),
+      (matchesGprCodeBranch(t.code, "2.04") || matchesGprCodeBranch(t.code, "2.05")),
   );
 }
 
@@ -37,23 +32,23 @@ export function tasksParking206207(tasks: GPRTask[]): GPRTask[] {
   return tasks.filter(
     (t) =>
       t.partId === 2 &&
-      (matchesBranch(t.code, "2.06") || matchesBranch(t.code, "2.07")),
+      (matchesGprCodeBranch(t.code, "2.06") || matchesGprCodeBranch(t.code, "2.07")),
   );
 }
 
 function tasksParking206(tasks: GPRTask[]): GPRTask[] {
-  return tasks.filter((t) => t.partId === 2 && matchesBranch(t.code, "2.06"));
+  return tasks.filter((t) => t.partId === 2 && matchesGprCodeBranch(t.code, "2.06"));
 }
 
 function tasksParking207(tasks: GPRTask[]): GPRTask[] {
-  return tasks.filter((t) => t.partId === 2 && matchesBranch(t.code, "2.07"));
+  return tasks.filter((t) => t.partId === 2 && matchesGprCodeBranch(t.code, "2.07"));
 }
 
 function findRoot(tasks: GPRTask[], partId: number, rootCode: string): GPRTask | null {
-  const rc = rootCode.trim();
+  const rc = normalizeGprCodeFinal(rootCode);
   return (
     tasks.find((t) => {
-      const c = t.code.trim();
+      const c = normalizeGprCodeFinal(t.code);
       const lvl = t.level ?? c.split(".").length - 1;
       return t.partId === partId && c === rc && lvl === 1;
     }) ?? null

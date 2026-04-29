@@ -1,9 +1,10 @@
 import {
   normalizeGprCodeFinal,
-  sortGprTasksByCode,
   type GPRTask,
+  type GprPlanFactScopeKey,
+  type ProjectPartKey,
 } from "@/lib/gprUtils";
-import { parseGprReportCsv } from "@/lib/gprReportCsv";
+import { parseGprReportCsvWithStats, type GprReportCsvRow } from "@/lib/gprReportCsv";
 
 /** Часть проекта по префиксу шифра (2.06 / 2.07 → автостоянка). */
 export function inferPartIdFromGprCode(code: string): number {
@@ -12,6 +13,29 @@ export function inferPartIdFromGprCode(code: string): number {
   return 1;
 }
 
+/** Подбор части проекта по подписи объекта из CSV (жилой дом / автостоянка). */
+function inferPartIdFromObjectLabel(label: string): number | null {
+  const l = label.toLowerCase();
+  if (l.includes("автостоянк") || l.includes("паркинг")) return 2;
+  if (l.includes("жилой")) return 1;
+  return null;
+}
+
+function projectPartKeyFromObjectLabel(label: string): ProjectPartKey | undefined {
+  const pid = inferPartIdFromObjectLabel(label);
+  if (pid === 1) return "residential";
+  if (pid === 2) return "parking";
+  return undefined;
+}
+
+function slugForObjectType(label: string): string {
+  const s = label
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zа-яё0-9_-]/gi, "");
+  return s.length > 0 ? s : "obj";
+}
 function levelFromGprCode(code: string): number {
   const n = normalizeGprCodeFinal(code).split(".").filter((p) => p.length > 0).length;
   return Math.max(1, n - 1);
@@ -22,98 +46,85 @@ export function gprStableIdFromCode(code: string): string {
   return normalizeGprCodeFinal(code).replace(/\./g, "-");
 }
 
+function inferPlanFactScope(objectType: string, partId: number): GprPlanFactScopeKey {
+  const l = objectType.toLowerCase();
+  if (l.includes("автостоянк") || l.includes("паркинг")) return "parking";
+  if (l.includes("жилой")) return "house";
+  return partId === 2 ? "parking" : "house";
+}
+
+function gprCsvRowToTask(row: GprReportCsvRow): GPRTask {
+  const code = normalizeGprCodeFinal(row.code);
+  const objectType = row.objectType ?? "";
+  const scopeKey = `${code}${objectType}`;
+  const otSlug = slugForObjectType(objectType);
+  const id = `${gprStableIdFromCode(code)}--${otSlug}--csv${row.sourceRowIndex}`;
+  const partFromObject = inferPartIdFromObjectLabel(objectType);
+  const partId = partFromObject ?? inferPartIdFromGprCode(code);
+  const projectPartKey = projectPartKeyFromObjectLabel(objectType);
+
+  return {
+    id,
+    globalTaskId: `${scopeKey}::__csv${row.sourceRowIndex}`,
+    code,
+    objectType,
+    planFactScope: inferPlanFactScope(objectType, partId),
+    name: row.name || code,
+    partId,
+    projectPartKey,
+    planStart: row.planStart,
+    planEnd: row.planEnd,
+    factStart: row.factStart,
+    factEnd: row.factEnd,
+    completion: row.completion,
+    level: levelFromGprCode(code),
+    missingFromImport: false,
+    relatedTmcIds: [],
+  };
+}
 export type GprCsvMergeStats = {
-  /** Строк в файле после дедупликации по шифру */
+  /** Строк в файле после `split(/\\r?\\n/)` (включая пустые) */
+  csvPapaRowCount: number;
+  /** Задач из разбора CSV (по одной на каждую непустую строку) */
+  parsedRowCount: number;
+  /** То же, что `parsedRowCount` при прямом импорте без слияния */
+  mergedTaskCount: number;
+  csvRowsApplied: number;
   csvRows: number;
-  /** Обновлено существующих задач по совпадению шифра */
   updated: number;
-  /** Добавлено новых шифров из файла */
   added: number;
-  /** Помечено missingFromImport (есть в системе, не было в файле) */
   markedAbsentFromReport: number;
 };
 
 /**
- * Сливает задачи ГПР с отчётом CSV: обновление по шифру, добавление новых,
- * пометка отсутствующих в файле без удаления.
+ * ВРЕМЕННО: без слияния с существующими задачами — каждая строка CSV → одна задача,
+ * порядок как в файле. Параметр `baseTasks` не используется (оставлен для совместимости вызова).
  */
 export function mergeGprTasksFromReportCsv(
-  baseTasks: GPRTask[],
+  _baseTasks: GPRTask[],
   csvText: string,
 ): { tasks: GPRTask[]; stats: GprCsvMergeStats } {
-  const parsed = parseGprReportCsv(csvText);
-  const byCode = new Map<string, (typeof parsed)[0]>();
-  for (const row of parsed) byCode.set(row.code, row);
+  const { rows: parsedTasks, csvPapaRowCount } = parseGprReportCsvWithStats(csvText);
 
-  const csvCodes = new Set(byCode.keys());
+  console.log("RAW TASKS:", parsedTasks.length);
 
-  const sortedBase = sortGprTasksByCode(baseTasks.filter(Boolean));
-  const seenCodes = new Set<string>();
-  const deduped: GPRTask[] = [];
-  for (const t of sortedBase) {
-    const k = normalizeGprCodeFinal(t.code);
-    if (seenCodes.has(k)) continue;
-    seenCodes.add(k);
-    deduped.push({ ...t });
-  }
+  const tasks = parsedTasks.map(gprCsvRowToTask);
 
-  let updated = 0;
-  let markedAbsentFromReport = 0;
+  console.log("FINAL TASKS:", tasks.length);
 
-  const merged: GPRTask[] = deduped.map((task) => {
-    const k = normalizeGprCodeFinal(task.code);
-    const row = byCode.get(k);
-    if (row) {
-      updated++;
-      return {
-        ...task,
-        name: row.name || task.name,
-        planStart: row.planStart,
-        planEnd: row.planEnd,
-        factStart: row.factStart,
-        factEnd: row.factEnd,
-        completion: row.completion,
-        level: task.level ?? levelFromGprCode(k),
-        missingFromImport: false,
-      };
-    }
-    markedAbsentFromReport++;
-    return { ...task, missingFromImport: true };
-  });
-
-  const existingCodes = new Set(deduped.map((t) => normalizeGprCodeFinal(t.code)));
-  let added = 0;
-
-  for (const code of csvCodes) {
-    if (existingCodes.has(code)) continue;
-    added++;
-    const row = byCode.get(code)!;
-    merged.push({
-      id: gprStableIdFromCode(code),
-      globalTaskId: code,
-      code,
-      name: row.name || code,
-      partId: inferPartIdFromGprCode(code),
-      planStart: row.planStart,
-      planEnd: row.planEnd,
-      factStart: row.factStart,
-      factEnd: row.factEnd,
-      completion: row.completion,
-      level: levelFromGprCode(code),
-      missingFromImport: false,
-      relatedTmcIds: [],
-    });
-  }
-
-  const tasks = sortGprTasksByCode(merged);
+  const parsedRowCount = parsedTasks.length;
 
   return {
     tasks,
     stats: {
-      csvRows: parsed.length,
-      updated,
-      added,
-      markedAbsentFromReport,
+      csvPapaRowCount,
+      parsedRowCount,
+      mergedTaskCount: tasks.length,
+      csvRowsApplied: parsedRowCount,
+      csvRows: parsedRowCount,
+      updated: 0,
+      added: parsedRowCount,
+      markedAbsentFromReport: 0,
     },
   };
 }

@@ -1,9 +1,10 @@
-import { planFactEndDeviationDays, type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { parseDateSafe, planFactEndDeviationDays, type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
 import { factColorForPlanFactEnd, statusLabelForPlanFactEnd } from "@/lib/gprScheduleDelayToday";
 
 function parseIsoDay(iso: string | null | undefined): number {
-  if (!iso?.trim()) return NaN;
-  const ms = new Date(`${iso.trim()}T00:00:00`).getTime();
+  const s = parseDateSafe(iso);
+  if (!s) return NaN;
+  const ms = new Date(`${s}T00:00:00`).getTime();
   return Number.isNaN(ms) ? NaN : ms;
 }
 

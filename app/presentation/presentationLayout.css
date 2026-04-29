@@ -45,7 +45,7 @@ body.presentation-active {
   align-items: center;
   display: flex;
   flex-wrap: nowrap;
-  gap: 10px; /* 8–12px между логотипом и текстом */
+  gap: 12px; /* gap-3: логотип + «ЖК Верба» */
   margin: 0;
   min-width: 0;
 }
@@ -53,10 +53,12 @@ body.presentation-active {
 .presentation-shell .project-logo {
   display: block;
   flex-shrink: 0;
-  height: 36px; /* 32–40px, визуальный якорь */
-  max-height: none; /* снять возможные cap вроде 20px */
+  height: 40px;
+  max-height: 40px;
+  max-width: 140px;
+  min-height: 40px;
   margin: 0;
-  min-height: 36px;
+  object-fit: contain;
   opacity: 0.98;
   padding: 0;
   width: auto;
@@ -71,7 +73,8 @@ body.presentation-active {
 
 .presentation-shell .project-title-text {
   display: block;
-  font-size: 18px;
+  font-size: 1.25rem; /* 20px — визуально в паре с логотипом ~40px */
+  font-weight: 600;
   line-height: 1.2;
   margin: 0;
 }

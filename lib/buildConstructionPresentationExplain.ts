@@ -102,7 +102,7 @@ function tmcEnriched(items: TMCItem[]) {
     } else if (dev !== null) {
       status = getStatusByDeviation(dev) as typeof status;
     }
-    return { ...item, deviation: dev, status };
+    return { ...item, deviation: dev, traffic: status };
   });
 }
 

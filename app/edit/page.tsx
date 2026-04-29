@@ -4,7 +4,6 @@ import { useEffect, useMemo } from "react";
 
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
-import { ProjectStatus } from "@/components/presentation/ProjectStatus";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
 export default function EditEntry() {
@@ -43,8 +42,6 @@ export default function EditEntry() {
         <p className="mt-1 text-sm text-slate-600">Сводка проекта на сегодня</p>
         <p className="mt-0.5 text-sm text-slate-500">Нажмите на блок, чтобы перейти в раздел.</p>
       </div>
-
-      <ProjectStatus project={snapshot.project} />
 
       <HubSectionCards blocks={blocks} gridClassName="hub-section-grid" />
     </main>
