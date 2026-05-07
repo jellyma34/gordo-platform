@@ -660,6 +660,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [scheduleFileName, setScheduleFileName] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const paymentScheduleInputRef = useRef<HTMLInputElement>(null);
+  /** В презентации блок после «Выполнение плана…» свёрнут по умолчанию. */
+  const [presAdvancedAnalyticsOpen, setPresAdvancedAnalyticsOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -2138,6 +2140,40 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         ) : null}
       </>
 
+      {presentation ? (
+        <button
+          type="button"
+          className={
+            presDark
+              ? "self-start rounded-lg border border-slate-500/50 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 shadow-sm transition hover:bg-slate-700/80"
+              : mplPremium
+                ? "self-start rounded-lg border border-black/[0.08] bg-white/90 px-3 py-2 text-xs font-semibold text-mpl-text shadow-sm transition hover:bg-white"
+                : "self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+          }
+          aria-expanded={presAdvancedAnalyticsOpen}
+          onClick={() => setPresAdvancedAnalyticsOpen((v) => !v)}
+        >
+          {presAdvancedAnalyticsOpen ? "Скрыть расширенную аналитику" : "Расширенная аналитика"}
+        </button>
+      ) : null}
+
+      <div
+        className={
+          presentation
+            ? `grid transition-[grid-template-rows] duration-300 ease-in-out motion-reduce:transition-none ${
+                presAdvancedAnalyticsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+              }`
+            : undefined
+        }
+      >
+        <div
+          className={
+            presentation
+              ? `min-h-0 overflow-hidden flex flex-col gap-4`
+              : "flex flex-col gap-4"
+          }
+          aria-hidden={presentation && !presAdvancedAnalyticsOpen ? true : undefined}
+        >
       {/* KPI summary */}
       <KpiDashboard
         mode={presentation ? (presDark ? "presentation" : "presentationLight") : "work"}
@@ -4033,6 +4069,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
         </div>
       </section>
+        </div>
+      </div>
 
     </div>
   );
