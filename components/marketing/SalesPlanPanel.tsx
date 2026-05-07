@@ -2142,7 +2142,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       <KpiDashboard
         mode={presentation ? (presDark ? "presentation" : "presentationLight") : "work"}
         items={dynamicsKpiItems}
-        className="mb-7"
+        className="mb-7 w-full min-w-0"
       />
 
       {/* Sales Velocity */}

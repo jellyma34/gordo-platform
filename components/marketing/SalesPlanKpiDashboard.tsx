@@ -59,12 +59,12 @@ export function KpiDashboard({
   mode,
   items,
   className = "",
-  gridClassName = "grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4",
+  gridClassName = "w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))]",
 }: {
   mode: KpiDashboardMode;
   items: KpiDashboardItem[];
   className?: string;
-  /** Сетка карточек (по умолчанию 4 в ряд на xl; например 5 KPI для «Сделок»). */
+  /** Сетка карточек: по умолчанию 4 равные колонки на lg+; иначе передайте свой класс (напр. 5 KPI). */
   gridClassName?: string;
 }) {
   const presentationLike = mode === "presentation" || mode === "explain" || mode === "presentationLight";
@@ -124,7 +124,7 @@ export function KpiDashboard({
           };
 
   return (
-    <div className={`grid ${gridClassName} ${className}`}>
+    <div className={`grid min-w-0 max-w-full ${gridClassName} ${className}`}>
       {items.map((kpi) => {
         const valueStyle = toneStyles(kpi.tone);
         const surfaceStyle = toneStyles(kpi.surfaceTone ?? kpi.tone);
@@ -195,9 +195,9 @@ export function KpiDashboard({
           (kpiDarkSurface ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.45)");
 
         return (
-          <div key={kpi.key} className="flex flex-col">
+          <div key={kpi.key} className="flex min-w-0 flex-col">
             <div
-              className={`group relative flex-1 overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}${
+              className={`group relative min-h-0 min-w-0 flex-1 overflow-visible rounded-xl ${surfaceStyle.card} ${surfaceStyle.glow} ${surfaceStyle.insetGlow}${
                 mode === "presentationLight" ? " top-card" : ""
               }`}
               title={kpi.hover}
@@ -205,7 +205,7 @@ export function KpiDashboard({
               {!kpi.hideRadialOverlay ? (
                 <div className="pointer-events-none absolute inset-0" style={{ background: surfaceStyle.radial }} />
               ) : null}
-              <div className="relative p-3 sm:p-3.5">
+              <div className="relative px-2.5 py-2.5 sm:px-3 sm:py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className={`min-w-0 text-[11px] uppercase tracking-wide ${kpiDarkSurface ? "text-slate-400" : "text-slate-500"}`}>
                     {kpi.title}
@@ -231,17 +231,17 @@ export function KpiDashboard({
                   ) : null}
                 </div>
                 {typeof kpi.value === "string" ? (
-                  <div className={`mt-1.5 text-2xl font-extrabold leading-none tabular-nums sm:text-[30px] ${valueStyle.value}`}>
+                  <div className={`mt-1 text-xl font-extrabold leading-none tabular-nums sm:text-2xl ${valueStyle.value}`}>
                     {kpi.value}
                   </div>
                 ) : (
-                  <div className={`mt-1.5 ${valueStyle.value}`}>{kpi.value}</div>
+                  <div className={`mt-1 ${valueStyle.value}`}>{kpi.value}</div>
                 )}
                 {hasSpark ? (
-                  <div className="mt-2">
+                  <div className="mt-1.5">
                     <svg
                       viewBox={`0 0 ${w} ${h}`}
-                      className={`${isBarsOnly && !barsFromBottom ? "h-14" : "h-10"} w-full overflow-visible`}
+                      className={`${isBarsOnly && !barsFromBottom ? "h-12" : "h-9"} w-full overflow-visible`}
                       preserveAspectRatio="none"
                       aria-hidden
                     >
@@ -358,12 +358,12 @@ export function KpiDashboard({
                     </svg>
                   </div>
                 ) : null}
-                <div className={`mt-1 text-[11px] ${kpiDarkSurface ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
+                <div className={`mt-0.5 text-[11px] ${kpiDarkSurface ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
                 <p
-                  className={`mt-2 text-[12px] leading-tight ${kpiDarkSurface ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" || mode === "presentationLight" ? "line-clamp-4" : "line-clamp-2"}`}
+                  className={`mt-1.5 text-[12px] leading-tight ${kpiDarkSurface ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" || mode === "presentationLight" ? "line-clamp-3" : "line-clamp-2"}`}
                   style={{
                     display: "-webkit-box",
-                    WebkitLineClamp: mode === "presentation" || mode === "presentationLight" ? 4 : 2,
+                    WebkitLineClamp: mode === "presentation" || mode === "presentationLight" ? 3 : 2,
                     WebkitBoxOrient: "vertical",
                     overflow: "hidden",
                   }}

@@ -18,6 +18,15 @@ const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFract
 
 const SEGMENT_ORDER: DealSegmentKey[] = ["apartment", "parking", "storage", "commercial", "other"];
 
+/** Одна строка на lg+, равные доли на всю ширину дашборда (как блоки графиков ниже). */
+function segmentKpiGridLgClass(cardCount: number): string {
+  if (cardCount <= 1) return "lg:grid-cols-1";
+  if (cardCount === 2) return "lg:grid-cols-2";
+  if (cardCount === 3) return "lg:grid-cols-3";
+  if (cardCount === 4) return "lg:grid-cols-[repeat(4,minmax(0,1fr))]";
+  return "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
+}
+
 const SEGMENT_ICONS: Record<DealSegmentKey, LucideIcon> = {
   apartment: Building2,
   parking: Car,
@@ -288,11 +297,9 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     return out;
   }, [filteredRows]);
 
-  const gridClass = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5";
-
   if (loadingDeals) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>Загрузка сделок…</p>
       </div>
@@ -301,7 +308,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   if (loadError) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>{loadError}</p>
       </div>
@@ -310,7 +317,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   if (cards.length === 0) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
           Нет сделок по сегментам в текущем срезе (загрузите выгрузку или смените фильтр объекта).
@@ -319,13 +326,15 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     );
   }
 
+  const gridClass = `sales-structure grid w-full min-w-0 max-w-none grid-cols-1 gap-3 items-stretch sm:grid-cols-2 ${segmentKpiGridLgClass(cards.length)}`;
+
   return (
-    <div className="mb-7">
+    <div className="mb-7 w-full min-w-0 max-w-none">
       <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
-      <p className={`mb-4 text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
+      <p className={`mb-4 max-w-none text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
         Распределение продаж по типам недвижимости.
       </p>
-      <div className={`sales-structure ${gridClass} items-stretch`}>
+      <div className={gridClass}>
         {cards.map((c) => {
           const vs = presDark
             ? SEGMENT_VISUAL_PRESENTATION[c.key]
@@ -342,9 +351,9 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                 ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-black/[0.06]"
                 : "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-slate-200/80";
           return (
-            <div key={c.key} className="flex h-full min-h-0 flex-col">
+            <div key={c.key} className="flex h-full min-h-0 min-w-0 flex-col">
               <div
-                className={`sales-structure-card group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
+                className={`sales-structure-card group relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
               >
                 <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
                 <div
@@ -363,7 +372,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   }}
                   aria-hidden
                 />
-                <div className="relative flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
                   <div className="mb-1 flex min-w-0 items-center gap-2">
                     <div className={iconWrapCls} aria-hidden>
                       <SegmentIcon className={`h-4 w-4 shrink-0 ${SEGMENT_ICON_CLASS[c.key]}`} strokeWidth={2} />

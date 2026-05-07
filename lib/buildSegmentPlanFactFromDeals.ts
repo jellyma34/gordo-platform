@@ -7,10 +7,16 @@ import {
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
 
+function segmentRowHasData(row: SegmentPlanFactBarRow): boolean {
+  return row.fact !== 0 || row.plan !== 0;
+}
+
 /**
  * Факт — сумма {@link NormalizedDealRow.sumRub} по сегменту (та же группировка, что карточки «Структура продаж»).
  * План — сумма {@link NormalizedDealRow.planRub} из JSON, если по сделкам есть явные поля;
  * иначе доли `fallbackTotalPlanRub` пропорционально факту по всем сегментам (включая «Прочее»).
+ *
+ * Сегменты без факта и без плана не возвращаются — на графике и в выгрузке только смысловые категории.
  */
 export function buildSegmentPlanFactBarDataFromDeals(
   filteredRows: NormalizedDealRow[],
@@ -46,7 +52,7 @@ export function buildSegmentPlanFactBarDataFromDeals(
       name: DEAL_SEGMENT_LABEL_RU[key],
       fact: facts[key],
       plan: explicitPlans[key],
-    }));
+    })).filter(segmentRowHasData);
   }
 
   const totalPlan =
@@ -58,12 +64,12 @@ export function buildSegmentPlanFactBarDataFromDeals(
       name: DEAL_SEGMENT_LABEL_RU[key],
       fact: facts[key],
       plan: Math.round(totalPlan * (facts[key] / sumFacts)),
-    }));
+    })).filter(segmentRowHasData);
   }
 
   return DEAL_SEGMENT_KEYS.map((key) => ({
     name: DEAL_SEGMENT_LABEL_RU[key],
     fact: facts[key],
     plan: 0,
-  }));
+  })).filter(segmentRowHasData);
 }

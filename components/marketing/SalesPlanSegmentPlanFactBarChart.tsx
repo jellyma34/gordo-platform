@@ -225,16 +225,13 @@ export function SalesPlanSegmentPlanFactBarChart({
     return null;
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
-  const rows = useMemo(() => {
+  const segmentBarRowsAll = useMemo(() => {
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
       fallbackAsOfYmd: planReportAsOfYmd,
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
     });
-    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
-    if (segmentScope === "all") return built;
-    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
-    return built.filter((r) => r.name === label);
+    return buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
   }, [
     dealsRows,
     fallbackTotalPlanRub,
@@ -242,8 +239,38 @@ export function SalesPlanSegmentPlanFactBarChart({
     planReportAsOfYmd,
     monthKeyForFilter,
     quarterIdForFilter,
-    segmentScope,
   ]);
+
+  useEffect(() => {
+    if (segmentScope === "all") return;
+    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
+    if (!segmentBarRowsAll.some((r) => r.name === label)) setSegmentScope("all");
+  }, [segmentScope, segmentBarRowsAll]);
+
+  const rows = useMemo(() => {
+    if (segmentScope === "all") return segmentBarRowsAll;
+    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
+    return segmentBarRowsAll.filter((r) => r.name === label);
+  }, [segmentBarRowsAll, segmentScope]);
+
+  const segmentSelectOptions = useMemo(() => {
+    const withData = new Set(segmentBarRowsAll.map((r) => r.name));
+    return [
+      { value: "all" as const, label: "Все" },
+      ...DEAL_SEGMENT_KEYS.filter((k) => withData.has(DEAL_SEGMENT_LABEL_RU[k])).map((k) => ({
+        value: k,
+        label: DEAL_SEGMENT_LABEL_RU[k],
+      })),
+    ];
+  }, [segmentBarRowsAll]);
+
+  const barCategoryGapPct = useMemo(() => {
+    const n = rows.length;
+    if (n <= 1) return "6%";
+    if (n <= 2) return "12%";
+    if (n <= 4) return "18%";
+    return "22%";
+  }, [rows.length]);
 
   const yDomain = useMemo((): [number, number] => {
     const vals = rows.flatMap((r) => [r.fact, r.plan]);
@@ -258,11 +285,6 @@ export function SalesPlanSegmentPlanFactBarChart({
   if (rows.length === 0) {
     return null;
   }
-
-  const segmentSelectOptions: { value: SegmentChartScope; label: string }[] = [
-    { value: "all", label: "Все" },
-    ...DEAL_SEGMENT_KEYS.map((k) => ({ value: k, label: DEAL_SEGMENT_LABEL_RU[k] })),
-  ];
 
   return (
     <div
@@ -364,8 +386,8 @@ export function SalesPlanSegmentPlanFactBarChart({
           <BarChart
             data={rows}
             margin={{ top: 28, right: 8, left: 4, bottom: 8 }}
-            barCategoryGap="24%"
-            barGap={8}
+            barCategoryGap={barCategoryGapPct}
+            barGap={rows.length <= 2 ? 6 : 8}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis
