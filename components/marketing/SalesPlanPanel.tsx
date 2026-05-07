@@ -26,8 +26,9 @@ import {
   formatSalesPlanAsOfKpiSub,
   type DynamicsKpiInput,
 } from "@/lib/salesPlanDynamicsKpi";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
-import { decodePaymentScheduleCsvBuffer, parsePaymentScheduleCsvOrVerba } from "@/lib/paymentScheduleCsv";
+import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
@@ -614,7 +615,8 @@ function FunnelBlock({
   );
 }
 
-const PAYMENT_SCHEDULE_STORAGE_KEY = "gordo-sales-plan-payment-schedule-v1";
+/** Старое локальное хранилище v1 — один раз переносим на сервер и удаляем. */
+const LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY = "gordo-sales-plan-payment-schedule-v1";
 
 type StoredPaymentScheduleV1 = {
   v: 1;
@@ -644,6 +646,21 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
   const dealsFeed = useMarketingDealsFeed();
+  const { sessionUserLabel, user: authUser } = useAuth();
+  const paymentPlanProjectId = useMemo(() => marketingPaymentPlanProjectIdFromEnv(), []);
+  const paymentUploadedByLabel = useMemo(() => {
+    const u = authUser;
+    return (
+      sessionUserLabel?.trim() ||
+      u?.name?.trim() ||
+      u?.fio?.trim() ||
+      u?.fullName?.trim() ||
+      u?.full_name?.trim() ||
+      u?.email?.trim() ||
+      "—"
+    );
+  }, [authUser, sessionUserLabel]);
+
   const card = presDark ? CARD : presentation && mplPremium ? CARD_PREMIUM : presentation ? CARD_LIGHT : CARD_EDIT;
   const h4 = presDark
     ? "text-sm font-semibold text-slate-100"
@@ -658,24 +675,87 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
   const [paymentPlanByPeriodKey, setPaymentPlanByPeriodKey] = useState<Record<string, number> | null>(null);
-  const [scheduleFileName, setScheduleFileName] = useState<string | null>(null);
+  const [scheduleMeta, setScheduleMeta] = useState<MarketingPaymentPlanMeta | null>(null);
+  const [paymentPlanHydrated, setPaymentPlanHydrated] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const paymentScheduleInputRef = useRef<HTMLInputElement>(null);
   /** В презентации блок после «Выполнение плана…» свёрнут по умолчанию. */
   const [presAdvancedAnalyticsOpen, setPresAdvancedAnalyticsOpen] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PAYMENT_SCHEDULE_STORAGE_KEY);
-      if (!raw) return;
-      const p = JSON.parse(raw) as StoredPaymentScheduleV1;
-      if (p?.v !== 1 || !p.byPeriodKey || typeof p.byPeriodKey !== "object") return;
-      setPaymentPlanByPeriodKey(p.byPeriodKey);
-      setScheduleFileName(p.fileName ?? null);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/marketing/payment-plan?projectId=${encodeURIComponent(paymentPlanProjectId)}`,
+          { cache: "no-store" },
+        );
+        const j = (await res.json()) as {
+          ok?: boolean;
+          plan?: {
+            byPeriodKey: Record<string, number>;
+            meta?: MarketingPaymentPlanMeta;
+          } | null;
+        };
+        if (cancelled) return;
+        if (j?.plan?.byPeriodKey && typeof j.plan.byPeriodKey === "object") {
+          setPaymentPlanByPeriodKey(j.plan.byPeriodKey);
+          setScheduleMeta(j.plan.meta ?? null);
+          setPaymentPlanHydrated(true);
+          return;
+        }
+        setPaymentPlanByPeriodKey(null);
+        setScheduleMeta(null);
+
+        try {
+          const raw = typeof window !== "undefined" ? localStorage.getItem(LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY) : null;
+          if (!raw) {
+            setPaymentPlanHydrated(true);
+            return;
+          }
+          const p = JSON.parse(raw) as StoredPaymentScheduleV1;
+          if (p?.v !== 1 || !p.byPeriodKey || typeof p.byPeriodKey !== "object") {
+            setPaymentPlanHydrated(true);
+            return;
+          }
+          const mig = await fetch("/api/marketing/payment-plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: paymentPlanProjectId,
+              migrateFromBrowser: true,
+              byPeriodKey: p.byPeriodKey,
+              meta: {
+                fileName: p.fileName ?? "import.csv",
+                uploadedAt: p.savedAt ?? new Date().toISOString(),
+                uploadedBy: "Импорт из локального хранилища браузера",
+              },
+            }),
+          });
+          const mj = (await mig.json()) as {
+            ok?: boolean;
+            plan?: { byPeriodKey: Record<string, number>; meta?: MarketingPaymentPlanMeta };
+          };
+          localStorage.removeItem(LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY);
+          if (mj?.plan?.byPeriodKey) {
+            setPaymentPlanByPeriodKey(mj.plan.byPeriodKey);
+            setScheduleMeta(mj.plan.meta ?? null);
+          }
+        } catch {
+          /* ignore migration */
+        } finally {
+          if (!cancelled) setPaymentPlanHydrated(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setPaymentPlanHydrated(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentPlanProjectId]);
 
   const onPaymentScheduleCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -683,37 +763,36 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     if (!file) return;
     setScheduleError(null);
     try {
-      const buf = await file.arrayBuffer();
-      const text = decodePaymentScheduleCsvBuffer(buf);
-      const res = parsePaymentScheduleCsvOrVerba(text);
-      if (!res.ok) {
-        setScheduleError(res.error);
-        setPaymentPlanByPeriodKey(null);
-        setScheduleFileName(null);
-        localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("projectId", paymentPlanProjectId);
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch("/api/marketing/payment-plan", { method: "POST", body: fd });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; plan?: { byPeriodKey: Record<string, number>; meta?: MarketingPaymentPlanMeta } } | null;
+      if (!res.ok || !j?.ok) {
+        setScheduleError(typeof j?.error === "string" ? j.error : "Не удалось сохранить файл на сервере.");
         return;
       }
-      setPaymentPlanByPeriodKey(res.byPeriodKey);
-      setScheduleFileName(file.name);
-      const payload: StoredPaymentScheduleV1 = {
-        v: 1,
-        byPeriodKey: res.byPeriodKey,
-        fileName: file.name,
-        savedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(PAYMENT_SCHEDULE_STORAGE_KEY, JSON.stringify(payload));
+      if (j.plan?.byPeriodKey && typeof j.plan.byPeriodKey === "object") {
+        setPaymentPlanByPeriodKey(j.plan.byPeriodKey);
+        setScheduleMeta(j.plan.meta ?? null);
+      }
     } catch {
-      setScheduleError("Не удалось прочитать файл.");
-      setPaymentPlanByPeriodKey(null);
-      setScheduleFileName(null);
+      setScheduleError("Не удалось прочитать или отправить файл.");
     }
   };
 
-  const clearPaymentSchedule = () => {
-    setPaymentPlanByPeriodKey(null);
-    setScheduleFileName(null);
+  const clearPaymentSchedule = async () => {
     setScheduleError(null);
-    localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+    try {
+      await fetch(`/api/marketing/payment-plan?projectId=${encodeURIComponent(paymentPlanProjectId)}`, {
+        method: "DELETE",
+      });
+    } catch {
+      /* всё равно сбрасываем UI */
+    }
+    setPaymentPlanByPeriodKey(null);
+    setScheduleMeta(null);
     if (paymentScheduleInputRef.current) paymentScheduleInputRef.current.value = "";
   };
 
@@ -768,7 +847,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const cashflowPlanScale = hasPaymentSchedule ? 1 : revenuePlanScale;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasPaymentSchedule
-    ? `План — помесячные суммы из графика платежей (файл «${scheduleFileName ?? "CSV"}»). Факт — помесячные значения из тестового ряда (mock); CRM-интеграция не подключена. На оси — с ${salesStartLabel} (старт продаж по проекту).`
+    ? `План — помесячные суммы из графика платежей (файл «${scheduleMeta?.fileName ?? "CSV"}»). Факт — помесячные значения из тестового ряда (mock); CRM-интеграция не подключена. На оси — с ${salesStartLabel} (старт продаж по проекту).`
     : `Факт — помесячные значения из локального mock dataset; CRM-интеграция не подключена. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
 
   const categoriesAdjusted = useMemo(
@@ -2095,30 +2174,56 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             />
             <button
               type="button"
+              disabled={!paymentPlanHydrated}
               className={
                 presDark
-                  ? "rounded-md border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25"
-                  : "rounded-md border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-600 hover:bg-sky-500/15"
+                  ? "rounded-md border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-45"
+                  : "rounded-md border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-600 hover:bg-sky-500/15 disabled:cursor-not-allowed disabled:opacity-45"
               }
               onClick={() => paymentScheduleInputRef.current?.click()}
             >
               Загрузить график платежей (CSV)
             </button>
-            {scheduleFileName ? (
-              <span className="tabular-nums text-slate-500">
-                Загружено: <span className="font-medium text-slate-700">{scheduleFileName}</span>
+            {!paymentPlanHydrated ? (
+              <span className="text-slate-500">Загрузка сохранённого графика…</span>
+            ) : scheduleMeta ? (
+              <span className="text-slate-500">
+                На сервере:{" "}
+                <span className="font-medium text-slate-800">{scheduleMeta.fileName}</span>
               </span>
             ) : null}
             {hasPaymentSchedule ? (
               <button
                 type="button"
                 className="text-xs font-semibold text-rose-600 hover:text-rose-500"
-                onClick={clearPaymentSchedule}
+                onClick={() => void clearPaymentSchedule()}
               >
                 Сбросить план из CSV
               </button>
             ) : null}
           </div>
+          {scheduleMeta ? (
+            <div
+              className={`mt-2 grid gap-0.5 text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}
+            >
+              <div>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Загружено: </span>
+                <span className={`font-medium tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                  {new Date(scheduleMeta.uploadedAt).toLocaleString("ru-RU")}
+                </span>
+              </div>
+              <div>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Кем: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                  {scheduleMeta.uploadedBy}
+                </span>
+              </div>
+              <div className={presDark ? "text-slate-500" : "text-slate-500"}>
+                Проект (ключ хранилища): <span className="tabular-nums">{paymentPlanProjectId}</span> — общие данные для
+                всех пользователей.
+              </div>
+            </div>
+          ) : null}
           {scheduleError ? <p className="mt-2 text-xs font-medium text-rose-600">{scheduleError}</p> : null}
         </div>
       ) : null}

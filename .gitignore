@@ -11,6 +11,10 @@ node_modules
 # Локальные снимки импорта ГПР (MVP API `app/api/gpr/import`)
 data/gpr-import-*.json
 
+# Загруженные графики платежей (API `app/api/marketing/payment-plan`), не коммитить выгрузки
+data/marketing-payment-plan/*.json
+data/marketing-payment-plan/*.raw.csv
+
 # Python / backend
 __pycache__/
 *.py[cod]
