@@ -28,7 +28,8 @@ import {
 } from "@/lib/salesPlanDynamicsKpi";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
-import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
+import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanFileV2, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
+import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
@@ -675,6 +676,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
   const [paymentPlanByPeriodKey, setPaymentPlanByPeriodKey] = useState<Record<string, number> | null>(null);
+  const [paymentFactByPeriodKey, setPaymentFactByPeriodKey] = useState<Record<string, number> | null>(null);
+  const [paymentFactUnavailableReason, setPaymentFactUnavailableReason] = useState<string | null>(null);
+  const [paymentZaydetMonthVerify, setPaymentZaydetMonthVerify] = useState<MarketingPaymentZaydetMonthVerifyRow[]>([]);
   const [scheduleMeta, setScheduleMeta] = useState<MarketingPaymentPlanMeta | null>(null);
   const [paymentPlanHydrated, setPaymentPlanHydrated] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -684,6 +688,24 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
   useEffect(() => {
     let cancelled = false;
+    const applyServerPlan = (plan: MarketingPaymentPlanFileV2 | null | undefined) => {
+      if (!plan || plan.v !== 2) {
+        setPaymentPlanByPeriodKey(null);
+        setPaymentFactByPeriodKey(null);
+        setPaymentFactUnavailableReason(null);
+        setScheduleMeta(null);
+        setPaymentZaydetMonthVerify([]);
+        return;
+      }
+      const p = plan.planByPeriodKey;
+      setPaymentPlanByPeriodKey(Object.keys(p).length > 0 ? p : null);
+      const f = plan.factByPeriodKey;
+      setPaymentFactByPeriodKey(f != null && Object.keys(f).length > 0 ? f : null);
+      setPaymentFactUnavailableReason(plan.factUnavailableReason);
+      setScheduleMeta(plan.meta ?? null);
+      setPaymentZaydetMonthVerify(Array.isArray(plan.zaydetMonthVerify) ? plan.zaydetMonthVerify : []);
+    };
+
     (async () => {
       try {
         const res = await fetch(
@@ -692,20 +714,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         );
         const j = (await res.json()) as {
           ok?: boolean;
-          plan?: {
-            byPeriodKey: Record<string, number>;
-            meta?: MarketingPaymentPlanMeta;
-          } | null;
+          plan?: MarketingPaymentPlanFileV2 | null;
         };
         if (cancelled) return;
-        if (j?.plan?.byPeriodKey && typeof j.plan.byPeriodKey === "object") {
-          setPaymentPlanByPeriodKey(j.plan.byPeriodKey);
-          setScheduleMeta(j.plan.meta ?? null);
+        if (j?.plan?.v === 2) {
+          applyServerPlan(j.plan);
           setPaymentPlanHydrated(true);
           return;
         }
-        setPaymentPlanByPeriodKey(null);
-        setScheduleMeta(null);
+        applyServerPlan(null);
 
         try {
           const raw = typeof window !== "undefined" ? localStorage.getItem(LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY) : null;
@@ -734,12 +751,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           });
           const mj = (await mig.json()) as {
             ok?: boolean;
-            plan?: { byPeriodKey: Record<string, number>; meta?: MarketingPaymentPlanMeta };
+            plan?: MarketingPaymentPlanFileV2;
           };
           localStorage.removeItem(LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY);
-          if (mj?.plan?.byPeriodKey) {
-            setPaymentPlanByPeriodKey(mj.plan.byPeriodKey);
-            setScheduleMeta(mj.plan.meta ?? null);
+          if (mj?.plan?.v === 2) {
+            applyServerPlan(mj.plan);
           }
         } catch {
           /* ignore migration */
@@ -768,14 +784,23 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       fd.append("projectId", paymentPlanProjectId);
       fd.append("uploadedBy", paymentUploadedByLabel);
       const res = await fetch("/api/marketing/payment-plan", { method: "POST", body: fd });
-      const j = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; plan?: { byPeriodKey: Record<string, number>; meta?: MarketingPaymentPlanMeta } } | null;
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        plan?: MarketingPaymentPlanFileV2;
+      } | null;
       if (!res.ok || !j?.ok) {
         setScheduleError(typeof j?.error === "string" ? j.error : "Не удалось сохранить файл на сервере.");
         return;
       }
-      if (j.plan?.byPeriodKey && typeof j.plan.byPeriodKey === "object") {
-        setPaymentPlanByPeriodKey(j.plan.byPeriodKey);
+      if (j.plan?.v === 2) {
+        const p = j.plan.planByPeriodKey;
+        setPaymentPlanByPeriodKey(Object.keys(p).length > 0 ? p : null);
+        const f = j.plan.factByPeriodKey;
+        setPaymentFactByPeriodKey(f != null && Object.keys(f).length > 0 ? f : null);
+        setPaymentFactUnavailableReason(j.plan.factUnavailableReason);
         setScheduleMeta(j.plan.meta ?? null);
+        setPaymentZaydetMonthVerify(Array.isArray(j.plan.zaydetMonthVerify) ? j.plan.zaydetMonthVerify : []);
       }
     } catch {
       setScheduleError("Не удалось прочитать или отправить файл.");
@@ -792,7 +817,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       /* всё равно сбрасываем UI */
     }
     setPaymentPlanByPeriodKey(null);
+    setPaymentFactByPeriodKey(null);
+    setPaymentFactUnavailableReason(null);
     setScheduleMeta(null);
+    setPaymentZaydetMonthVerify([]);
     if (paymentScheduleInputRef.current) paymentScheduleInputRef.current.value = "";
   };
 
@@ -834,21 +862,33 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
 
-  const hasPaymentSchedule =
+  const hasPlanMonths =
     paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
+  const hasFactMonths =
+    paymentFactByPeriodKey != null && Object.keys(paymentFactByPeriodKey).length > 0;
+  const hasUploadedPaymentCsv = scheduleMeta != null;
   const cashflowSeriesBase = useMemo(
     () =>
-      buildCashflowSeries(report, hasPaymentSchedule ? paymentPlanByPeriodKey : null, {
-        salesStartPeriodKey: marketingMockData.projectSalesStartPeriodKey,
-        factThroughPeriodKey: marketingMockData.projectCashflowFactThroughPeriodKey,
-      }),
-    [report, hasPaymentSchedule, paymentPlanByPeriodKey],
+      buildCashflowSeries(
+        hasPlanMonths ? paymentPlanByPeriodKey : null,
+        hasFactMonths ? paymentFactByPeriodKey : null,
+        {
+          salesStartPeriodKey: marketingMockData.projectSalesStartPeriodKey,
+          factThroughPeriodKey: null,
+        },
+      ),
+    [
+      hasPlanMonths,
+      hasFactMonths,
+      paymentPlanByPeriodKey,
+      paymentFactByPeriodKey,
+    ],
   );
-  const cashflowPlanScale = hasPaymentSchedule ? 1 : revenuePlanScale;
+  const cashflowPlanScale = hasPlanMonths ? 1 : revenuePlanScale;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
-  const cashflowPlanNote = hasPaymentSchedule
-    ? `План — помесячные суммы из графика платежей (файл «${scheduleMeta?.fileName ?? "CSV"}»). Факт — помесячные значения из тестового ряда (mock); CRM-интеграция не подключена. На оси — с ${salesStartLabel} (старт продаж по проекту).`
-    : `Факт — помесячные значения из локального mock dataset; CRM-интеграция не подключена. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
+  const cashflowPlanNote = hasUploadedPaymentCsv
+    ? `План — сумма по строкам сделок в колонках «План» + месяц + год (файл «${scheduleMeta?.fileName ?? "CSV"}»). Факт поступлений — только столбцы с подстрокой «зайдет» в заголовке; сумма чисел из ячеек столбца без пересчёта. Ось с ${salesStartLabel}.`
+    : `Загрузите CSV графика платежей с колонками «зайдет …». Ось с ${salesStartLabel}.`;
 
   const categoriesAdjusted = useMemo(
     () =>
@@ -2192,7 +2232,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <span className="font-medium text-slate-800">{scheduleMeta.fileName}</span>
               </span>
             ) : null}
-            {hasPaymentSchedule ? (
+            {hasUploadedPaymentCsv ? (
               <button
                 type="button"
                 className="text-xs font-semibold text-rose-600 hover:text-rose-500"
@@ -2233,7 +2273,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           rows={cashflowSeriesBase}
           planScale={cashflowPlanScale}
           planSourceNote={cashflowPlanNote}
+          factUnavailableMessage={hasUploadedPaymentCsv ? paymentFactUnavailableReason : null}
           presentation={presentation}
+          zaydetMonthVerify={paymentZaydetMonthVerify}
+          showZaydetCsvDebugTable={mode === "edit" && !presentation}
         />
         {!dealsFeed.loading ? (
           <SalesPlanSegmentPlanFactBarChart

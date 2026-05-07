@@ -2,26 +2,26 @@ import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 
 import {
   decodePaymentScheduleCsvBuffer,
-  parsePaymentScheduleCsvOrVerba,
+  parseMarketingPaymentCsvStrict,
 } from "@/lib/paymentScheduleCsv";
 import {
   MARKETING_PAYMENT_PLAN_DIR,
   marketingPaymentPlanJsonPath,
   marketingPaymentPlanRawCsvPath,
+  normalizeMarketingPaymentPlanDoc,
   sanitizeMarketingPaymentPlanProjectId,
-  type MarketingPaymentPlanFileV1,
+  type MarketingPaymentPlanFileV2,
   type MarketingPaymentPlanMeta,
 } from "@/lib/marketingPaymentPlanStore";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-async function readPlanDoc(projectId: string): Promise<MarketingPaymentPlanFileV1 | null> {
+async function readPlanDoc(projectId: string): Promise<MarketingPaymentPlanFileV2 | null> {
   try {
     const raw = await readFile(marketingPaymentPlanJsonPath(projectId), "utf-8");
-    const p = JSON.parse(raw) as MarketingPaymentPlanFileV1;
-    if (p?.v !== 1 || !p.byPeriodKey || typeof p.byPeriodKey !== "object" || !p.meta) return null;
-    return p;
+    const p = JSON.parse(raw) as unknown;
+    return normalizeMarketingPaymentPlanDoc(p);
   } catch {
     return null;
   }
@@ -29,23 +29,37 @@ async function readPlanDoc(projectId: string): Promise<MarketingPaymentPlanFileV
 
 async function writePlan(
   projectId: string,
-  byPeriodKey: Record<string, number>,
-  meta: MarketingPaymentPlanMeta,
+  fields: {
+    planByPeriodKey: Record<string, number>;
+    factByPeriodKey: Record<string, number> | null;
+    factUnavailableReason: string | null;
+    columnPeriodKeysPlan: string[];
+    columnPeriodKeysFact: string[];
+    zaydetColumnDebug: MarketingPaymentPlanFileV2["zaydetColumnDebug"];
+    zaydetMonthVerify: MarketingPaymentPlanFileV2["zaydetMonthVerify"];
+    meta: MarketingPaymentPlanMeta;
+  },
   rawCsvText: string | null,
-): Promise<MarketingPaymentPlanFileV1> {
+): Promise<MarketingPaymentPlanFileV2> {
   const safeId = sanitizeMarketingPaymentPlanProjectId(projectId);
   await mkdir(MARKETING_PAYMENT_PLAN_DIR, { recursive: true });
 
   const updatedAt = new Date().toISOString();
-  const doc: MarketingPaymentPlanFileV1 = {
-    v: 1,
+  const doc: MarketingPaymentPlanFileV2 = {
+    v: 2,
     projectId: safeId,
     updatedAt,
-    byPeriodKey,
+    planByPeriodKey: fields.planByPeriodKey,
+    factByPeriodKey: fields.factByPeriodKey,
+    factUnavailableReason: fields.factUnavailableReason,
+    columnPeriodKeysPlan: fields.columnPeriodKeysPlan,
+    columnPeriodKeysFact: fields.columnPeriodKeysFact,
+    zaydetColumnDebug: fields.zaydetColumnDebug ?? [],
+    zaydetMonthVerify: fields.zaydetMonthVerify ?? [],
     meta: {
-      fileName: meta.fileName,
-      uploadedAt: meta.uploadedAt || updatedAt,
-      uploadedBy: meta.uploadedBy || "—",
+      fileName: fields.meta.fileName,
+      uploadedAt: fields.meta.uploadedAt || updatedAt,
+      uploadedBy: fields.meta.uploadedBy || "—",
     },
   };
   await writeFile(marketingPaymentPlanJsonPath(safeId), JSON.stringify(doc, null, 0), "utf-8");
@@ -106,7 +120,7 @@ export async function POST(req: NextRequest) {
 
       const buf = await file.arrayBuffer();
       const text = decodePaymentScheduleCsvBuffer(buf);
-      const res = parsePaymentScheduleCsvOrVerba(text);
+      const res = parseMarketingPaymentCsvStrict(text);
       if (!res.ok) {
         return NextResponse.json({ ok: false, error: res.error }, { status: 400 });
       }
@@ -115,8 +129,16 @@ export async function POST(req: NextRequest) {
       const uploadedAt = new Date().toISOString();
       const doc = await writePlan(
         projectId,
-        res.byPeriodKey,
-        { fileName, uploadedAt, uploadedBy },
+        {
+          planByPeriodKey: res.planByPeriodKey,
+          factByPeriodKey: res.factByPeriodKey,
+          factUnavailableReason: res.factUnavailableReason,
+          columnPeriodKeysPlan: res.columnPeriodKeysPlan,
+          columnPeriodKeysFact: res.columnPeriodKeysFact,
+          zaydetColumnDebug: res.zaydetColumnDebug,
+          zaydetMonthVerify: res.zaydetMonthVerify,
+          meta: { fileName, uploadedAt, uploadedBy },
+        },
         text,
       );
 
@@ -138,13 +160,25 @@ export async function POST(req: NextRequest) {
       }
       const m = body.meta ?? {};
       const uploadedAt = typeof m.uploadedAt === "string" ? m.uploadedAt : new Date().toISOString();
+      const planKeys = Object.keys(keys)
+        .filter((k) => /^\d{4}-\d{2}$/.test(k))
+        .sort((a, b) => a.localeCompare(b));
       const doc = await writePlan(
         projectId,
-        keys as Record<string, number>,
         {
-          fileName: typeof m.fileName === "string" ? m.fileName : "browser-import.csv",
-          uploadedAt,
-          uploadedBy: typeof m.uploadedBy === "string" ? m.uploadedBy : "Импорт из браузера",
+          planByPeriodKey: keys as Record<string, number>,
+          factByPeriodKey: null,
+          factUnavailableReason:
+            "Импорт из браузера: нет колонок факта. Загрузите CSV заново для помесячных поступлений.",
+          columnPeriodKeysPlan: planKeys,
+          columnPeriodKeysFact: [],
+          zaydetColumnDebug: [],
+          zaydetMonthVerify: [],
+          meta: {
+            fileName: typeof m.fileName === "string" ? m.fileName : "browser-import.csv",
+            uploadedAt,
+            uploadedBy: typeof m.uploadedBy === "string" ? m.uploadedBy : "Импорт из браузера",
+          },
         },
         `— Migrated from browser storage (${uploadedAt})\n`,
       );

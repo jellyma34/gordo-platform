@@ -26,50 +26,59 @@ export function formatCompactCashflowRub(n: number): string {
   return `${sign}${abs}`;
 }
 
-/** Подписи на графике «Динамика поступлений»: до 1 знака после запятой (115 млн ₽, 43,4 млн ₽); ниже 1 млн — обычный формат валюты. */
-export function formatCashflowDynamicsChartLabel(n: number): string {
+/** Денежные значения на графике «Динамика поступлений»: всегда в млн ₽ (или млрд при необходимости). */
+export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): string {
+  if (!Number.isFinite(n)) return "";
+  const rub = withRubSuffix ? " ₽" : "";
+  if (n === 0) return withRubSuffix ? `0${rub}` : "0";
+
   const sign = n < 0 ? "−" : "";
-  const abs = Math.abs(n);
-  const fmt1 = (x: number) => {
-    const r = Math.round(x * 10) / 10;
-    if (Math.abs(r - Math.round(r)) < 1e-9) return String(Math.round(r));
-    return r.toFixed(1).replace(".", ",").replace(/,?0$/, "");
-  };
-  if (abs >= 1_000_000_000) return `${sign}${fmt1(abs / 1_000_000_000)} млрд ₽`;
-  if (abs >= 1_000_000) return `${sign}${fmt1(abs / 1_000_000)} млн ₽`;
-  if (abs >= 1_000) return `${sign}${numFmt.format(Math.round(abs / 1_000))} тыс ₽`;
-  return rubFmt.format(n);
+  const absRub = Math.abs(n);
+
+  if (absRub >= 1_000_000_000) {
+    const b = absRub / 1_000_000_000;
+    const opts: Intl.NumberFormatOptions =
+      b >= 1
+        ? { maximumFractionDigits: 1, minimumFractionDigits: 0 }
+        : { maximumFractionDigits: 2, minimumFractionDigits: 0 };
+    return `${sign}${b.toLocaleString("ru-RU", opts)} млрд${rub}`;
+  }
+
+  const mln = absRub / 1_000_000;
+  const opts: Intl.NumberFormatOptions =
+    mln >= 1
+      ? { maximumFractionDigits: 1, minimumFractionDigits: 0 }
+      : { maximumFractionDigits: 2, minimumFractionDigits: 0 };
+  return `${sign}${mln.toLocaleString("ru-RU", opts)} млн${rub}`;
+}
+
+/** Подписи на графике «Динамика поступлений» (tooltip, отклонение): всегда млн/млрд ₽. */
+export function formatCashflowDynamicsChartLabel(n: number): string {
+  return formatCashflowMillionsLabel(n, true);
 }
 
 /**
- * Ось и тултип мини-графика выручки: те же единицы, что у динамики поступлений
- * («113,4 млн», «350 тыс»), но без «₽» — знак валюты только у KPI и заголовка.
+ * @deprecated Используйте {@link formatCashflowMillionsLabel}; оставлено как алиас для подписей точек.
+ * Короткая форма без «₽» в конце (единицы в заголовке графика).
+ */
+export function formatCashShort(value: number): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return formatCashflowMillionsLabel(value, false);
+}
+
+/**
+ * Ось и тултип мини-графика выручки: те же правила, что у «Динамика поступлений» (всегда млн/млрд), без «₽» в строке.
  */
 export function formatSegmentMiniRevenueChartNumber(n: number): string {
   if (!Number.isFinite(n)) return "";
-  const sign = n < 0 ? "−" : "";
-  const abs = Math.abs(n);
-  const fmt1 = (x: number) => {
-    const r = Math.round(x * 10) / 10;
-    if (Math.abs(r - Math.round(r)) < 1e-9) return String(Math.round(r));
-    return r.toFixed(1).replace(".", ",").replace(/,?0$/, "");
-  };
-  if (abs === 0) return "0";
-  if (abs >= 1_000_000_000) return `${sign}${fmt1(abs / 1_000_000_000)} млрд`;
-  if (abs >= 1_000_000) return `${sign}${fmt1(abs / 1_000_000)} млн`;
-  if (abs >= 1_000) return `${sign}${numFmt.format(Math.round(abs / 1_000))} тыс`;
-  return `${sign}${numFmt.format(Math.round(abs))}`;
+  return formatCashflowMillionsLabel(n, false);
 }
 
-/** Подписи оси Y графика поступлений: «0 ₽», «100 млн ₽», «200 млн ₽». */
+/** Подписи оси Y графика поступлений: в млн ₽ (те же правила дробной части, что у подписей точек). */
 export function formatCashflowYAxisMlnRub(v: number): string {
   if (!Number.isFinite(v)) return "";
-  if (v === 0) return "0 ₽";
-  const mln = v / 1_000_000;
-  const rounded = Math.round(mln);
-  if (Math.abs(mln - rounded) < 1e-6) return `${rounded} млн ₽`;
-  const s = mln.toLocaleString("ru-RU", { maximumFractionDigits: 1, minimumFractionDigits: 0 });
-  return `${s} млн ₽`;
+  if (v === 0) return "0";
+  return formatCashflowMillionsLabel(v, true);
 }
 
 /** Ось Y: min 0, max = округление вверх(max(данные)×1.1) с шагом 50 или 100 млн. */
@@ -97,26 +106,6 @@ export function cashflowYAxisScale(chartPlanFactValues: number[]): { domainMax: 
   return { domainMax, ticks };
 }
 
-/** Короткие подписи на линиях «Динамика поступлений» (в SVG, без tooltip). */
-export function formatCashShort(value: number): string {
-  if (value == null || !Number.isFinite(value)) return "";
-  if (value === 0) return "0 ₽";
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "−" : "";
-  if (abs >= 1_000_000_000) {
-    const b = abs / 1_000_000_000;
-    const s =
-      Math.abs(b - Math.round(b)) < 1e-6 ? String(Math.round(b)) : b.toFixed(1).replace(".", ",");
-    return `${sign}${s} млрд ₽`;
-  }
-  if (abs >= 1_000_000) {
-    const m = abs / 1_000_000;
-    const s =
-      Math.abs(m - Math.round(m)) < 1e-6 ? String(Math.round(m)) : m.toFixed(1).replace(".", ",");
-    return `${sign}${s} млн ₽`;
-  }
-  return `${value.toLocaleString("ru-RU")} ₽`;
-}
 
 /** Одна строка для подписи на баре баланса структуры: «-2,8% · -56M». */
 export function structureBalanceBarLabelLine(deltaShare: number, deltaRub: number): string {

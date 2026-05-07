@@ -5,6 +5,7 @@ import { useChartHeight, useChartWidth, usePlotArea, useXAxisScale, useYAxisScal
 
 import {
   cashflowRowsForChart,
+  periodKeyToRuChartLabel,
   type CashflowChartMode,
   type CashflowChartRow,
   type CashflowSeriesRow,
@@ -22,6 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
+import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
 
 function formatRubLabel(n: number): string {
   return formatCashflowDynamicsChartLabel(n);
@@ -33,8 +35,10 @@ function clamp(n: number, lo: number, hi: number): number {
 
 /** Минимальная сумма для подписи факта у точки (кроме последнего месяца) — жёсткий отбор. */
 const CASHFLOW_LABEL_MIN_RUB_FACT = 20_000_000;
-/** План — больше подписей для читаемости кривой. */
+/** План — порог для «обычных» подписей (пики / max / конец / отклонение показываются всегда). */
 const CASHFLOW_PLAN_LABEL_MIN_RUB = 5_000_000;
+/** Не чаще чем раз в N месяцев по оси X для подписей значений (уменьшает наложения). */
+const CASHFLOW_LABEL_MIN_INDEX_GAP = 2;
 const CHART_LABEL_FONT_PX = 11;
 const APPROX_LABEL_H_PX = CHART_LABEL_FONT_PX + 3;
 const CHART_MARGIN_TOP_LIGHT_LABELS = 40;
@@ -118,7 +122,6 @@ function cashflowPointLabelSets(chartData: CashflowChartRow[]): {
       const showPlanHere =
         i === last ||
         d.plan >= CASHFLOW_PLAN_LABEL_MIN_RUB ||
-        i % 2 === 0 ||
         peakP ||
         (maxPI >= 0 && i === maxPI) ||
         dev;
@@ -127,6 +130,24 @@ function cashflowPointLabelSets(chartData: CashflowChartRow[]): {
   }
 
   return { showFact, showPlan };
+}
+
+/** Разрежает набор индексов подписей: между соседними не ближе `minGap`, последний месяц сохраняется при необходимости. */
+function applyMinGapToLabels(show: Set<number>, n: number, minGap: number): Set<number> {
+  if (n <= 0 || show.size === 0) return show;
+  const last = n - 1;
+  const keepLast = show.has(last);
+  const sorted = [...show].filter((i) => i !== last).sort((a, b) => a - b);
+  const out = new Set<number>();
+  let prev = -1e9;
+  for (const i of sorted) {
+    if (i - prev >= minGap) {
+      out.add(i);
+      prev = i;
+    }
+  }
+  if (keepLast) out.add(last);
+  return out;
 }
 
 function approxLabelWidthPx(text: string, fontPx: number): number {
@@ -167,7 +188,6 @@ function CashflowTooltip({
       : "border-mpl-border bg-mpl-card text-mpl-text";
   return (
     <div className={`rounded-lg px-3 py-2 text-xs shadow-lg ring-1 ${base}`}>
-      <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
       <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
         {row.fact != null ? (
@@ -215,7 +235,14 @@ function CashflowDynamicsSvgLabels({
   const fontWeight = presLight ? 400 : 500;
   const opacity = presLight ? 0.9 : 1;
 
-  const { showFact, showPlan } = useMemo(() => cashflowPointLabelSets(chartData), [chartData]);
+  const { showFact, showPlan } = useMemo(() => {
+    const raw = cashflowPointLabelSets(chartData);
+    const n = chartData.length;
+    return {
+      showFact: applyMinGapToLabels(raw.showFact, n, CASHFLOW_LABEL_MIN_INDEX_GAP),
+      showPlan: applyMinGapToLabels(raw.showPlan, n, CASHFLOW_LABEL_MIN_INDEX_GAP),
+    };
+  }, [chartData]);
 
   if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
     return null;
@@ -326,6 +353,10 @@ type Props = {
   presentation: boolean;
   /** Пояснение к источникам плана / факта (под заголовком графика). */
   planSourceNote?: string;
+  /** Предупреждение, если факт поступлений из CSV не выделен (нет колонок притока). */
+  factUnavailableMessage?: string | null;
+  zaydetMonthVerify?: MarketingPaymentZaydetMonthVerifyRow[] | null;
+  showZaydetCsvDebugTable?: boolean;
 };
 
 const explainKicker = "text-[10px] font-semibold uppercase tracking-wide text-slate-600";
@@ -374,16 +405,17 @@ function CashflowDynamicsWorkModeCalculationExplain() {
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
               <span>
-                <span className="font-medium text-slate-900">Помесячный факт поступлений (mock)</span> — приращение
-                показателя между соседними месяцами в локальном тестовом ряду (тот же принцип, что и у накопительного
-                сальдо после подключения интеграции).
+                <span className="font-medium text-slate-900">Помесячный факт поступлений</span> — сумма по строкам
+                сделок только в колонках CSV, где в заголовке есть{" "}
+                <span className="font-medium text-slate-900">«зайдет»</span>, с распознаванием месяца и года в этом же
+                заголовке. Колонки без «зайдет», сальдо, накопления и долг не используются; значения не пересчитываются и не
+                сглаживаются — на графике сумма чисел из ячеек столбца.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
               <span>
-                Источник: <span className="font-medium text-slate-900">тестовые данные / локальный mock dataset</span>.
-                CRM-интеграция пока не подключена.
+                Если в файле нет колонок «зайдет …» с месяцем и годом, линия факта не строится.
               </span>
             </li>
           </ul>
@@ -402,7 +434,7 @@ function CashflowDynamicsWorkModeCalculationExplain() {
           <div className={formulaCard}>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Помесячный факт</div>
             <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
-              Fact_month = Escrow_month − Escrow_previous_month
+              Fact_month = Σ(строки сделок) по колонке «зайдет» за месяц
             </p>
           </div>
           <div className={formulaCard}>
@@ -425,11 +457,10 @@ function CashflowDynamicsWorkModeCalculationExplain() {
         <ul className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-slate-700">
           <li className="flex gap-2">
             <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden />
-            <span>
-              <span className="font-semibold text-slate-900">Факт</span> на графике строится из тестового ряда: после
-              последнего месяца, для которого в mock заданы значения, точек нет — линия не продолжается в «будущее», чтобы
-              не показывать выдуманные поступления.
-            </span>
+              <span>
+                <span className="font-semibold text-slate-900">Факт</span> строится только по колонкам с «зайдет» в
+                заголовке; пропуски по оси X не заполняются из сальдо и других столбцов.
+              </span>
           </li>
           <li className="flex gap-2">
             <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden />
@@ -445,7 +476,15 @@ function CashflowDynamicsWorkModeCalculationExplain() {
   );
 }
 
-export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, planSourceNote }: Props) {
+export function SalesPlanCashflowDynamicsChart({
+  rows,
+  planScale,
+  presentation,
+  planSourceNote,
+  factUnavailableMessage,
+  zaydetMonthVerify,
+  showZaydetCsvDebugTable,
+}: Props) {
   const [mode, setMode] = useState<CashflowChartMode>("monthly");
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
@@ -496,11 +535,11 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, 
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}>
-            Динамика поступлений, ₽
+            Динамика поступлений (млн&nbsp;₽)
           </h3>
           <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
             {planSourceNote ??
-              "Факт — помесячные значения из локального mock dataset (CRM не подключена). План — загрузите CSV графика платежей в рабочем режиме панели плана продаж."}
+              "План и факт — из загруженного CSV (колонки «План …» и явные колонки помесячного притока)."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -520,6 +559,77 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, 
           </button>
         </div>
       </div>
+
+      {factUnavailableMessage ? (
+        <div
+          className={`mb-3 rounded-lg border px-3 py-2 text-[11px] font-medium leading-snug ${
+            presDark
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
+              : "border-amber-300 bg-amber-50 text-amber-950"
+          }`}
+          role="status"
+        >
+          {factUnavailableMessage}
+        </div>
+      ) : null}
+
+      {showZaydetCsvDebugTable && zaydetMonthVerify && zaydetMonthVerify.length > 0 ? (
+        <div
+          className={`mb-3 overflow-x-auto rounded-lg border text-left ${
+            presDark ? "border-slate-600/60 bg-slate-900/40" : "border-slate-200 bg-slate-50/90"
+          }`}
+        >
+          <div
+            className={`border-b px-3 py-2 text-[11px] font-semibold ${
+              presDark ? "border-slate-600/50 text-slate-200" : "border-slate-200 text-slate-800"
+            }`}
+          >
+            Сверка по месяцам (колонки «зайдет»): значения из нижней строки итогов в CSV; Parsed Cell Count = 1 на месяц (при дублях колонок в графике — левая колонка периода), ₽
+          </div>
+          <table className="min-w-full text-[11px]">
+            <thead>
+              <tr className={presDark ? "bg-slate-800/50 text-slate-300" : "bg-white text-slate-600"}>
+                <th className="px-3 py-2 text-left font-semibold">Month</th>
+                <th className="px-3 py-2 text-right font-semibold">Parsed Cell Count</th>
+                <th className="px-3 py-2 text-right font-semibold">Total Sum</th>
+                <th className="px-3 py-2 text-center font-semibold">OK</th>
+              </tr>
+            </thead>
+            <tbody>
+              {zaydetMonthVerify.map((row) => {
+                const match = Math.abs(row.rawCsvSum - row.displayedValue) < 0.01;
+                const fmt = (n: number) =>
+                  n.toLocaleString("ru-RU", { useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 6 });
+                const cellCount = row.parsedCellCount ?? 0;
+                return (
+                  <tr
+                    key={row.month}
+                    className={
+                      presDark ? "border-t border-slate-600/40 text-slate-200" : "border-t border-slate-200 text-slate-800"
+                    }
+                  >
+                    <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-[10px] tabular-nums">
+                      {row.month}
+                      <span className={`ml-1.5 font-sans ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+                        ({periodKeyToRuChartLabel(row.month)})
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right align-top tabular-nums">{cellCount}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right align-top tabular-nums">{fmt(row.rawCsvSum)}</td>
+                    <td className="px-3 py-2 text-center align-top font-semibold">
+                      {match ? (
+                        <span className={presDark ? "text-emerald-400" : "text-emerald-700"}>✓</span>
+                      ) : (
+                        <span className={presDark ? "text-rose-400" : "text-rose-600"}>≠</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       <div className="min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-6 pb-4">
         <div className="h-[320px] min-h-[320px] w-full overflow-visible [&_svg]:overflow-visible">
