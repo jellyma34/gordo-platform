@@ -32,6 +32,7 @@ import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
+import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
@@ -2137,6 +2138,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             planReportAsOfYmd={report.asOf}
             presentation={presentation}
           />
+        ) : null}
+        {!dealsFeed.loading ? (
+          <SalesDealsSegmentMonthStackCharts dealsRows={marketingDealsFiltered} presentation={presentation} />
         ) : null}
       </>
 

@@ -41,6 +41,26 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
   return rubFmt.format(n);
 }
 
+/**
+ * Ось и тултип мини-графика выручки: те же единицы, что у динамики поступлений
+ * («113,4 млн», «350 тыс»), но без «₽» — знак валюты только у KPI и заголовка.
+ */
+export function formatSegmentMiniRevenueChartNumber(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  const fmt1 = (x: number) => {
+    const r = Math.round(x * 10) / 10;
+    if (Math.abs(r - Math.round(r)) < 1e-9) return String(Math.round(r));
+    return r.toFixed(1).replace(".", ",").replace(/,?0$/, "");
+  };
+  if (abs === 0) return "0";
+  if (abs >= 1_000_000_000) return `${sign}${fmt1(abs / 1_000_000_000)} млрд`;
+  if (abs >= 1_000_000) return `${sign}${fmt1(abs / 1_000_000)} млн`;
+  if (abs >= 1_000) return `${sign}${numFmt.format(Math.round(abs / 1_000))} тыс`;
+  return `${sign}${numFmt.format(Math.round(abs))}`;
+}
+
 /** Подписи оси Y графика поступлений: «0 ₽», «100 млн ₽», «200 млн ₽». */
 export function formatCashflowYAxisMlnRub(v: number): string {
   if (!Number.isFinite(v)) return "";
