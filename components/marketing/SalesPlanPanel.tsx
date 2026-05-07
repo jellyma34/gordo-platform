@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import {
   filterByObjectAndDealType,
   mergeSalesPlanFact,
@@ -26,7 +26,8 @@ import {
   formatSalesPlanAsOfKpiSub,
   type DynamicsKpiInput,
 } from "@/lib/salesPlanDynamicsKpi";
-import { buildCashflowSeries } from "@/lib/buildCashflowSeries";
+import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
+import { decodePaymentScheduleCsvBuffer, parsePaymentScheduleCsvOrVerba } from "@/lib/paymentScheduleCsv";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
@@ -612,6 +613,15 @@ function FunnelBlock({
   );
 }
 
+const PAYMENT_SCHEDULE_STORAGE_KEY = "gordo-sales-plan-payment-schedule-v1";
+
+type StoredPaymentScheduleV1 = {
+  v: 1;
+  byPeriodKey: Record<string, number>;
+  fileName: string;
+  savedAt: string;
+};
+
 const CATEGORY_LABELS: Record<SalesCategoryId, string> = {
   apartments: "Квартиры",
   parking: "Машино-места",
@@ -646,6 +656,63 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       : "text-[11px] text-slate-600";
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
+  const [paymentPlanByPeriodKey, setPaymentPlanByPeriodKey] = useState<Record<string, number> | null>(null);
+  const [scheduleFileName, setScheduleFileName] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const paymentScheduleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw) as StoredPaymentScheduleV1;
+      if (p?.v !== 1 || !p.byPeriodKey || typeof p.byPeriodKey !== "object") return;
+      setPaymentPlanByPeriodKey(p.byPeriodKey);
+      setScheduleFileName(p.fileName ?? null);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const onPaymentScheduleCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setScheduleError(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const text = decodePaymentScheduleCsvBuffer(buf);
+      const res = parsePaymentScheduleCsvOrVerba(text);
+      if (!res.ok) {
+        setScheduleError(res.error);
+        setPaymentPlanByPeriodKey(null);
+        setScheduleFileName(null);
+        localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+        return;
+      }
+      setPaymentPlanByPeriodKey(res.byPeriodKey);
+      setScheduleFileName(file.name);
+      const payload: StoredPaymentScheduleV1 = {
+        v: 1,
+        byPeriodKey: res.byPeriodKey,
+        fileName: file.name,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(PAYMENT_SCHEDULE_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      setScheduleError("Не удалось прочитать файл.");
+      setPaymentPlanByPeriodKey(null);
+      setScheduleFileName(null);
+    }
+  };
+
+  const clearPaymentSchedule = () => {
+    setPaymentPlanByPeriodKey(null);
+    setScheduleFileName(null);
+    setScheduleError(null);
+    localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+    if (paymentScheduleInputRef.current) paymentScheduleInputRef.current.value = "";
+  };
 
   const report = marketingSalesReportMock;
   const baseRev = report.salesData.revenue;
@@ -684,7 +751,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   );
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
-  const cashflowSeriesBase = useMemo(() => buildCashflowSeries(report), [report]);
+
+  const hasPaymentSchedule =
+    paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
+  const cashflowSeriesBase = useMemo(
+    () =>
+      buildCashflowSeries(report, hasPaymentSchedule ? paymentPlanByPeriodKey : null, {
+        salesStartPeriodKey: marketingMockData.projectSalesStartPeriodKey,
+        factThroughPeriodKey: marketingMockData.projectCashflowFactThroughPeriodKey,
+      }),
+    [report, hasPaymentSchedule, paymentPlanByPeriodKey],
+  );
+  const cashflowPlanScale = hasPaymentSchedule ? 1 : revenuePlanScale;
+  const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
+  const cashflowPlanNote = hasPaymentSchedule
+    ? `План — помесячные суммы из графика платежей (файл «${scheduleFileName ?? "CSV"}»). Факт — прирост эскроу по CRM. На оси — с ${salesStartLabel} (старт продаж по проекту).`
+    : `Факт — прирост эскроу по CRM. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
 
   const categoriesAdjusted = useMemo(
     () =>
@@ -1992,10 +2074,57 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} dealsFeed={dealsFeed} />
 
+      {!presentation ? (
+        <div
+          className={
+            presDark
+              ? "mb-3 rounded-lg border border-slate-600/50 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-300"
+              : "mb-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-[11px] text-slate-700"
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={paymentScheduleInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={onPaymentScheduleCsvSelected}
+            />
+            <button
+              type="button"
+              className={
+                presDark
+                  ? "rounded-md border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25"
+                  : "rounded-md border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-600 hover:bg-sky-500/15"
+              }
+              onClick={() => paymentScheduleInputRef.current?.click()}
+            >
+              Загрузить график платежей (CSV)
+            </button>
+            {scheduleFileName ? (
+              <span className="tabular-nums text-slate-500">
+                Загружено: <span className="font-medium text-slate-700">{scheduleFileName}</span>
+              </span>
+            ) : null}
+            {hasPaymentSchedule ? (
+              <button
+                type="button"
+                className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                onClick={clearPaymentSchedule}
+              >
+                Сбросить план из CSV
+              </button>
+            ) : null}
+          </div>
+          {scheduleError ? <p className="mt-2 text-xs font-medium text-rose-600">{scheduleError}</p> : null}
+        </div>
+      ) : null}
+
       <>
         <SalesPlanCashflowDynamicsChart
           rows={cashflowSeriesBase}
-          planScale={revenuePlanScale}
+          planScale={cashflowPlanScale}
+          planSourceNote={cashflowPlanNote}
           presentation={presentation}
         />
         {!dealsFeed.loading ? (

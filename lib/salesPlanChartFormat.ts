@@ -41,6 +41,42 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
   return rubFmt.format(n);
 }
 
+/** Подписи оси Y графика поступлений: «0 ₽», «100 млн ₽», «200 млн ₽». */
+export function formatCashflowYAxisMlnRub(v: number): string {
+  if (!Number.isFinite(v)) return "";
+  if (v === 0) return "0 ₽";
+  const mln = v / 1_000_000;
+  const rounded = Math.round(mln);
+  if (Math.abs(mln - rounded) < 1e-6) return `${rounded} млн ₽`;
+  const s = mln.toLocaleString("ru-RU", { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  return `${s} млн ₽`;
+}
+
+/** Ось Y: min 0, max = округление вверх(max(данные)×1.1) с шагом 50 или 100 млн. */
+export function cashflowYAxisScale(chartPlanFactValues: number[]): { domainMax: number; ticks: number[] } {
+  const mil = 1_000_000;
+  const step50 = 50 * mil;
+  const step100 = 100 * mil;
+  const vals = chartPlanFactValues
+    .map((n) => (Number.isFinite(n) ? Math.max(0, n) : 0))
+    .filter((n) => n >= 0);
+  const maxVal = vals.length > 0 ? Math.max(...vals) : 0;
+  const padded = maxVal * 1.1;
+  if (padded <= 0 || !Number.isFinite(padded)) {
+    const step = step50;
+    return { domainMax: step, ticks: [0, step] };
+  }
+  let step = step50;
+  let domainMax = Math.ceil(padded / step) * step;
+  if (domainMax / step > 10) {
+    step = step100;
+    domainMax = Math.ceil(padded / step) * step;
+  }
+  const ticks: number[] = [];
+  for (let t = 0; t <= domainMax + 1e-9; t += step) ticks.push(Math.round(t));
+  return { domainMax, ticks };
+}
+
 /** Короткие подписи на линиях «Динамика поступлений» (в SVG, без tooltip). */
 export function formatCashShort(value: number): string {
   if (value == null || !Number.isFinite(value)) return "";
