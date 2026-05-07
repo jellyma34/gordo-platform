@@ -1,9 +1,8 @@
 /**
- * Разбор экспорта отчёта ГПР: разделитель `;`, BOM снимается до разбивки по строкам.
+ * Разбор экспорта отчёта ГПР: разделитель `;` или `,` (если в строке нет `;`), BOM снимается до разбивки по строкам.
  * Колонка 0 — шифр, колонка 1 — наименование; даты/прогресс — по фиксированным индексам при наличии ячеек.
+ * Строки без дат не отбрасываются — поля дат остаются null.
  */
-
-import { normalizeCode } from "@/lib/gprUtils";
 
 export type GprReportCsvRow = {
   /** Индекс строки в массиве после `split(/\r?\n/)` (0-based). */
@@ -77,17 +76,36 @@ function ensureWorkCode(rawTrimmed: string, rowIndex: number): string {
   return `9.99.${rowIndex + 1}`;
 }
 
-/** Типичная разметка экспорта ГПР: план/факт начиная с 10-й колонки; без проверки `cols.length`. */
+/** Типичная разметка экспорта ГПР: план/факт начиная с 10-й колонки; короткие строки допускаются — недостающие ячейки = undefined. */
 const PLAN_START_IDX = 10;
+
+/** Обёртки Excel: пробелы и завершающая точка у шифра в первой колонке (как в ТЗ импорта). */
+function normalizeCsvCodeRaw(raw: string): string {
+  return raw.replace(/\s+/g, "").replace(/\.$/, "");
+}
+
+/** Убрать окружающие кавычки у ячейки CSV. */
+function stripCsvCellQuotes(cell: string): string {
+  let s = cell.trim();
+  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+    s = s.slice(1, -1);
+  }
+  return s.trim();
+}
+
+function splitCsvLineToCols(line: string): string[] {
+  const delimiter = line.includes(";") ? ";" : ",";
+  return line.split(delimiter).map((c) => stripCsvCellQuotes(c));
+}
 
 /**
  * Строка задачи: первая колонка похожа на шифр (`2.05.01`), не дата ДД.ММ.ГГГГ.
  * Строки вроде «Жилой дом» сюда не попадают — это заголовки секций (`currentObject`).
  */
 function firstCellLooksLikeTaskCode(cell: string): boolean {
-  const rawTrim = cell.trim();
-  if (RU_DATE_RE.test(rawTrim)) return false;
-  const t = normalizeCode(cell);
+  const rawTrim = stripCsvCellQuotes(cell);
+  if (!rawTrim || RU_DATE_RE.test(rawTrim)) return false;
+  const t = normalizeCsvCodeRaw(rawTrim);
   if (!t) return false;
   return /^\d+\.\d+/.test(t);
 }
@@ -104,7 +122,7 @@ export type ParseGprReportCsvResult = {
 };
 
 /**
- * Разбор: только `;`, BOM, строки через `split(/\r?\n/)`.
+ * Разбор: `;` или `,` (если в строке нет `;`), BOM, строки через `split(/\r?\n/)`.
  * Пропускаются только полностью пустые строки (после trim).
  * Строка без шифра в первой колонке задаёт объект (`currentObject`), задачи не создаёт.
  */
@@ -121,8 +139,11 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
     const line = rows[i]!;
     if (line.trim() === "") continue;
 
-    const cols = line.split(";").map((c) => c.trim());
-    const firstCell = (cols[0] ?? "").trim();
+    const cols = splitCsvLineToCols(line);
+    console.log("CSV ROW:", cols);
+
+    const firstCell = cols[0];
+    if (!firstCell || !String(firstCell).trim()) continue;
 
     if (!firstCellLooksLikeTaskCode(firstCell)) {
       const title = sectionTitleFromCols(cols);
@@ -135,7 +156,7 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
     const rawCode = cols[0] ?? "";
     const nameCell = cols[1] ?? "";
 
-    const rawTrimmed = normalizeCode(String(rawCode));
+    const rawTrimmed = normalizeCsvCodeRaw(String(rawCode));
     const code = ensureWorkCode(rawTrimmed, i);
     const rawClean = code;
 

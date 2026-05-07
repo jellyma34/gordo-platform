@@ -498,7 +498,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
     {
       id: "parking-r",
       axisLabel: "Парк.",
-      name: "Парковки",
+      name: "Машино-места",
       planCumulative: 125_000_000,
       factCumulative: 118_000_000,
     },
@@ -528,7 +528,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
     },
     {
       id: "parking",
-      name: "Парковки",
+      name: "Машино-места",
       planCumulative: 125_000_000,
       factCumulative: 118_000_000,
       deviation: -7_000_000,
@@ -589,7 +589,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
       { id: "apt-2", label: "2-комнатные", planUnits: 110, soldUnits: 72, remainingUnits: 38, unsoldForecastUnits: 13, segmentVelocityRatio: 0.68 },
       { id: "commercial", label: "Коммерция", planUnits: 40, soldUnits: 14, remainingUnits: 26, unsoldForecastUnits: 11, segmentVelocityRatio: 0.52 },
       { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1, segmentVelocityRatio: 0.96 },
-      { id: "parking", label: "Парковки", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2, segmentVelocityRatio: 0.85 },
+      { id: "parking", label: "Машино-места", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2, segmentVelocityRatio: 0.85 },
       { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1, segmentVelocityRatio: 0.78 },
     ],
   },
@@ -602,7 +602,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
     categories: [
       {
         id: "parking",
-        name: "Парковки",
+        name: "Машино-места",
         planRevenueRub: 22_500_000,
         actualRevenueRub: 16_800_000,
         plannedConversionPct: 52,

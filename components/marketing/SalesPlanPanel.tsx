@@ -614,7 +614,7 @@ function FunnelBlock({
 
 const CATEGORY_LABELS: Record<SalesCategoryId, string> = {
   apartments: "Квартиры",
-  parking: "Парковки",
+  parking: "Машино-места",
   storages: "Кладовые",
   commercial: "Коммерция",
 };
@@ -1097,7 +1097,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       { key: "apt-2", label: "2-комнатные", planRub: apt2?.planCumulative ?? 0, factRub: apt2?.factCumulative ?? 0 },
       { key: "apt-3", label: "3-комнатные", planRub: apt3?.planCumulative ?? 0, factRub: apt3?.factCumulative ?? 0 },
       { key: "apt-4", label: "4+ комнатные", planRub: apt4PlanRub, factRub: apt4FactRub },
-      { key: "parking", label: "Парковки", planRub: parking?.planCumulative ?? 0, factRub: parking?.factCumulative ?? 0 },
+      { key: "parking", label: "Машино-места", planRub: parking?.planCumulative ?? 0, factRub: parking?.factCumulative ?? 0 },
       { key: "storages", label: "Кладовые", planRub: storages?.planCumulative ?? 0, factRub: storages?.factCumulative ?? 0 },
       { key: "commercial", label: "Коммерция", planRub: commercial?.planCumulative ?? 0, factRub: commercial?.factCumulative ?? 0 },
     ];
@@ -1937,7 +1937,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </label>
               {([
                 ["apartments", "Квартиры"],
-                ["parking", "Парковки"],
+                ["parking", "Машино-места"],
                 ["storages", "Кладовые"],
                 ["commercial", "Коммерция"],
               ] as const).map(([id, label]) => (

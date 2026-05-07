@@ -84,6 +84,7 @@ import {
   buildPlanFactWorkTypeChartModel,
   formatPlanEndMonthYearOnly,
   formatPlanFactGridMonthLabel,
+  type PlanFactTasksBarLevel,
 } from "@/lib/planFactWorkTypeTimeline";
 import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
@@ -101,11 +102,10 @@ import {
 } from "@/components/charting/rechartsClient";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
-/** Короткий шифр для оси X: «2.05.01.2» → «2.05.01». */
-function shortGprCodeForAxis(code: string): string {
-  const parts = code.trim().split(".").filter(Boolean);
-  if (parts.length <= 3) return code.trim();
-  return parts.slice(0, 3).join(".");
+/** Полный нормализованный шифр для подписи строк (включая подзадачи `2.05.01.1`, без усечения до `2.05.XX`). */
+function gprFullCodeForChartAxis(code: string): string {
+  const n = normalizeGprCodeFinal(code);
+  return n || code.trim();
 }
 
 /** Локальная календарная дата для шкалы Ганта (как у origin окна). */
@@ -806,7 +806,7 @@ function KvartalyGanttChartPanel({ model, gprAsOf }: { model: KvartalyGanttModel
   const labels = overviewMode
     ? rows.map((t) => truncateAxisLabel(t.name.trim(), 42))
     : rows.map((t) =>
-        truncateAxisLabel(`${shortGprCodeForAxis(t.code)} — ${t.name.trim()}`, 58),
+        truncateAxisLabel(`${gprFullCodeForChartAxis(t.code)} — ${t.name.trim()}`, 72),
       );
 
   const planBars: ([number, number] | null)[] = overviewMode
@@ -1458,6 +1458,8 @@ export function GPRAnalytics({
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
     useState<PlanFactKvartalyGranularity>("overview");
+  /** Режим bar-chart при источнике «таблица задач» для ЖД / проекта: листья или только «2.05.XX». */
+  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("detailed");
   const [tenderRevision, setTenderRevision] = useState(0);
 
   useEffect(() => {
@@ -1476,6 +1478,10 @@ export function GPRAnalytics({
 
   useEffect(() => {
     setPlanFactKvartalyGranularity("overview");
+  }, [activePartScope]);
+
+  useEffect(() => {
+    setPlanFactTasksBarLevel("detailed");
   }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {
@@ -1584,8 +1590,23 @@ export function GPRAnalytics({
   const planFactWorkTypeChartModel = useMemo(() => {
     if (planFactDataSource !== "tasks") return null;
     const workTypePart = isProjectWide ? "project" : activeProjectPart;
-    return buildPlanFactWorkTypeChartModel(planFactFilteredTasks, workTypePart, gprReportYmd);
-  }, [planFactDataSource, planFactFilteredTasks, isProjectWide, activeProjectPart, gprReportYmd]);
+    return buildPlanFactWorkTypeChartModel(
+      planFactFilteredTasks,
+      workTypePart,
+      gprReportYmd,
+      planFactTasksBarLevel,
+    );
+  }, [
+    planFactDataSource,
+    planFactFilteredTasks,
+    isProjectWide,
+    activeProjectPart,
+    gprReportYmd,
+    planFactTasksBarLevel,
+  ]);
+
+  const showPlanFactTasksBarLevel =
+    planFactDataSource === "tasks" && (isProjectWide || activeProjectPart === "residential");
 
   const planFactTasksChartHeightPx = useMemo(() => {
     if (planFactDataSource !== "tasks" || !planFactWorkTypeChartModel) return null;
@@ -2252,6 +2273,19 @@ export function GPRAnalytics({
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
+            {showPlanFactTasksBarLevel ? (
+              <label className="flex min-w-[170px] flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+                <select
+                  value={planFactTasksBarLevel}
+                  onChange={(e) => setPlanFactTasksBarLevel(e.target.value as PlanFactTasksBarLevel)}
+                  className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+                >
+                  <option value="detailed">Детально (только конечные задачи)</option>
+                  <option value="summary">Сводно (только 2.05.XX)</option>
+                </select>
+              </label>
+            ) : null}
             {planFactDataSource === "kvartaly" ? (
               <label className="flex min-w-[170px] flex-col gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>

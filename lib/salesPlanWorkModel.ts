@@ -97,7 +97,7 @@ export const SALES_PLAN_CATEGORY_LABELS: Record<SalesPlanCategoryId, string> = {
   "2k": "2-к",
   "3k": "3-к",
   "4k_plus": "4-к+",
-  parking: "Паркинг",
+  parking: "Машино-места",
   storage: "Кладовые",
   commercial: "Коммерция",
 };

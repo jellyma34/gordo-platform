@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import {
   DEAL_SEGMENT_KEYS,
-  OBJECT_TYPE_LABEL_RU,
+  DEAL_SEGMENT_LABEL_RU,
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
@@ -233,7 +233,7 @@ export function SalesPlanSegmentPlanFactBarChart({
     });
     const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
     if (segmentScope === "all") return built;
-    const label = OBJECT_TYPE_LABEL_RU[segmentScope];
+    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
     return built.filter((r) => r.name === label);
   }, [
     dealsRows,
@@ -261,7 +261,7 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const segmentSelectOptions: { value: SegmentChartScope; label: string }[] = [
     { value: "all", label: "Все" },
-    ...DEAL_SEGMENT_KEYS.map((k) => ({ value: k, label: OBJECT_TYPE_LABEL_RU[k] })),
+    ...DEAL_SEGMENT_KEYS.map((k) => ({ value: k, label: DEAL_SEGMENT_LABEL_RU[k] })),
   ];
 
   return (

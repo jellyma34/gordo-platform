@@ -99,6 +99,7 @@ export function MarketingWorkspace({
             onDealTypeIdChange={setDealTypeId}
             objects={marketingMockData.objects}
             dealTypes={marketingMockData.dealTypes}
+            showPeriod={presentation || activeTab !== "deals"}
           />
 
           <div className="mt-5 min-w-0">

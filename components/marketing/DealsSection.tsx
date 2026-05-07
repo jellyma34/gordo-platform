@@ -7,6 +7,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
+import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as parseDealsEnvelopeShape } from "@/lib/marketingDealsInputShape";
+import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
+
 /** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
 const DealsPresentationPanel = dynamic(() => import("./DealsPresentation"), { ssr: false });
 
@@ -115,7 +118,7 @@ export type DealRecord = {
   plan_sum?: string | number;
   planned_revenue?: string | number;
   plan_amount?: string | number;
-  /** Тип объекта / сегмент (см. {@link resolveDealSegmentType}). */
+  /** Не использовать для сегмента продукта — сегмент только по {@link DealObjectRef.category}. */
   type?: string;
   object_type?: string;
   deal_type?: string;
@@ -145,7 +148,7 @@ export type DealObjectRef = {
   category_name?: string;
   name?: string;
   project_name?: string;
-  /** Код типа объекта (вместе с deal.type) — см. {@link resolveDealSegmentType}. */
+  /** Сырой код в выгрузке; не используется для сегмента — см. {@link resolveDealSegmentType}. */
   type?: string;
   object_type?: string;
   /** Параметры объекта из выгрузки (camelCase / snake_case). */
@@ -192,7 +195,26 @@ export const OBJECT_TYPE_LABEL_RU: Record<NormalizedObjectType, string> = {
   parking: "Машино-места",
   storage: "Кладовые",
   commercial: "Коммерция",
-  unknown: "Не определено",
+  unknown: "Прочее",
+};
+
+/** Пять групп для план/факт и карточек: `unknown` из выгрузки попадает в `other`. */
+export type DealSegmentKey = Exclude<NormalizedObjectType, "unknown"> | "other";
+
+export const DEAL_SEGMENT_KEYS: readonly DealSegmentKey[] = [
+  "apartment",
+  "parking",
+  "storage",
+  "commercial",
+  "other",
+];
+
+export const DEAL_SEGMENT_LABEL_RU: Record<DealSegmentKey, string> = {
+  apartment: OBJECT_TYPE_LABEL_RU.apartment,
+  parking: OBJECT_TYPE_LABEL_RU.parking,
+  storage: OBJECT_TYPE_LABEL_RU.storage,
+  commercial: OBJECT_TYPE_LABEL_RU.commercial,
+  other: OBJECT_TYPE_LABEL_RU.unknown,
 };
 
 const DEAL_KIND_FIELD_KEYS = ["deal_type", "deal_kind", "contract_type"] as const;
@@ -227,6 +249,13 @@ export type NormalizedDealRow = {
   planRub: number;
   /** Сегмент по `object` (category + при необходимости category_name). */
   normalizedType: NormalizedObjectType;
+  /**
+   * Категория объекта для аналитики: совпадает с `normalizedType`, кроме `unknown` → `other`.
+   * Заполняется при нормализации (см. {@link resolveDealSegmentTypeWithInference}).
+   */
+  dealType: DealSegmentKey;
+  /** Подпись {@link dealType} для UI и агрегатов по типам. */
+  dealTypeLabel: string;
   /** Подпись сегмента для фильтров и таблиц (на русском). */
   typeLabel: string;
   /** Вид сделки (ДДУ, бронь и т.д.) — из deal_type / deal_kind, не путать с типом объекта. */
@@ -465,56 +494,126 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
 }
 
 /**
- * Сегментация по `row.object`: `category` и при необходимости `category_name`.
- * Коды: `flat` → apartment, `garage` → parking, `storage` → storage, `comm` → commercial.
- * Если код не распознан: при подстроке «клад» в `category_name` → storage.
+ * Объект для классификации сегмента: верхний уровень `row.object` + при отсутствии категории — `deal.object`.
+ * Поля `type` / `object_type` в выгрузке не используются (у ЖК и ММ часто одинаковый `living`).
  */
-export function resolveObjectSegmentType(obj: DealObjectRef | undefined): NormalizedObjectType {
-  const c = String(obj?.category ?? "")
-    .trim()
-    .toLowerCase();
-  if (c === "flat") return "apartment";
-  if (c === "garage") return "parking";
-  if (c === "storageroom" || c === "storage") return "storage";
-  if (c === "comm") return "commercial";
+function dealObjectRefForSegmentClassification(row: DealExportRow): DealObjectRef | undefined {
+  const top = row.object;
+  const deal = row.deal;
+  const dr = deal != null && typeof deal === "object" ? (deal as Record<string, unknown>) : null;
 
-  const name = String(obj?.category_name ?? "").toLowerCase();
-  if (name.includes("клад")) return "storage";
+  const nestedRaw = dr?.object;
+  const nested =
+    nestedRaw != null && typeof nestedRaw === "object" && !Array.isArray(nestedRaw)
+      ? (nestedRaw as DealObjectRef)
+      : undefined;
 
-  return "unknown";
+  let merged: DealObjectRef | undefined;
+  if (!top && !nested) merged = undefined;
+  else if (!nested) merged = top;
+  else if (!top) merged = nested;
+  else {
+    const t = top as Record<string, unknown>;
+    const n = nested as Record<string, unknown>;
+    const pick = (key: string): unknown => {
+      const tv = t[key];
+      if (tv != null && String(tv).trim() !== "") return tv;
+      const nv = n[key];
+      if (nv != null && String(nv).trim() !== "") return nv;
+      return tv ?? nv;
+    };
+
+    merged = {
+      ...(n as object),
+      ...(t as object),
+      category: pick("category"),
+      category_name: pick("category_name"),
+      name: pick("name"),
+      project_name: pick("project_name"),
+    } as DealObjectRef;
+  }
+
+  const dealCat =
+    dr && dr.category != null && String(dr.category).trim() !== "" ? String(dr.category).trim() : "";
+  const dealCatName =
+    dr && dr.category_name != null && String(dr.category_name).trim() !== ""
+      ? String(dr.category_name).trim()
+      : dr && dr.categoryName != null && String(dr.categoryName).trim() !== ""
+        ? String(dr.categoryName).trim()
+        : "";
+
+  if (!merged) {
+    if (!dealCat && !dealCatName) return undefined;
+    return { category: dealCat || undefined, category_name: dealCatName || undefined };
+  }
+
+  const mr = merged as Record<string, unknown>;
+  const out: DealObjectRef = { ...(merged as DealObjectRef) };
+  if (!String(mr.category ?? "").trim() && dealCat) out.category = dealCat;
+  if (!String(mr.category_name ?? "").trim() && dealCatName) out.category_name = dealCatName;
+  return out;
 }
 
-/** Распознаёт сегмент по явным кодам в `type` / `object_type` (object и deal). */
-function segmentTypeFromHint(raw: string): NormalizedObjectType | null {
-  const t = raw.trim().toLowerCase();
-  if (t === "flat" || t === "apartment" || t === "квартира" || t === "квартиры") return "apartment";
-  if (t === "garage" || t === "parking" || t === "мм" || t === "машино-место" || t === "машиноместо") return "parking";
-  if (t === "storageroom" || t === "storage" || t === "кладовая" || t === "кладовые") return "storage";
-  if (t === "comm" || t === "commercial" || t === "коммерция") return "commercial";
+/** Явные коды `category` (и типичные алиасы CRM) → не квартиры. Иначе — квартиры. */
+function segmentFromCategorySlugOnly(slug: string): NormalizedObjectType | null {
+  if (
+    slug === "garage" ||
+    slug === "parking" ||
+    slug === "parking_place" ||
+    slug === "parking_space" ||
+    slug === "lot_parking" ||
+    slug === "car_space" ||
+    slug === "мм" ||
+    slug === "mm"
+  )
+    return "parking";
+  if (slug === "storageroom" || slug === "storage") return "storage";
+  if (slug === "comm" || slug === "commercial" || slug === "retail" || slug === "office") return "commercial";
   return null;
 }
 
 /**
- * Сегмент сделки: приоритет явных полей `type` / `object_type` в {@link DealObjectRef} и в deal,
- * иначе {@link resolveObjectSegmentType} по `category` / `category_name`.
+ * Сегментация только по `object.category` (после merge) и подсказкам `category_name` / `name` при пустой категории.
+ * Любой заполненный `category`, не относящийся к garage/storage/commercial, трактуется как «Квартиры»
+ * (в т.ч. `living`, `flat` и др.).
+ */
+export function resolveObjectSegmentType(obj: DealObjectRef | undefined): NormalizedObjectType {
+  const cRaw = String(obj?.category ?? "").trim();
+  const cSlug = cRaw.replace(/\s+/g, "_").replace(/-/g, "_").toLowerCase();
+
+  const special = segmentFromCategorySlugOnly(cSlug);
+  if (special != null) return special;
+  if (cRaw !== "") return "apartment";
+
+  const name = String(obj?.category_name ?? "");
+  const objectName = String(obj?.name ?? "");
+  const nameBlob = `${name} ${objectName}`.toLowerCase();
+  if (nameBlob.includes("клад")) return "storage";
+
+  const hinted = inferDealProductSegmentFromText(`${cRaw} ${name} ${objectName}`);
+  if (hinted) return hinted;
+
+  return "apartment";
+}
+
+/**
+ * Сегмент сделки: `object.category` / `object.category_name`, объединение с `deal.object`, затем при пустой категории — `deal.category`.
+ * Не использует `type` / `object_type`.
  */
 export function resolveDealSegmentType(row: DealExportRow): NormalizedObjectType {
-  const o = row.object;
-  const or = o != null && typeof o === "object" ? (o as Record<string, unknown>) : null;
-  const d = row.deal as Record<string, unknown> | undefined;
-  const candidates: unknown[] = [];
-  if (or) {
-    candidates.push(or.type, or.object_type);
-  }
-  if (d) {
-    candidates.push(d.type, d.object_type);
-  }
-  for (const raw of candidates) {
-    if (raw == null || String(raw).trim() === "") continue;
-    const seg = segmentTypeFromHint(String(raw));
-    if (seg != null) return seg;
-  }
-  return resolveObjectSegmentType(row.object);
+  return resolveObjectSegmentType(dealObjectRefForSegmentClassification(row));
+}
+
+/**
+ * Сегмент сделки; совпадает с {@link resolveDealSegmentType} (доп. поля выгрузки учитываются внутри него при пустой категории).
+ */
+export function resolveDealSegmentTypeWithInference(row: DealExportRow): NormalizedObjectType {
+  return resolveDealSegmentType(row);
+}
+
+/** Ключ аналитической группы: `unknown` приводится к `other` («Прочее»). */
+export function normalizedTypeToDealSegment(t: NormalizedObjectType): DealSegmentKey {
+  return t === "unknown" ? "other" : t;
 }
 
 function parseDealObjectNumber(raw: unknown): number | null {
@@ -737,6 +836,7 @@ export function mapObjectCategoryLabel(raw: string | null | undefined): string |
   if (c === "storageroom") return "Кладовая";
   if (c === "storage") return "Кладовая";
   if (c === "comm") return "Коммерция";
+  if (c === "commercial") return "Коммерция";
   return null;
 }
 
@@ -1023,8 +1123,10 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
     const n = normalizeDeal(row);
     if (n == null) continue;
 
-    const normalizedType = resolveDealSegmentType(row);
-    const typeLabel = OBJECT_TYPE_LABEL_RU[normalizedType];
+    const normalizedType = resolveDealSegmentTypeWithInference(row);
+    const dealType = normalizedTypeToDealSegment(normalizedType);
+    const dealTypeLabel = DEAL_SEGMENT_LABEL_RU[dealType];
+    const typeLabel = dealTypeLabel;
 
     const objectCategoryCode = ((): string | null => {
       const o = row.object;
@@ -1041,6 +1143,8 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       sumRub: n.amount,
       planRub: n.planRub,
       normalizedType,
+      dealType,
+      dealTypeLabel,
       typeLabel,
       dealKindLabel: n.dealKind,
       objectLabel: n.project,
@@ -1058,11 +1162,7 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
 
 /** Разбор ответа API / JSON выгрузки: массив сделок или `{ data: [...] }`. */
 export function parseDealsEnvelope(json: unknown): unknown[] {
-  if (Array.isArray(json)) return json;
-  if (json != null && typeof json === "object" && "data" in json && Array.isArray((json as { data: unknown }).data)) {
-    return (json as { data: unknown[] }).data;
-  }
-  return [];
+  return parseDealsEnvelopeShape(json);
 }
 
 function bumpBucket(map: Record<string, SegmentBucket>, key: string, sum: number) {
@@ -1072,20 +1172,7 @@ function bumpBucket(map: Record<string, SegmentBucket>, key: string, sum: number
 }
 
 export function flattenDealsInput(data: unknown): DealExportRow[] {
-  if (Array.isArray(data)) return data as DealExportRow[];
-  if (data != null && typeof data === "object" && !Array.isArray(data)) {
-    const o = data as Record<string, unknown>;
-    const keys = Object.keys(o).sort((a, b) => a.localeCompare(b));
-    const rows: DealExportRow[] = [];
-    for (const k of keys) {
-      const v = o[k];
-      if (Array.isArray(v)) {
-        for (const item of v) rows.push(item as DealExportRow);
-      }
-    }
-    return rows;
-  }
-  return [];
+  return flattenDealsInputShape(data) as DealExportRow[];
 }
 
 /** Агрегаты по уже нормализованным строкам ({@link extractNormalizedDeals} / {@link normalizeDeal}). */
@@ -1156,22 +1243,21 @@ export function groupDealsByNormalizedType(rows: NormalizedDealRow[]): Record<No
   return init;
 }
 
-/** Четыре продуктовых сегмента (без «Не определено») — для структуры продаж / плана. */
-export type DealSegmentKey = "apartment" | "parking" | "storage" | "commercial";
-
-/** Порядок сегментов в аналитике и на графиках. */
-export const DEAL_SEGMENT_KEYS: readonly DealSegmentKey[] = ["apartment", "parking", "storage", "commercial"];
-
 /**
- * Группировка нормализованных сделок по сегменту (после {@link normalizeDeal} / {@link extractNormalizedDeals}).
+ * Группировка нормализованных сделок по {@link NormalizedDealRow.dealType} — структура продаж / план (включая «Прочее»).
  */
 export function groupDealsBySegment(rows: NormalizedDealRow[]): Record<DealSegmentKey, NormalizedDealRow[]> {
-  return {
-    apartment: rows.filter((r) => r.normalizedType === "apartment"),
-    parking: rows.filter((r) => r.normalizedType === "parking"),
-    storage: rows.filter((r) => r.normalizedType === "storage"),
-    commercial: rows.filter((r) => r.normalizedType === "commercial"),
+  const init: Record<DealSegmentKey, NormalizedDealRow[]> = {
+    apartment: [],
+    parking: [],
+    storage: [],
+    commercial: [],
+    other: [],
   };
+  for (const r of rows) {
+    init[r.dealType].push(r);
+  }
+  return init;
 }
 
 export function buildDealsMonthSeries(grouped: DealsPerMonthGrouped): DealsMonthSeriesRow[] {
@@ -1324,7 +1410,7 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
 
   const analytics = useMemo(() => computeDealMetrics(filteredRows), [filteredRows]);
 
-  /** Сегментация в текущем срезе фильтров — KPI по квартирам / машино-местам / кладовым / коммерции. */
+  /** Сегментация в текущем срезе фильтров — KPI по продуктам (включая «Прочее» после эвристик). */
   const dealsByNormalizedType = useMemo(
     () => groupDealsByNormalizedType(filteredRows),
     [filteredRows],
@@ -1333,11 +1419,12 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
   const segmentKpiRows = useMemo(() => {
     const totalCount = analytics.totalCount;
     const totalSum = analytics.totalSum;
-    const defs: Array<{ key: "apartment" | "parking" | "storage" | "commercial"; variant: SegmentKpiVisualVariant }> = [
+    const defs: Array<{ key: NormalizedObjectType; variant: SegmentKpiVisualVariant }> = [
       { key: "apartment", variant: "apartment" },
       { key: "parking", variant: "parking" },
       { key: "storage", variant: "storage" },
       { key: "commercial", variant: "commercial" },
+      { key: "unknown", variant: "storage" },
     ];
     return defs
       .map(({ key, variant }) => {
@@ -1501,11 +1588,9 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Сделки — разведка данных</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Сегмент: <span className="font-mono text-xs">object.category</span> и при необходимости{" "}
-              <span className="font-mono text-xs">object.category_name</span> (коды{" "}
-              <span className="font-mono text-xs">flat</span> / <span className="font-mono text-xs">garage</span> /{" "}
-              <span className="font-mono text-xs">storage</span> / <span className="font-mono text-xs">comm</span>; по имени —
-              подстрока «клад» → кладовые). Поля <span className="font-mono text-xs">deal.*</span> — для таблиц и сумм.
+          Сегмент: коды категории, поля типа объекта и эвристика по названию («квартира», «паркинг», «кладовая», «коммерция» и
+          др.); если неясно — в аналитику попадает «Прочее». Поля <span className="font-mono text-xs">deal.*</span> — для сумм и
+          вида сделки.
             </p>
           </div>
           <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-900">
@@ -1574,9 +1659,9 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
             Сбросить фильтры
           </button>
           <p className="w-full text-xs text-slate-600 sm:w-auto">
-            В загрузке: квартиры {dealsByNormalizedTypeAll.apartment.length} · машино-места{" "}
+            В загрузке: квартиры {dealsByNormalizedTypeAll.apartment.length} · парковки{" "}
             {dealsByNormalizedTypeAll.parking.length} · кладовые {dealsByNormalizedTypeAll.storage.length} · коммерция{" "}
-            {dealsByNormalizedTypeAll.commercial.length} · не определено {dealsByNormalizedTypeAll.unknown.length}
+            {dealsByNormalizedTypeAll.commercial.length} · прочее {dealsByNormalizedTypeAll.unknown.length}
           </p>
           <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50">
             Загрузить JSON
@@ -1654,11 +1739,11 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
           </p>
           {segmentKpiRows.length === 0 ? (
             <p className="text-sm text-slate-600">
-              Нет сделок в сегментах «Квартиры», «Машино-места», «Кладовые» или «Коммерция» (проверьте фильтры и поля{" "}
-              <span className="font-mono">object.category</span> / <span className="font-mono">object.category_name</span>).
+              Нет сделок в срезе (проверьте фильтры и поля объектов — тип подставится по кодам категории, названию объекта или
+              эвристикам).
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               {segmentKpiRows.map((row) => (
                 <div key={row.key} className={segmentKpiCardClass(row.variant)}>
                   <div className={segmentKpiTitleClass(row.variant)}>{row.label}</div>
@@ -1782,8 +1867,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
       <section className={panelClass}>
         <h3 className="text-base font-semibold text-slate-900">Сделки по типам объектов</h3>
         <p className="text-xs text-slate-500">
-          Сегменты по <span className="font-mono">object.category</span> / <span className="font-mono">object.category_name</span>{" "}
-          (flat / garage / storage / comm; «клад» в имени → кладовые); текущий срез учитывает фильтры.
+          Категории: правила над <span className="font-mono">object</span> и полями <span className="font-mono">deal.type</span>{" "}
+          / названием; см. блок «Разведка» выше. Таблица — фактический срез с фильтрами.
         </p>
         <div className={tableWrapClass}>
           <table className={tableClass}>

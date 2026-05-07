@@ -138,17 +138,75 @@ const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
 const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
 const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
 
+/** Режим bar-chart 2.05* для таблицы задач: только листья или только уровень «2.05.XX» (3 сегмента). */
+export type PlanFactTasksBarLevel = "detailed" | "summary";
+
+/**
+ * Конечная задача по шифру внутри набора: нет другого кода в том же контексте, который является потомком `code`.
+ */
+export function isLeafTask(code: string, allCodes: Iterable<string>): boolean {
+  const c = normalizeGprCodeFinal(code);
+  if (!c) return false;
+  const prefix = `${c}.`;
+  for (const other of allCodes) {
+    if (other === c) continue;
+    if (other.startsWith(prefix)) return false;
+  }
+  return true;
+}
+
+function gprCodeSegmentCount(normalizedCode: string): number {
+  return normalizedCode.split(".").filter((p) => p.length > 0).length;
+}
+
+/** Ключ разбиения: дом/паркинг и объект CSV не смешивают деревья шифров. */
+function residentialBarPartitionKey(task: GPRTask): string {
+  const scope = gprPlanFactScopeFromTask(task);
+  const ot = (task.objectType ?? "").trim().replace(/\s+/g, " ");
+  return `${task.partId ?? 0}|${scope}|${ot}`;
+}
+
+function filter205TasksForResidentialBar(
+  tasks: GPRTask[],
+  level: PlanFactTasksBarLevel,
+): GPRTask[] {
+  const branch = tasks.filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"));
+  const partitions = new Map<string, GPRTask[]>();
+  for (const t of branch) {
+    const k = residentialBarPartitionKey(t);
+    const arr = partitions.get(k);
+    if (arr) arr.push(t);
+    else partitions.set(k, [t]);
+  }
+
+  const out: GPRTask[] = [];
+  for (const [, group] of partitions) {
+    const normCodes = [...new Set(group.map((t) => normalizeGprCodeFinal(t.code)))];
+    if (level === "detailed") {
+      for (const t of group) {
+        const c = normalizeGprCodeFinal(t.code);
+        if (isLeafTask(c, normCodes)) out.push(t);
+      }
+    } else {
+      for (const t of group) {
+        const c = normalizeGprCodeFinal(t.code);
+        if (gprCodeSegmentCount(c) === 3) out.push(t);
+      }
+    }
+  }
+  return out;
+}
+
 function buildResidential205PlanFactChartModel(
   tasks: GPRTask[],
   todayIso: string,
+  barLevel: PlanFactTasksBarLevel,
 ): PlanFactWorkTypeChartModel | null {
-  const list = tasks
-    .filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"))
-    .sort((a, b) => {
-      const cmp = compareGprCodesByNumericPath(a.code, b.code);
-      if (cmp !== 0) return cmp;
-      return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
-    });
+  const list = filter205TasksForResidentialBar(tasks, barLevel).sort((a, b) => {
+    const cmp = compareGprCodesByNumericPath(a.code, b.code);
+    if (cmp !== 0) return cmp;
+    return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
+  });
 
   if (list.length === 0) return null;
 
@@ -178,7 +236,10 @@ function buildResidential205PlanFactChartModel(
     const hasDates = Boolean(psm != null && pem != null && pem >= psm);
     const scope = gprPlanFactScopeFromTask(task);
     const nm = task.name.length > 52 ? `${task.name.slice(0, 49)}…` : task.name;
-    const label = `${scope}_${task.code} · ${nm}`;
+    const codeDisp = normalizeGprCodeFinal(task.code);
+    const ot = (task.objectType ?? "").trim();
+    const otHint = ot ? ` · ${ot.replace(/\s+/g, " ").slice(0, 36)}` : "";
+    const label = `${scope}_${codeDisp}${otHint} · ${nm}`;
     entries.push({ task, label, hasDates, ps, pe, fs, fe });
     if (hasDates && ps && pe) {
       allDates.push(ps, pe);
@@ -281,17 +342,18 @@ function buildResidential205PlanFactChartModel(
 
 /**
  * Модель горизонтального bar-chart «План vs факт».
- * Для «Жилой дом» и «Проект» — по одной строке на каждую задачу с шифром `2.05*` (вложенные `2.05.01.1` и т.д.), только фильтр `code.startsWith('2.05')` после нормализации.
+ * Для «Жилой дом» и «Проект» — ветка `2.05*`: «Детально» — только листья дерева шифров; «Сводно» — только коды из трёх сегментов (`2.05.XX`). Разбиение по `partId`, области house/parking и `objectType`.
  */
 export function buildPlanFactWorkTypeChartModel(
   tasks: GPRTask[],
   partKey: PlanFactWorkTypePartKey,
   todayIso: string,
+  residentialBarLevel: PlanFactTasksBarLevel = "detailed",
 ): PlanFactWorkTypeChartModel | null {
   if (!Array.isArray(tasks) || tasks.length === 0) return null;
 
   if (partKey === "residential" || partKey === "project") {
-    return buildResidential205PlanFactChartModel(tasks, todayIso);
+    return buildResidential205PlanFactChartModel(tasks, todayIso, residentialBarLevel);
   }
 
   const rows = buildPlanFactWorkTypeRows(tasks, partKey).filter((r) => r.bounds != null);

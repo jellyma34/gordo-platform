@@ -4,11 +4,13 @@ import { useMemo } from "react";
 
 import {
   buildDealsMonthSeries,
+  DEAL_SEGMENT_KEYS,
+  DEAL_SEGMENT_LABEL_RU,
   DEALS_LABEL_EM_DASH,
   transformDealsData,
+  type DealSegmentKey,
   type DealsByMonth,
   type NormalizedDealRow,
-  type NormalizedObjectType,
 } from "./DealsSection";
 
 const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
@@ -16,20 +18,12 @@ const pctFmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximu
 const rubFmt = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 });
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
 
-const SEGMENT_KEYS = ["apartment", "parking", "storage", "commercial"] as const;
-export type SegmentPresentationKey = (typeof SEGMENT_KEYS)[number];
+export type SegmentPresentationKey = DealSegmentKey;
 
-const PRESENTATION_SEGMENT_LABELS: Record<SegmentPresentationKey, string> = {
-  apartment: "Квартиры",
-  parking: "Машино-места (ММ)",
-  storage: "Кладовые",
-  commercial: "Коммерция",
-};
-
-function monthSumSeriesForSegment(rows: NormalizedDealRow[], seg: NormalizedObjectType) {
+function monthSumSeriesForSegment(rows: NormalizedDealRow[], seg: DealSegmentKey) {
   const m = new Map<string, number>();
   for (const r of rows) {
-    if (r.normalizedType !== seg) continue;
+    if (r.dealType !== seg) continue;
     m.set(r.monthKey, (m.get(r.monthKey) ?? 0) + r.sumRub);
   }
   return [...m.entries()]
@@ -83,13 +77,12 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
   const totalSum = analytics.totalSum;
 
   const segmentBlocks = useMemo(() => {
-    return SEGMENT_KEYS.map((key) => {
-      const seg = key as NormalizedObjectType;
-      const segRows = rows.filter((r) => r.normalizedType === seg);
+    return DEAL_SEGMENT_KEYS.map((key) => {
+      const segRows = rows.filter((r) => r.dealType === key);
       const count = segRows.length;
       const sum = segRows.reduce((s, r) => s + r.sumRub, 0);
       const share = totalSum > 0 ? sum / totalSum : 0;
-      const monthSeries = monthSumSeriesForSegment(rows, seg);
+      const monthSeries = monthSumSeriesForSegment(rows, key);
       const maxM = Math.max(1, ...monthSeries.map((p) => p.sum));
       const plan = segmentPlanRub?.[key];
       const status = segmentStatus(monthSeries, plan, sum);
@@ -97,7 +90,7 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
         plan != null && plan > 0 ? ((sum - plan) / plan) * 100 : null;
       return {
         key,
-        label: PRESENTATION_SEGMENT_LABELS[key],
+        label: DEAL_SEGMENT_LABEL_RU[key],
         count,
         sum,
         share,
@@ -174,7 +167,7 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
         <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-slate-500">
           Распределение продаж по типам недвижимости.
         </p>
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {segmentBlocks.map((b) => (
             <div
               key={b.key}
