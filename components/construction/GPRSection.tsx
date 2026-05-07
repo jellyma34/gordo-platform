@@ -3,7 +3,15 @@
 import { useRef } from "react";
 
 import { EditLayout } from "@/components/EditLayout";
-import { calculateDeviation, getStatusByDeviation, PROJECT_PARTS, type GPRTask } from "@/lib/gprUtils";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
+import {
+  calculateDeviation,
+  getStatusByGprProgressDelta,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+  type GPRTask,
+} from "@/lib/gprUtils";
+import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
 import { GPRAnalytics } from "./GPRAnalytics";
 import { GPRTable, type GPRTableHandle } from "./GPRTable";
 
@@ -93,44 +101,65 @@ export function GPRSection({
   mode,
   onSaveTasks,
   onReloadGprTasks,
-  activePartId,
-  onChangePart,
+  onReplaceAllGprTasks,
+  activePartScope,
+  onChangePartScope,
+  reportDate,
+  hidePresentationPartStrip,
 }: {
-  tasks: GPRTask[];
+  tasks: GPRTask[] | null | undefined;
   /** Полный список задач всех частей (для выбора родителя при создании). */
   allGprTasks?: GPRTask[];
   mode: "edit" | "presentation";
   onSaveTasks: (tasks: GPRTask[]) => void | Promise<void>;
   /** Перезагрузка списка с API после создания задачи. */
   onReloadGprTasks?: () => Promise<void>;
-  activePartId: number;
-  onChangePart: (partId: number) => void;
+  /** Полная замена списка задач (импорт CSV по всем частям проекта). Только режим редактирования. */
+  onReplaceAllGprTasks?: (tasks: GPRTask[]) => void;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
+  reportDate?: Date | string | null;
+  /** В презентации: переключатель части перенесён в общий фильтр. */
+  hidePresentationPartStrip?: boolean;
 }) {
   const tableRef = useRef<GPRTableHandle>(null);
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
 
   const statusSummary: StatusSummary | null = SHOW_SUMMARY_STATS
     ? (() => {
-        const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-        let completionSum = 0;
-        let completionN = 0;
+        try {
+          const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
+          let completionSum = 0;
+          let completionN = 0;
 
-        for (const task of tasks) {
-          completionSum += task.completion;
-          completionN += 1;
+          for (const task of taskList) {
+            if (!task) continue;
+            try {
+              completionSum += Number(task.completion) || 0;
+              completionN += 1;
 
-          const deviation = calculateDeviation(task);
-          if (deviation === null) {
-            counts.gray += 1;
-            continue;
+              const deviation = calculateDeviation(task);
+              if (deviation === null) {
+                counts.gray += 1;
+                continue;
+              }
+              const s = getStatusByGprProgressDelta(deviation);
+              if (s === "green") counts.green += 1;
+              else if (s === "yellow") counts.yellow += 1;
+              else counts.red += 1;
+            } catch (e) {
+              console.error("Construction edit error:", e);
+              counts.gray += 1;
+            }
           }
-          const s = getStatusByDeviation(deviation);
-          if (s === "green") counts.green += 1;
-          else if (s === "yellow") counts.yellow += 1;
-          else counts.red += 1;
-        }
 
-        const completionPct = completionN > 0 ? Math.round(completionSum / completionN) : 0;
-        return { counts, completionPct };
+          const completionPct = completionN > 0 ? Math.round(completionSum / completionN) : 0;
+          return { counts, completionPct };
+        } catch (e) {
+          console.error("Construction edit error:", e);
+          return { counts: { green: 0, yellow: 0, red: 0, gray: 0 }, completionPct: 0 };
+        }
       })()
     : null;
 
@@ -148,12 +177,13 @@ export function GPRSection({
         >
           <GPRTable
             ref={tableRef}
-            tasks={tasks}
-            allTasks={allGprTasks ?? tasks}
+            tasks={taskList}
+            allTasks={Array.isArray(allGprTasks) ? allGprTasks : taskList}
             onSaveTasks={onSaveTasks}
             onReloadGprTasks={onReloadGprTasks}
-            activePartId={activePartId}
-            onChangePart={onChangePart}
+            onReplaceAllGprTasks={onReplaceAllGprTasks}
+            activePartId={editPartId}
+            onChangePart={(id) => onChangePartScope(id)}
             hideEditToolbar
             embedded
           />
@@ -162,34 +192,40 @@ export function GPRSection({
     );
   }
 
-  return (
-    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip rounded-2xl bg-[#0f172a] p-3 sm:p-4 md:p-6">
-      <div className="flex flex-wrap justify-center gap-2">
-        {PROJECT_PARTS.map((part) => (
-          <button
-            key={part.id}
-            type="button"
-            onClick={() => onChangePart(part.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              activePartId === part.id
-                ? "bg-slate-100 text-slate-900"
-                : "bg-white/10 text-slate-200 hover:bg-white/20"
-            }`}
-          >
-            {part.name}
-          </button>
-        ))}
+  const partStrip =
+    hidePresentationPartStrip ? null : (
+      <div className="flex flex-wrap justify-center sm:justify-start">
+        <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {PROJECT_PARTS.map((part) => (
+            <button
+              key={part.id}
+              type="button"
+              onClick={() => onChangePartScope(part.id)}
+              className={segmentedControlTabClass(activePartScope === part.id, "dark")}
+            >
+              {part.name}
+            </button>
+          ))}
+        </div>
       </div>
+    );
+
+  return (
+    <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-4 overflow-x-clip rounded-2xl bg-[#0f172a] p-3 sm:p-4 md:p-5">
+      {partStrip}
       {SHOW_SUMMARY_STATS && statusSummary ? (
         <SummaryStats statusSummary={statusSummary} />
       ) : null}
 
-      <GPRAnalytics
-        tasks={tasks}
-        mode="view"
-        activePartId={activePartId}
-        planFactDataSource="kvartaly"
-      />
+      <ConstructionEditErrorBoundary>
+        <GPRAnalytics
+          tasks={taskList.filter((t) => !t.missingFromImport)}
+          mode="view"
+          activePartScope={activePartScope}
+          planFactDataSource="kvartaly"
+          reportDate={reportDate}
+        />
+      </ConstructionEditErrorBoundary>
     </section>
   );
 }

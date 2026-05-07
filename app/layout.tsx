@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import "@/lib/chartSetup";
 import "./globals.css";
-import { AuthGate } from "@/components/auth/AuthGate";
+import { AuthGateRoot } from "@/components/auth/AuthGateRoot";
 import { AuthProvider } from "@/components/auth/AuthProvider";
-import { ModeBar } from "@/components/mode/ModeBar";
+import { ChartSetup } from "@/components/charting/ChartSetup";
+import { ModeBarDynamic } from "@/components/mode/ModeBarDynamic";
 import { ModeProvider } from "@/components/mode/ModeProvider";
 
 export const metadata: Metadata = {
@@ -22,10 +22,11 @@ export default function RootLayout({
       <body className="min-w-0 antialiased">
         <ModeProvider>
           <AuthProvider>
-            <AuthGate>
-              <ModeBar />
+            <ChartSetup />
+            <AuthGateRoot>
+              <ModeBarDynamic />
               {children}
-            </AuthGate>
+            </AuthGateRoot>
           </AuthProvider>
         </ModeProvider>
       </body>

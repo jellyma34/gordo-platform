@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -17,7 +25,24 @@ import {
   updateGprTaskApi,
   type UiConstructionSection,
 } from "@/lib/auth";
-import { gprTaskFromApiItem, gprTaskToApiWritePayload, type GPRTask } from "@/lib/gprUtils";
+import {
+  gprTaskFromApiItem,
+  gprTaskToApiWritePayload,
+  partScopeToUrlParam,
+  urlParamToPartScope,
+  type GprTaskApiItem,
+  type GPRTask,
+  type ConstructionObjectScope,
+} from "@/lib/gprUtils";
+import { ConstructionPresentationFilters } from "@/components/construction/ConstructionPresentationFilters";
+import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
+import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
+import {
+  getGprProjectId,
+  loadPersistedGprTasks,
+  postGprImportToApi,
+  saveGprTasksToLocalStorage,
+} from "@/lib/gprImportPersistence";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -39,11 +64,26 @@ function parseSectionParam(v: string | null): UiConstructionSection | null {
 
 function firstAllowedTab(isAdmin: boolean, allowed: string[]): UiConstructionSection {
   if (isAdmin) return "gpr";
+  const safe = Array.isArray(allowed) ? allowed : [];
   const order: UiConstructionSection[] = ["gpr", "tenders", "tmc"];
   for (const ui of order) {
-    if (allowed.includes(uiToApi(ui))) return ui;
+    if (safe.includes(uiToApi(ui))) return ui;
   }
   return "gpr";
+}
+
+/** Безопасный разбор ответа API: битая строка не валит страницу. */
+function safeMapGprApiRows(rows: unknown): GPRTask[] {
+  if (!Array.isArray(rows)) return [];
+  const out: GPRTask[] = [];
+  for (const row of rows) {
+    try {
+      out.push(gprTaskFromApiItem(row as GprTaskApiItem));
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
+  }
+  return out;
 }
 
 function resolveTab(
@@ -102,7 +142,7 @@ function ConstructionWorkspaceInner({
   onBackToBlocks: () => void;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const { role, hasFullConstructionAccess, allowedSections, token, hydrated } = useAuth();
 
@@ -112,16 +152,84 @@ function ConstructionWorkspaceInner({
   const isPresentation = useMemo(() => pathname.startsWith("/presentation"), [pathname]);
   const mode: "edit" | "presentation" = isPresentation ? "presentation" : "edit";
 
-  const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
-  const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
-  const gprTasksForActivePart = useMemo(
-    () => tasks.filter((task) => task.partId === activeGprPartId),
-    [tasks, activeGprPartId],
+  const chromeRegistration = useMemo(
+    () => ({ modeLabel, onBackToBlocks }),
+    [modeLabel, onBackToBlocks],
   );
+  useRegisterConstructionLayoutChrome(chromeRegistration);
+
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
+  const [tasks, setTasks] = useState<GPRTask[]>(() => {
+    try {
+      return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+      return [];
+    }
+  });
+
+  const lastSavedGprJsonRef = useRef<string | null>(null);
+  const [gprPersistReady, setGprPersistReady] = useState(false);
+  const gprTasksFetchDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (!token) gprTasksFetchDoneRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    gprTasksFetchDoneRef.current = false;
+    lastSavedGprJsonRef.current = null;
+    setGprPersistReady(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
+        if (cancelled) return;
+        setTasks(cloneTasks(r.tasks));
+        lastSavedGprJsonRef.current = r.bootstrapJson;
+        if (r.skipRemoteListFetch) gprTasksFetchDoneRef.current = true;
+      } catch (e) {
+        console.error("Construction edit error:", e);
+        if (!cancelled) {
+          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
+        }
+      } finally {
+        if (!cancelled) setGprPersistReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gprProjectId]);
+
+  useEffect(() => {
+    if (!gprPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(tasks);
+      if (next === lastSavedGprJsonRef.current) return;
+      lastSavedGprJsonRef.current = next;
+      saveGprTasksToLocalStorage(gprProjectId, tasks);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
+  }, [tasks, gprPersistReady, gprProjectId]);
+
+  const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
+  const gprTasksForActivePart = useMemo(() => {
+    const list = Array.isArray(tasks) ? tasks : [];
+    if (activePartScope === "project") return list.filter(Boolean);
+    return list.filter((task) => task && task.partId === activePartScope);
+  }, [tasks, activePartScope]);
 
   const saveGprTasksForActivePart = async (partTasks: GPRTask[]) => {
-    const normalized = partTasks.map((task) => ({ ...task, partId: activeGprPartId }));
-    setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...normalized]);
+    const partId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
+    const list = Array.isArray(partTasks) ? partTasks : [];
+    const normalized = list.map((task) => ({ ...task, partId }));
+    setTasks((prev) => [
+      ...Array.isArray(prev) ? prev.filter((task) => task.partId !== partId) : [],
+      ...normalized,
+    ]);
 
     if (!token) {
       console.warn("[GPR] Сохранение без токена: запрос к API не отправляется");
@@ -135,13 +243,26 @@ function ConstructionWorkspaceInner({
         const body = gprTaskToApiWritePayload(t);
         if (Number.isFinite(idNum)) {
           const row = await updateGprTaskApi(token, idNum, body);
-          synced.push(gprTaskFromApiItem(row));
+          try {
+            synced.push(gprTaskFromApiItem(row));
+          } catch (e) {
+            console.error("Construction edit error:", e);
+          }
         } else {
           const row = await createGprTaskApi(token, body);
-          synced.push(gprTaskFromApiItem(row));
+          try {
+            synced.push(gprTaskFromApiItem(row));
+          } catch (e) {
+            console.error("Construction edit error:", e);
+          }
         }
       }
-      setTasks((prev) => [...prev.filter((task) => task.partId !== activeGprPartId), ...synced]);
+      if (synced.length > 0) {
+        setTasks((prev) => [
+          ...(Array.isArray(prev) ? prev.filter((task) => task.partId !== partId) : []),
+          ...synced,
+        ]);
+      }
     } catch (e) {
       console.error("[GPR] Сохранение в backend не удалось:", e);
       throw e;
@@ -150,11 +271,19 @@ function ConstructionWorkspaceInner({
 
   const reloadGprTasksFromApi = useCallback(async () => {
     if (!token) return;
-    const rows = await listGprTasksApi(token);
-    setTasks(rows.map(gprTaskFromApiItem));
+    try {
+      const rows = await listGprTasksApi(token);
+      const mapped = safeMapGprApiRows(rows);
+      if (mapped.length > 0) setTasks(mapped);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
   }, [token]);
 
-  const allowedApi = useMemo(() => allowedSections, [allowedSections]);
+  const allowedApi = useMemo(
+    () => (Array.isArray(allowedSections) ? allowedSections : []),
+    [allowedSections],
+  );
 
   const showSection = (ui: UiConstructionSection) =>
     role ? canAccessConstructionSection(role, allowedApi, ui) : false;
@@ -164,58 +293,88 @@ function ConstructionWorkspaceInner({
     return resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi]);
 
-  const gprTasksFetchDoneRef = useRef(false);
   useEffect(() => {
-    if (!token) gprTasksFetchDoneRef.current = false;
-  }, [token]);
-
-  useEffect(() => {
-    if (!hydrated || !token || activeTab !== "gpr" || gprTasksFetchDoneRef.current) return;
+    if (
+      !hydrated ||
+      !token ||
+      activeTab !== "gpr" ||
+      gprTasksFetchDoneRef.current ||
+      !gprPersistReady
+    )
+      return;
     let cancelled = false;
     (async () => {
       try {
         const rows = await listGprTasksApi(token);
         if (cancelled) return;
         gprTasksFetchDoneRef.current = true;
-        if (rows.length > 0) setTasks(rows.map(gprTaskFromApiItem));
-      } catch {
+        const mapped = safeMapGprApiRows(rows);
+        if (mapped.length > 0) setTasks(mapped);
+      } catch (e) {
+        console.error("Construction edit error:", e);
         if (!cancelled) gprTasksFetchDoneRef.current = true;
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, activeTab]);
+  }, [hydrated, token, activeTab, gprPersistReady]);
 
   const partIdParam = searchParams.get("partId");
 
   useEffect(() => {
-    if (partIdParam === "2") setActiveGprPartId((p) => (p === 2 ? p : 2));
-    else if (partIdParam === "1") setActiveGprPartId((p) => (p === 1 ? p : 1));
-  }, [partIdParam]);
+    const s = urlParamToPartScope(partIdParam);
+    if (!isPresentation && s === "project") {
+      setActivePartScope(1);
+      return;
+    }
+    setActivePartScope(s);
+  }, [partIdParam, isPresentation]);
+
+  useEffect(() => {
+    if (isPresentation || partIdParam !== "project") return;
+    const tab =
+      !sectionParam || sectionParam === "menu"
+        ? "gpr"
+        : resolveTab(false, sectionParam, hasFullConstructionAccess, allowedApi);
+    if (!sectionParam) {
+      router.replace(`${prefix}/construction?partId=1`);
+    } else {
+      router.replace(`${prefix}/construction?section=${tab}&partId=1`);
+    }
+  }, [isPresentation, partIdParam, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router]);
 
   useEffect(() => {
     if (!isPresentation && !sectionParam) return;
     const resolved = resolveTab(isPresentation, sectionParam, hasFullConstructionAccess, allowedApi);
     const partQ = searchParams.get("partId");
-    const partForUrl = partQ === "2" ? 2 : 1;
+    const partForUrl = partQ ? partScopeToUrlParam(urlParamToPartScope(partQ)) : "1";
     if (sectionParam !== resolved) {
       router.replace(`${prefix}/construction?section=${resolved}&partId=${partForUrl}`);
     }
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi, prefix, router, searchParams]);
 
-  const commitPartId = useCallback(
-    (partId: number) => {
-      setActiveGprPartId(partId);
+  const commitPartScope = useCallback(
+    (scope: ConstructionObjectScope) => {
+      setActivePartScope(scope);
       if (activeTab === "menu") return;
       if (!isPresentation && !sectionParam) return;
-      router.replace(`${prefix}/construction?section=${activeTab}&partId=${partId}`);
+      router.replace(`${prefix}/construction?section=${activeTab}&partId=${partScopeToUrlParam(scope)}`);
     },
     [activeTab, isPresentation, sectionParam, prefix, router],
   );
 
+  const replaceAllGprTasks = useCallback(
+    (next: GPRTask[]) => {
+      const list = cloneTasks(Array.isArray(next) ? next : []);
+      setTasks(list);
+      void postGprImportToApi(gprProjectId, list);
+    },
+    [gprProjectId],
+  );
+
   function goSection(ui: UiConstructionSection) {
-    router.replace(`${prefix}/construction?section=${ui}&partId=${activeGprPartId}`);
+    router.replace(`${prefix}/construction?section=${ui}&partId=${partScopeToUrlParam(activePartScope)}`);
   }
 
   function goMenu() {
@@ -265,35 +424,46 @@ function ConstructionWorkspaceInner({
   );
 
   if (isPresentation) {
+    const filterWell = "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5";
     return (
-      <section className="w-full min-w-0 overflow-x-clip">
-        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 px-3 sm:px-4 md:px-6">
-          <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm text-slate-300">
-                <span className="font-semibold text-slate-50">Строительство</span>
-              </div>
-              {tabBar}
+      <section className="w-full min-w-0 text-[13px] leading-normal">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px]">
+          <div className={filterWell}>
+            <ConstructionPresentationFilters
+              activePartScope={activePartScope}
+              onPartScopeChange={commitPartScope}
+            />
+
+            <div className="mt-4 min-w-0 space-y-4">
+              {activeTab === "gpr" && (
+                <GPRSection
+                  mode={mode}
+                  tasks={gprTasksForActivePart}
+                  allGprTasks={Array.isArray(tasks) ? tasks : []}
+                  onSaveTasks={saveGprTasksForActivePart}
+                  onReloadGprTasks={reloadGprTasksFromApi}
+                  onReplaceAllGprTasks={replaceAllGprTasks}
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
+              )}
+              {activeTab === "tenders" && (
+                <TendersSection
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
+              )}
+              {activeTab === "tmc" && (
+                <TMCSection
+                  activePartScope={activePartScope}
+                  onChangePartScope={commitPartScope}
+                  hidePresentationPartStrip
+                />
+              )}
             </div>
           </div>
-
-          {activeTab === "gpr" && (
-            <GPRSection
-              mode={mode}
-              tasks={gprTasksForActivePart}
-              allGprTasks={tasks}
-              onSaveTasks={saveGprTasksForActivePart}
-              onReloadGprTasks={reloadGprTasksFromApi}
-              activePartId={activeGprPartId}
-              onChangePart={commitPartId}
-            />
-          )}
-          {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
-          )}
-          {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
-          )}
         </div>
       </section>
     );
@@ -328,14 +498,16 @@ function ConstructionWorkspaceInner({
             <button
               type="button"
               onClick={() =>
-                router.push(`/presentation/construction?section=${activeTab}&partId=${activeGprPartId}`)
+                router.push(
+                  `/presentation/construction?section=${activeTab}&partId=${partScopeToUrlParam(activePartScope)}`,
+                )
               }
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
             >
               Сформировать презентацию
             </button>
             <Link
-              href={`/construction/explain?source=work&section=${activeTab}&partId=${activeGprPartId}`}
+              href={`/construction/explain?source=work&section=${activeTab}&partId=${partScopeToUrlParam(activePartScope)}`}
               className="rounded-lg border border-sky-600/40 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100"
             >
               Пояснение к показателям
@@ -402,18 +574,19 @@ function ConstructionWorkspaceInner({
             <GPRSection
               mode={mode}
               tasks={gprTasksForActivePart}
-              allGprTasks={tasks}
+              allGprTasks={Array.isArray(tasks) ? tasks : []}
               onSaveTasks={saveGprTasksForActivePart}
               onReloadGprTasks={reloadGprTasksFromApi}
-              activePartId={activeGprPartId}
-              onChangePart={commitPartId}
+              onReplaceAllGprTasks={replaceAllGprTasks}
+              activePartScope={activePartScope}
+              onChangePartScope={commitPartScope}
             />
           )}
           {activeTab === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={commitPartId} />
+            <TendersSection activePartScope={activePartScope} onChangePartScope={commitPartScope} />
           )}
           {activeTab === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={commitPartId} />
+            <TMCSection activePartScope={activePartScope} onChangePartScope={commitPartScope} />
           )}
         </>
       )}
@@ -429,13 +602,7 @@ export function ConstructionWorkspace({
   onBackToBlocks: () => void;
 }) {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[30vh] items-center justify-center text-sm text-slate-500">
-          Загрузка раздела…
-        </div>
-      }
-    >
+    <Suspense fallback={<ConstructionRouteSuspenseFallback />}>
       <ConstructionWorkspaceInner modeLabel={modeLabel} onBackToBlocks={onBackToBlocks} />
     </Suspense>
   );

@@ -102,7 +102,7 @@ function tmcEnriched(items: TMCItem[]) {
     } else if (dev !== null) {
       status = getStatusByDeviation(dev) as typeof status;
     }
-    return { ...item, deviation: dev, status };
+    return { ...item, deviation: dev, traffic: status };
   });
 }
 
@@ -159,12 +159,15 @@ export type ConstructionExplainSection = {
 };
 
 export function buildConstructionPresentationExplain(
-  partId: number,
+  partId: number | "all",
   tasks: GPRTask[],
   tenders: Tender[],
   tmcItems: TMCItem[],
 ): { partName: string; sections: ConstructionExplainSection[] } {
-  const partName = PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта";
+  const partName =
+    partId === "all"
+      ? "Проект (сводно)"
+      : (PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта");
   const today = new Date();
   const stats = getProjectStats(tasks);
   const completedPct = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
@@ -570,7 +573,8 @@ export function buildConstructionPresentationExplain(
     },
     {
       name: "Отклонение по дате (поставка)",
-      formula: "Δ = day(fact_ref) − day(plan_ref); plan_ref = planStart|planEnd, fact_ref = factEnd|factStart",
+      formula:
+        "Δ = day(fact_ref) − day(plan_ref); plan_ref = supplyPlanDate|contractPlanDate, fact_ref = contractFactDate|supplyFactDate",
       variables: sampleTmc
         ? [
             { symbol: "plan_ref", label: "опорная плановая дата", value: tmcPlanReferenceDate(sampleTmc) ?? "—" },

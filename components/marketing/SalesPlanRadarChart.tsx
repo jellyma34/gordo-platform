@@ -1,17 +1,17 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useMemo } from "react";
 
 import type { SalesRadarCategoryRow } from "@/lib/marketingSalesReportData";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const RadarChart = dynamic(() => import("recharts").then((m) => m.RadarChart), { ssr: false });
-const Radar = dynamic(() => import("recharts").then((m) => m.Radar), { ssr: false });
-const PolarGrid = dynamic(() => import("recharts").then((m) => m.PolarGrid), { ssr: false });
-const PolarAngleAxis = dynamic(() => import("recharts").then((m) => m.PolarAngleAxis), { ssr: false });
-const PolarRadiusAxis = dynamic(() => import("recharts").then((m) => m.PolarRadiusAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "@/components/charting/rechartsClient";
 
 const rubFmt = new Intl.NumberFormat("ru-RU", {
   style: "currency",

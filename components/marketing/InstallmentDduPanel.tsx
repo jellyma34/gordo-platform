@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import {
   filterByObjectAndDealType,
@@ -9,15 +8,16 @@ import {
 } from "@/lib/marketingMockData";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import { rechartsPresentationMiniTooltip } from "@/components/marketing/salesPlanCharts";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 const PLAN_FILL = "rgba(148, 163, 184, 0.55)";
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { marketingMockData } from "@/lib/marketingMockData";
+import { MarketingDealsFeedProvider } from "./marketingDealsFeedContext";
 import { InstallmentDduPanel } from "./InstallmentDduPanel";
 import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFilters";
 import { SalesDealsSection } from "./SalesDealsSection";
@@ -40,7 +41,7 @@ export function MarketingWorkspace({
   initialPlanScenario,
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const mplLight = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
@@ -85,36 +86,39 @@ export function MarketingWorkspace({
         : "rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5";
 
   return (
-    <section className={outer}>
-      <div className={filterWell}>
-        <MarketingFilters
-          presentation={presentation}
-          period={period}
-          onPeriodChange={setPeriod}
-          objectId={objectId}
-          onObjectIdChange={setObjectId}
-          dealTypeId={dealTypeId}
-          onDealTypeIdChange={setDealTypeId}
-          objects={marketingMockData.objects}
-          dealTypes={marketingMockData.dealTypes}
-        />
+    <MarketingDealsFeedProvider>
+      <section className={outer}>
+        <div className={filterWell}>
+          <MarketingFilters
+            presentation={presentation}
+            period={period}
+            onPeriodChange={setPeriod}
+            objectId={objectId}
+            onObjectIdChange={setObjectId}
+            dealTypeId={dealTypeId}
+            onDealTypeIdChange={setDealTypeId}
+            objects={marketingMockData.objects}
+            dealTypes={marketingMockData.dealTypes}
+            showPeriod={presentation || activeTab !== "deals"}
+          />
 
-        <div className="mt-5 min-w-0">
-          {activeTab === "sales" ? (
-            <SalesPlanPanel
-              presentation={presentation}
-              period={period}
-              objectId={objectId}
-              dealTypeId={dealTypeId}
-              initialPlanScenario={initialPlanScenario}
-            />
-          ) : activeTab === "deals" ? (
-            <SalesDealsSection presentation={presentation} period={period} objectId={objectId} dealTypeId={dealTypeId} />
-          ) : (
-            <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />
-          )}
+          <div className="mt-5 min-w-0">
+            {activeTab === "sales" ? (
+              <SalesPlanPanel
+                presentation={presentation}
+                period={period}
+                objectId={objectId}
+                dealTypeId={dealTypeId}
+                initialPlanScenario={initialPlanScenario}
+              />
+            ) : activeTab === "deals" ? (
+              <SalesDealsSection presentation={presentation} period={period} objectId={objectId} dealTypeId={dealTypeId} />
+            ) : (
+              <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />
+            )}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </MarketingDealsFeedProvider>
   );
 }

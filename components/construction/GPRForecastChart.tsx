@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import type { Chart as ChartJS } from "chart.js";
 import type { ChartData, ChartOptions } from "chart.js/auto";
-import type { GPRTask, ProjectPartKey } from "@/lib/gprUtils";
+import type { GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import type { TMCItem } from "@/lib/tmcData";
-import { buildGprTimeForecastModel, type GprTimeForecastModel } from "@/lib/gprTmcDependency";
+import {
+  buildGprTimeForecastModel,
+  type ForecastPart,
+  type GprTimeForecastModel,
+} from "@/lib/gprTmcDependency";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
 const PLAN_LINE = "#e2e8f0";
 const FACT_LINE = "#22c55e";
@@ -18,8 +22,6 @@ const endDateFmt = new Intl.DateTimeFormat("ru-RU", {
   month: "short",
   year: "numeric",
 });
-
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
 
 function formatDateLong(ms: number): string {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -80,7 +82,7 @@ export function GPRForecastChart({
   tasks: GPRTask[];
   tmcItems: TMCItem[];
   tenders: Tender[];
-  activeProjectPart: ProjectPartKey;
+  activeProjectPart: ForecastPart;
 }) {
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 

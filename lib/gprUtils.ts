@@ -1,5 +1,8 @@
 import { getProjectStatus } from "@/utils/status";
 
+/** Жилой дом / автостоянка — разводка одинаковых шифров в «План vs факт». */
+export type GprPlanFactScopeKey = "house" | "parking";
+
 export type GPRTask = {
   id: string;
   globalTaskId: string;
@@ -18,6 +21,26 @@ export type GPRTask = {
   level?: number;
   /** Квартал из `kvartaly_gpr_quarterly.json` (для подписи оси при совпадении шифров). */
   kvartalyQuarter?: string;
+  /**
+   * Задача не попала в последний импорт CSV — не показывается в презентации (не удаляется).
+   */
+  missingFromImport?: boolean;
+  /**
+   * Объект стройки из секции CSV (строка «Жилой дом», «…автостоянка» и т.д.), задаётся перед задачами с кодами.
+   */
+  objectType?: string;
+  /** Явная зона для диаграммы План/факт (`house` / `parking`); иначе выводится из объекта и partId. */
+  planFactScope?: GprPlanFactScopeKey;
+  /**
+   * Плановый объём работ (усл. ед., напр. тыс. м³ или нормо-часы) — приоритетный вес для «Общий прогресс».
+   * Если задано положительное значение, используется вместо contractValue и длительности плана.
+   */
+  plannedWorkVolume?: number | null;
+  /**
+   * Стоимость по договору (₽ и т.д.) — вес этапа, если объём не задан.
+   * Иначе вес: длительность плана (дн.).
+   */
+  contractValue?: number | null;
 };
 
 export type ProjectPart = {
@@ -46,6 +69,87 @@ export const PROJECT_PARTS: ProjectPart[] = [
   { id: 1, name: "Жилой дом" },
   { id: 2, name: "Встроенно-пристроенная автостоянка" },
 ];
+
+/** Область в презентации: две части проекта или агрегат «весь проект». */
+export type ConstructionObjectScope = 1 | 2 | "project";
+
+export function isProjectWideScope(s: ConstructionObjectScope | number): s is "project" {
+  return s === "project";
+}
+
+export function partScopeToUrlParam(s: ConstructionObjectScope): string {
+  return s === "project" ? "project" : String(s);
+}
+
+/**
+ * Разбор `partId` из query. Любые неожиданные значения → 1 (безопасный fallback для SSR/URL).
+ */
+export function urlParamToPartScope(p: string | null | undefined): ConstructionObjectScope {
+  if (p == null) return 1;
+  const t = String(p).trim().toLowerCase();
+  if (t === "project") return "project";
+  if (t === "2") return 2;
+  if (t === "1") return 1;
+  return 1;
+}
+
+/**
+ * Грязный шифр из CSV/PDF: пробелы, лишние точки.
+ * Дальше по цепочке используйте {@link normalizeGprCodeFinal} для канона «только цифры.точки».
+ */
+export function normalizeCode(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\s+/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\.$/, "");
+}
+
+/**
+ * ISO-дата с полей задачи ГПР: без sentinel Excel (`1900`, `00.01.1900` в ISO-виде), без мусора.
+ * Возвращает `YYYY-MM-DD` или `null`. Задачи без дат не отбрасываются снаружи — только поле даты null.
+ */
+export function parseDateSafe(iso: string | null | undefined): string | null {
+  if (iso == null) return null;
+  const t = String(iso).trim();
+  if (!t || t === "—") return null;
+  if (/^1900-/.test(t) || t.startsWith("1899-")) return null;
+  if (t.includes("1900-01-00") || t === "0000-00-00") return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    const [ys, ms, ds] = t.split("-");
+    const y = Number(ys);
+    const mo = Number(ms);
+    const d = Number(ds);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+    if (y < 1901 || y > 2100) return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    if (y === 1900 && mo === 1 && d <= 1) return null;
+    const dt = new Date(`${t}T12:00:00`);
+    return Number.isNaN(dt.getTime()) ? null : t;
+  }
+  const dt = new Date(t);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  if (y < 1901 || y > 2100) return null;
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
+/** Корень шифра ГПР: совпадение с `root` или вложенность `root.*` (после нормализации шифров). */
+export function matchesGprCodeBranch(code: string, root: string): boolean {
+  const c = normalizeGprCodeFinal(code);
+  const r = normalizeGprCodeFinal(root);
+  return c === r || c.startsWith(`${r}.`);
+}
+
+/**
+ * Для блока «План vs факт» на уровне «Жилой дом»: только работы ветки 2.05 (строительство),
+ * без 2.04 (подготовка). На уровне «Проект» фильтр не применяется — см. {@link ConstructionObjectScope}.
+ */
+export function filterZhDomPlanFactTasksTo205Branch(tasks: GPRTask[]): GPRTask[] {
+  return tasks.filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"));
+}
 
 export type GPRStatus = "green" | "yellow" | "red" | "gray" | "blocked";
 
@@ -88,6 +192,7 @@ export function durationDays(start: string | null | undefined, end: string | nul
  * Отклонение по сроку окончания (календарные дни, локальная полуночь):
  * — есть fact_end → fact_end − plan_end;
  * — нет fact_end → today − plan_end (незавершённые работы).
+ * Для оперативного контроля в таблице ГПР предпочтительнее {@link calculateDeviation} (по % на дату).
  */
 export function planFactEndDeviationDays(
   planEnd: string | null | undefined,
@@ -102,26 +207,57 @@ export function planFactEndDeviationDays(
   return Math.round((endDay - planDay) / MS_PER_DAY);
 }
 
+function roundProgress(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Плановый % выполнения на отчётную дату: линейно по [planStart, planEnd] (0% до начала, 100% после окончания).
+ */
+export function getPlannedProgressPercent(task: GPRTask, asOf: Date = new Date()): number | null {
+  const ps = toDate(task.planStart ?? undefined);
+  const pe = toDate(task.planEnd ?? undefined);
+  if (!ps || !pe) return null;
+  const d0 = startOfLocalDay(ps);
+  const d1 = startOfLocalDay(pe);
+  const dA = startOfLocalDay(asOf);
+  if (dA < d0) return 0;
+  if (dA > d1) return 100;
+  const totalMs = d1 - d0;
+  if (totalMs <= 0) return dA >= d0 && dA <= d1 ? 100 : 0;
+  return roundProgress((100 * (dA - d0)) / totalMs);
+}
+
+/** Фактический % выполнения (карточка задачи). */
+export function getActualProgressPercent(task: GPRTask): number {
+  return roundProgress(Math.min(100, Math.max(0, Number(task.completion) || 0)));
+}
+
+/**
+ * Оперативное отклонение: факт − план на текущую дату (проц. пт., не календарные дни).
+ * Положительное — опережение графика, отрицательное — отставание.
+ */
 export function calculateDeviation(task: GPRTask, asOf: Date = new Date()): number | null {
-  const hasAnyFact = Boolean(task.factStart?.trim() || task.factEnd?.trim());
-  if (!hasAnyFact) {
-    const ps = parseDate(task.planStart ?? undefined);
-    if (!ps) return null;
-    const todayDay = startOfLocalDay(asOf);
-    const planStartDay = startOfLocalDay(ps);
-    if (todayDay < planStartDay) return null;
-    return Math.round((todayDay - planStartDay) / MS_PER_DAY);
-  }
-  return planFactEndDeviationDays(task.planEnd ?? null, task.factEnd, asOf);
+  const planned = getPlannedProgressPercent(task, asOf);
+  if (planned === null) return null;
+  const fact = getActualProgressPercent(task);
+  return roundProgress(fact - planned);
 }
 
-export function getStatus(task: GPRTask): GPRStatus {
-  const deviation = calculateDeviation(task);
-  if (deviation === null || deviation === undefined) return "gray";
-  return getStatusByDeviation(deviation);
+/** Светофор ГПР по отклонению в п.п. к плану на дату: зелёный ≥0, жёлтый (−10;0), красный &lt;−10. */
+export function getStatusByGprProgressDelta(deltaPp: number): "green" | "yellow" | "red" {
+  if (deltaPp >= 0) return "green";
+  if (deltaPp >= -10) return "yellow";
+  return "red";
 }
 
-/** Соответствует {@link getProjectStatus}: green / yellow / red для UI. */
+export function getStatus(task: GPRTask, asOf: Date = new Date()): GPRStatus {
+  const d = calculateDeviation(task, asOf);
+  if (d === null) return "gray";
+  return getStatusByGprProgressDelta(d);
+}
+
+/** Соответствует {@link getProjectStatus} по **дням** (ТМЦ, тендеры, пр.). Для ГПР по % — {@link getStatusByGprProgressDelta}. */
 export function getStatusByDeviation(deviation: number): "green" | "yellow" | "red" {
   const s = getProjectStatus(deviation);
   if (s === "success") return "green";
@@ -143,33 +279,55 @@ export function flattenTasks(tasks: GPRTask[]): GPRTask[] {
   return tasks;
 }
 
-export function getProjectStats(tasks: GPRTask[]) {
+export function getProjectStats(tasks: GPRTask[], asOf: Date = new Date()) {
   const all = flattenTasks(tasks);
-  const deviations = all
-    .map((task) => calculateDeviation(task))
-    .filter((value): value is number => value !== null && value !== undefined);
+  const deltas: number[] = [];
+  let sumPlanned = 0;
+  let sumFact = 0;
+  let nWithPlan = 0;
+  for (const task of all) {
+    const pl = getPlannedProgressPercent(task, asOf);
+    if (pl === null) continue;
+    const fc = getActualProgressPercent(task);
+    const d = calculateDeviation(task, asOf);
+    if (d === null) continue;
+    deltas.push(d);
+    sumPlanned += pl;
+    sumFact += fc;
+    nWithPlan += 1;
+  }
   const total = all.length;
   const completed = all.filter((task) => task.completion >= 100).length;
-  const overdue = deviations.filter((value) => value > 14).length;
+  const overdue = all.filter((task) => {
+    const d = calculateDeviation(task, asOf);
+    return d !== null && d < -10;
+  }).length;
   const avgDeviation =
-    deviations.length > 0
-      ? Number(
-          (deviations.reduce((sum, value) => sum + value, 0) / deviations.length).toFixed(
-            1,
-          ),
-        )
+    deltas.length > 0
+      ? Number((deltas.reduce((sum, value) => sum + value, 0) / deltas.length).toFixed(1))
       : 0;
+  const avgPlannedPercent =
+    nWithPlan > 0 ? Number(((sumPlanned / nWithPlan) as number).toFixed(1)) : 0;
+  const avgFactPercent = nWithPlan > 0 ? Number(((sumFact / nWithPlan) as number).toFixed(1)) : 0;
 
   const statusCounts = all.reduce(
     (acc, task) => {
-      const status = getStatus(task);
+      const status = getStatus(task, asOf);
       acc[status] += 1;
       return acc;
     },
     { green: 0, yellow: 0, red: 0, gray: 0, blocked: 0 } satisfies Record<GPRStatus, number>,
   );
 
-  return { total, completed, overdue, avgDeviation, statusCounts };
+  return {
+    total,
+    completed,
+    overdue,
+    avgDeviation,
+    avgPlannedPercent,
+    avgFactPercent,
+    statusCounts,
+  };
 }
 
 /** Фильтр периода для диаграмм: пересечение планового интервала [planStart, planEnd] с календарным периодом. */
@@ -272,12 +430,22 @@ export function filterByPeriod<T extends { planStart?: string | null; planEnd?: 
 
   if (filterType === "month") {
     if (value == null || value < 1 || value > 12) return data;
-    return data.filter((item) => taskOverlapsCalendarMonth(item, value));
+    return data.filter(
+      (item) =>
+        parseDateSafe(item.planStart) == null ||
+        parseDateSafe(item.planEnd) == null ||
+        taskOverlapsCalendarMonth(item, value),
+    );
   }
 
   if (filterType === "quarter") {
     if (value == null || value < 1 || value > 4) return data;
-    return data.filter((item) => taskOverlapsCalendarQuarter(item, value));
+    return data.filter(
+      (item) =>
+        parseDateSafe(item.planStart) == null ||
+        parseDateSafe(item.planEnd) == null ||
+        taskOverlapsCalendarQuarter(item, value),
+    );
   }
 
   return data;
@@ -363,13 +531,31 @@ export function sanitizeGprCodeTyping(raw: string): string {
   return raw.replace(/[^\d.]/g, "");
 }
 
-/** После blur / перед сохранением: убрать лишние точки и пустые сегменты. */
+/** После blur / перед сохранением: пробелы/мусор из CSV, затем только цифры и точки по сегментам. */
 export function normalizeGprCodeFinal(raw: string): string {
-  return raw
+  return normalizeCode(raw)
     .replace(/[^\d.]/g, "")
     .split(".")
     .filter((p) => p.length > 0)
     .join(".");
+}
+
+export function gprPlanFactScopeFromTask(task: GPRTask): GprPlanFactScopeKey {
+  if (task.planFactScope === "house" || task.planFactScope === "parking") {
+    return task.planFactScope;
+  }
+  const pk = task.projectPartKey;
+  if (pk === "parking") return "parking";
+  if (pk === "residential") return "house";
+  const ot = (task.objectType ?? "").toLowerCase();
+  if (ot.includes("автостоянк") || ot.includes("паркинг")) return "parking";
+  if (ot.includes("жилой")) return "house";
+  return task.partId === 2 ? "parking" : "house";
+}
+
+/** Уникальный ключ строки «План vs факт»: домен + шифр + id. */
+export function gprPlanFactCompositeKey(task: GPRTask): string {
+  return `${gprPlanFactScopeFromTask(task)}_${normalizeGprCodeFinal(task.code)}_${task.id}`;
 }
 
 /**

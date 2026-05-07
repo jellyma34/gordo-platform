@@ -18,6 +18,24 @@ export function formatAvgDeviationDays(avg: number): string {
   return `${sign}${r} дн.`;
 }
 
+/** Отображение отклонения (п.п. по прогрессу на дату отчёта) по задачам ГПР. */
+export function formatGprProgressDeltaPp(d: number | null): string {
+  if (d === null) return "—";
+  if (d === 0) return "0 п.п.";
+  const sign = d > 0 ? "+" : "";
+  return `${sign}${d} п.п.`;
+}
+
+export function gprProgressDeviationListStyle(d: number | null): CSSProperties {
+  if (d === null) {
+    return { color: "#94a3b8", fontWeight: 700 };
+  }
+  if (d < 0) {
+    return { color: "#ef4444", fontWeight: 700, textShadow: "0 0 8px rgba(239,68,68,0.35)" };
+  }
+  return { color: "#22c55e", fontWeight: 700, textShadow: "0 0 8px rgba(34,197,94,0.35)" };
+}
+
 /** Цвет маркера этапа в списке (подготовка — красный, строительство — зелёный). */
 export function stageDeviationDotColor(groupKey: string): string {
   if (groupKey === "prep") return "#ef4444";
@@ -77,17 +95,20 @@ export const KPI_THRESHOLD_EXPLAIN =
 export function buildAvgDeviationExplanation(
   rows: { deviationDays: number | null }[],
   avgDev: number | null,
+  /** DD.MM — дата, на которую сравниваем факт с планом. */
+  reportDateLabel: string = "",
 ): string {
+  const datePhrase = reportDateLabel ? ` на ${reportDateLabel}` : "";
   const parts = rows
     .map((r) => r.deviationDays)
     .filter((d): d is number => d !== null)
-    .map((d) => `${d > 0 ? "+" : ""}${d} дн.`);
+    .map((d) => formatGprProgressDeltaPp(d));
   if (parts.length === 0) {
-    return "Рассчитывается как среднее арифметическое отклонений по сроку по этапам, когда появятся данные.";
+    return `Рассчитывается как среднее арифметическое отклонение${datePhrase} по этапам, когда появятся данные.`;
   }
   const joined = parts.join(" и ");
-  const itog = avgDev === null ? "—" : formatAvgDeviationDays(avgDev);
-  return `Рассчитывается как среднее значение отклонений по этапам: (${joined}) → итог: ${itog}`;
+  const itog = avgDev === null ? "—" : formatGprProgressDeltaPp(avgDev);
+  return `Рассчитывается как среднее отклонение по этапам: (${joined}) → итог: ${itog}`;
 }
 
 export function GprDepKpiAccordionCard({

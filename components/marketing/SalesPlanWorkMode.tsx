@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DealsSection } from "@/components/marketing/DealsSection";
 import { InstallmentsSection } from "@/components/marketing/InstallmentsSection";
+import { useMarketingEditTabOptional } from "@/components/marketing/marketingEditTabContext";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { SALES_PLAN_EXPLAIN_SESSION_KEY } from "@/lib/salesPlanExplainSession";
 import { SALES_PLAN_SPA } from "@/lib/salesPlanSpaRoutes";
@@ -124,15 +125,27 @@ export type SalesPlanWorkModeHandle = {
 type Props = {
   /** Показать компактную ссылку «к дашборду» сверху */
   dashboardHref?: string;
+  /** Разделы ведёт сайдбар — скрыть дублирующий переключатель */
+  hideSectionTabs?: boolean;
+  /** Сохранение через внешнюю шапку (EditLayout) */
+  hideInlineSave?: boolean;
 };
 
 type WorkMarketingMainTab = "plan" | "deals" | "installments";
 
 export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(function SalesPlanWorkMode(
-  { dashboardHref },
+  { dashboardHref, hideSectionTabs = false, hideInlineSave = false },
   ref,
 ) {
-  const [workMainTab, setWorkMainTab] = useState<WorkMarketingMainTab>("plan");
+  const editCtx = useMarketingEditTabOptional();
+  const [internalMainTab, setInternalMainTab] = useState<WorkMarketingMainTab>("plan");
+  const workMainTab: WorkMarketingMainTab = editCtx
+    ? editCtx.activeTab === "sales"
+      ? "plan"
+      : editCtx.activeTab === "deals"
+        ? "deals"
+        : "installments"
+    : internalMainTab;
   const router = useRouter();
   const { hydrated: authHydrated, role, token } = useAuth();
   const saveLockRef = useRef(false);
@@ -334,27 +347,37 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
-        <span className="w-full py-1 text-xs font-medium uppercase tracking-wide text-slate-500 sm:hidden">
-          Раздел маркетинга
-        </span>
-        {(
-          [
-            { id: "plan" as const, label: "План продаж" },
-            { id: "deals" as const, label: "Сделки" },
-            { id: "installments" as const, label: "Рассрочка ДДУ" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setWorkMainTab(t.id)}
-            className={segmentedControlTabClass(workMainTab === t.id, "light")}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {!hideSectionTabs ? (
+        <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+          <span className="w-full py-1 text-xs font-medium uppercase tracking-wide text-slate-500 sm:hidden">
+            Раздел маркетинга
+          </span>
+          {(
+            [
+              { id: "plan" as const, label: "План продаж" },
+              { id: "deals" as const, label: "Сделки" },
+              { id: "installments" as const, label: "Рассрочка ДДУ" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                if (editCtx) {
+                  if (t.id === "plan") editCtx.setActiveTab("sales");
+                  else if (t.id === "deals") editCtx.setActiveTab("deals");
+                  else editCtx.setActiveTab("installment");
+                } else {
+                  setInternalMainTab(t.id);
+                }
+              }}
+              className={segmentedControlTabClass(workMainTab === t.id, "light")}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {workMainTab === "plan" ? (
         <>
@@ -378,14 +401,16 @@ export const SalesPlanWorkMode = forwardRef<SalesPlanWorkModeHandle, Props>(func
             >
               {editingEnabled ? "Включено" : "Выключено"}
             </button>
-            <button
-              type="button"
-              disabled={!editingEnabled || !dirty}
-              onClick={() => void save()}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Сохранить изменения
-            </button>
+            {!hideInlineSave ? (
+              <button
+                type="button"
+                disabled={!editingEnabled || !dirty}
+                onClick={() => void save()}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Сохранить изменения
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={openPresentationExplain}

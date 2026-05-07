@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
 import { ConstructionWorkspace } from "@/components/navigation/ConstructionWorkspace";
 
 export default function EditConstructionPage() {
@@ -14,7 +15,9 @@ export default function EditConstructionPage() {
   }, [setMode]);
 
   return (
-    <ConstructionWorkspace modeLabel="Редактирование" onBackToBlocks={() => router.push("/edit")} />
+    <ConstructionEditErrorBoundary>
+      <ConstructionWorkspace modeLabel="Редактирование" onBackToBlocks={() => router.push("/edit")} />
+    </ConstructionEditErrorBoundary>
   );
 }
 

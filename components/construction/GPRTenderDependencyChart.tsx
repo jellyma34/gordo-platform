@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -15,10 +14,12 @@ import {
   type ScriptableContext,
   type ScriptableLineSegmentContext,
 } from "chart.js";
-import { type GPRTask, type ProjectPartKey } from "@/lib/gprUtils";
+import { type GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import {
   buildGprTenderDependencySeries,
+  buildGprTenderDependencySeriesProjectWide,
+  type ForecastPart,
   type GprTenderDependencyPoint,
 } from "@/lib/gprTmcDependency";
 import {
@@ -35,6 +36,9 @@ import {
   KPI_THRESHOLD_EXPLAIN,
   buildAvgDeviationExplanation,
 } from "./gprDependencyKpiShared";
+import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
+import { toDate } from "@/lib/gprUtils";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -70,23 +74,36 @@ function tenderRiskKpiExplanationText(risk: "high" | "medium" | "low"): string {
   return "Готовность тендеров не отстаёт от факта ГПР по этапам с данными, но нет устойчивого опережения по всем точкам — риск оценивается как средний.";
 }
 
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
-
 export function GPRTenderDependencyChart({
   tasks,
   tenders,
   activeProjectPart,
   analyticDepth = "work",
+  reportAsOfIso: reportAsOfIsoProp,
+  reportDateLabel: reportDateLabelProp,
 }: {
   tasks: GPRTask[];
   tenders: Tender[];
-  activeProjectPart: ProjectPartKey;
+  activeProjectPart: ForecastPart;
   analyticDepth?: "work" | "presentation";
+  reportAsOfIso?: string;
+  reportDateLabel?: string;
 }) {
-  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
+  const todayIso = reportAsOfIsoProp ?? sessionYmd;
+  const reportDateLabel = useMemo(
+    () =>
+      reportDateLabelProp?.trim()
+        ? reportDateLabelProp.trim()
+        : formatDate(toDate(todayIso) ?? new Date()),
+    [reportDateLabelProp, todayIso],
+  );
 
   const series = useMemo(
-    () => buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart),
+    () =>
+      activeProjectPart === "project"
+        ? buildGprTenderDependencySeriesProjectWide(tasks, tenders, todayIso)
+        : buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart),
     [tasks, tenders, todayIso, activeProjectPart],
   );
 
@@ -154,8 +171,8 @@ export function GPRTenderDependencyChart({
   const kpiInteractive = analyticDepth !== "presentation";
 
   const avgExplainText = useMemo(
-    () => buildAvgDeviationExplanation(series, kpiStats.avgDev),
-    [series, kpiStats.avgDev],
+    () => buildAvgDeviationExplanation(series, kpiStats.avgDev, reportDateLabel),
+    [series, kpiStats.avgDev, reportDateLabel],
   );
   const riskExplainText = useMemo(() => tenderRiskKpiExplanationText(kpiStats.risk), [kpiStats.risk]);
 

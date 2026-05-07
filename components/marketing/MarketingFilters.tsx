@@ -16,6 +16,8 @@ type Props = {
   onDealTypeIdChange: (id: string) => void;
   objects: MarketingObjectOption[];
   dealTypes: MarketingDealTypeOption[];
+  /** Если false — блок «Период» скрыт. */
+  showPeriod?: boolean;
 };
 
 const selectPresentationDark =
@@ -40,22 +42,25 @@ export function MarketingFilters({
   onDealTypeIdChange,
   objects,
   dealTypes,
+  showPeriod = true,
 }: Props) {
   const mplLight = useMarketingPresentationLight();
   const sel = presentation ? (mplLight ? selectPresentationLight : selectPresentationDark) : selectEdit;
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <label className="flex flex-col gap-1">
-        <span className={labelCls(presentation, mplLight)}>Период</span>
-        <select
-          value={period}
-          onChange={(e) => onPeriodChange(e.target.value as MarketingPeriodGranularity)}
-          className={sel}
-        >
-          <option value="month">Месяц</option>
-          <option value="quarter">Квартал</option>
-        </select>
-      </label>
+      {showPeriod ? (
+        <label className="flex flex-col gap-1">
+          <span className={labelCls(presentation, mplLight)}>Период</span>
+          <select
+            value={period}
+            onChange={(e) => onPeriodChange(e.target.value as MarketingPeriodGranularity)}
+            className={sel}
+          >
+            <option value="month">Месяц</option>
+            <option value="quarter">Квартал</option>
+          </select>
+        </label>
+      ) : null}
       <label className="flex min-w-[12rem] flex-col gap-1">
         <span className={labelCls(presentation, mplLight)}>Объект / ЖК</span>
         <select value={objectId} onChange={(e) => onObjectIdChange(e.target.value)} className={sel}>

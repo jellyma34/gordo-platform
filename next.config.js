@@ -10,6 +10,10 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  /** Статические импорты из recharts/… обрабатываются предсказуемее, меньше «битых» чанков в dev. */
+  experimental: {
+    optimizePackageImports: ["recharts", "react-chartjs-2", "lucide-react"],
+  },
 };
 
 module.exports = nextConfig;

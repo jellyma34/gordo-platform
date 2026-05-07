@@ -10,25 +10,40 @@ function modeLabel(mode: AppMode) {
   return mode === "presentation" ? "Презентация" : "Редактирование";
 }
 
-function ModeBarInner() {
+/**
+ * `useSearchParams` нельзя вызывать на маршрутах, где панель скрыта (`/`, `/login`, `/presentation/…`):
+ * иначе внешний `Suspense` отдаёт на сервере placeholder, а на клиенте сразу `null` — React #418 (hydration mismatch).
+ */
+function modeBarIsHiddenForPathname(pathname: string | null | undefined): boolean {
+  if (pathname == null || pathname === "") return true;
+  if (pathname === "/login" || pathname.startsWith("/admin")) return true;
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/presentation")) return true;
+  return false;
+}
+
+const modeBarFallback = (
+  <div
+    className="sticky top-0 z-40 h-[52px] border-b border-slate-200 bg-white/80 backdrop-blur"
+    aria-hidden
+  />
+);
+
+/**
+ * Панель режима только для маршрутов, где она реально отображается. Здесь используются pathname + query.
+ */
+function ModeBarWithSearch() {
   const { mode, setMode } = useAppMode();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  if (pathname === "/login" || pathname?.startsWith("/admin")) return null;
+  if (pathname == null || pathname === "") {
+    return null;
+  }
 
-  const isOnModeSelect = pathname === "/";
-  if (isOnModeSelect) return null;
-
-  const isPresentation = pathname.startsWith("/presentation");
-  if (isPresentation) return null;
   const isEdit = pathname.startsWith("/edit");
-  const restPath = isPresentation
-    ? pathname.replace("/presentation", "")
-    : isEdit
-      ? pathname.replace("/edit", "")
-      : pathname;
+  const restPath = isEdit ? pathname.replace("/edit", "") : pathname;
 
   /** План продаж живёт вне /edit и /presentation; иначе ModeBar собирает неверные URL вида /presentation/marketing/... */
   const isSalesPlanSpa =
@@ -38,7 +53,12 @@ function ModeBarInner() {
     pathname === "/construction/explain"
       ? {
           section: searchParams.get("section") ?? "gpr",
-          partId: searchParams.get("partId") === "2" ? "2" : "1",
+          partId:
+            searchParams.get("partId") === "project"
+              ? "project"
+              : searchParams.get("partId") === "2"
+                ? "2"
+                : "1",
         }
       : null;
 
@@ -124,15 +144,21 @@ function ModeBarInner() {
   );
 }
 
-export function ModeBar() {
+/**
+ * Сначала только `usePathname` — маршруты без панели не тянут `useSearchParams` и внешний placeholder Suspense.
+ */
+function ModeBarRouteGate() {
+  const pathname = usePathname();
+  if (modeBarIsHiddenForPathname(pathname)) {
+    return null;
+  }
   return (
-    <Suspense
-      fallback={
-        <div className="sticky top-0 z-40 h-[52px] border-b border-slate-200 bg-white/80 backdrop-blur" aria-hidden />
-      }
-    >
-      <ModeBarInner />
+    <Suspense fallback={modeBarFallback}>
+      <ModeBarWithSearch />
     </Suspense>
   );
 }
 
+export function ModeBar() {
+  return <ModeBarRouteGate />;
+}

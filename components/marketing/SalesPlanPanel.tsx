@@ -1,7 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import {
   filterByObjectAndDealType,
   mergeSalesPlanFact,
@@ -27,34 +26,37 @@ import {
   formatSalesPlanAsOfKpiSub,
   type DynamicsKpiInput,
 } from "@/lib/salesPlanDynamicsKpi";
-import { buildCashflowSeries } from "@/lib/buildCashflowSeries";
+import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
+import { decodePaymentScheduleCsvBuffer, parsePaymentScheduleCsvOrVerba } from "@/lib/paymentScheduleCsv";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
+import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
-import { useMarketingDealsJson } from "@/components/marketing/useMarketingDealsJson";
+import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
-const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
-const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-const LabelList = dynamic(() => import("recharts").then((m) => m.LabelList), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
-const ReferenceLine = dynamic(() => import("recharts").then((m) => m.ReferenceLine), { ssr: false });
-const ReferenceArea = dynamic(() => import("recharts").then((m) => m.ReferenceArea), { ssr: false });
-const ReferenceDot = dynamic(() => import("recharts").then((m) => m.ReferenceDot), { ssr: false });
+import {
+  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  LabelList,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceDot,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 const CARD = "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
@@ -612,9 +614,18 @@ function FunnelBlock({
   );
 }
 
+const PAYMENT_SCHEDULE_STORAGE_KEY = "gordo-sales-plan-payment-schedule-v1";
+
+type StoredPaymentScheduleV1 = {
+  v: 1;
+  byPeriodKey: Record<string, number>;
+  fileName: string;
+  savedAt: string;
+};
+
 const CATEGORY_LABELS: Record<SalesCategoryId, string> = {
   apartments: "Квартиры",
-  parking: "Парковки",
+  parking: "Машино-места",
   storages: "Кладовые",
   commercial: "Коммерция",
 };
@@ -632,7 +643,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
-  const dealsFeed = useMarketingDealsJson();
+  const dealsFeed = useMarketingDealsFeed();
   const card = presDark ? CARD : presentation && mplPremium ? CARD_PREMIUM : presentation ? CARD_LIGHT : CARD_EDIT;
   const h4 = presDark
     ? "text-sm font-semibold text-slate-100"
@@ -646,6 +657,65 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       : "text-[11px] text-slate-600";
   const [mode, setMode] = useState<PlanMode>("view");
   const [scenario, setScenario] = useState<PlanScenario>(initialPlanScenario ?? "realistic");
+  const [paymentPlanByPeriodKey, setPaymentPlanByPeriodKey] = useState<Record<string, number> | null>(null);
+  const [scheduleFileName, setScheduleFileName] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const paymentScheduleInputRef = useRef<HTMLInputElement>(null);
+  /** В презентации блок после «Выполнение плана…» свёрнут по умолчанию. */
+  const [presAdvancedAnalyticsOpen, setPresAdvancedAnalyticsOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw) as StoredPaymentScheduleV1;
+      if (p?.v !== 1 || !p.byPeriodKey || typeof p.byPeriodKey !== "object") return;
+      setPaymentPlanByPeriodKey(p.byPeriodKey);
+      setScheduleFileName(p.fileName ?? null);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const onPaymentScheduleCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setScheduleError(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const text = decodePaymentScheduleCsvBuffer(buf);
+      const res = parsePaymentScheduleCsvOrVerba(text);
+      if (!res.ok) {
+        setScheduleError(res.error);
+        setPaymentPlanByPeriodKey(null);
+        setScheduleFileName(null);
+        localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+        return;
+      }
+      setPaymentPlanByPeriodKey(res.byPeriodKey);
+      setScheduleFileName(file.name);
+      const payload: StoredPaymentScheduleV1 = {
+        v: 1,
+        byPeriodKey: res.byPeriodKey,
+        fileName: file.name,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(PAYMENT_SCHEDULE_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      setScheduleError("Не удалось прочитать файл.");
+      setPaymentPlanByPeriodKey(null);
+      setScheduleFileName(null);
+    }
+  };
+
+  const clearPaymentSchedule = () => {
+    setPaymentPlanByPeriodKey(null);
+    setScheduleFileName(null);
+    setScheduleError(null);
+    localStorage.removeItem(PAYMENT_SCHEDULE_STORAGE_KEY);
+    if (paymentScheduleInputRef.current) paymentScheduleInputRef.current.value = "";
+  };
 
   const report = marketingSalesReportMock;
   const baseRev = report.salesData.revenue;
@@ -684,7 +754,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   );
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
-  const cashflowSeriesBase = useMemo(() => buildCashflowSeries(report), [report]);
+
+  const hasPaymentSchedule =
+    paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
+  const cashflowSeriesBase = useMemo(
+    () =>
+      buildCashflowSeries(report, hasPaymentSchedule ? paymentPlanByPeriodKey : null, {
+        salesStartPeriodKey: marketingMockData.projectSalesStartPeriodKey,
+        factThroughPeriodKey: marketingMockData.projectCashflowFactThroughPeriodKey,
+      }),
+    [report, hasPaymentSchedule, paymentPlanByPeriodKey],
+  );
+  const cashflowPlanScale = hasPaymentSchedule ? 1 : revenuePlanScale;
+  const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
+  const cashflowPlanNote = hasPaymentSchedule
+    ? `План — помесячные суммы из графика платежей (файл «${scheduleFileName ?? "CSV"}»). Факт — помесячные значения из тестового ряда (mock); CRM-интеграция не подключена. На оси — с ${salesStartLabel} (старт продаж по проекту).`
+    : `Факт — помесячные значения из локального mock dataset; CRM-интеграция не подключена. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
 
   const categoriesAdjusted = useMemo(
     () =>
@@ -1097,7 +1182,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       { key: "apt-2", label: "2-комнатные", planRub: apt2?.planCumulative ?? 0, factRub: apt2?.factCumulative ?? 0 },
       { key: "apt-3", label: "3-комнатные", planRub: apt3?.planCumulative ?? 0, factRub: apt3?.factCumulative ?? 0 },
       { key: "apt-4", label: "4+ комнатные", planRub: apt4PlanRub, factRub: apt4FactRub },
-      { key: "parking", label: "Парковки", planRub: parking?.planCumulative ?? 0, factRub: parking?.factCumulative ?? 0 },
+      { key: "parking", label: "Машино-места", planRub: parking?.planCumulative ?? 0, factRub: parking?.factCumulative ?? 0 },
       { key: "storages", label: "Кладовые", planRub: storages?.planCumulative ?? 0, factRub: storages?.factCumulative ?? 0 },
       { key: "commercial", label: "Коммерция", planRub: commercial?.planCumulative ?? 0, factRub: commercial?.factCumulative ?? 0 },
     ];
@@ -1937,7 +2022,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               </label>
               {([
                 ["apartments", "Квартиры"],
-                ["parking", "Парковки"],
+                ["parking", "Машино-места"],
                 ["storages", "Кладовые"],
                 ["commercial", "Коммерция"],
               ] as const).map(([id, label]) => (
@@ -1992,26 +2077,112 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
 
       <SalesPlanSegmentStructure presentation={presentation} objectId={objectId} dealsFeed={dealsFeed} />
 
-      {presentation ? (
-        <>
-          <SalesPlanCashflowDynamicsChart rows={cashflowSeriesBase} planScale={revenuePlanScale} presentation />
-          {!dealsFeed.loading ? (
-            <SalesPlanSegmentPlanFactBarChart
-              dealsRows={marketingDealsFiltered}
-              fallbackTotalPlanRub={rev.planCumulative}
-              marketingPeriod={period}
-              planReportAsOfYmd={report.asOf}
-              presentation
+      {!presentation ? (
+        <div
+          className={
+            presDark
+              ? "mb-3 rounded-lg border border-slate-600/50 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-300"
+              : "mb-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-[11px] text-slate-700"
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={paymentScheduleInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={onPaymentScheduleCsvSelected}
             />
-          ) : null}
-        </>
+            <button
+              type="button"
+              className={
+                presDark
+                  ? "rounded-md border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25"
+                  : "rounded-md border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-600 hover:bg-sky-500/15"
+              }
+              onClick={() => paymentScheduleInputRef.current?.click()}
+            >
+              Загрузить график платежей (CSV)
+            </button>
+            {scheduleFileName ? (
+              <span className="tabular-nums text-slate-500">
+                Загружено: <span className="font-medium text-slate-700">{scheduleFileName}</span>
+              </span>
+            ) : null}
+            {hasPaymentSchedule ? (
+              <button
+                type="button"
+                className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                onClick={clearPaymentSchedule}
+              >
+                Сбросить план из CSV
+              </button>
+            ) : null}
+          </div>
+          {scheduleError ? <p className="mt-2 text-xs font-medium text-rose-600">{scheduleError}</p> : null}
+        </div>
       ) : null}
 
+      <>
+        <SalesPlanCashflowDynamicsChart
+          rows={cashflowSeriesBase}
+          planScale={cashflowPlanScale}
+          planSourceNote={cashflowPlanNote}
+          presentation={presentation}
+        />
+        {!dealsFeed.loading ? (
+          <SalesPlanSegmentPlanFactBarChart
+            dealsRows={marketingDealsFiltered}
+            fallbackTotalPlanRub={rev.planCumulative}
+            marketingPeriod={period}
+            planReportAsOfYmd={report.asOf}
+            presentation={presentation}
+          />
+        ) : null}
+        {!dealsFeed.loading ? (
+          <SalesDealsSegmentMonthStackCharts dealsRows={marketingDealsFiltered} presentation={presentation} />
+        ) : null}
+      </>
+
+      {presentation ? (
+        <button
+          type="button"
+          className={
+            presDark
+              ? "self-start rounded-lg border border-slate-500/50 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 shadow-sm transition hover:bg-slate-700/80"
+              : mplPremium
+                ? "self-start rounded-lg border border-black/[0.08] bg-white/90 px-3 py-2 text-xs font-semibold text-mpl-text shadow-sm transition hover:bg-white"
+                : "self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+          }
+          aria-expanded={presAdvancedAnalyticsOpen}
+          onClick={() => setPresAdvancedAnalyticsOpen((v) => !v)}
+        >
+          {presAdvancedAnalyticsOpen ? "Скрыть расширенную аналитику" : "Расширенная аналитика"}
+        </button>
+      ) : null}
+
+      <div
+        className={
+          presentation
+            ? `grid transition-[grid-template-rows] duration-300 ease-in-out motion-reduce:transition-none ${
+                presAdvancedAnalyticsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+              }`
+            : undefined
+        }
+      >
+        <div
+          className={
+            presentation
+              ? `min-h-0 overflow-hidden flex flex-col gap-4`
+              : "flex flex-col gap-4"
+          }
+          aria-hidden={presentation && !presAdvancedAnalyticsOpen ? true : undefined}
+        >
       {/* KPI summary */}
       <KpiDashboard
         mode={presentation ? (presDark ? "presentation" : "presentationLight") : "work"}
         items={dynamicsKpiItems}
-        className="mb-7"
+        className="mb-7 w-full min-w-0"
       />
 
       {/* Sales Velocity */}
@@ -3902,6 +4073,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
         </div>
       </section>
+        </div>
+      </div>
 
     </div>
   );

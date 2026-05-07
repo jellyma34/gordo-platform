@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { HubSectionCards } from "@/components/presentation/HubSectionCards";
+import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
 export default function PresentationEntry() {
   const { setMode } = useAppMode();
+  const snapshot = useMemo(() => getHomeDashboardSnapshot(), []);
 
   useEffect(() => {
     setMode("presentation");
@@ -14,52 +17,35 @@ export default function PresentationEntry() {
   const blocks = [
     {
       title: "Строительство",
-      description: "ГПР, тендеры и закупка ТМЦ — аналитика и контроль графика работ.",
+      description: "ГПР, тендеры, ТМЦ — аналитика и график работ.",
       href: "/presentation/construction",
+      status: getHubNavStatusTone(snapshot, "construction"),
     },
     {
       title: "Маркетинг",
-      description: "План продаж, динамика, воронка и рассрочка по ДДУ — в едином стиле с разделом «Строительство».",
+      description: "План продаж, воронка и рассрочка по ДДУ.",
       href: "/presentation/marketing/sales-plan",
+      status: getHubNavStatusTone(snapshot, "marketing"),
     },
     {
       title: "Финансы",
-      description: "Экономика проекта и финансовые показатели (в разработке).",
+      description: "Экономика и показатели (модуль в разработке).",
       href: "/presentation/finance",
+      status: getHubNavStatusTone(snapshot, "finance"),
     },
   ] as const;
 
   return (
-    <div className="presentation-wrapper">
+    <div className="presentation-hub">
       <div className="presentation-content">
         <h1 className="presentation-subtitle text-lg font-medium leading-relaxed text-slate-300 md:text-xl">
-          Выберите раздел для анализа
+          Сводка проекта на сегодня
         </h1>
+        <p className="mb-4 text-center text-sm text-slate-400">Нажмите на блок, чтобы открыть раздел</p>
 
-        <section className="presentation-section-grid" aria-label="Разделы платформы">
-          {blocks.map((block) => (
-            <Link key={block.href} href={block.href} className="section-card group">
-              <div className="flex flex-1 flex-col">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-white md:text-2xl">
-                      {block.title}
-                    </h2>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                      {block.description}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 text-xl font-light text-slate-500 transition-colors group-hover:text-sky-400/90"
-                    aria-hidden
-                  >
-                    →
-                  </span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </section>
+        <div className="mt-2 w-full">
+          <HubSectionCards blocks={blocks} gridClassName="presentation-section-grid" />
+        </div>
       </div>
     </div>
   );

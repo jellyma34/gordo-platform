@@ -1,12 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import {
   DEAL_SEGMENT_KEYS,
-  OBJECT_TYPE_LABEL_RU,
+  DEAL_SEGMENT_LABEL_RU,
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
@@ -24,15 +23,16 @@ import {
   MPL_PREMIUM_FILTER_SELECT_95,
   MPL_PREMIUM_TOOLTIP_SHELL,
 } from "@/lib/marketingPremiumUi";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const LabelList = dynamic(() => import("recharts").then((m) => m.LabelList), { ssr: false });
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 export type SegmentPlanFactBarRow = {
   name: string;
@@ -73,7 +73,7 @@ function SegmentBarTooltip({
         </div>
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
-          <span style={{ color: "#EA580C" }} className="font-medium">
+          <span style={{ color: "#F97316" }} className="font-medium">
             {rubFmt.format(Math.round(row.plan))}
           </span>
         </div>
@@ -225,16 +225,13 @@ export function SalesPlanSegmentPlanFactBarChart({
     return null;
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
-  const rows = useMemo(() => {
+  const segmentBarRowsAll = useMemo(() => {
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
       fallbackAsOfYmd: planReportAsOfYmd,
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
     });
-    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
-    if (segmentScope === "all") return built;
-    const label = OBJECT_TYPE_LABEL_RU[segmentScope];
-    return built.filter((r) => r.name === label);
+    return buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
   }, [
     dealsRows,
     fallbackTotalPlanRub,
@@ -242,8 +239,38 @@ export function SalesPlanSegmentPlanFactBarChart({
     planReportAsOfYmd,
     monthKeyForFilter,
     quarterIdForFilter,
-    segmentScope,
   ]);
+
+  useEffect(() => {
+    if (segmentScope === "all") return;
+    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
+    if (!segmentBarRowsAll.some((r) => r.name === label)) setSegmentScope("all");
+  }, [segmentScope, segmentBarRowsAll]);
+
+  const rows = useMemo(() => {
+    if (segmentScope === "all") return segmentBarRowsAll;
+    const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
+    return segmentBarRowsAll.filter((r) => r.name === label);
+  }, [segmentBarRowsAll, segmentScope]);
+
+  const segmentSelectOptions = useMemo(() => {
+    const withData = new Set(segmentBarRowsAll.map((r) => r.name));
+    return [
+      { value: "all" as const, label: "Все" },
+      ...DEAL_SEGMENT_KEYS.filter((k) => withData.has(DEAL_SEGMENT_LABEL_RU[k])).map((k) => ({
+        value: k,
+        label: DEAL_SEGMENT_LABEL_RU[k],
+      })),
+    ];
+  }, [segmentBarRowsAll]);
+
+  const barCategoryGapPct = useMemo(() => {
+    const n = rows.length;
+    if (n <= 1) return "6%";
+    if (n <= 2) return "12%";
+    if (n <= 4) return "18%";
+    return "22%";
+  }, [rows.length]);
 
   const yDomain = useMemo((): [number, number] => {
     const vals = rows.flatMap((r) => [r.fact, r.plan]);
@@ -258,11 +285,6 @@ export function SalesPlanSegmentPlanFactBarChart({
   if (rows.length === 0) {
     return null;
   }
-
-  const segmentSelectOptions: { value: SegmentChartScope; label: string }[] = [
-    { value: "all", label: "Все" },
-    ...DEAL_SEGMENT_KEYS.map((k) => ({ value: k, label: OBJECT_TYPE_LABEL_RU[k] })),
-  ];
 
   return (
     <div
@@ -364,8 +386,8 @@ export function SalesPlanSegmentPlanFactBarChart({
           <BarChart
             data={rows}
             margin={{ top: 28, right: 8, left: 4, bottom: 8 }}
-            barCategoryGap="24%"
-            barGap={8}
+            barCategoryGap={barCategoryGapPct}
+            barGap={rows.length <= 2 ? 6 : 8}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis
@@ -408,11 +430,7 @@ export function SalesPlanSegmentPlanFactBarChart({
             <Bar
               dataKey="plan"
               name="План"
-              fill="#EA580C"
-              fillOpacity={0.72}
-              stroke="#EA580C"
-              strokeWidth={1}
-              strokeDasharray="4 3"
+              fill="#F97316"
               radius={[8, 8, 0, 0]}
               maxBarSize={52}
               isAnimationActive={false}
@@ -420,7 +438,7 @@ export function SalesPlanSegmentPlanFactBarChart({
               <LabelList
                 dataKey="plan"
                 position="top"
-                fill="#EA580C"
+                fill="#F97316"
                 fontSize={11}
                 fontWeight={500}
                 className="tabular-nums"
@@ -437,7 +455,7 @@ export function SalesPlanSegmentPlanFactBarChart({
           Факт
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-4 rounded-sm border border-dashed border-[#EA580C] bg-[#EA580C]/70" />
+          <span className="inline-block h-2.5 w-4 rounded-sm bg-[#F97316]" />
           План
         </span>
       </div>

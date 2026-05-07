@@ -1,6 +1,16 @@
 "use client";
 
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 import {
   contractDeviationDays,
   mergeTenderSnapshotWithSeed,
@@ -9,10 +19,13 @@ import {
   tenderLifecycleLabel,
   tenderTrafficFromContract,
   tenderTrafficLabel,
+  writeTenderSnapshotToStorage,
   type Tender,
   type TenderProcurementStatus,
   type TenderTraffic,
 } from "@/lib/tenderData";
+import { normalizeTenderCsvRows, parseTenderCsvFile } from "@/lib/tenderCsvImport";
+import { diffTendersImport, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
 import { GprDateField } from "@/components/ui/GprDateField";
 import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
@@ -102,7 +115,18 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   { embedded = false, activePartId },
   ref,
 ) {
-  const [items, setItems] = useState<Tender[]>(() => mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage()));
+  const projectId = useMemo(() => getGprProjectId(), []);
+
+  const [items, setItems] = useState<Tender[]>(() =>
+    mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage(getGprProjectId())),
+  );
+
+  useEffect(() => {
+    setItems(mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage(projectId)));
+  }, [projectId]);
+
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [trafficFilter, setTrafficFilter] = useState<"all" | TenderTraffic>("all");
@@ -201,12 +225,48 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       }
     }
     try {
-      window.localStorage.setItem("gordo_tenders_snapshot", JSON.stringify(items));
+      writeTenderSnapshotToStorage(projectId, items);
       window.dispatchEvent(new Event("gordo-tenders-saved"));
     } catch {
       /* ignore */
     }
-  }, [items]);
+  }, [items, projectId]);
+
+  const handleTenderCsvImport = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const rows = await parseTenderCsvFile(file);
+        const normalized = normalizeTenderCsvRows(rows);
+
+        if (normalized.length === 0) {
+          setImportStats({
+            total: 0,
+            added: 0,
+            updated: 0,
+            unchanged: 0,
+            skippedInvalid: rows.length,
+          });
+          window.alert(
+            "В файле нет строк с полями «Шифр» и «Наименование» (или некорректный формат).",
+          );
+          return;
+        }
+
+        const { result, stats } = diffTendersImport(items, normalized, rows.length);
+        setImportStats(stats);
+        setItems(result);
+        writeTenderSnapshotToStorage(projectId, result);
+        window.dispatchEvent(new Event("gordo-tenders-saved"));
+      } catch (err) {
+        console.error(err);
+        window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
+      }
+    },
+    [projectId, items],
+  );
 
   const resetToSeed = useCallback(() => {
     setItems((prev) => {
@@ -334,6 +394,20 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
 
       <div className={`rounded-xl border border-slate-200 bg-white p-3 ${embedded ? "" : "mt-4"}`}>
         <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(ev) => void handleTenderCsvImport(ev)}
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Импорт CSV
+          </button>
           <button
             type="button"
             onClick={openCreate}
@@ -371,6 +445,16 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             <option value="gray">Нет договора</option>
           </select>
         </div>
+        {importStats ? (
+          <p className="mt-2 text-xs leading-snug text-slate-600">
+            Файл: {importStats.total} записей после разбора.
+            {importStats.skippedInvalid > 0 ? (
+              <> Пропущено строк без шифра/наименования: {importStats.skippedInvalid}.</>
+            ) : null}{" "}
+            Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
+            {importStats.unchanged}.
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-4 overflow-x-auto">

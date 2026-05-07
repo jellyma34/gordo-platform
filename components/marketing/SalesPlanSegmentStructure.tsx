@@ -1,9 +1,14 @@
 "use client";
 
-import { Building2, Car, Package, ShoppingBag, type LucideIcon } from "lucide-react";
+import { Building2, Car, CircleHelp, Package, ShoppingBag, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 
-import { groupDealsBySegment, type DealSegmentKey, type NormalizedDealRow } from "@/components/marketing/DealsSection";
+import {
+  DEAL_SEGMENT_LABEL_RU,
+  groupDealsBySegment,
+  type DealSegmentKey,
+  type NormalizedDealRow,
+} from "@/components/marketing/DealsSection";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import { marketingMockData } from "@/lib/marketingMockData";
@@ -11,20 +16,23 @@ import { compactRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
 
-const SEGMENT_ORDER: DealSegmentKey[] = ["apartment", "parking", "storage", "commercial"];
+const SEGMENT_ORDER: DealSegmentKey[] = ["apartment", "parking", "storage", "commercial", "other"];
 
-const SEGMENT_TITLES: Record<DealSegmentKey, string> = {
-  apartment: "Квартиры",
-  parking: "Машино-места",
-  storage: "Кладовые",
-  commercial: "Коммерция",
-};
+/** Одна строка на lg+, равные доли на всю ширину дашборда (как блоки графиков ниже). */
+function segmentKpiGridLgClass(cardCount: number): string {
+  if (cardCount <= 1) return "lg:grid-cols-1";
+  if (cardCount === 2) return "lg:grid-cols-2";
+  if (cardCount === 3) return "lg:grid-cols-3";
+  if (cardCount === 4) return "lg:grid-cols-[repeat(4,minmax(0,1fr))]";
+  return "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
+}
 
 const SEGMENT_ICONS: Record<DealSegmentKey, LucideIcon> = {
   apartment: Building2,
   parking: Car,
   storage: Package,
   commercial: ShoppingBag,
+  other: CircleHelp,
 };
 
 const SEGMENT_ICON_CLASS: Record<DealSegmentKey, string> = {
@@ -32,6 +40,7 @@ const SEGMENT_ICON_CLASS: Record<DealSegmentKey, string> = {
   parking: "text-purple-500",
   storage: "text-cyan-500",
   commercial: "text-orange-500",
+  other: "text-slate-400",
 };
 
 /**
@@ -102,6 +111,18 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     value: "text-orange-50",
     tertiary: "text-slate-500/85",
   },
+  other: {
+    card: "bg-gradient-to-br from-slate-800/52 via-slate-900/38 to-slate-900/62",
+    glow: "shadow-[0_14px_36px_rgba(148,163,184,0.12)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_0_32px_rgba(100,116,139,0.1)]",
+    hoverGlow: "hover:shadow-[0_22px_44px_rgba(148,163,184,0.2)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.12), transparent 52%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.16) 0%, transparent 45%, rgba(255,255,255,0.03) 100%)",
+    barFill: "rgba(148, 163, 184, 0.75)",
+    label: "text-slate-400/95",
+    value: "text-slate-50",
+    tertiary: "text-slate-500/80",
+  },
 };
 
 const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
@@ -153,6 +174,18 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     value: "text-orange-950",
     tertiary: "text-slate-500",
   },
+  other: {
+    card: "bg-gradient-to-br from-slate-100/95 via-white to-slate-50/80",
+    glow: "shadow-[0_12px_30px_rgba(71,85,105,0.1)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(100,116,139,0.08)]",
+    hoverGlow: "hover:shadow-[0_18px_38px_rgba(71,85,105,0.16)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.16), transparent 55%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.1) 0%, transparent 52%, rgba(248,250,252,0.7) 100%)",
+    barFill: "rgba(100, 116, 139, 0.55)",
+    label: "text-slate-600",
+    value: "text-slate-900",
+    tertiary: "text-slate-500",
+  },
 };
 
 /** Светлая презентация маркетинга: мягкая «стеклянная» плитка без тяжёлых теней сегментов. */
@@ -184,6 +217,14 @@ const SEGMENT_VISUAL_PREMIUM: Record<DealSegmentKey, SegmentVisual> = {
   commercial: {
     ...SEGMENT_VISUAL_WORK.commercial,
     card: "border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-amber-50/40 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
+    glow: "",
+    insetGlow: "",
+    hoverGlow:
+      "hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+  },
+  other: {
+    ...SEGMENT_VISUAL_WORK.other,
+    card: "border border-black/[0.03] bg-gradient-to-br from-white/93 via-white to-slate-50/50 shadow-[0_10px_25px_rgba(0,0,0,0.05)]",
     glow: "",
     insetGlow: "",
     hoverGlow:
@@ -246,7 +287,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
       const count = list.length;
       out.push({
         key,
-        title: SEGMENT_TITLES[key],
+        title: DEAL_SEGMENT_LABEL_RU[key],
         count,
         sum,
         avg: count > 0 ? sum / count : 0,
@@ -256,11 +297,9 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     return out;
   }, [filteredRows]);
 
-  const gridClass = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4";
-
   if (loadingDeals) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>Загрузка сделок…</p>
       </div>
@@ -269,7 +308,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   if (loadError) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>{loadError}</p>
       </div>
@@ -278,7 +317,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   if (cards.length === 0) {
     return (
-      <div className="mb-7">
+      <div className="mb-7 w-full min-w-0 max-w-none">
         <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
           Нет сделок по сегментам в текущем срезе (загрузите выгрузку или смените фильтр объекта).
@@ -287,13 +326,15 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     );
   }
 
+  const gridClass = `sales-structure grid w-full min-w-0 max-w-none grid-cols-1 gap-3 items-stretch sm:grid-cols-2 ${segmentKpiGridLgClass(cards.length)}`;
+
   return (
-    <div className="mb-7">
+    <div className="mb-7 w-full min-w-0 max-w-none">
       <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
-      <p className={`mb-4 text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
+      <p className={`mb-4 max-w-none text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
         Распределение продаж по типам недвижимости.
       </p>
-      <div className={`${gridClass} items-stretch`}>
+      <div className={gridClass}>
         {cards.map((c) => {
           const vs = presDark
             ? SEGMENT_VISUAL_PRESENTATION[c.key]
@@ -310,9 +351,9 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                 ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-black/[0.06]"
                 : "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-slate-200/80";
           return (
-            <div key={c.key} className="flex h-full min-h-0 flex-col">
+            <div key={c.key} className="flex h-full min-h-0 min-w-0 flex-col">
               <div
-                className={`group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
+                className={`sales-structure-card group relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
               >
                 <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
                 <div
@@ -331,7 +372,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   }}
                   aria-hidden
                 />
-                <div className="relative flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
                   <div className="mb-1 flex min-w-0 items-center gap-2">
                     <div className={iconWrapCls} aria-hidden>
                       <SegmentIcon className={`h-4 w-4 shrink-0 ${SEGMENT_ICON_CLASS[c.key]}`} strokeWidth={2} />

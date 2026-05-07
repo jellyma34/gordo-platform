@@ -2,23 +2,26 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 
-import {
-  partIdToProjectPartKey,
-  PROJECT_PART_KEY_TO_ID,
-  PROJECT_PARTS,
-  type GPRTask,
-  type ProjectPartKey,
-} from "@/lib/gprUtils";
 import {
   calculateDeviation,
   filterByPeriod,
+  filterZhDomPlanFactTasksTo205Branch,
   flattenTasks,
+  getActualProgressPercent,
+  getPlannedProgressPercent,
   getProjectStats,
   getStatusByDeviation,
+  getStatusByGprProgressDelta,
+  normalizeGprCodeFinal,
+  partIdToProjectPartKey,
   planRootStageCode,
+  PROJECT_PART_KEY_TO_ID,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+  type GPRTask,
   type PlanFactPeriodFilterType,
+  type ProjectPartKey,
 } from "@/lib/gprUtils";
 import {
   BarController,
@@ -36,9 +39,14 @@ import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependenc
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
-import { gprStageDisplayTitle, gprStageGroupKeysForProjectPart } from "@/lib/gprTmcDependency";
-import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
-import { filterTmcByProjectPart, getTmcData, mergeTmcSnapshotWithSeed } from "@/lib/tmcData";
+import {
+  gprStageDisplayTitle,
+  gprStageGroupKeysForProjectPart,
+  gprStageGroupKeysProjectWide,
+  type ForecastPart,
+} from "@/lib/gprTmcDependency";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { filterTmcByProjectPart, getTmcData, loadTmcInitialItems, tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import {
   buildTenderStageInsight,
   getGprStageFromTenderCode,
@@ -73,46 +81,32 @@ import {
   projectOverviewEndDelayDays,
 } from "@/lib/gprProjectOverview";
 import {
-  factColorForPlanFactEnd,
-  ganttFactColorForScheduleToday,
-  statusLabelForPlanFactEnd,
-  trafficLightPlanVsFactEnd,
-  type FactEndVsTodayTraffic,
-} from "@/lib/gprScheduleDelayToday";
+  buildPlanFactWorkTypeChartModel,
+  formatPlanEndMonthYearOnly,
+  formatPlanFactGridMonthLabel,
+  type PlanFactTasksBarLevel,
+} from "@/lib/planFactWorkTypeTimeline";
+import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
+import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
+import {
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
+import { Chart } from "@/components/charting/reactChartjsChart";
 
-const ResponsiveContainer = dynamic(
-  () => import("recharts").then((m) => m.ResponsiveContainer),
-  { ssr: false },
-);
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), {
-  ssr: false,
-});
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
-const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-const Chart = dynamic(() => import("react-chartjs-2").then((m) => m.Chart), { ssr: false });
-
-/** Короткий шифр для оси X: «2.05.01.2» → «2.05.01». */
-function shortGprCodeForAxis(code: string): string {
-  const parts = code.trim().split(".").filter(Boolean);
-  if (parts.length <= 3) return code.trim();
-  return parts.slice(0, 3).join(".");
+/** Полный нормализованный шифр для подписи строк (включая подзадачи `2.05.01.1`, без усечения до `2.05.XX`). */
+function gprFullCodeForChartAxis(code: string): string {
+  const n = normalizeGprCodeFinal(code);
+  return n || code.trim();
 }
-
-type PlanFactDurationRow = {
-  task: GPRTask;
-  plan: number;
-  fact: number;
-  /** Факт − план по длительности (дни). */
-  durationDev: number;
-  /** Короткая подпись по оси X (шифр этапа). */
-  xLabel: string;
-};
 
 /** Локальная календарная дата для шкалы Ганта (как у origin окна). */
 function localTodayIso(): string {
@@ -188,6 +182,47 @@ const ganttTodayLinePlugin: Plugin<"bar"> = {
   },
 };
 
+type PlanFactMonthTodayLineOpts = { x: number | null };
+
+/** Вертикаль «Сегодня» на шкале в месяцах (плавающие bar по видам работ). */
+const planFactMonthTodayLinePlugin: Plugin<"bar"> = {
+  id: "planFactMonthToday",
+  beforeDatasetsDraw(chart) {
+    const opts = (chart.options.plugins as { planFactMonthToday?: PlanFactMonthTodayLineOpts } | undefined)
+      ?.planFactMonthToday;
+    if (!opts || opts.x == null || !Number.isFinite(opts.x) || !chart.scales.x) return;
+
+    const xScale = chart.scales.x;
+    const x = xScale.getPixelForValue(opts.x);
+    const { ctx, chartArea } = chart;
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
+
+    const label = "Сегодня";
+    const xi = Math.round(x) + 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(163, 179, 199, 0.52)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 5]);
+    ctx.moveTo(xi, chartArea.top);
+    ctx.lineTo(xi, chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const textY = chartArea.top - 3;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(label, x, textY);
+    ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
+    ctx.fillText(label, x, textY);
+    ctx.restore();
+  },
+};
+
 ChartJS.register(
   BarController,
   CategoryScale,
@@ -198,6 +233,7 @@ ChartJS.register(
   ChartTooltip,
   ChartLegend,
   ganttTodayLinePlugin,
+  planFactMonthTodayLinePlugin,
 );
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
@@ -320,43 +356,6 @@ const COLORS = {
   card: "#1e293b",
 } as const;
 
-function PlanFactProjectStatusLabel({ status }: { status: FactEndVsTodayTraffic }) {
-  return (
-    <div className="flex shrink-0 flex-col items-end gap-1 text-right text-xs text-slate-300">
-      <span className="font-medium leading-snug text-slate-100">Статус на сегодня</span>
-      <span
-        className="inline-flex w-fit items-center rounded-full px-2 py-0.5 font-semibold"
-        style={{
-          backgroundColor:
-            status === "green"
-              ? "rgba(34,197,94,0.15)"
-              : status === "yellow"
-                ? "rgba(245,158,11,0.15)"
-                : status === "gray"
-                  ? "rgba(148,163,184,0.12)"
-                  : "rgba(239,68,68,0.15)",
-          color:
-            status === "green"
-              ? COLORS.green
-              : status === "yellow"
-                ? COLORS.yellow
-                : status === "gray"
-                  ? "#94a3b8"
-                  : COLORS.red,
-        }}
-      >
-        {status === "green"
-          ? "В срок"
-          : status === "yellow"
-            ? "Риск"
-            : status === "gray"
-              ? "Нет данных"
-              : "Отставание"}
-      </span>
-    </div>
-  );
-}
-
 /** Пояснение к «Риск проекта (%)» в donut «Распределение статусов». */
 const STATUS_DISTRIBUTION_RISK_EXPLANATION =
   "Процент риска рассчитывается на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический.";
@@ -367,9 +366,16 @@ const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = 
   parking: ["2.06", "2.07"],
 };
 
+const AGGREGATE_ROOT_CODES_PROJECT: readonly string[] = ["2.04", "2.05", "2.06", "2.07"];
+
 const PART_SHORT_TITLE: Record<ProjectPartKey, string> = {
   residential: "Жилой дом",
   parking: "Автостоянка",
+};
+
+const PART_SHORT_TITLE_OR_PROJECT: Record<ProjectPartKey | "project", string> = {
+  ...PART_SHORT_TITLE,
+  project: "Проект",
 };
 
 /** Подписи для блока «Состав» (жилой дом) — совпадают с корневыми этапами 2.04 / 2.05. */
@@ -379,14 +385,37 @@ const RESIDENTIAL_AGGREGATE_STAGE_TITLES: readonly [string, string] = [
 ];
 const RESIDENTIAL_WEIGHT_LABELS: readonly [string, string] = ["Подготовка", "Строительство"];
 
+/** Источник веса для взвешенного «Общий прогресс» (сумма нормированных весов = 1). */
+type AggregateWeightBasis = "plannedWorkVolume" | "contractValue" | "planDuration" | "imputedUnit";
+
 type AggregateStageBreakdown = {
+  code: string;
   composeTitle: string;
   weightShortLabel: string;
   completion: number;
   planDays: number | null;
-  /** Доля плановой длительности среди корневых этапов части, % */
+  /** Сырой вес до нормировки (объём / стоимость / дни / 1 при явной догрузке). */
+  rawWeight: number;
+  /** Доля в общем весе, % (сумма по этапам = 100%). */
   weightPercent: number | null;
+  /** Вклад этапа в общий %: вес × выполнение (п.п., для отладки и подсказки). */
+  contributionPercent: number | null;
+  weightBasis: AggregateWeightBasis;
+  /** Явная догрузка веса (не «тихий» пропуск данных). */
+  imputation: "none" | "equalAll" | "unitForMissingSource";
 };
+
+const AGGREGATE_WEIGHT_BASIS_RU: Record<AggregateWeightBasis, string> = {
+  plannedWorkVolume: "объём работ (план)",
+  contractValue: "стоимость по договору",
+  planDuration: "длительность плана (дн.)",
+  imputedUnit: "равный единичный вес (нет объёма/стоимости/плана)",
+};
+
+const AGGREGATE_PROGRESS_TOOLTIP =
+  "Взвешенный прогресс по объёму/стоимости (если в данных нет объёма и стоимости — по длительности плана, явная догрузка веса см. в пояснении).";
+
+const AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP = "Прогресс рассчитан с учётом веса этапов";
 
 function shortWeightLabelForPart(name: string, index: number): string {
   const n = name.trim();
@@ -422,7 +451,7 @@ function computeTmcProblemSignals(
 const AGGREGATE_POPOVER_STAGE_GAP_PTS = 15;
 
 function buildAggregateProgressPopoverExplanation(
-  partKey: ProjectPartKey,
+  partKey: ProjectPartKey | "project",
   stages: AggregateStageBreakdown[],
   tmc: { notPurchased: boolean; overdueDelivery: boolean },
   scheduleLag: boolean,
@@ -445,7 +474,7 @@ function buildAggregateProgressPopoverExplanation(
     const build = buildProgress as number;
     if (prep + AGGREGATE_POPOVER_STAGE_GAP_PTS <= build) {
       const line =
-        partKey === "residential"
+        partKey === "residential" || partKey === "project"
           ? "Прогресс снижен из-за отставания на этапе подготовки территории."
           : "Прогресс снижен из-за отставания по первому корневому этапу относительно второго.";
       return scheduleLag
@@ -454,7 +483,7 @@ function buildAggregateProgressPopoverExplanation(
     }
     if (build + AGGREGATE_POPOVER_STAGE_GAP_PTS <= prep) {
       const line =
-        partKey === "residential"
+        partKey === "residential" || partKey === "project"
           ? "Прогресс снижен из-за того, что этап строительства выполнен значительно меньше по сравнению с подготовкой."
           : "Общий прогресс в большей степени ограничен вторым корневым этапом: он заметно отстаёт от первого.";
       return scheduleLag
@@ -476,15 +505,10 @@ function buildAggregateProgressPopoverExplanation(
 
 const STATUS_DISTRIBUTION_POPOVER_MAX_TASKS = 5;
 
-function formatDeviationForStatusDistributionPopover(status: Traffic, deviationDays: number | null): string {
-  if (deviationDays === null) return "—";
-  if (status === "green") {
-    return deviationDays > 0 ? `+${deviationDays} дн` : `${deviationDays} дн`;
-  }
-  if (status === "yellow" || status === "red") {
-    return `+${deviationDays} дн`;
-  }
-  return "—";
+function formatDeviationForStatusDistributionPopover(_status: Traffic, deltaPp: number | null): string {
+  if (deltaPp === null) return "—";
+  if (deltaPp >= 0) return `+${deltaPp} п.п.`;
+  return `${deltaPp} п.п.`;
 }
 
 function StatusDistributionTaskChunk({
@@ -747,7 +771,7 @@ function useKvartalyGanttModel(
   };
 }
 
-function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
+function KvartalyGanttChartPanel({ model, gprAsOf }: { model: KvartalyGanttModel; gprAsOf: Date }) {
   const { window: gw, candidates, ganttRows } = model;
 
   if (!gw) {
@@ -782,7 +806,7 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
   const labels = overviewMode
     ? rows.map((t) => truncateAxisLabel(t.name.trim(), 42))
     : rows.map((t) =>
-        truncateAxisLabel(`${shortGprCodeForAxis(t.code)} — ${t.name.trim()}`, 58),
+        truncateAxisLabel(`${gprFullCodeForChartAxis(t.code)} — ${t.name.trim()}`, 72),
       );
 
   const planBars: ([number, number] | null)[] = overviewMode
@@ -957,12 +981,20 @@ function KvartalyGanttChartPanel({ model }: { model: KvartalyGanttModel }) {
                       lines.push(`Отставание: ${startDelay} дней от плановой даты начала`);
                     }
                   }
-                  const dev = calculateDeviation(task);
+                  const pl = getPlannedProgressPercent(task, gprAsOf);
+                  const fc = getActualProgressPercent(task);
+                  const dev = calculateDeviation(task, gprAsOf);
+                  if (pl !== null) {
+                    lines.push(`План на ${formatDate(gprAsOf)}: ${pl}%`);
+                    lines.push(`Факт: ${fc}%`);
+                  }
                   if (dev !== null) {
-                    if (!task.factStart && !task.factEnd) {
-                      lines.push(`Отклонение от плановой даты старта: +${dev} дн.`);
+                    if (dev < 0) {
+                      lines.push(`Отставание: ${Math.abs(dev)} п.п.`);
+                    } else if (dev > 0) {
+                      lines.push(`Опережение: ${dev} п.п.`);
                     } else {
-                      lines.push(`Отклонение по сроку окончания: ${dev > 0 ? "+" : ""}${dev} дн.`);
+                      lines.push(`По плану (0 п.п.)`);
                     }
                   }
                 }
@@ -1071,86 +1103,177 @@ function inferGroup(task: GPRTask): GroupKey {
   return "build";
 }
 
+function resolveAggregateRawWeight(
+  t: GPRTask,
+  planD: number | null,
+): { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] } {
+  const vol = t.plannedWorkVolume;
+  if (typeof vol === "number" && Number.isFinite(vol) && vol > 0) {
+    return { raw: vol, basis: "plannedWorkVolume", imputation: "none" };
+  }
+  const rub = t.contractValue;
+  if (typeof rub === "number" && Number.isFinite(rub) && rub > 0) {
+    return { raw: rub, basis: "contractValue", imputation: "none" };
+  }
+  if (planD !== null && planD > 0) {
+    return { raw: planD, basis: "planDuration", imputation: "none" };
+  }
+  return { raw: 0, basis: "imputedUnit", imputation: "unitForMissingSource" };
+}
+
 /**
- * Общий % по части: взвешенное по длительности плана выполнение корневых этапов
- * (prep*prepDuration + build*buildDuration + …) / sum(planDuration).
- * Не требует полных фактов по срокам — опирается на % выполнения карточек этапов.
- * totalDeviation — взвешенное по плану отклонение по сроку (цвет карточки).
+ * Общий % по части: sum_i(progress_i × w_i), где w_i нормированы к 1.
+ * Вес: plannedWorkVolume → contractValue → длительность плана; при нуле — явная догрузка 1, при полном нуле — 1/n.
+ * totalDeviation: то же w_i, средневзвешенное отклонение (только этапы с ненулевым w и известным d).
+ * Ошибки расчёта не рвут рендер: пустой безопасный результат + лог в development.
  */
 function computePartAggregate(
   tasks: GPRTask[],
   rootCodes: readonly string[],
-  partKey: ProjectPartKey,
+  partKey: ProjectPartKey | "project",
+  asOf: Date,
 ): {
   totalPercent: number | null;
   totalDeviation: number | null;
   stages: AggregateStageBreakdown[];
 } {
-  let weightedCompletionSum = 0;
-  let sumPlanForCompletionWeight = 0;
-  let weightedDevSum = 0;
-  let sumPlanForDeviationWeight = 0;
-  let sumPlanForWeights = 0;
-  const stages: AggregateStageBreakdown[] = [];
+  try {
+    return computePartAggregateCore(tasks, rootCodes, partKey, asOf);
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      const list = Array.isArray(tasks) ? tasks : [];
+      console.error("[GPR] computePartAggregate failed:", err, {
+        tasksLength: list.length,
+        rootCodes: rootCodes?.length ?? 0,
+        partKey,
+      });
+    }
+    return { totalPercent: null, totalDeviation: null, stages: [] };
+  }
+}
 
+function computePartAggregateCore(
+  tasks: GPRTask[],
+  rootCodes: readonly string[],
+  partKey: ProjectPartKey | "project",
+  asOf: Date,
+): {
+  totalPercent: number | null;
+  totalDeviation: number | null;
+  stages: AggregateStageBreakdown[];
+} {
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const codes = Array.isArray(rootCodes) ? rootCodes : [];
+  const asOfSafe = asOf instanceof Date && !Number.isNaN(asOf.getTime()) ? asOf : new Date();
+
+  type Row = {
+    t: GPRTask;
+    code: string;
+    composeTitle: string;
+    weightShortLabel: string;
+    c: number;
+    planD: number | null;
+    rw: { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] };
+  };
+  const rows: Row[] = [];
   let residentialStageIndex = 0;
-  for (const code of rootCodes) {
-    const t = tasks.find(
-      (x) => x.code.trim() === code && (x.level ?? x.code.split(".").length - 1) === 1,
-    );
+  for (const code of codes) {
+    const codeStr = String(code ?? "").trim();
+    if (!codeStr) continue;
+    const t = taskList.find((x) => {
+      const xc = String(x?.code ?? "").trim();
+      const lvl = x?.level ?? xc.split(".").length - 1;
+      return xc === codeStr && lvl === 1;
+    });
     if (!t) continue;
-
     const planD = daysInclusive(t.planStart, t.planEnd);
-    if (planD !== null && planD > 0) sumPlanForWeights += planD;
-
+    const nameSafe = String(t.name ?? t.code ?? "").trim() || codeStr;
     const composeTitle =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_AGGREGATE_STAGE_TITLES.length
         ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
-        : t.name;
+        : partKey === "project" && residentialStageIndex < 2
+          ? RESIDENTIAL_AGGREGATE_STAGE_TITLES[residentialStageIndex]!
+          : nameSafe;
     const weightShortLabel =
       partKey === "residential" && residentialStageIndex < RESIDENTIAL_WEIGHT_LABELS.length
         ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
-        : shortWeightLabelForPart(t.name, residentialStageIndex);
+        : partKey === "project" && residentialStageIndex < 2
+          ? RESIDENTIAL_WEIGHT_LABELS[residentialStageIndex]!
+          : partKey === "project" && residentialStageIndex < 4
+            ? residentialStageIndex === 2
+              ? "Сети"
+              : "Благоустройство"
+            : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
-
-    const c = Math.max(0, Math.min(100, Number(t.completion) || 0));
-    stages.push({
-      composeTitle,
-      weightShortLabel,
-      completion: c,
-      planDays: planD,
-      weightPercent: null,
-    });
-
-    if (planD !== null && planD > 0) {
-      weightedCompletionSum += c * planD;
-      sumPlanForCompletionWeight += planD;
-    }
-
-    const d = calculateDeviation(t);
-    if (d !== null && planD !== null && planD > 0) {
-      weightedDevSum += d * planD;
-      sumPlanForDeviationWeight += planD;
-    }
+    const cRaw = Number(t.completion);
+    const c = Number.isFinite(cRaw) ? Math.max(0, Math.min(100, cRaw)) : 0;
+    const rw = resolveAggregateRawWeight(t, planD);
+    rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, rw });
   }
 
-  if (sumPlanForWeights > 0) {
-    for (const s of stages) {
-      if (s.planDays !== null && s.planDays > 0) {
-        s.weightPercent = Math.round((s.planDays / sumPlanForWeights) * 1000) / 10;
+  if (rows.length === 0) {
+    return { totalPercent: null, totalDeviation: null, stages: [] };
+  }
+
+  let raws = rows.map((r) => r.rw.raw);
+  const allZero = raws.every((x) => !Number.isFinite(x) || x <= 0);
+  if (allZero) {
+    raws = raws.map(() => 1);
+    for (let i = 0; i < rows.length; i += 1) {
+      rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "equalAll" };
+    }
+  } else {
+    for (let i = 0; i < raws.length; i += 1) {
+      if (!Number.isFinite(raws[i]) || raws[i]! <= 0) {
+        raws[i] = 1;
+        rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "unitForMissingSource" };
       }
     }
   }
 
-  const totalPercent =
-    sumPlanForCompletionWeight > 0
-      ? Math.round((weightedCompletionSum / sumPlanForCompletionWeight) * 10) / 10
-      : null;
+  const sumRaw = raws.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const norm = raws.map((w) => (sumRaw > 0 && Number.isFinite(w) ? w / sumRaw : 0));
 
-  const totalDeviation =
-    sumPlanForDeviationWeight > 0
-      ? weightedDevSum / sumPlanForDeviationWeight
+  const stages: AggregateStageBreakdown[] = rows.map((r, i) => {
+    const w = norm[i] ?? 0;
+    const contribution = Math.round(w * r.c * 10) / 10;
+    return {
+      code: r.code,
+      composeTitle: r.composeTitle,
+      weightShortLabel: r.weightShortLabel,
+      completion: r.c,
+      planDays: r.planD,
+      rawWeight: raws[i]!,
+      weightPercent: sumRaw > 0 ? Math.round(w * 1000) / 10 : null,
+      contributionPercent: sumRaw > 0 ? contribution : null,
+      weightBasis: r.rw.basis,
+      imputation: r.rw.imputation,
+    };
+  });
+
+  let totalPercent: number | null =
+    sumRaw > 0
+      ? Math.round(
+          rows.reduce((acc, r, i) => acc + (norm[i] ?? 0) * r.c, 0) * 10,
+        ) / 10
       : null;
+  if (totalPercent !== null && !Number.isFinite(totalPercent)) {
+    totalPercent = null;
+  }
+
+  let weightedDevSum = 0;
+  let sumWDev = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const w = norm[i] ?? 0;
+    const d = calculateDeviation(rows[i]!.t, asOfSafe);
+    if (d === null || !Number.isFinite(d) || w <= 0) continue;
+    weightedDevSum += d * w;
+    sumWDev += w;
+  }
+  let totalDeviation: number | null = sumWDev > 0 ? weightedDevSum / sumWDev : null;
+  if (totalDeviation !== null && !Number.isFinite(totalDeviation)) {
+    totalDeviation = null;
+  }
 
   return { totalPercent, totalDeviation, stages };
 }
@@ -1178,7 +1301,7 @@ function aggregateProgressStatusFromDistribution(counts: {
   return { status: "red", label: "Отставание", riskScore };
 }
 
-function trafficStatusForTask(task: GPRTask): {
+function trafficStatusForTask(task: GPRTask, asOf: Date): {
   status: Traffic;
   planDays: number | null;
   factDays: number | null;
@@ -1187,9 +1310,9 @@ function trafficStatusForTask(task: GPRTask): {
   const planDays = daysInclusive(task.planStart, task.planEnd);
   if (planDays === null) return { status: "gray", planDays: null, factDays: null, deviationDays: null };
   const factDays = daysInclusive(task.factStart, task.factEnd);
-  const deviationDays = calculateDeviation(task);
+  const deviationDays = calculateDeviation(task, asOf);
   if (deviationDays === null) return { status: "gray", planDays, factDays, deviationDays: null };
-  const st = getStatusByDeviation(deviationDays);
+  const st = getStatusByGprProgressDelta(deviationDays);
   return { status: st as Traffic, planDays, factDays, deviationDays };
 }
 
@@ -1217,98 +1340,126 @@ function kpiCard({
   );
 }
 
-function getProjectCompletion(tasks: GPRTask[]) {
-  const all = flattenTasks(tasks);
-  if (all.length === 0) return 0;
-  const avg = all.reduce((sum, task) => sum + task.completion, 0) / all.length;
-  return Math.round(avg);
-}
-
 export function GPRAnalytics({
   tasks,
   mode,
-  activePartId,
+  activePartScope,
   planFactDataSource = "tasks",
+  reportDate,
 }: {
   tasks: GPRTask[];
   mode: "edit" | "view";
-  /** Часть проекта для графика «ГПР — ТМЦ» (только ТМЦ этой части). */
-  activePartId: number;
+  /** Часть проекта или агрегат «Проект» для графиков и ТМЦ. */
+  activePartScope: ConstructionObjectScope;
   /** Источник данных для «План vs Факт»: таблица ГПР или `kvartaly_gpr_quarterly.json`. */
   planFactDataSource?: "tasks" | "kvartaly";
+  /** Дата отчёта для плана/факта (п.п.); иначе «сегодня». */
+  reportDate?: Date | string | null;
 }) {
   /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих разборов и раскрываемых KPI. */
   const presentationAnalyticsSkin = mode === "view";
   const dependencyAnalyticDepth = presentationAnalyticsSkin ? "presentation" : "work";
-  const activeProjectPart = partIdToProjectPartKey(activePartId);
-  const activePartLabel =
-    PROJECT_PARTS.find((p) => p.id === activePartId)?.name ?? "Часть проекта";
-
-  /** Только задачи выбранной части (жилой дом / автостоянка) — ГПР, donut, «План vs Факт». */
-  const tasksForActivePart = useMemo(
-    () => tasks.filter((t) => t.partId === activePartId),
-    [tasks, activePartId],
+  const isProjectWide = activePartScope === "project";
+  const activeProjectPart = partIdToProjectPartKey(
+    activePartScope === "project" ? 1 : activePartScope,
   );
+  const aggregatePartKey: ProjectPartKey | "project" = isProjectWide ? "project" : activeProjectPart;
+  const chartPart: ForecastPart = isProjectWide ? "project" : activeProjectPart;
+  const activePartLabel = isProjectWide
+    ? "Проект"
+    : (PROJECT_PARTS.find((p) => p.id === activePartScope)?.name ?? "Часть проекта");
+
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
+  const gprReportAsOf = useMemo(() => resolveGprReportAsOf(reportDate), [reportDate]);
+  const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
+  const gprReportYmd = useMemo(() => toLocalYmd(gprReportAsOf), [gprReportAsOf]);
+
+  /** Задачи выбранного объекта или все части при «Проект». */
+  const tasksForActivePart = useMemo(
+    () => (isProjectWide ? tasks : tasks.filter((t) => t.partId === activePartScope)),
+    [tasks, activePartScope, isProjectWide],
+  );
+
+  /**
+   * Данные только для «План vs факт» и связанной временной шкалы:
+   * на «Жилой дом» — только шифры 2.05* (до суммирования и осей); на «Проект» — полный набор без отсечения по 2.05.
+   */
+  const tasksForPlanFactAnalytics = useMemo(() => {
+    if (activePartScope !== PROJECT_PART_KEY_TO_ID.residential) {
+      return tasksForActivePart;
+    }
+    return filterZhDomPlanFactTasksTo205Branch(tasksForActivePart);
+  }, [tasksForActivePart, activePartScope]);
 
   const partProgressAggregate = useMemo(
     () =>
       computePartAggregate(
         tasksForActivePart,
-        AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
-        activeProjectPart,
+        isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
+        aggregatePartKey,
+        gprReportAsOf,
       ),
-    [tasksForActivePart, activeProjectPart],
+    [tasksForActivePart, isProjectWide, activeProjectPart, aggregatePartKey, gprReportAsOf],
   );
   const orderedStageRoots = useMemo(() => {
-    const codes = AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
+    const codes = isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
     return codes
       .map((code) =>
         tasksForActivePart.find(
           (t) =>
-            t.code.trim() === code && (t.level ?? t.code.split(".").length - 1) === 1,
+            normalizeGprCodeFinal(t.code) === normalizeGprCodeFinal(code) &&
+            (t.level ?? normalizeGprCodeFinal(t.code).split(".").length - 1) === 1,
         ),
       )
       .filter((t): t is GPRTask => t != null);
-  }, [tasksForActivePart, activeProjectPart]);
+  }, [tasksForActivePart, isProjectWide, activeProjectPart]);
 
-  /** Сид + localStorage (как в TMCSection), затем жёсткая фильтрация по части проекта для графика. */
+  /** Реестр ТМЦ из `tmc_${projectId}` / legacy + seed; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
-    if (typeof window === "undefined") {
-      return getTmcData(activeProjectPart);
+    const fromMerged = (part: ProjectPartKey) => {
+      if (typeof window === "undefined") {
+        return getTmcData(part);
+      }
+      try {
+        const merged = loadTmcInitialItems(gprProjectId);
+        return filterTmcByProjectPart(merged, part);
+      } catch {
+        return getTmcData(part);
+      }
+    };
+    if (isProjectWide) {
+      return [...fromMerged("residential"), ...fromMerged("parking")];
     }
-    try {
-      const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-      const merged = mergeTmcSnapshotWithSeed(raw ? (JSON.parse(raw) as unknown) : undefined);
-      return filterTmcByProjectPart(merged, activeProjectPart);
-    } catch {
-      return getTmcData(activeProjectPart);
-    }
-  }, [activeProjectPart]);
-  const metrics = getProjectStats(tasksForActivePart);
-  const projectCompletion = getProjectCompletion(tasksForActivePart);
+    return fromMerged(activeProjectPart);
+  }, [isProjectWide, activeProjectPart, gprProjectId]);
+  const metrics = useMemo(
+    () => getProjectStats(tasksForActivePart, gprReportAsOf),
+    [tasksForActivePart, gprReportAsOf],
+  );
   const flatTasks = flattenTasks(tasksForActivePart);
   const kvartalyAllFlat = useMemo(
     () =>
       planFactDataSource === "kvartaly" ? flattenTasks(kvartalyRowsToGprTasksForAllParts()) : [],
     [planFactDataSource],
   );
-  const residentialKvartalyTasks = useMemo(
-    () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential),
-    [kvartalyAllFlat],
-  );
+  const residentialKvartalyTasks = useMemo(() => {
+    const partResidential = kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential);
+    if (activePartScope === PROJECT_PART_KEY_TO_ID.residential) {
+      return filterZhDomPlanFactTasksTo205Branch(partResidential);
+    }
+    return partResidential;
+  }, [kvartalyAllFlat, activePartScope]);
   const parkingKvartalyTasks = useMemo(
     () => kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.parking),
     [kvartalyAllFlat],
   );
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const planFactProjectScheduleTraffic = useMemo((): FactEndVsTodayTraffic => {
-    const b = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-    return trafficLightPlanVsFactEnd(b?.planEnd, b?.factEnd);
-  }, [tasksForActivePart]);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
     useState<PlanFactKvartalyGranularity>("overview");
+  /** Режим bar-chart при источнике «таблица задач» для ЖД / проекта: листья или только «2.05.XX». */
+  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("detailed");
   const [tenderRevision, setTenderRevision] = useState(0);
 
   useEffect(() => {
@@ -1319,15 +1470,19 @@ export function GPRAnalytics({
 
   useEffect(() => {
     setActiveGroup(null);
-  }, [activeProjectPart]);
+  }, [activePartScope]);
 
   useEffect(() => {
     setPlanFactFilter({ filterType: "all" });
-  }, [activePartId]);
+  }, [activePartScope]);
 
   useEffect(() => {
     setPlanFactKvartalyGranularity("overview");
-  }, [activePartId]);
+  }, [activePartScope]);
+
+  useEffect(() => {
+    setPlanFactTasksBarLevel("detailed");
+  }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {
     if (planFactDataSource !== "kvartaly") return [];
@@ -1345,19 +1500,29 @@ export function GPRAnalytics({
     return parkingKvartalyTasks;
   }, [planFactDataSource, planFactKvartalyGranularity, parkingKvartalyTasks]);
 
+  const projectKvartalyForChart = useMemo(
+    () => [...residentialKvartalyForChart, ...parkingKvartalyForChart],
+    [residentialKvartalyForChart, parkingKvartalyForChart],
+  );
+
   const planFactFlatTasks = useMemo(() => {
     if (planFactDataSource === "kvartaly") {
-      return activePartId === PROJECT_PART_KEY_TO_ID.parking
+      if (isProjectWide) {
+        return projectKvartalyForChart;
+      }
+      return activePartScope === PROJECT_PART_KEY_TO_ID.parking
         ? parkingKvartalyForChart
         : residentialKvartalyForChart;
     }
-    return flattenTasks(tasksForActivePart);
+    return flattenTasks(tasksForPlanFactAnalytics);
   }, [
     planFactDataSource,
-    activePartId,
+    isProjectWide,
+    activePartScope,
+    projectKvartalyForChart,
     parkingKvartalyForChart,
     residentialKvartalyForChart,
-    tasksForActivePart,
+    tasksForPlanFactAnalytics,
   ]);
 
   const tendersForActivePart: Tender[] = useMemo(() => {
@@ -1366,8 +1531,8 @@ export function GPRAnalytics({
       typeof window !== "undefined"
         ? mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage())
         : mergeTenderSnapshotWithSeed(undefined);
-    return merged.filter((t) => t.partId === activePartId);
-  }, [activePartId, tenderRevision]);
+    return merged.filter((t) => isProjectWide || t.partId === activePartScope);
+  }, [activePartScope, isProjectWide, tenderRevision]);
 
   const planFactFilteredTasks = useMemo(() => {
     if (planFactDataSource === "kvartaly") return planFactFlatTasks;
@@ -1385,81 +1550,79 @@ export function GPRAnalytics({
   const mRes = useKvartalyGanttModel(
     residentialKvartalyForChart,
     planFactFilter,
-    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.residential,
+    kvartalyGanttEnabled && !isProjectWide && activePartScope === PROJECT_PART_KEY_TO_ID.residential,
     planFactKvartalyGranularity,
   );
   const mPark = useKvartalyGanttModel(
     parkingKvartalyForChart,
     planFactFilter,
-    kvartalyGanttEnabled && activePartId === PROJECT_PART_KEY_TO_ID.parking,
+    kvartalyGanttEnabled && !isProjectWide && activePartScope === PROJECT_PART_KEY_TO_ID.parking,
+    planFactKvartalyGranularity,
+  );
+  const mProjectKv = useKvartalyGanttModel(
+    projectKvartalyForChart,
+    planFactFilter,
+    kvartalyGanttEnabled && isProjectWide,
     planFactKvartalyGranularity,
   );
 
-  const kvartalyActiveModel =
-    activePartId === PROJECT_PART_KEY_TO_ID.parking ? mPark : mRes;
+  const kvartalyActiveModel = isProjectWide
+    ? mProjectKv
+    : activePartScope === PROJECT_PART_KEY_TO_ID.parking
+      ? mPark
+      : mRes;
 
   const timelineYearsAvailable = useMemo(
     () => distinctYearsFromBuckets(quarterlyBucketsAll),
     [quarterlyBucketsAll],
   );
 
-  /** Задачи с полными интервалами план/факт — режим `tasks` (ось X — работы). */
-  const planFactChartRows = useMemo((): PlanFactDurationRow[] => {
-    if (planFactDataSource === "kvartaly") return [];
-    const codeUses = new Map<string, number>();
-    for (const task of planFactFilteredTasks) {
-      const c = task.code.trim();
-      codeUses.set(c, (codeUses.get(c) ?? 0) + 1);
-    }
-    const rows = planFactFilteredTasks
-      .map((task) => {
-        const plan = daysInclusive(task.planStart, task.planEnd);
-        const fact =
-          task.factStart && task.factEnd ? daysInclusive(task.factStart, task.factEnd) : null;
-        if (plan === null || fact === null) return null;
-        if (!Number.isFinite(plan) || !Number.isFinite(fact)) return null;
-        if (plan <= 0 || fact <= 0) return null;
-        const durationDev = fact - plan;
-        const short = shortGprCodeForAxis(task.code);
-        const dupCode = (codeUses.get(task.code.trim()) ?? 0) > 1;
-        const xLabel =
-          dupCode && task.kvartalyQuarter ? `${short} (${task.kvartalyQuarter})` : short;
-        return {
-          task,
-          plan,
-          fact,
-          durationDev,
-          xLabel,
-        };
-      })
-      .filter((r): r is PlanFactDurationRow => r != null);
-    rows.sort((a, b) => {
-      const byStage = planRootStageCode(a.task.code).localeCompare(planRootStageCode(b.task.code), undefined, {
-        numeric: true,
-      });
-      if (byStage !== 0) return byStage;
-      return a.task.code.localeCompare(b.task.code, undefined, { numeric: true });
-    });
-    return rows;
-  }, [planFactDataSource, planFactFilteredTasks]);
+  /** Плановая дата окончания (часть проекта) — одна строка, без сравнений. */
+  const planFactPlannedEndLine = useMemo(() => {
+    const b =
+      planFactDataSource === "kvartaly"
+        ? aggregateWorksToProjectPlanFactBounds(planFactFlatTasks)
+        : aggregateWorksToProjectPlanFactBounds(tasksForPlanFactAnalytics);
+    if (!b?.planEnd) return null;
+    return formatPlanEndMonthYearOnly(b.planEnd);
+  }, [planFactDataSource, planFactFlatTasks, tasksForPlanFactAnalytics]);
 
-  const planFactSummary = useMemo(() => {
-    if (planFactDataSource === "kvartaly") {
-      return kvartalyActiveModel.planFactSummary;
-    }
-    if (planFactChartRows.length === 0) return null;
-    const avg =
-      planFactChartRows.reduce((s, r) => s + r.durationDev, 0) / planFactChartRows.length;
-    const severeLate = planFactChartRows.filter((r) => r.durationDev > 14).length;
-    return { avg, severeLate };
-  }, [planFactDataSource, kvartalyActiveModel.planFactSummary, planFactChartRows]);
+  const planFactWorkTypeChartModel = useMemo(() => {
+    if (planFactDataSource !== "tasks") return null;
+    const workTypePart = isProjectWide ? "project" : activeProjectPart;
+    return buildPlanFactWorkTypeChartModel(
+      planFactFilteredTasks,
+      workTypePart,
+      gprReportYmd,
+      planFactTasksBarLevel,
+    );
+  }, [
+    planFactDataSource,
+    planFactFilteredTasks,
+    isProjectWide,
+    activeProjectPart,
+    gprReportYmd,
+    planFactTasksBarLevel,
+  ]);
+
+  const showPlanFactTasksBarLevel =
+    planFactDataSource === "tasks" && (isProjectWide || activeProjectPart === "residential");
+
+  const planFactTasksChartHeightPx = useMemo(() => {
+    if (planFactDataSource !== "tasks" || !planFactWorkTypeChartModel) return null;
+    const n = planFactWorkTypeChartModel.labels.length;
+    return Math.min(1200, Math.max(280, n * 22 + 140));
+  }, [planFactDataSource, planFactWorkTypeChartModel]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-    const rows: TrafficRow[] = flatTasks.map((t) => ({ task: t, ...trafficStatusForTask(t) }));
+    const rows: TrafficRow[] = flatTasks.map((t) => ({
+      task: t,
+      ...trafficStatusForTask(t, gprReportAsOf),
+    }));
     for (const r of rows) counts[r.status] += 1;
     return { counts, rows };
-  }, [flatTasks]);
+  }, [flatTasks, gprReportAsOf]);
 
   const {
     totalPercent: aggTotalPercent,
@@ -1468,8 +1631,8 @@ export function GPRAnalytics({
   } = partProgressAggregate;
 
   const aggregateProblemSignals = useMemo(
-    () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, todayIso),
-    [tasksForActivePart, tmcItemsForPart, todayIso],
+    () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, gprReportYmd),
+    [tasksForActivePart, tmcItemsForPart, gprReportYmd],
   );
 
   const [aggregatePopoverOpen, setAggregatePopoverOpen] = useState(false);
@@ -1533,9 +1696,9 @@ export function GPRAnalytics({
   const statusDistributionGroups = useMemo(() => {
     const m: Record<Traffic, TrafficRow[]> = { green: [], yellow: [], red: [], gray: [] };
     for (const r of traffic.rows) m[r.status].push(r);
-    m.green.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
-    m.yellow.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
-    m.red.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.green.sort((a, b) => (b.deviationDays ?? 0) - (a.deviationDays ?? 0));
+    m.yellow.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
+    m.red.sort((a, b) => (a.deviationDays ?? 0) - (b.deviationDays ?? 0));
     m.gray.sort((a, b) => a.task.name.localeCompare(b.task.name, "ru"));
     return m;
   }, [traffic.rows]);
@@ -1600,7 +1763,7 @@ export function GPRAnalytics({
   );
 
   const hasScheduleDeviationsForStatusDistribution = useMemo(
-    () => traffic.rows.some((r) => r.deviationDays !== null && r.deviationDays > 0),
+    () => traffic.rows.some((r) => r.deviationDays !== null && r.deviationDays < 0),
     [traffic.rows],
   );
 
@@ -1649,7 +1812,7 @@ export function GPRAnalytics({
     const red = traffic.rows.filter((r) => r.status === "red");
     if (red.length > 0) {
       const w = red.reduce((a, b) =>
-        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+        (a.deviationDays ?? 0) <= (b.deviationDays ?? 0) ? a : b,
       );
       const g = inferGroup(w.task);
       const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
@@ -1658,7 +1821,7 @@ export function GPRAnalytics({
     const yellow = traffic.rows.filter((r) => r.status === "yellow");
     if (yellow.length > 0) {
       const w = yellow.reduce((a, b) =>
-        (a.deviationDays ?? 0) >= (b.deviationDays ?? 0) ? a : b,
+        (a.deviationDays ?? 0) <= (b.deviationDays ?? 0) ? a : b,
       );
       const g = inferGroup(w.task);
       const stageTitle = gprStageDisplayTitle(tasksForActivePart, g);
@@ -1739,7 +1902,7 @@ export function GPRAnalytics({
   const aggregatePopoverExplanation = useMemo(
     () =>
       buildAggregateProgressPopoverExplanation(
-        activeProjectPart,
+        aggregatePartKey,
         aggregateStages,
         {
           notPurchased: aggregateProblemSignals.notPurchased,
@@ -1748,7 +1911,7 @@ export function GPRAnalytics({
         scheduleLagForAggregate,
       ),
     [
-      activeProjectPart,
+      aggregatePartKey,
       aggregateStages,
       aggregateProblemSignals.notPurchased,
       aggregateProblemSignals.overdueDelivery,
@@ -1768,12 +1931,23 @@ export function GPRAnalytics({
         : statusAgg === "red"
           ? COLORS.red
           : COLORS.gray;
-  const aggPctDisplay =
-    aggTotalPercent === null
-      ? "—"
-      : `${aggTotalPercent % 1 === 0 ? String(Math.round(aggTotalPercent)) : aggTotalPercent.toFixed(1)}%`;
-  const aggBarPct =
-    aggTotalPercent === null ? 0 : Math.max(0, Math.min(100, aggTotalPercent));
+  /** Одно число для подписи и ширины полосы (без двойного округления). */
+  const aggregateTotalProgressUi = useMemo(() => {
+    if (aggTotalPercent === null || !Number.isFinite(Number(aggTotalPercent))) {
+      return { display: "—" as const, widthPct: 0 };
+    }
+    const clamped = Math.max(0, Math.min(100, Number(aggTotalPercent)));
+    const progress = Math.round(clamped * 10) / 10;
+    const isInt = Math.abs(progress - Math.round(progress)) < 1e-6;
+    const display = isInt ? `${Math.round(progress)}%` : `${progress.toFixed(1)}%`;
+    return { display, widthPct: progress };
+  }, [aggTotalPercent]);
+
+  /** «64% / 28%» — округлённые % выполнения по корневым этапам (как в карточках слева). */
+  const aggregateStagesKpiLine = useMemo(() => {
+    if (!aggregateStages.length) return "—";
+    return aggregateStages.map((s) => `${Math.round(s.completion)}%`).join(" / ");
+  }, [aggregateStages]);
 
   const handleAggregateCardClick = () => {
     if (aggregatePopoverOpen) {
@@ -1828,6 +2002,44 @@ export function GPRAnalytics({
       : null,
   ].filter((x): x is string => x != null);
 
+  const aggregateProgressCardMain = (
+    <div>
+      <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">
+        {PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-xs leading-snug text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
+            Общий прогресс
+          </div>
+          <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+            {aggregateTotalProgressUi.display}
+          </div>
+        </div>
+        <div className="max-w-[min(100%,11rem)] shrink-0 text-right text-sm text-[#E6EDF3]/85 sm:max-w-none">
+          <div className="text-[11px] leading-snug text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
+            Вклад этапов
+          </div>
+          <div className="mt-1 text-base font-semibold tabular-nums leading-none text-[#E6EDF3]">
+            {aggregateStagesKpiLine}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="h-1.5 w-full rounded-full bg-white/10">
+          <div
+            className="h-1.5 rounded-full"
+            style={{
+              width: `${aggregateTotalProgressUi.widthPct}%`,
+              backgroundColor: accentAgg,
+            }}
+            aria-hidden
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   if (mode === "edit") {
     return (
       <section className="min-w-0 space-y-4 overflow-x-clip">
@@ -1846,10 +2058,10 @@ export function GPRAnalytics({
               <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
             </div>
             <div className="rounded bg-slate-50 p-3">
-              <p className="text-slate-500">Ср. отклонение</p>
+              <p className="text-slate-500">Среднее отклонение на {gprReportDateLabel}</p>
               <p className="mt-1 text-xl font-semibold text-slate-900">
                 {metrics.avgDeviation > 0 ? "+" : ""}
-                {metrics.avgDeviation} дн.
+                {metrics.avgDeviation} п.п.
               </p>
             </div>
           </div>
@@ -1859,15 +2071,22 @@ export function GPRAnalytics({
   }
 
   return (
-    <section className="min-w-0 space-y-6 overflow-x-clip">
+    <section className="min-w-0 space-y-4 overflow-x-clip">
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
-          const deviation = calculateDeviation(task);
+          const deviation = calculateDeviation(task, gprReportAsOf);
           const deviationLabel =
-            deviation === null ? "—" : deviation > 0 ? `+${deviation}` : `${deviation}`;
-          const progress = task.completion || 0;
-          const isNoData = progress === 0;
-          const deviationUi = deviation === null ? null : getStatusByDeviation(deviation);
+            deviation === null
+              ? "—"
+              : deviation < 0
+                ? `−${Math.abs(deviation)}`
+                : deviation > 0
+                  ? `+${deviation}`
+                  : "0";
+          const cNum = Number(task.completion);
+          const progressClamped = Math.max(0, Math.min(100, Number.isFinite(cNum) ? cNum : 0));
+          const isNoData = progressClamped === 0;
+          const deviationUi = deviation === null ? null : getStatusByGprProgressDelta(deviation);
           const status: Traffic =
             isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
           const accent =
@@ -1882,19 +2101,19 @@ export function GPRAnalytics({
             <div
               key={task.id}
               data-traffic-card={status}
-              className="top-card card relative w-full overflow-hidden p-6"
+              className="top-card card relative w-full overflow-hidden p-4"
             >
               <div>
-                <div className="text-base font-semibold text-[#E6EDF3]">{task.name}</div>
-                <div className="mt-3 flex items-end justify-between gap-4">
+                <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{task.name}</div>
+                <div className="mt-2 flex items-end justify-between gap-4">
                   <div>
-                    <div className="text-sm text-[#E6EDF3]/85">% выполнения</div>
-                    <div className="mt-1 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                      {task.completion}%
+                    <div className="text-xs leading-snug text-[#E6EDF3]/85">% выполнения</div>
+                    <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
+                      {progressClamped}%
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
-                    <div className="text-xs text-[#E6EDF3]/70">Отклонение</div>
+                    <div className="text-xs text-[#E6EDF3]/70">Отклонение на {gprReportDateLabel}</div>
                     <div
                       className="mt-1 text-lg font-semibold tabular-nums"
                       style={{
@@ -1908,17 +2127,17 @@ export function GPRAnalytics({
                                 : COLORS.red,
                       }}
                     >
-                      {deviationLabel} дн.
+                      {deviationLabel} п.п.
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-3">
                   <div className="h-1.5 w-full rounded-full bg-white/10">
                     <div
                       className="h-1.5 rounded-full"
                       style={{
-                        width: `${Math.max(0, Math.min(100, task.completion))}%`,
+                        width: `${progressClamped}%`,
                         backgroundColor: accent,
                       }}
                       aria-hidden
@@ -1933,29 +2152,9 @@ export function GPRAnalytics({
           <div
             key="part-aggregate"
             data-traffic-card={statusAgg}
-            className="top-card card relative w-full overflow-hidden p-6 text-left"
+            className="top-card card relative w-full overflow-hidden p-4 text-left"
           >
-            <div>
-              <div className="text-base font-semibold text-[#E6EDF3]">
-                {PART_SHORT_TITLE[activeProjectPart]}
-              </div>
-              <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
-              <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                {aggPctDisplay}
-              </div>
-              <div className="mt-4">
-                <div className="h-1.5 w-full rounded-full bg-white/10">
-                  <div
-                    className="h-1.5 rounded-full"
-                    style={{
-                      width: `${aggBarPct}%`,
-                      backgroundColor: accentAgg,
-                    }}
-                    aria-hidden
-                  />
-                </div>
-              </div>
-            </div>
+            {aggregateProgressCardMain}
           </div>
         ) : (
           <>
@@ -1968,29 +2167,9 @@ export function GPRAnalytics({
               aria-haspopup="dialog"
               title="Нажмите для пояснения расчёта"
               data-traffic-card={statusAgg}
-              className="top-card card relative w-full cursor-pointer overflow-hidden p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="top-card card relative w-full cursor-pointer overflow-hidden p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
-              <div>
-                <div className="text-base font-semibold text-[#E6EDF3]">
-                  {PART_SHORT_TITLE[activeProjectPart]}
-                </div>
-                <div className="mt-1 text-xs font-medium text-[#E6EDF3]/75">Общий прогресс</div>
-                <div className="mt-3 text-[34px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                  {aggPctDisplay}
-                </div>
-                <div className="mt-4">
-                  <div className="h-1.5 w-full rounded-full bg-white/10">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{
-                        width: `${aggBarPct}%`,
-                        backgroundColor: accentAgg,
-                      }}
-                      aria-hidden
-                    />
-                  </div>
-                </div>
-              </div>
+              {aggregateProgressCardMain}
             </button>
             {aggregatePortalMounted &&
               aggregatePopoverOpen &&
@@ -2011,19 +2190,39 @@ export function GPRAnalytics({
             >
               <div className="border-b border-white/10 pb-3">
                 <div className="text-sm font-semibold text-slate-100">
-                  Общий прогресс: {aggPctDisplay}
+                  Общий прогресс: {aggregateTotalProgressUi.display}
                 </div>
+                <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                  Формула: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × % выполнения<sub className="align-baseline text-[9px]">i</sub>
+                  ); веса нормированы, суммарно 100%. Приоритет веса: объём → стоимость → длительность плана.
+                </p>
               </div>
 
               <div className="mt-3 space-y-3">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Состав
+                    Состав и вклад
                   </div>
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
                     {aggregateStages.map((s, i) => (
                       <li key={`agg-stage-${i}`}>
-                        {s.composeTitle} — {Math.round(s.completion)}%
+                        <span className="font-medium text-slate-200">{s.composeTitle}</span>
+                        {": "}
+                        {Math.round(s.completion)}% выполнения
+                        {s.weightPercent != null
+                          ? `, вес ${s.weightPercent}% (${AGGREGATE_WEIGHT_BASIS_RU[s.weightBasis]})`
+                          : ""}
+                        {s.contributionPercent != null
+                          ? `, вклад в сумму ${s.contributionPercent} п.п.`
+                          : ""}
+                        {s.imputation !== "none" ? (
+                          <span className="text-slate-500">
+                            {" "}
+                            {s.imputation === "equalAll"
+                              ? "— вес: равный по всем этапам (нечем взвесить)"
+                              : "— вес: единица (нет объёма, стоимости и плана дат)"}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -2064,114 +2263,29 @@ export function GPRAnalytics({
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6 lg:col-span-2">
           <div>
             <div className="flex flex-col gap-2">
-              <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-                <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
-                <PlanFactProjectStatusLabel status={planFactProjectScheduleTraffic} />
-              </div>
+              <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
             </div>
-            {planFactSummary ? (
-              <div className="mt-3 border-t border-slate-600/40 pt-3 text-xs text-slate-300">
-                {(() => {
-                  const avg = planFactSummary.avg;
-                  const calBounds = aggregateWorksToProjectPlanFactBounds(tasksForActivePart);
-                  const calStatus = statusLabelForPlanFactEnd(calBounds?.planEnd, calBounds?.factEnd);
-                  const calColor =
-                    calStatus === "нет данных"
-                      ? "#94a3b8"
-                      : calStatus === "отставание"
-                        ? COLORS.red
-                        : calStatus === "риск"
-                          ? COLORS.yellow
-                          : COLORS.green;
-                  const endDel =
-                    calBounds?.planEnd && calBounds?.factEnd
-                      ? projectOverviewEndDelayDays(calBounds.planEnd, calBounds.factEnd)
-                      : null;
-                  const calLine =
-                    calStatus === "нет данных"
-                      ? "Нет данных по окончанию факта относительно плана"
-                      : `${calStatus.charAt(0).toUpperCase()}${calStatus.slice(1)} — факт ${calBounds?.factEnd ? fmt(calBounds.factEnd) : "—"} vs план ${calBounds?.planEnd ? fmt(calBounds.planEnd) : "—"}${
-                          endDel !== null ? ` (${endDel > 0 ? "+" : ""}${endDel} дн.)` : ""
-                        }`;
-
-                  const durationLabel =
-                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview"
-                      ? "Отклонение окончания проекта (факт − план)"
-                      : planFactDataSource === "kvartaly"
-                        ? planFactKvartalyGranularity === "aggregated"
-                          ? "Среднее отклонение длительности по видимым процессам (факт − план)"
-                          : "Среднее отклонение длительности по видимым работам (факт − план)"
-                        : "Среднее отклонение длительности (факт − план)";
-                  const isKvOverviewEndSlip =
-                    planFactDataSource === "kvartaly" && planFactKvartalyGranularity === "overview";
-                  let durationValueLine: string;
-                  if (isKvOverviewEndSlip) {
-                    if (avg < 0) {
-                      durationValueLine = `Окончание факта раньше плана на ${Math.abs(avg).toFixed(1)} дн.`;
-                    } else if (avg > 0) {
-                      durationValueLine = `Окончание факта позже плана на ${avg.toFixed(1)} дн.`;
-                    } else {
-                      durationValueLine = "Окончание по плану";
-                    }
-                  } else if (avg < 0) {
-                    durationValueLine = `Факт короче плана на ${Math.abs(avg).toFixed(1)} дн.`;
-                  } else if (avg > 0) {
-                    durationValueLine = `Факт дольше плана на ${avg.toFixed(1)} дн.`;
-                  } else {
-                    durationValueLine = "Длительности совпадают";
-                  }
-                  const durationTone = getStatusByDeviation(Math.round(avg));
-                  const durationColor =
-                    durationTone === "green"
-                      ? COLORS.green
-                      : durationTone === "yellow"
-                        ? COLORS.yellow
-                        : COLORS.red;
-                  return (
-                    <>
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">
-                          Статус по сроку окончания (факт − план)
-                        </span>
-                        <span
-                          className="value text-sm font-semibold leading-snug tabular-nums"
-                          style={{ color: calColor }}
-                        >
-                          {calLine}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">{durationLabel}</span>
-                        <span className="text-[11px] leading-snug text-slate-500">
-                          {isKvOverviewEndSlip
-                            ? "Сводка по проекту: отклонение даты окончания; цвет по порогам ≤0 / 1–14 / >14 дн."
-                            : "Отклонение длительностей работ (факт − план); цвет по тем же порогам ≤0 / 1–14 / >14 дн."}
-                        </span>
-                        <span
-                          className="value text-sm font-semibold leading-snug tabular-nums"
-                          style={{ color: durationColor }}
-                        >
-                          {durationValueLine}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-col gap-1">
-                        <span className="font-medium leading-snug text-slate-100">
-                          {`Критические отклонения (>14 дн.)`}
-                        </span>
-                        <span
-                          className={`font-semibold tabular-nums ${planFactSummary.severeLate > 0 ? "text-red-400" : "text-slate-100"}`}
-                        >
-                          {planFactSummary.severeLate}
-                        </span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
+            {planFactPlannedEndLine ? (
+              <p className="mt-3 border-t border-slate-600/40 pt-3 text-sm leading-snug text-slate-200">
+                Плановая дата окончания: {planFactPlannedEndLine}
+              </p>
             ) : null}
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
+            {showPlanFactTasksBarLevel ? (
+              <label className="flex min-w-[170px] flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+                <select
+                  value={planFactTasksBarLevel}
+                  onChange={(e) => setPlanFactTasksBarLevel(e.target.value as PlanFactTasksBarLevel)}
+                  className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+                >
+                  <option value="detailed">Детально (только конечные задачи)</option>
+                  <option value="summary">Сводно (только 2.05.XX)</option>
+                </select>
+              </label>
+            ) : null}
             {planFactDataSource === "kvartaly" ? (
               <label className="flex min-w-[170px] flex-col gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
@@ -2277,7 +2391,18 @@ export function GPRAnalytics({
           ) : null}
 
           <div
-            className={`mt-4 w-full min-w-0 overflow-hidden ${planFactDataSource === "kvartaly" ? "" : "h-[240px] sm:h-[300px] md:h-[320px]"}`}
+            className={`mt-4 w-full min-w-0 ${
+              planFactDataSource === "kvartaly"
+                ? "overflow-hidden"
+                : planFactTasksChartHeightPx != null
+                  ? "max-h-[min(85vh,1200px)] overflow-x-hidden overflow-y-auto"
+                  : "h-[240px] overflow-hidden sm:h-[300px] md:h-[320px]"
+            }`}
+            style={
+              planFactTasksChartHeightPx != null
+                ? { height: planFactTasksChartHeightPx, minHeight: 280 }
+                : undefined
+            }
           >
             {planFactDataSource === "kvartaly" ? (
               kvartalyAllFlat.length === 0 ? (
@@ -2290,7 +2415,7 @@ export function GPRAnalytics({
                 </div>
               ) : (
                 <div
-                  key={`kvartaly-gantt-${planFactKvartalyGranularity}-${activePartId}-${[...kvartalyActiveModel.ganttRows].map((r) => r.id).sort().join(":")}`}
+                  key={`kvartaly-gantt-${planFactKvartalyGranularity}-${String(activePartScope)}-${[...(kvartalyActiveModel.ganttRows ?? [])].map((r) => r.id).sort().join(":")}`}
                   className="w-full min-w-0 max-h-[min(85vh,1200px)] overflow-y-auto overflow-x-hidden"
                   style={{
                     minHeight: planFactKvartalyGranularity === "overview" ? 220 : 280,
@@ -2303,167 +2428,140 @@ export function GPRAnalytics({
                     ),
                   }}
                 >
-                  <KvartalyGanttChartPanel model={kvartalyActiveModel} />
+                  <KvartalyGanttChartPanel model={kvartalyActiveModel} gprAsOf={gprReportAsOf} />
                 </div>
               )
-            ) : planFactChartRows.length === 0 ? (
+            ) : planFactWorkTypeChartModel == null || planFactWorkTypeChartModel.labels.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
                 {planFactFilter.filterType === "all"
-                  ? "Нет задач с парами дат план/факт для расчёта длительности (дни)."
-                  : "Нет работ с план/факт, у которых плановый интервал пересекается с выбранным периодом."}
+                  ? "Нет задач с шифром 2.05 (жилой дом) или 2.06 / 2.07 (стоянка) для диаграммы, либо данные не загружены."
+                  : "В выбранном периоде нет задач (учтены и строки без плановых дат)."}
               </div>
             ) : (
               (() => {
-                const labels = planFactChartRows.map((r) => r.xLabel);
-                const planArr = planFactChartRows.map((r) => r.plan);
-                const factArr = planFactChartRows.map((r) => r.fact);
-                const maxVal = Math.max(...planFactChartRows.flatMap((r) => [r.plan, r.fact]), 1);
-                const yMax = Math.max(60, Math.ceil(maxVal / 20) * 20);
-
-                const factPointColor = (i: number) => {
-                  const row = planFactChartRows[i];
-                  if (!row) return "#94a3b8";
-                  return factColorForPlanFactEnd(row.task.planEnd, row.task.factEnd);
+                const m = planFactWorkTypeChartModel;
+                const { originMonth } = m;
+                const xTickLabel = (v: string | number) => {
+                  const t = Number(v);
+                  if (!Number.isFinite(t)) return "";
+                  const d = new Date(
+                    originMonth.getFullYear(),
+                    originMonth.getMonth() + Math.floor(t + 0.0001),
+                    1,
+                  );
+                  return formatPlanFactGridMonthLabel(d);
                 };
-
-                const aggLegend = aggregateWorksToProjectPlanFactBounds(planFactChartRows.map((r) => r.task));
-                const factLineLegendMarker = aggLegend
-                  ? factColorForPlanFactEnd(aggLegend.planEnd, aggLegend.factEnd)
-                  : "#94a3b8";
-
-                const PLAN_LINE = "rgba(148, 163, 184, 0.6)";
-                const PLAN_POINT = "rgba(148, 163, 184, 0.45)";
-                const PLAN_POINT_BORDER = "rgba(148, 163, 184, 0.35)";
-
-                const planLineLegendMarker = "#94a3b8";
-
+                const planLegend = m.planColors[0] ?? "#94a3b8";
+                const factLegend = pickGanttFactLegendColor(m.factColors, m.factRanges);
                 return (
                   <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
                     <div className="min-h-0 min-w-0 flex-1">
                       <Chart
-                    type="line"
-                    data={{
-                      labels,
-                      datasets: [
-                        {
-                          label: "План",
-                          data: planArr,
-                          order: 0,
-                          borderColor: PLAN_LINE,
-                          backgroundColor: "transparent",
-                          borderWidth: 2,
-                          tension: 0,
-                          pointRadius: 2,
-                          pointHoverRadius: 4,
-                          pointBackgroundColor: PLAN_POINT,
-                          pointBorderColor: PLAN_POINT_BORDER,
-                          pointBorderWidth: 1,
-                          fill: false,
-                        },
-                        {
-                          label: "Факт",
-                          data: factArr,
-                          order: 1,
-                          borderWidth: 3,
-                          tension: 0,
-                          segment: {
-                            borderColor: (ctx: { p1DataIndex: number }) =>
-                              factPointColor(ctx.p1DataIndex),
-                          },
-                          borderColor: factLineLegendMarker,
-                          backgroundColor: "transparent",
-                          pointRadius: 5,
-                          pointHoverRadius: 7,
-                          pointBackgroundColor: (ctx: { dataIndex?: number }) =>
-                            factPointColor(ctx.dataIndex ?? 0),
-                          pointBorderColor: "rgba(255,255,255,0.5)",
-                          pointBorderWidth: 1,
-                          fill: false,
-                        },
-                      ],
-                    } as any}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      layout: { padding: { top: 10, right: 10, left: 4, bottom: 4 } },
-                      interaction: { mode: "index", intersect: false },
-                      elements: {
-                        line: { borderJoinStyle: "round" as const },
-                        point: { hoverBorderWidth: 2 },
-                      },
-                      plugins: {
-                        legend: {
-                          display: false,
-                        },
-                        tooltip: {
-                          enabled: true,
-                          backgroundColor: "rgba(15,23,42,0.94)",
-                          borderColor: "rgba(148,163,184,0.35)",
-                          borderWidth: 1,
-                          titleColor: "#f8fafc",
-                          bodyColor: "#e2e8f0",
-                          padding: 10,
-                          callbacks: {
-                            title: (tooltipItems: { dataIndex?: number }[]) => {
-                              const idx = tooltipItems[0]?.dataIndex;
-                              if (typeof idx !== "number") return "";
-                              const row = planFactChartRows[idx];
-                              return row ? row.task.name.trim() : "";
+                        type="bar"
+                        data={
+                          {
+                            labels: m.labels,
+                            datasets: [
+                              {
+                                label: "План",
+                                data: m.planRanges,
+                                backgroundColor: m.planColors,
+                                borderColor: m.planColors,
+                                borderWidth: 0,
+                                borderRadius: 4,
+                                maxBarThickness: 18,
+                                order: 1,
+                              },
+                              {
+                                label: "Факт",
+                                data: m.factRanges,
+                                backgroundColor: m.factColors,
+                                borderColor: m.factColors,
+                                borderWidth: 0,
+                                borderRadius: 4,
+                                maxBarThickness: 18,
+                                order: 0,
+                              },
+                            ],
+                          } as any
+                        }
+                        options={
+                          {
+                            indexAxis: "y",
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            layout: { padding: { top: 20, right: 10, left: 4, bottom: 8 } },
+                            interaction: { mode: "nearest", axis: "y", intersect: true },
+                            plugins: {
+                              legend: { display: false },
+                              planFactMonthToday: { x: m.todayX },
+                              tooltip: {
+                                enabled: true,
+                                backgroundColor: "rgba(15,23,42,0.94)",
+                                borderColor: "rgba(148,163,184,0.35)",
+                                borderWidth: 1,
+                                titleColor: "#f8fafc",
+                                bodyColor: "#e2e8f0",
+                                padding: 10,
+                                callbacks: {
+                                  title: (items: { dataIndex?: number }[]) => {
+                                    const i = items[0]?.dataIndex;
+                                    if (typeof i !== "number" || i < 0) return "";
+                                    return m.labels[i] ?? "";
+                                  },
+                                  label: (ctx: { datasetIndex?: number; dataIndex?: number }) => {
+                                    const i = ctx.dataIndex ?? 0;
+                                    const d = m.rowDetails[i];
+                                    if (!d) return "";
+                                    if (d.hasDates === false) {
+                                      return ctx.datasetIndex === 0 ? "План: нет данных" : "Факт: нет данных";
+                                    }
+                                    if (ctx.datasetIndex === 0) {
+                                      return `План: ${fmt(d.planStart)} — ${fmt(d.planEnd)}`;
+                                    }
+                                    if (d.factStart && d.factEnd) {
+                                      return `Факт: ${fmt(d.factStart)} — ${fmt(d.factEnd)}`;
+                                    }
+                                    return "Факт: нет данных";
+                                  },
+                                },
+                              },
                             },
-                            label: (ctx: { datasetIndex?: number; parsed: { y?: number | null } }) => {
-                              const y = ctx.parsed.y;
-                              if (y == null || typeof y !== "number") return "";
-                              if (ctx.datasetIndex === 0) return `План: ${y} дн.`;
-                              if (ctx.datasetIndex === 1) return `Факт: ${y} дн.`;
-                              return "";
+                            scales: {
+                              x: {
+                                type: "linear",
+                                min: m.xMin,
+                                max: m.xMax,
+                                grid: { color: "rgba(148,163,184,0.12)" },
+                                border: { display: false },
+                                ticks: {
+                                  color: "#94a3b8",
+                                  stepSize: 1,
+                                  maxRotation: 0,
+                                  font: { size: 10 },
+                                  callback: xTickLabel,
+                                },
+                                title: {
+                                  display: true,
+                                  text: "Сроки (мес.)",
+                                  color: "#94a3b8",
+                                  font: { size: 11 },
+                                },
+                              },
+                              y: {
+                                grid: { display: false },
+                                border: { display: false },
+                                ticks: { color: "#cbd5e1", font: { size: 11 } },
+                              },
                             },
-                            afterBody: (tooltipItems: { dataIndex?: number }[]) => {
-                              const idx = tooltipItems[0]?.dataIndex;
-                              if (typeof idx !== "number") return [];
-                              const row = planFactChartRows[idx];
-                              if (!row) return [];
-                              const dev = row.durationDev;
-                              return [`Отклонение: ${dev > 0 ? "+" : ""}${dev} дн.`];
-                            },
-                          },
-                        },
-                      },
-                      scales: {
-                        x: {
-                          grid: { display: false },
-                          ticks: {
-                            color: "#94a3b8",
-                            maxRotation: 0,
-                            minRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 12,
-                            font: { size: 10 },
-                          },
-                        },
-                        y: {
-                          min: 0,
-                          max: yMax,
-                          grid: { color: "rgba(148,163,184,0.14)" },
-                          border: { display: false },
-                          title: {
-                            display: true,
-                            text: "Длительность, дни",
-                            color: "#cbd5e1",
-                            font: { size: 12, weight: "bold" },
-                          },
-                          ticks: {
-                            color: "#94a3b8",
-                            stepSize: 20,
-                          },
-                        },
-                      },
-                    } as any}
+                          } as any
+                        }
                       />
                     </div>
                     <div className="w-full shrink-0 pt-2">
                       <AnalyticsLegendList>
-                        <AnalyticsLegendItem markerColor={planLineLegendMarker} label="План" />
-                        <AnalyticsLegendItem markerColor={factLineLegendMarker} label="Факт" />
+                        <AnalyticsLegendItem markerColor={planLegend} label="План" />
+                        <AnalyticsLegendItem markerColor={factLegend} label="Факт" />
                       </AnalyticsLegendList>
                     </div>
                   </div>
@@ -2752,7 +2850,7 @@ export function GPRAnalytics({
             {traffic.rows
               .slice()
               .sort(
-                (a: TrafficRow, b: TrafficRow) => (b.deviationDays ?? -999) - (a.deviationDays ?? -999),
+                (a: TrafficRow, b: TrafficRow) => (a.deviationDays ?? 999) - (b.deviationDays ?? 999),
               )
               .slice(0, 12)
               .map(({ task, status, planDays, factDays, deviationDays }: TrafficRow) => {
@@ -2769,7 +2867,7 @@ export function GPRAnalytics({
                       <div className="mt-1 text-xs text-[#E6EDF3]/80">
                         План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
                         {" • "}
-                        Откл.:{" "}
+                        Откл. (п.п.):{" "}
                         <span
                           className="font-semibold tabular-nums"
                           style={{
@@ -2783,7 +2881,11 @@ export function GPRAnalytics({
                                     : COLORS.gray,
                           }}
                         >
-                          {deviationDays === null ? "—" : deviationDays > 0 ? `+${deviationDays}` : deviationDays}
+                          {deviationDays === null
+                            ? "—"
+                            : deviationDays > 0
+                              ? `+${deviationDays}`
+                              : deviationDays}
                         </span>
                         {" • "}
                         Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
@@ -2808,16 +2910,18 @@ export function GPRAnalytics({
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         <p className="mt-2 text-xs text-slate-300">
-          Положительное значение — отставание \(Факт дольше Плана\), отрицательное — опережение.
+          Отклонение на {gprReportDateLabel} (п.п.): отрицательное значение — отставание, положительное — опережение.
         </p>
         {(() => {
-          const MAX = 14;
-          const allowedGroupKeys = gprStageGroupKeysForProjectPart(activeProjectPart);
+          const MAX = 20;
+          const allowedGroupKeys = isProjectWide
+            ? gprStageGroupKeysProjectWide()
+            : gprStageGroupKeysForProjectPart(activeProjectPart);
 
           const devRows = flatTasks
             .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
             .map((t) => {
-              const deviation = calculateDeviation(t);
+              const deviation = calculateDeviation(t, gprReportAsOf);
               const planDuration = daysInclusive(t.planStart, t.planEnd);
               const factDuration = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
               const group = inferGroup(t);
@@ -2833,7 +2937,7 @@ export function GPRAnalytics({
               const avg = withDev.length
                 ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
                 : 0;
-              const critical = withDev.filter((r) => getStatusByDeviation(r.deviation) === "red").length;
+              const critical = withDev.filter((r) => getStatusByGprProgressDelta(r.deviation) === "red").length;
               const label = gprStageDisplayTitle(tasksForActivePart, g);
               return {
                 key: g,
@@ -2859,18 +2963,18 @@ export function GPRAnalytics({
                   {groupCards.map((g) => {
                     const activeCard = activeGroup === g.key;
                     const stageCardTone: "green" | "red" | "gray" =
-                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
+                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg < 0 ? "red" : "green";
                     const avgColor =
                       g.withDevCount === 0 || g.avg === 0
                         ? "#e2e8f0"
-                        : g.avg > 0
+                        : g.avg < 0
                           ? COLORS.red
                           : COLORS.green;
                     const avgText =
                       g.withDevCount === 0
                         ? "—"
-                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} дн.`;
-                    const iconIsLate = g.withDevCount > 0 && g.avg > 0;
+                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} п.п.`;
+                    const iconIsLate = g.withDevCount > 0 && g.avg < 0;
                     const iconShellClass = iconIsLate
                       ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
                       : "text-[#22c55e] bg-[rgba(34,197,94,0.12)] shadow-[0_0_20px_rgba(34,197,94,0.25)]";
@@ -2946,11 +3050,11 @@ export function GPRAnalytics({
                   <div>
                     <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
                       <div className="relative h-6 text-[11px] text-slate-400">
-                        <span className="absolute left-0 -translate-x-0">-14д</span>
-                        <span className="absolute left-1/4 -translate-x-1/2">-7д</span>
+                        <span className="absolute left-0 -translate-x-0">−20</span>
+                        <span className="absolute left-1/4 -translate-x-1/2">−10</span>
                         <span className="absolute left-1/2 -translate-x-1/2 text-slate-200">0</span>
-                        <span className="absolute left-3/4 -translate-x-1/2">+7д</span>
-                        <span className="absolute right-0 translate-x-0">+14д</span>
+                        <span className="absolute left-3/4 -translate-x-1/2">+10</span>
+                        <span className="absolute right-0 translate-x-0">+20</span>
                       </div>
                     </div>
 
@@ -2958,7 +3062,7 @@ export function GPRAnalytics({
                       {active.rows.map((r, i) => {
                         const deviation = r.deviation;
                         const status =
-                          deviation === null ? "gray" : getStatusByDeviation(deviation);
+                          deviation === null ? "gray" : getStatusByGprProgressDelta(deviation);
                         const color =
                           status === "green"
                             ? COLORS.green
@@ -3009,7 +3113,7 @@ export function GPRAnalytics({
                               <div className="font-semibold tabular-nums" style={{ color }}>
                                 {deviation === null
                                   ? "—"
-                                  : `${deviation > 0 ? `+${deviation}` : deviation} дн${clipMark}`}
+                                  : `${deviation > 0 ? `+${deviation}` : deviation} п.п.${clipMark}`}
                               </div>
                               <div className="text-xs text-slate-400">
                                 {r.factDuration ?? "—"} / {r.planDuration ?? "—"} дн
@@ -3030,20 +3134,24 @@ export function GPRAnalytics({
       <GPRTmcDependencyChart
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
         analyticDepth={dependencyAnalyticDepth}
+        reportAsOfIso={gprReportYmd}
+        reportDateLabel={gprReportDateLabel}
       />
       <GPRTenderDependencyChart
         tasks={tasksForActivePart}
         tenders={tendersForActivePart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
         analyticDepth={dependencyAnalyticDepth}
+        reportAsOfIso={gprReportYmd}
+        reportDateLabel={gprReportDateLabel}
       />
       <GPRForecastChart
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
         tenders={tendersForActivePart}
-        activeProjectPart={activeProjectPart}
+        activeProjectPart={chartPart}
       />
     </section>
   );

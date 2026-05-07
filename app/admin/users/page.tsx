@@ -6,14 +6,20 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   type AdminUserRow,
+  API_SECTION_KEYS,
+  API_SECTION_LABELS,
   type ApiSection,
   blockAdminUser,
   createUserRequest,
+  defaultNewEmployeeSections,
   deleteAdminUser,
+  formatAllowedSectionsRu,
   generateClientPassword,
   getAdminUserAnalytics,
   listAdminUsers,
   type Role,
+  sectionsRecordAll,
+  sectionsRecordFromAllowed,
   setAdminUserPassword,
   type UserAnalytics,
   type UserStatus,
@@ -26,18 +32,10 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { EditLayout } from "@/components/EditLayout";
 
-const SECTION_OPTIONS: { key: ApiSection; label: string }[] = [
-  { key: "gpr", label: "ГПР" },
-  { key: "tenders", label: "Тендеры" },
-  { key: "materials", label: "ТМЦ" },
-];
-
-function sectionsCellRu(sections: ApiSection[]): string {
-  if (sections.length === 0) return "—";
-  return sections
-    .map((s) => SECTION_OPTIONS.find((o) => o.key === s)?.label ?? s)
-    .join(", ");
-}
+const SECTION_OPTIONS: { key: ApiSection; label: string }[] = API_SECTION_KEYS.map((key) => ({
+  key,
+  label: API_SECTION_LABELS[key],
+}));
 
 function roleLabelRu(role: Role): string {
   if (role === "admin") return "Администратор";
@@ -142,11 +140,7 @@ export default function AdminUsersPage() {
   const [createFullName, setCreateFullName] = useState("");
   const [createPassword, setCreatePassword] = useState("");
   const [createRole, setCreateRole] = useState<Role>("employee");
-  const [createSections, setCreateSections] = useState<Record<ApiSection, boolean>>({
-    gpr: true,
-    tenders: false,
-    materials: false,
-  });
+  const [createSections, setCreateSections] = useState<Record<ApiSection, boolean>>(defaultNewEmployeeSections);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -155,11 +149,7 @@ export default function AdminUsersPage() {
   const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editRole, setEditRole] = useState<Role>("employee");
-  const [editSections, setEditSections] = useState<Record<ApiSection, boolean>>({
-    gpr: false,
-    tenders: false,
-    materials: false,
-  });
+  const [editSections, setEditSections] = useState<Record<ApiSection, boolean>>(() => sectionsRecordAll(false));
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -210,24 +200,20 @@ export default function AdminUsersPage() {
     if (!editUser) return;
     setEditFullName(editUser.full_name ?? "");
     setEditRole(editUser.role);
-    setEditSections({
-      gpr: editUser.allowed_sections.includes("gpr"),
-      tenders: editUser.allowed_sections.includes("tenders"),
-      materials: editUser.allowed_sections.includes("materials"),
-    });
+    setEditSections(sectionsRecordFromAllowed(editUser.allowed_sections));
     setEditError(null);
   }, [editUser]);
 
   useEffect(() => {
     if (createRole === "manager") {
-      setCreateSections({ gpr: true, tenders: true, materials: true });
+      setCreateSections(sectionsRecordAll(true));
     }
   }, [createRole]);
 
   useEffect(() => {
     if (!editUser) return;
     if (editRole === "manager") {
-      setEditSections({ gpr: true, tenders: true, materials: true });
+      setEditSections(sectionsRecordAll(true));
     }
   }, [editRole, editUser]);
 
@@ -236,7 +222,7 @@ export default function AdminUsersPage() {
     setCreateFullName("");
     setCreatePassword("");
     setCreateRole("employee");
-    setCreateSections({ gpr: true, tenders: false, materials: false });
+    setCreateSections(defaultNewEmployeeSections());
     setCreateError(null);
     setCreateOpen(true);
   }
@@ -413,9 +399,13 @@ export default function AdminUsersPage() {
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
-            Коды разделов: <span className="font-mono text-slate-800">gpr</span>,{" "}
-            <span className="font-mono text-slate-800">tenders</span>,{" "}
-            <span className="font-mono text-slate-800">materials</span>
+            Коды разделов:{" "}
+            {API_SECTION_KEYS.map((k, i) => (
+              <span key={k}>
+                {i > 0 ? ", " : null}
+                <span className="font-mono text-slate-800">{k}</span>
+              </span>
+            ))}
           </p>
           <button
             type="button"
@@ -472,7 +462,7 @@ export default function AdminUsersPage() {
                         {statusLabelRu(u.status)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{sectionsCellRu(u.allowed_sections)}</td>
+                    <td className="px-4 py-3 text-slate-700">{formatAllowedSectionsRu(u.allowed_sections)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button

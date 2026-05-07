@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { HubSectionCards } from "@/components/presentation/HubSectionCards";
+import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
 export default function EditEntry() {
   const { setMode } = useAppMode();
+  const snapshot = useMemo(() => getHomeDashboardSnapshot(), []);
 
   useEffect(() => {
     setMode("edit");
@@ -14,44 +17,33 @@ export default function EditEntry() {
   const blocks = [
     {
       title: "Строительство",
-      description: "ГПР, закупка услуг (тендеры) и закупка ТМЦ.",
+      description: "ГПР, тендеры и ТМЦ — контроль стройки.",
       href: "/edit/construction",
+      status: getHubNavStatusTone(snapshot, "construction"),
     },
     {
       title: "Маркетинг",
-      description: "Рабочий режим плана: сценарии, таблица план/факт по категориям и журнал изменений; отчёт и рассрочка — в разделе «Маркетинг».",
+      description: "План продаж, сценарии и таблица план/факт — в рабочем режиме.",
       href: "/marketing/sales-plan/work",
+      status: getHubNavStatusTone(snapshot, "marketing"),
     },
     {
       title: "Экономика и финансы",
-      description: "Финансовые показатели и экономика проекта (в разработке).",
+      description: "Показатели и экономика проекта (модуль в разработке).",
       href: "/edit/finance",
+      status: getHubNavStatusTone(snapshot, "finance"),
     },
   ] as const;
 
   return (
-    <main className="mx-auto min-h-[60vh] max-w-7xl space-y-6 bg-slate-50 p-4 md:p-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+    <main className="mx-auto min-h-[60vh] max-w-7xl space-y-3 bg-slate-50 p-3 md:p-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
         <h1 className="text-2xl font-semibold text-slate-900">Редактирование</h1>
-        <p className="mt-2 text-sm text-slate-600">Выберите блок платформы.</p>
+        <p className="mt-1 text-sm text-slate-600">Сводка проекта на сегодня</p>
+        <p className="mt-0.5 text-sm text-slate-500">Нажмите на блок, чтобы перейти в раздел.</p>
       </div>
 
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        {blocks.map((block) => (
-          <Link
-            key={block.href}
-            href={block.href}
-            className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
-          >
-            <h2 className="text-lg font-semibold text-slate-900">{block.title}</h2>
-            <p className="mt-2 flex-1 text-sm text-slate-600">{block.description}</p>
-            <span className="mt-4 inline-flex w-fit rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-              Перейти
-            </span>
-          </Link>
-        ))}
-      </section>
+      <HubSectionCards blocks={blocks} gridClassName="hub-section-grid" />
     </main>
   );
 }
-

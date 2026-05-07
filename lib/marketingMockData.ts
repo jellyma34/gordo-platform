@@ -95,6 +95,15 @@ export type InstallmentOverdueRow = {
 };
 
 export type MarketingMockBundle = {
+  /**
+   * Официальный старт продаж по проекту (YYYY-MM).
+   * Раньше этой даты месяцы не попадают в горизонт графика cashflow (даже если в CRM есть тестовые точки).
+   */
+  projectSalesStartPeriodKey: string;
+  /**
+   * Последний месяц с фактом поступлений на графике cashflow (YYYY-MM, включительно); позже — только план.
+   */
+  projectCashflowFactThroughPeriodKey: string;
   objects: MarketingObjectOption[];
   dealTypes: MarketingDealTypeOption[];
   salesPlan: {
@@ -134,6 +143,8 @@ export type MarketingMockBundle = {
 };
 
 export const marketingMockData: MarketingMockBundle = {
+  projectSalesStartPeriodKey: "2025-11",
+  projectCashflowFactThroughPeriodKey: "2026-05",
   objects: [
     { id: "all", name: "Все объекты" },
     { id: "gordo-main", name: "ЖК Гордо — основная очередь" },

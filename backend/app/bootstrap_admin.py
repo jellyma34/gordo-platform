@@ -7,7 +7,7 @@ from app.database import SessionLocal
 from app.models import User
 from app.security import hash_password
 
-_BOOTSTRAP_SECTIONS = ["gpr", "tenders", "materials"]
+_BOOTSTRAP_SECTIONS = ["gpr", "tenders", "materials", "marketing"]
 
 _DEFAULT_ADMIN_EMAIL = "marislova34@gmail.com"
 _DEFAULT_ADMIN_PASSWORD = "1234"

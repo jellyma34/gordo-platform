@@ -1,89 +1,30 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
-import { numFmt } from "@/lib/salesPlanChartFormat";
-import {
-  funnelStepConversionRates,
-  type SalesDealsMockDataset,
-  type SalesFunnelStageRow,
-} from "@/lib/salesDealsMockData";
+import { buildSalesDealsChartDatasetFromRows } from "@/lib/buildSalesDealsChartDatasetFromRows";
+import { filterNormalizedDealsForEditPreview } from "@/lib/marketingDealsPreviewFilters";
+import { validateMarketingDealsUploadJson } from "@/lib/marketingDealsValidateUploaded";
+import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import { funnelStepConversionRates } from "@/lib/salesDealsMockData";
+import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
+import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 const CARD_PRESENTATION =
   "rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5";
 const CARD_EDIT = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
-
-type TrankeysDealRow = {
-  deal?: {
-    deal_date?: string;
-  };
-};
-
-type TrankeysEnvelope = {
-  status?: string;
-  data?: TrankeysDealRow[];
-};
-
-function normalizeDealsApiJson(json: unknown): SalesDealsMockDataset | null {
-  if (json == null || typeof json !== "object") return null;
-  const root = json as TrankeysEnvelope;
-  if (root.status !== "ok" || !Array.isArray(root.data)) return null;
-
-  const items = root.data;
-  const totalDeals = items.length;
-
-  const byMonth = new Map<string, number>();
-  for (const row of items) {
-    const d = row.deal?.deal_date;
-    if (typeof d !== "string" || d.length < 7) continue;
-    const key = d.slice(0, 7);
-    byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
-  }
-
-  const sortedKeys = [...byMonth.keys()].sort();
-  const monthly = sortedKeys.map((periodKey) => {
-    const factMonth = byMonth.get(periodKey) ?? 0;
-    const [ys, ms] = periodKey.split("-");
-    const y = Number(ys);
-    const m = Number(ms);
-    const label =
-      Number.isFinite(y) && Number.isFinite(m)
-        ? new Date(y, m - 1, 1).toLocaleDateString("ru-RU", { month: "short", year: "2-digit" })
-        : periodKey;
-    return {
-      periodKey,
-      label,
-      factMonth,
-      leadsMonth: 0,
-      conversionPct: 0,
-    };
-  });
-
-  const funnel: SalesFunnelStageRow[] = [
-    { id: "leads", label: "Лиды", count: 0 },
-    { id: "meetings", label: "Встречи", count: 0 },
-    { id: "reservations", label: "Брони", count: 0 },
-    { id: "deals", label: "Сделки", count: totalDeals },
-  ];
-
-  return {
-    funnel,
-    monthly,
-    avgDealCycleDays: null,
-  };
-}
 
 type Props = {
   presentation: boolean;
@@ -92,54 +33,358 @@ type Props = {
   dealTypeId: string;
 };
 
-export function SalesDealsSection({ presentation, period, objectId, dealTypeId }: Props) {
-  const [dataset, setDataset] = useState<SalesDealsMockDataset | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type UploadsMeta = {
+  versions: Array<{ id: string; savedAt: string; mode: string; rowCount: number }>;
+  currentUpdatedAt: string | null;
+  hasLocalDataset: boolean;
+};
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+function formatRuDateShort(iso: string): string {
+  const d = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!d) return iso;
+  return `${d[3]}.${d[2]}.${d[1]}`;
+}
+
+function DealsMarketingEditPanel({
+  objectId,
+  dealTypeId,
+  feed,
+}: {
+  objectId: string;
+  dealTypeId: string;
+  feed: MarketingDealsJsonFeed;
+}) {
+  const { loading, error, reload, rows } = feed;
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
+  const [pendingJson, setPendingJson] = useState<unknown | null>(null);
+  const [clientErrors, setClientErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [rollbackBusyId, setRollbackBusyId] = useState<string | null>(null);
+  const [meta, setMeta] = useState<UploadsMeta | null>(null);
+  const [metaLoading, setMetaLoading] = useState(true);
+
+  const loadMeta = useCallback(async () => {
+    setMetaLoading(true);
     try {
-      const res = await fetch("/api/deals");
-      const json: unknown = await res.json();
-      if (!res.ok) {
-        const msg =
-          json && typeof json === "object" && "error" in json && typeof (json as { error: unknown }).error === "string"
-            ? (json as { error: string }).error
-            : `Ошибка ${res.status}`;
-        setError(msg);
-        setDataset(null);
-        return;
-      }
-      const normalized = normalizeDealsApiJson(json);
-      if (!normalized) {
-        setError("Не удалось разобрать ответ API");
-        setDataset(null);
-        return;
-      }
-      setDataset(normalized);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка загрузки");
-      setDataset(null);
+      const res = await fetch("/api/deals/uploads");
+      const j = (await res.json()) as UploadsMeta;
+      if (!res.ok) throw new Error("Версии не загружены");
+      setMeta(j);
+    } catch {
+      setMeta(null);
     } finally {
-      setLoading(false);
+      setMetaLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMeta();
+  }, [loadMeta]);
 
-  const card = presentation ? CARD_PRESENTATION : CARD_EDIT;
-  const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
-  const sub = presentation ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
-  const muted = presentation ? "text-slate-400" : "text-slate-500";
-  const axisTick = presentation ? "#94a3b8" : "#64748b";
-  const gridStroke = presentation ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
-  const tooltipShell = presentation
-    ? "rounded-lg border border-slate-600/50 bg-[#0f172a]/95 px-2.5 py-1.5 text-[11px] text-slate-200"
-    : "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-800";
+  const filteredPreview = useMemo(
+    () => filterNormalizedDealsForEditPreview(rows, objectId, dealTypeId),
+    [rows, objectId, dealTypeId],
+  );
+
+  const previewSlice = useMemo(() => filteredPreview.slice(0, 500), [filteredPreview]);
+
+  const validatePending = useCallback((json: unknown) => {
+    const r = validateMarketingDealsUploadJson(json);
+    if (!r.ok) {
+      setClientErrors(r.errors);
+      return false;
+    }
+    setClientErrors([]);
+    return true;
+  }, []);
+
+  const onFilePick = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        setPendingJson(null);
+        setClientErrors(["Файл не является корректным JSON."]);
+        return;
+      }
+      setPendingJson(parsed);
+      validatePending(parsed);
+    };
+    reader.readAsText(file, "UTF-8");
+  }, [validatePending]);
+
+  const submitUpload = useCallback(async () => {
+    if (pendingJson == null) return;
+    if (!validatePending(pendingJson)) return;
+
+    const effectiveMode = uploadMode;
+    const needsLocalForAppend =
+      effectiveMode === "append" &&
+      !(meta?.hasLocalDataset ?? false);
+
+    const modeToSend =
+      effectiveMode === "append" && needsLocalForAppend
+        ? "replace"
+        : effectiveMode;
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/deals/uploads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payload: pendingJson, mode: modeToSend }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) {
+        setClientErrors([j.error ?? `Ошибка сервера ${res.status}`]);
+        return;
+      }
+      setPendingJson(null);
+      setClientErrors([]);
+      await loadMeta();
+      await reload();
+    } catch {
+      setClientErrors(["Сеть недоступна или сервер вернул не JSON."]);
+    } finally {
+      setBusy(false);
+    }
+  }, [pendingJson, uploadMode, meta?.hasLocalDataset, validatePending, loadMeta, reload]);
+
+  const rollback = useCallback(
+    async (versionId: string) => {
+      setRollbackBusyId(versionId);
+      try {
+        const res = await fetch("/api/deals/uploads", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ versionId }),
+        });
+        const j = (await res.json()) as { ok?: boolean; error?: string };
+        if (!res.ok || !j.ok) {
+          setClientErrors([j.error ?? "Откат не выполнен"]);
+          return;
+        }
+        setClientErrors([]);
+        await loadMeta();
+        await reload();
+      } catch {
+        setClientErrors(["Не удалось откатиться к версии"]);
+      } finally {
+        setRollbackBusyId(null);
+      }
+    },
+    [loadMeta, reload],
+  );
+
+  const dataLoaded = rows.length > 0;
+  const lastLabel =
+    meta?.currentUpdatedAt != null
+      ? new Date(meta.currentUpdatedAt).toLocaleString("ru-RU")
+      : null;
+
+  return (
+    <div className="space-y-5">
+      <div className={`rounded-lg border px-4 py-3 ${dataLoaded ? "border-emerald-200 bg-emerald-50/80" : "border-amber-200 bg-amber-50/80"}`}>
+        <div className="text-sm font-semibold text-slate-900">
+          Статус данных:{" "}
+          {loading || metaLoading
+            ? "загрузка…"
+            : dataLoaded
+              ? "Загружены"
+              : "Нет нормализованных строк"}
+        </div>
+        <div className="mt-1 text-xs text-slate-600">
+          {meta?.hasLocalDataset
+            ? `Используется локальный снимок. Последнее обновление: ${lastLabel ?? "—"}`
+            : error
+              ? `Ошибка загрузки: ${error}. При необходимости загрузите JSON ниже.`
+              : "Данные из внешнего API (локального снимка нет)."}
+        </div>
+        <div className="mt-1 text-xs text-slate-500">
+          Нормализованных строк в предпросмотре (с учётом фильтров): {numFmt.format(filteredPreview.length)} из{" "}
+          {numFmt.format(rows.length)} в наборе.
+        </div>
+      </div>
+
+      {error && !dataLoaded ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </div>
+      ) : null}
+
+      <div className={CARD_EDIT}>
+        <h3 className="text-sm font-semibold text-slate-900">Загрузка JSON</h3>
+        <p className="mt-1 text-[11px] text-slate-600">
+          Формат как у выгрузки сделок: массив, <code className="rounded bg-slate-100 px-1">{"{ data: [...] }"}</code> или объект с
+          полями-массивами.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={onFilePick} />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Выбрать файл…
+          </button>
+          <label className="flex flex-col gap-1 text-xs text-slate-600">
+            <span>Режим</span>
+            <select
+              value={uploadMode}
+              onChange={(e) => setUploadMode(e.target.value as "replace" | "append")}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            >
+              <option value="replace">Замена</option>
+              <option value="append">Дополнить</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={pendingJson == null || busy || clientErrors.length > 0}
+            onClick={() => void submitUpload()}
+            className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? "Сохранение…" : "Сохранить на сервер"}
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          При режиме «Дополнение» строки добавляются к текущему локальному снимку (если снимка ещё нет — сохранится как замена).
+        </p>
+
+        {clientErrors.length > 0 ? (
+          <ul className="mt-3 list-disc space-y-1 rounded-md border border-rose-200 bg-rose-50 px-5 py-2 text-xs text-rose-800">
+            {clientErrors.map((err) => (
+              <li key={err}>{err}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        {pendingJson != null && clientErrors.length === 0 ? (
+          <p className="mt-3 text-xs text-emerald-800">Структура допустима, можно сохранить.</p>
+        ) : null}
+      </div>
+
+      <div className={CARD_EDIT}>
+        <h3 className="text-sm font-semibold text-slate-900">Предпросмотр (первые {previewSlice.length} строк)</h3>
+        <p className="mt-1 text-[11px] text-slate-600">
+          Колонки: дата, тип объекта (категория для аналитики), количество (1 строка — 1 сделка), сумма. Учитываются фильтры
+          «Объект» и «Тип сделки» выше.
+        </p>
+        <div className="mt-3 max-h-[440px] w-full overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-[520px] w-full border-collapse text-left text-xs">
+            <thead className="sticky top-0 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="border-b border-slate-200 px-2 py-2">Дата</th>
+                <th className="border-b border-slate-200 px-2 py-2">Тип объекта</th>
+                <th className="border-b border-slate-200 px-2 py-2 text-right">Кол-во</th>
+                <th className="border-b border-slate-200 px-2 py-2 text-right">Сумма</th>
+              </tr>
+            </thead>
+            <tbody>
+              {previewSlice.length === 0 ? (
+                <tr>
+                  <td className="px-2 py-6 text-center text-slate-500" colSpan={4}>
+                    {loading ? "Загрузка…" : "Нет строк в этом срезе."}
+                  </td>
+                </tr>
+              ) : (
+                previewSlice.map((r, idx) => (
+                  <tr
+                    key={`${r.clientLabel}:${r.objectLabel}:${r.dealDate}:${r.sumRub}:${idx}`}
+                    className="odd:bg-white even:bg-slate-50/70"
+                  >
+                    <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-800">
+                      {formatRuDateShort(r.dealDate)}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1.5 text-slate-800">{r.dealTypeLabel}</td>
+                    <td className="border-b border-slate-100 px-2 py-1.5 text-right tabular-nums text-slate-800">1</td>
+                    <td className="border-b border-slate-100 px-2 py-1.5 text-right tabular-nums text-slate-900">
+                      {rubFmt.format(r.sumRub)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {filteredPreview.length > previewSlice.length ? (
+          <p className="mt-2 text-[11px] text-slate-500">
+            Показано {previewSlice.length} из {filteredPreview.length} строк в фильтре.
+          </p>
+        ) : null}
+      </div>
+
+      <div className={CARD_EDIT}>
+        <h3 className="text-sm font-semibold text-slate-900">История загрузок</h3>
+        <p className="mt-1 text-[11px] text-slate-600">
+          Последние сохранённые версии. «Откат» восстанавливает снимок на сервере и перечитывает данные.
+        </p>
+        {metaLoading ? (
+          <p className="mt-3 text-sm text-slate-500">Чтение истории…</p>
+        ) : !meta?.versions?.length ? (
+          <p className="mt-3 text-sm text-slate-500">Пока нет сохранённых версий.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {meta.versions.map((v) => (
+              <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                <div>
+                  <div className="font-medium text-slate-900">
+                    {new Date(v.savedAt).toLocaleString("ru-RU")}{" "}
+                    <span className="font-normal text-slate-600">
+                      ({v.mode === "append" ? "дополнение" : v.mode === "replace" ? "замена" : v.mode})
+                    </span>
+                  </div>
+                  <div className="text-slate-600">Строк оценкой: {numFmt.format(v.rowCount)} · id: {v.id}</div>
+                </div>
+                <button
+                  type="button"
+                  disabled={rollbackBusyId !== null}
+                  onClick={() => void rollback(v.id)}
+                  className="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {rollbackBusyId === v.id ? "Откат…" : "Откатиться"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function SalesDealsSection({ presentation, period, objectId, dealTypeId }: Props) {
+  const dealsFeed = useMarketingDealsFeed();
+
+  if (!presentation) {
+    return <DealsMarketingEditPanel objectId={objectId} dealTypeId={dealTypeId} feed={dealsFeed} />;
+  }
+
+  const { loading, error, reload, rows } = dealsFeed;
+
+  const dataset = useMemo(() => {
+    if (error) return null;
+    return buildSalesDealsChartDatasetFromRows(rows);
+  }, [error, rows]);
+
+  void period;
+
+  const card = CARD_PRESENTATION;
+  const h4 = "text-sm font-semibold text-slate-100";
+  const sub = "text-[11px] text-slate-500";
+  const muted = "text-slate-400";
+  const axisTick = "#94a3b8";
+  const gridStroke = "rgba(148,163,184,0.12)";
+  const tooltipShell =
+    "rounded-lg border border-slate-600/50 bg-[#0f172a]/95 px-2.5 py-1.5 text-[11px] text-slate-200";
 
   const stepRates = useMemo(
     () => (dataset ? funnelStepConversionRates(dataset.funnel) : []),
@@ -151,28 +396,17 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
     [dataset],
   );
 
-  const funnelKpiSurface = presentation
-    ? "relative overflow-hidden rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-    : "relative overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm";
+  const funnelKpiSurface =
+    "relative overflow-hidden rounded-xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 
-  const cycleSurface = presentation
-    ? "relative overflow-hidden rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-    : "relative overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-3 shadow-sm";
-
-  void period;
-  void objectId;
-  void dealTypeId;
+  const cycleSurface =
+    "relative overflow-hidden rounded-xl border border-amber-500/15 bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/90 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 
   if (loading) {
     return (
       <div className={card}>
         <div className={`flex min-h-[200px] flex-col items-center justify-center gap-3 ${muted}`}>
-          <div
-            className={`h-8 w-8 animate-spin rounded-full border-2 border-t-transparent ${
-              presentation ? "border-sky-400" : "border-slate-400"
-            }`}
-            aria-hidden
-          />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-t-transparent border-sky-400" aria-hidden />
           <p className="text-sm">Загрузка данных по сделкам…</p>
         </div>
       </div>
@@ -182,19 +416,13 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
   if (error || !dataset) {
     return (
       <div className={card}>
-        <div className={`rounded-lg border p-4 ${presentation ? "border-rose-500/30 bg-rose-950/20" : "border-rose-200 bg-rose-50"}`}>
-          <p className={`text-sm font-medium ${presentation ? "text-rose-200" : "text-rose-800"}`}>
-            Не удалось загрузить сделки
-          </p>
-          <p className={`mt-1 text-xs ${presentation ? "text-rose-300/90" : "text-rose-700"}`}>{error ?? "Неизвестная ошибка"}</p>
+        <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 p-4">
+          <p className="text-sm font-medium text-rose-200">Не удалось загрузить сделки</p>
+          <p className="mt-1 text-xs text-rose-300/90">{error ?? "Неизвестная ошибка"}</p>
           <button
             type="button"
-            onClick={() => void load()}
-            className={
-              presentation
-                ? "mt-3 rounded-lg border border-slate-500/50 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10"
-                : "mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
-            }
+            onClick={() => void reload()}
+            className="mt-3 rounded-lg border border-slate-500/50 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10"
           >
             Повторить
           </button>
@@ -215,10 +443,8 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
           {dataset.funnel.map((stage, idx) => (
             <div key={stage.id} className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-[22%]">
               <div className={`min-w-0 flex-1 ${funnelKpiSurface}`}>
-                <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-cyan-200/80" : "text-slate-600"}`}>
-                  {stage.label}
-                </div>
-                <div className={`mt-1 text-xl font-semibold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-200/80">{stage.label}</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums text-slate-50">
                   {stage.count > 0 || stage.id === "deals" ? numFmt.format(stage.count) : "—"}
                 </div>
               </div>
@@ -227,9 +453,7 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
                   <span className="text-lg text-slate-500" aria-hidden>
                     →
                   </span>
-                  <span
-                    className={`mt-0.5 text-[10px] font-semibold tabular-nums ${presentation ? "text-sky-300" : "text-sky-700"}`}
-                  >
+                  <span className="mt-0.5 text-[10px] font-semibold tabular-nums text-sky-300">
                     {stepRates[idx] != null && dataset.funnel[idx]!.count > 0
                       ? `${stepRates[idx]!.toFixed(1)}%`
                       : "—"}
@@ -243,7 +467,7 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
           {dataset.funnel.slice(0, -1).map((stage, idx) => (
             <span key={`${stage.id}-rate`}>
               {stage.label} → {dataset.funnel[idx + 1]!.label}:{" "}
-              <span className={`font-semibold tabular-nums ${presentation ? "text-slate-300" : "text-slate-700"}`}>
+              <span className="font-semibold tabular-nums text-slate-300">
                 {stepRates[idx] != null && stage.count > 0 ? `${stepRates[idx]!.toFixed(1)}%` : "—"}
               </span>
             </span>
@@ -280,7 +504,7 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
                   <Bar
                     dataKey="factMonth"
                     name="Сделки"
-                    fill={presentation ? "#38bdf8" : "#0284c7"}
+                    fill="#38bdf8"
                     radius={[6, 6, 2, 2]}
                     maxBarSize={48}
                   />
@@ -330,9 +554,9 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
                     type="monotone"
                     dataKey="conversionPct"
                     name="Сделки / лиды"
-                    stroke={presentation ? "#a78bfa" : "#7c3aed"}
+                    stroke="#a78bfa"
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: presentation ? "#c4b5fd" : "#7c3aed" }}
+                    dot={{ r: 4, fill: "#c4b5fd" }}
                     activeDot={{ r: 6 }}
                   />
                 </LineChart>
@@ -347,10 +571,8 @@ export function SalesDealsSection({ presentation, period, objectId, dealTypeId }
           <h3 className={h4}>Средний цикл сделки</h3>
           <p className={`mt-1 ${sub}`}>От лида до регистрации сделки.</p>
           <div className={`mt-3 ${cycleSurface}`}>
-            <div className={`text-[10px] font-bold uppercase tracking-wide ${presentation ? "text-amber-200/75" : "text-slate-600"}`}>
-              Дней
-            </div>
-            <div className={`mt-1 text-2xl font-semibold tabular-nums ${presentation ? "text-slate-50" : "text-slate-900"}`}>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-amber-200/75">Дней</div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-50">
               {numFmt.format(dataset.avgDealCycleDays)}
             </div>
           </div>

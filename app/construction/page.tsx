@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GPRSection } from "@/components/construction/GPRSection";
 import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import {
+  getGprProjectId,
+  loadPersistedGprTasks,
+  postGprImportToApi,
+  saveGprTasksToLocalStorage,
+} from "@/lib/gprImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
-import type { GPRTask } from "@/lib/gprUtils";
+import type { ConstructionObjectScope, GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | "gpr" | "tenders" | "tmc";
 
@@ -20,15 +26,70 @@ export default function ConstructionPage() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("menu");
   const { mode: appMode } = useAppMode();
   const mode: "edit" | "presentation" = appMode === "edit" ? "edit" : "presentation";
+
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
   const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
-  const [activeGprPartId, setActiveGprPartId] = useState<number>(1);
-  const gprTasksForPart = tasks.filter((task) => task.partId === activeGprPartId);
+  const lastSavedGprJsonRef = useRef<string | null>(null);
+  const [gprPersistReady, setGprPersistReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    lastSavedGprJsonRef.current = null;
+    setGprPersistReady(false);
+    (async () => {
+      try {
+        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
+        if (cancelled) return;
+        setTasks(cloneTasks(r.tasks));
+        lastSavedGprJsonRef.current = r.bootstrapJson;
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) {
+          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
+        }
+      } finally {
+        if (!cancelled) setGprPersistReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gprProjectId]);
+
+  useEffect(() => {
+    if (!gprPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(tasks);
+      if (next === lastSavedGprJsonRef.current) return;
+      lastSavedGprJsonRef.current = next;
+      saveGprTasksToLocalStorage(gprProjectId, tasks);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [tasks, gprPersistReady, gprProjectId]);
+
+  const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
+  const gprTasksForPart =
+    activePartScope === "project"
+      ? tasks
+      : tasks.filter((task) => task.partId === activePartScope);
   const saveGprTasksForPart = (partTasks: GPRTask[]) => {
+    const partId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
     setTasks((prev) => [
-      ...prev.filter((task) => task.partId !== activeGprPartId),
-      ...partTasks.map((task) => ({ ...task, partId: activeGprPartId })),
+      ...prev.filter((task) => task.partId !== partId),
+      ...partTasks.map((task) => ({ ...task, partId })),
     ]);
   };
+
+  const replaceAllGprTasks = useCallback(
+    (next: GPRTask[]) => {
+      const list = cloneTasks(Array.isArray(next) ? next : []);
+      setTasks(list);
+      void postGprImportToApi(gprProjectId, list);
+    },
+    [gprProjectId],
+  );
 
   return (
     <section className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 overflow-x-clip px-3 py-4 sm:px-4 md:p-6">
@@ -130,16 +191,18 @@ export default function ConstructionPage() {
             <GPRSection
               mode={mode}
               tasks={gprTasksForPart}
+              allGprTasks={tasks}
               onSaveTasks={saveGprTasksForPart}
-              activePartId={activeGprPartId}
-              onChangePart={setActiveGprPartId}
+              onReplaceAllGprTasks={replaceAllGprTasks}
+              activePartScope={activePartScope}
+              onChangePartScope={setActivePartScope}
             />
           )}
           {activeSection === "tenders" && (
-            <TendersSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TendersSection activePartScope={activePartScope} onChangePartScope={setActivePartScope} />
           )}
           {activeSection === "tmc" && (
-            <TMCSection activePartId={activeGprPartId} onChangePart={setActiveGprPartId} />
+            <TMCSection activePartScope={activePartScope} onChangePartScope={setActivePartScope} />
           )}
         </>
       )}

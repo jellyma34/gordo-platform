@@ -7,9 +7,26 @@ import {
   SESSION_EXPIRED_MESSAGE,
 } from "./apiClient";
 import { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./authStorage";
-import type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
+import {
+  API_SECTION_KEYS,
+  type ApiSection,
+  type AuthSnapshot,
+  type AuthStoredUser,
+  isApiSection,
+  type Role,
+  type UserStatus,
+} from "./authTypes";
 
 export type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from "./authTypes";
+export {
+  API_SECTION_KEYS,
+  API_SECTION_LABELS,
+  defaultNewEmployeeSections,
+  formatAllowedSectionsRu,
+  isApiSection,
+  sectionsRecordAll,
+  sectionsRecordFromAllowed,
+} from "./authTypes";
 export {
   API_URL,
   apiClient,
@@ -23,10 +40,6 @@ export { clearAuth, loadStoredAuth, parseAllowedSections, saveAuth } from "./aut
 /** Сообщение при 401 от POST /auth/login (для UI). */
 export const INVALID_LOGIN_MESSAGE = "Неверный логин или пароль";
 export const BLOCKED_LOGIN_MESSAGE = "Доступ ограничен. Обратитесь к администратору";
-
-function isApiSection(x: string): x is ApiSection {
-  return x === "gpr" || x === "tenders" || x === "materials";
-}
 
 export type UiConstructionSection = "gpr" | "tenders" | "tmc";
 
@@ -44,9 +57,9 @@ export function canAccessConstructionSection(
   return allowed.includes(uiToApi(ui));
 }
 
-const SECTION_ORDER: ApiSection[] = ["gpr", "tenders", "materials"];
+const CONSTRUCTION_SECTION_ORDER: Array<Exclude<ApiSection, "marketing">> = ["gpr", "tenders", "materials"];
 
-export function apiSectionToQuery(s: ApiSection): UiConstructionSection {
+export function apiSectionToQuery(s: Exclude<ApiSection, "marketing">): UiConstructionSection {
   return s === "materials" ? "tmc" : s;
 }
 
@@ -58,8 +71,11 @@ export function firstConstructionPath(
 ): string {
   const base = mode === "presentation" ? "/presentation/construction" : "/edit/construction";
   if (role === "admin" || role === "manager") return `${base}?section=gpr`;
-  for (const s of SECTION_ORDER) {
+  for (const s of CONSTRUCTION_SECTION_ORDER) {
     if (allowed.includes(s)) return `${base}?section=${apiSectionToQuery(s)}`;
+  }
+  if (allowed.includes("marketing")) {
+    return mode === "presentation" ? "/presentation/marketing/sales-plan" : "/edit/marketing";
   }
   return "/";
 }
@@ -141,9 +157,10 @@ function storedUserFromApiUser(user: ApiLoginUser): AuthStoredUser {
 
 function allowedSectionsFromApiUser(role: Role, user: ApiLoginUser): ApiSection[] {
   if (role === "admin" || role === "manager") {
-    return [...SECTION_ORDER];
+    return [...API_SECTION_KEYS];
   }
-  return (user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+  const known = (user.allowed_sections ?? []).filter((x): x is ApiSection => isApiSection(x));
+  return [...known].sort((a, b) => API_SECTION_KEYS.indexOf(a) - API_SECTION_KEYS.indexOf(b));
 }
 
 export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): AuthSnapshot {
@@ -163,10 +180,23 @@ export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): Auth
 }
 
 /**
+ * Вход без бэкенда: в `next dev` по умолчанию включён. Отключить: `NEXT_PUBLIC_AUTH_MOCK=false`.
+ * В production мок выключен, кроме явного `NEXT_PUBLIC_AUTH_MOCK=true`.
+ */
+export const AUTH_LOGIN_MOCK_ENABLED =
+  (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_AUTH_MOCK !== "false") ||
+  process.env.NEXT_PUBLIC_AUTH_MOCK === "true";
+
+const MOCK_DEV_TOKEN = "mock-dev-token";
+
+/**
  * Актуальный профиль с бэка (ФИО в fio / fullName / full_name).
- * Старый бэкенд без маршрута вернёт 404 — сессия из storage сохраняется.
+ * Для `MOCK_DEV_TOKEN` запрос не делается — сессия берётся из storage после мок-логина.
  */
 export async function fetchAuthMe(token: string): Promise<AuthSnapshot | null> {
+  if (token === MOCK_DEV_TOKEN) {
+    return null;
+  }
   try {
     const res = await fetchAuthorizedApi(buildApiUrl("/auth/me"), token, { method: "GET" });
     if (!res.ok) return null;
@@ -181,6 +211,23 @@ export async function fetchAuthMe(token: string): Promise<AuthSnapshot | null> {
 }
 
 export async function loginRequest(email: string, password: string): Promise<AuthSnapshot> {
+  if (AUTH_LOGIN_MOCK_ENABLED) {
+    const e = email.trim();
+    if (!e || !password) {
+      throw new Error(INVALID_LOGIN_MESSAGE);
+    }
+    const user: ApiLoginUser = {
+      email: e,
+      role: "manager",
+      status: "active",
+      allowed_sections: [...API_SECTION_KEYS],
+      name: e,
+    };
+    const snap = authSnapshotFromApiUser(MOCK_DEV_TOKEN, user);
+    saveAuth(snap.token, snap.role, snap.allowedSections, snap.userLabel ?? null, snap.user ?? null);
+    return snap;
+  }
+
   try {
     const res = await fetchPublicApi(buildApiUrl("/auth/login"), {
       method: "POST",
@@ -293,7 +340,10 @@ function parseUserRow(raw: {
     blocked_reason: raw.blocked_reason ?? null,
     blocked_at: raw.blocked_at ?? null,
     blocked_by_email: raw.blocked_by_email ?? null,
-    allowed_sections: raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s)),
+    allowed_sections: (() => {
+      const known = raw.allowed_sections.filter((s): s is ApiSection => isApiSection(s));
+      return [...known].sort((a, b) => API_SECTION_KEYS.indexOf(a) - API_SECTION_KEYS.indexOf(b));
+    })(),
   };
 }
 

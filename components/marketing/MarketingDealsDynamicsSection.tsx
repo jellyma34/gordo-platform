@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
@@ -16,18 +15,19 @@ import {
   type DealsDynamicsEnrichedRow,
   type TypeBucketKey,
 } from "@/lib/marketingDealsDynamics";
-
-const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
-const ComposedChart = dynamic(() => import("recharts").then((m) => m.ComposedChart), { ssr: false });
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
-const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), { ssr: false });
-const Legend = dynamic(() => import("recharts").then((m) => m.Legend), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
+import {
+  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 type Props = {
   presentation: boolean;

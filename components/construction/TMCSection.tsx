@@ -1,34 +1,37 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { SuppliersBlock } from "@/components/tmc/SuppliersBlock";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
-import { getStatusByDeviation, partIdToProjectPartKey, PROJECT_PARTS } from "@/lib/gprUtils";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
+import {
+  getStatusByDeviation,
+  partIdToProjectPartKey,
+  PROJECT_PARTS,
+  type ConstructionObjectScope,
+} from "@/lib/gprUtils";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
 import {
   getTmcData,
-  mergeTmcSnapshotWithSeed,
+  loadTmcInitialItems,
   tmcFactReferenceDate,
   tmcPlanReferenceDate,
   type TMCItem,
 } from "@/lib/tmcData";
-
-const ResponsiveContainer = dynamic(
-  () => import("recharts").then((m) => m.ResponsiveContainer),
-  { ssr: false },
-);
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), { ssr: false });
-const Line = dynamic(() => import("recharts").then((m) => m.Line), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import("recharts").then((m) => m.CartesianGrid), {
-  ssr: false,
-});
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
-const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
+import {
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
 
 type Traffic = "green" | "yellow" | "red" | "gray" | "overdue_not_started";
 type DrillKey = "completion" | "saving" | "delays" | "planned";
@@ -75,51 +78,61 @@ function statusOf(item: TMCItem): Traffic {
 }
 
 export function TMCSection({
-  activePartId,
-  onChangePart,
+  activePartScope,
+  onChangePartScope,
+  hidePresentationPartStrip,
 }: {
-  activePartId: number;
-  onChangePart: (partId: number) => void;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
+  hidePresentationPartStrip?: boolean;
 }) {
   const { mode } = useAppMode();
   const isPresentationSkin = mode === "presentation";
   const [activeDrill, setActiveDrill] = useState<DrillKey | null>(null);
   const tmcRef = useRef<TmcTableHandle>(null);
-  const activeProjectPart = partIdToProjectPartKey(activePartId);
+  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
+  const activeProjectPart = partIdToProjectPartKey(editPartId);
 
-  const partTabs = (
-    <div className="mb-4 flex flex-wrap gap-2">
-      {PROJECT_PARTS.map((part) => {
-        const active = activePartId === part.id;
-        if (isPresentationSkin) {
-          return (
-            <button
-              key={part.id}
-              type="button"
-              onClick={() => onChangePart(part.id)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                active ? "bg-slate-100 text-slate-900" : "bg-white/10 text-slate-200 hover:bg-white/20"
-              }`}
-            >
-              {part.name}
-            </button>
-          );
-        }
-        return (
-          <button
-            key={part.id}
-            type="button"
-            onClick={() => onChangePart(part.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            {part.name}
-          </button>
-        );
-      })}
-    </div>
-  );
+  const partTabs =
+    isPresentationSkin && hidePresentationPartStrip ? null : (
+      <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
+        {isPresentationSkin ? (
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {PROJECT_PARTS.map((part) => {
+              const active = activePartScope === part.id;
+              return (
+                <button
+                  key={part.id}
+                  type="button"
+                  onClick={() => onChangePartScope(part.id)}
+                  className={segmentedControlTabClass(active, "dark")}
+                >
+                  {part.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {PROJECT_PARTS.map((part) => {
+              const active = activePartScope === part.id;
+              return (
+                <button
+                  key={part.id}
+                  type="button"
+                  onClick={() => onChangePartScope(part.id)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {part.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
 
   if (mode !== "presentation") {
     return (
@@ -130,28 +143,42 @@ export function TMCSection({
         onCancel={() => tmcRef.current?.cancel()}
       >
         {partTabs}
-        <TmcTable ref={tmcRef} embedded activePartId={activePartId} />
+        <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
+        <SuppliersBlock activePartId={editPartId} />
       </EditLayout>
     );
   }
 
   const enriched = useMemo(() => {
-    let items: TMCItem[] = getTmcData(activeProjectPart);
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem("gordo_tmc_snapshot");
-        const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
-        items = mergeTmcSnapshotWithSeed(parsed).filter((i) => i.projectPart === activeProjectPart);
-      } catch {
-        items = getTmcData(activeProjectPart);
+    const fromSnapshot = (part: "residential" | "parking"): TMCItem[] => {
+      if (typeof window === "undefined") {
+        return getTmcData(part);
       }
-    }
+      try {
+        return loadTmcInitialItems(getGprProjectId()).filter((i) => i.projectPart === part);
+      } catch {
+        return getTmcData(part);
+      }
+    };
+    let items: TMCItem[] =
+      activePartScope === "project"
+        ? [...fromSnapshot("residential"), ...fromSnapshot("parking")]
+        : fromSnapshot(activeProjectPart);
     return items.map((item) => {
-      const status = statusOf(item);
+      const traffic = statusOf(item);
       const dev = deviationDays(item);
-      return { ...item, status, deviation: dev };
+      return { ...item, traffic, deviation: dev };
     });
-  }, [activeProjectPart]);
+  }, [activePartScope, activeProjectPart]);
+
+  const supplierFeedItems = useMemo(
+    () =>
+      enriched.map((row) => {
+        const { traffic: _tr, deviation: _dv, ...rest } = row;
+        return rest;
+      }),
+    [enriched],
+  );
 
   const totals = useMemo(() => {
     const plan = enriched.reduce((sum, i) => sum + i.planCost, 0);
@@ -161,9 +188,9 @@ export function TMCSection({
     const delays = enriched.filter((i) => (i.deviation ?? -999) > 0).length;
     const planned = enriched.filter((i) => !tmcFactReferenceDate(i)).length;
     const pie = {
-      delivered: enriched.filter((i) => i.status === "green").length,
-      risk: enriched.filter((i) => i.status === "yellow").length,
-      overdue: enriched.filter((i) => i.status === "red").length,
+      delivered: enriched.filter((i) => i.traffic === "green").length,
+      risk: enriched.filter((i) => i.traffic === "yellow").length,
+      overdue: enriched.filter((i) => i.traffic === "red").length,
       planned,
     };
     return { plan, fact, completionPct, saving, delays, planned, pie };
@@ -178,7 +205,7 @@ export function TMCSection({
   }, [activeDrill, enriched]);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       {partTabs}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
@@ -290,6 +317,8 @@ export function TMCSection({
         </div>
       </div>
 
+      <SuppliersBlock activePartId={editPartId} items={supplierFeedItems} variant="dark" />
+
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Детализация</h3>
         {!activeDrill ? (
@@ -298,11 +327,11 @@ export function TMCSection({
           <div className="mt-4 space-y-2">
             {drillRows.map((i) => {
               const color =
-                i.status === "green"
+                i.traffic === "green"
                   ? COLORS.green
-                  : i.status === "yellow"
+                  : i.traffic === "yellow"
                     ? COLORS.yellow
-                    : i.status === "red" || i.status === "overdue_not_started"
+                    : i.traffic === "red" || i.traffic === "overdue_not_started"
                       ? COLORS.red
                       : COLORS.gray;
               return (
@@ -318,13 +347,13 @@ export function TMCSection({
                       {i.deviation === null ? "—" : i.deviation > 0 ? `+${i.deviation}` : i.deviation} дн
                     </div>
                     <div className="mt-1 rounded-full px-2 py-0.5 text-[11px] text-slate-900" style={{ backgroundColor: color }}>
-                      {i.status === "green"
+                      {i.traffic === "green"
                         ? "поставлено"
-                        : i.status === "yellow"
+                        : i.traffic === "yellow"
                           ? "риск"
-                          : i.status === "red"
+                          : i.traffic === "red"
                             ? "просрочка"
-                            : i.status === "overdue_not_started"
+                            : i.traffic === "overdue_not_started"
                               ? "не закуплено"
                               : "не закуплено"}
                     </div>
