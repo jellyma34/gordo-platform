@@ -21,6 +21,7 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
+import type { XAxisTickContentProps } from "recharts";
 
 function fmtChartSpan(ym: string): string {
   const [y, m] = ym.split("-");
@@ -167,6 +168,33 @@ function SegmentMonthBarChart({
   const axisColor = presDark ? "#94a3b8" : "#64748b";
   const categoryGap = infographicMode ? (n <= 6 ? "22%" : n <= 10 ? "26%" : "32%") : n <= 6 ? "20%" : n <= 10 ? "24%" : "30%";
   const lastI = n - 1;
+  const renderMonthTick = (props: XAxisTickContentProps) => {
+    const { x, y, payload, index, textAnchor, angle } = props;
+    const row = rows[index];
+    const muted = row?.reportingTail === true;
+    const fill = muted
+      ? presDark
+        ? "rgba(148,163,184,0.4)"
+        : "rgba(100,116,139,0.48)"
+      : axisColor;
+    const fs = n > 14 ? 7 : 8;
+    const v = payload?.value;
+    const label = v == null ? "" : String(v);
+    const xf = typeof x === "number" ? x : Number(x);
+    const yf = typeof y === "number" ? y : Number(y);
+    return (
+      <text
+        x={xf}
+        y={yf}
+        fill={fill}
+        fontSize={fs}
+        textAnchor={textAnchor}
+        transform={angle ? `rotate(${angle}, ${xf}, ${yf})` : undefined}
+      >
+        {label}
+      </text>
+    );
+  };
 
   return (
     <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "p-2 sm:p-2.5" : "p-1.5 sm:p-2"}`}>
@@ -181,7 +209,7 @@ function SegmentMonthBarChart({
             <CartesianGrid strokeDasharray="6 8" stroke={gridStroke} vertical={false} />
             <XAxis
               dataKey="labelShort"
-              tick={{ fill: axisColor, fontSize: n > 14 ? 7 : 8 }}
+              tick={renderMonthTick}
               axisLine={false}
               tickLine={false}
               interval={0}
@@ -254,7 +282,12 @@ function SegmentAnalyticsCard({
   const statValueCls = presDark ? "text-slate-50" : "text-slate-900";
   const bodyCls = presDark ? "text-slate-300/95" : "text-slate-700";
   const sectionTitleCls = presDark ? "text-slate-200" : "text-slate-800";
-  const ringLast = model.declineNote != null && model.months.length >= 2;
+  const lastPt = model.months.length > 0 ? model.months[model.months.length - 1]! : null;
+  const ringLast =
+    model.declineNote != null &&
+    model.months.length >= 2 &&
+    lastPt != null &&
+    !(lastPt.reportingTail && lastPt.deals === 0 && lastPt.revenueRub === 0);
   const cardPad = presentation ? "p-5 sm:p-6" : "p-4 sm:p-5";
   const stackGap = presentation ? "gap-5" : "gap-3";
 

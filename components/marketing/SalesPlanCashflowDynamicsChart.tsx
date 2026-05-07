@@ -328,6 +328,123 @@ type Props = {
   planSourceNote?: string;
 };
 
+const explainKicker = "text-[10px] font-semibold uppercase tracking-wide text-slate-600";
+
+/** Блок «Источники и формулы» — только рабочий режим: светлая аналитика в духе KPI / сделок. */
+function CashflowDynamicsWorkModeCalculationExplain() {
+  const formulaCard =
+    "rounded-lg border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]";
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-100/90 via-white to-sky-50/45 p-3 shadow-[0_12px_28px_rgba(15,23,42,0.06)] shadow-[inset_0_1px_0_rgba(255,255,255,0.88)] sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h4 className="text-sm font-semibold tracking-tight text-slate-900">Источники данных и формулы</h4>
+        <span className="inline-flex shrink-0 items-center rounded-md border border-amber-200/90 bg-amber-50/95 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+          CRM: не подключена
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="min-w-0 rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/90 via-white to-orange-50/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+          <span className="inline-flex rounded-md border border-amber-200/80 bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+            План
+          </span>
+          <ul className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-slate-700">
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-400/90" aria-hidden />
+              <span>
+                Помесячные суммы по <span className="font-medium text-slate-900">графику платежей</span> (платёжный
+                календарь).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-400/90" aria-hidden />
+              <span>
+                Источник: загруженный в рабочем режиме <span className="font-medium text-slate-900">CSV графика платежей</span>{" "}
+                панели плана продаж.
+              </span>
+            </li>
+          </ul>
+        </div>
+        <div className="min-w-0 rounded-xl border border-sky-200/70 bg-gradient-to-br from-sky-50/90 via-white to-blue-50/50 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+          <span className="inline-flex rounded-md border border-sky-200/80 bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
+            Факт
+          </span>
+          <ul className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-slate-700">
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
+              <span>
+                <span className="font-medium text-slate-900">Помесячный факт поступлений (mock)</span> — приращение
+                показателя между соседними месяцами в локальном тестовом ряду (тот же принцип, что и у накопительного
+                сальдо после подключения интеграции).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
+              <span>
+                Источник: <span className="font-medium text-slate-900">тестовые данные / локальный mock dataset</span>.
+                CRM-интеграция пока не подключена.
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-200/80 bg-white/70 p-3 sm:p-3.5">
+        <h5 className={explainKicker}>Формулы</h5>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className={formulaCard}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Помесячный план</div>
+            <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
+              Plan_month = Σ payments in month
+            </p>
+          </div>
+          <div className={formulaCard}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Помесячный факт</div>
+            <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
+              Fact_month = Escrow_month − Escrow_previous_month
+            </p>
+          </div>
+          <div className={formulaCard}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Нарастающий план</div>
+            <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
+              Plan_cum(n) = Σ Plan_i
+            </p>
+          </div>
+          <div className={formulaCard}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Нарастающий факт</div>
+            <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
+              Fact_cum(n) = Σ Fact_i
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-3 sm:p-3.5">
+        <h5 className={explainKicker}>Почему линии обрываются по-разному</h5>
+        <ul className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-slate-700">
+          <li className="flex gap-2">
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden />
+            <span>
+              <span className="font-semibold text-slate-900">Факт</span> на графике строится из тестового ряда: после
+              последнего месяца, для которого в mock заданы значения, точек нет — линия не продолжается в «будущее», чтобы
+              не показывать выдуманные поступления.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden />
+            <span>
+              <span className="font-semibold text-slate-900">План</span> задан графиком платежей на весь горизонт CSV:
+              будущие месяцы уже содержат запланированные суммы, поэтому пунктир плана продолжается вперёд по календарю
+              графика.
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, planSourceNote }: Props) {
   const [mode, setMode] = useState<CashflowChartMode>("monthly");
   const mplPremium = useMarketingPresentationLight();
@@ -383,7 +500,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, 
           </h3>
           <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
             {planSourceNote ??
-              "Факт — прирост эскроу по CRM. План — загрузите CSV графика платежей в рабочем режиме панели плана продаж."}
+              "Факт — помесячные значения из локального mock dataset (CRM не подключена). План — загрузите CSV графика платежей в рабочем режиме панели плана продаж."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -475,6 +592,7 @@ export function SalesPlanCashflowDynamicsChart({ rows, planScale, presentation, 
           План
         </span>
       </div>
+      {!presentation ? <CashflowDynamicsWorkModeCalculationExplain /> : null}
     </div>
   );
 }

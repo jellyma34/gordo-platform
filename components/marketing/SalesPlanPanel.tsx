@@ -768,8 +768,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const cashflowPlanScale = hasPaymentSchedule ? 1 : revenuePlanScale;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasPaymentSchedule
-    ? `План — помесячные суммы из графика платежей (файл «${scheduleFileName ?? "CSV"}»). Факт — прирост эскроу по CRM. На оси — с ${salesStartLabel} (старт продаж по проекту).`
-    : `Факт — прирост эскроу по CRM. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
+    ? `План — помесячные суммы из графика платежей (файл «${scheduleFileName ?? "CSV"}»). Факт — помесячные значения из тестового ряда (mock); CRM-интеграция не подключена. На оси — с ${salesStartLabel} (старт продаж по проекту).`
+    : `Факт — помесячные значения из локального mock dataset; CRM-интеграция не подключена. План — загрузите CSV графика платежей (колонки «План <месяц> <год>» и «апр.26» …, строка «Итого»). На оси — с ${salesStartLabel}.`;
 
   const categoriesAdjusted = useMemo(
     () =>

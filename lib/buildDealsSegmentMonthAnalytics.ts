@@ -38,6 +38,11 @@ export type SegmentMonthPoint = {
   labelReadable: string;
   deals: number;
   revenueRub: number;
+  /**
+   * Месяцы после последнего месяца, в котором по данным была хотя бы одна сделка в любом из 4 сегментов.
+   * Добивают шкалу до текущего отчётного месяца (нули / плейсхолдер на графике).
+   */
+  reportingTail: boolean;
 };
 
 export type DealsSegmentCardModel = {
@@ -63,7 +68,7 @@ export type DealsSegmentCardModel = {
 };
 
 export type DealsSegmentAnalyticsBundle = {
-  /** Единая шкала времени для всех сегментов (от старта продаж до последней активности). */
+  /** Единая шкала времени для всех сегментов: от первой активности до max(последняя сделка, текущий отчётный месяц). */
   timelineMonthKeys: string[];
   segments: DealsSegmentCardModel[];
 };
@@ -116,6 +121,17 @@ function enumerateMonthKeys(from: string, to: string): string[] {
     cur = nextMonthKey(cur);
   }
   return out;
+}
+
+/** Текущий календарный месяц в формате YYYY-MM (локальное время браузера/Node). */
+export function dealsSegmentAnalyticsCurrentMonthKey(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+function maxMonthKey(a: string, b: string): string {
+  return a >= b ? a : b;
 }
 
 function slotHasActivity(slot: ReturnType<typeof emptyMonthSlots>): boolean {
@@ -325,7 +341,7 @@ function findStrongestRun(values: number[]): { start: number; end: number; len: 
 
 /**
  * Единая лента месяцев и карточки сегментов: без «пустых» месяцев до старта продаж по проекту (первые реальные сделки),
- * общий диапазон [первый месяц с активностью … последний], с заполнением пропусков нулями.
+ * общий диапазон [первый месяц с активностью … max(последний месяц со сделкой, текущий календарный месяц)], пропуски и хвост — нули.
  */
 export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): DealsSegmentAnalyticsBundle {
   const perMonth = new Map<string, ReturnType<typeof emptyMonthSlots>>();
@@ -345,13 +361,14 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
 
   const rawKeys = [...perMonth.keys()].sort();
   const firstActivity = rawKeys.find((mk) => slotHasActivity(perMonth.get(mk)!));
-  const lastActivity = [...rawKeys].reverse().find((mk) => slotHasActivity(perMonth.get(mk)!));
+  const lastDealActivityMonth = [...rawKeys].reverse().find((mk) => slotHasActivity(perMonth.get(mk)!));
 
-  if (!firstActivity || !lastActivity) {
+  if (!firstActivity || !lastDealActivityMonth) {
     return { timelineMonthKeys: [], segments: [] };
   }
 
-  const timelineMonthKeys = enumerateMonthKeys(firstActivity, lastActivity);
+  const timelineEndMonth = maxMonthKey(lastDealActivityMonth, dealsSegmentAnalyticsCurrentMonthKey());
+  const timelineMonthKeys = enumerateMonthKeys(firstActivity, timelineEndMonth);
 
   const segmentTotals = DEALS_ANALYTICS_SEGMENT_KEYS.map((segment) => {
     let td = 0;
@@ -375,6 +392,7 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
         labelReadable: monthKeyReadable(mk),
         deals: cell.c,
         revenueRub: cell.s,
+        reportingTail: mk > lastDealActivityMonth,
       };
     });
 
@@ -402,7 +420,7 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
       peakRevIdx: peakRevenueMonthIndex,
       declineNote,
       timelineFirst: firstActivity,
-      timelineLast: lastActivity,
+      timelineLast: timelineEndMonth,
     });
 
     const analyticsWhy = WHY_COPY[segment];
