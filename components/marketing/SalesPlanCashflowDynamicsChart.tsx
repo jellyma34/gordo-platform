@@ -10,7 +10,12 @@ import {
   type CashflowChartRow,
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
-import { cashflowYAxisScale, formatCashShort, formatCashflowDynamicsChartLabel, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
+import {
+  cashflowYAxisScale,
+  formatCashflowMillionsLabel,
+  formatCashflowTooltipRub,
+  formatCashflowYAxisMlnRub,
+} from "@/lib/salesPlanChartFormat";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
@@ -25,146 +30,212 @@ import {
 } from "@/components/charting/rechartsClient";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
 
-function formatRubLabel(n: number): string {
-  return formatCashflowDynamicsChartLabel(n);
-}
-
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Минимальная сумма для подписи факта у точки (кроме последнего месяца) — жёсткий отбор. */
-const CASHFLOW_LABEL_MIN_RUB_FACT = 20_000_000;
-/** План — порог для «обычных» подписей (пики / max / конец / отклонение показываются всегда). */
-const CASHFLOW_PLAN_LABEL_MIN_RUB = 5_000_000;
-/** Не чаще чем раз в N месяцев по оси X для подписей значений (уменьшает наложения). */
-const CASHFLOW_LABEL_MIN_INDEX_GAP = 2;
+/** Постоянная подпись у точки только от 1 млн ₽; точные малые суммы — только в тултипе. */
+const CHART_LABEL_MIN_RUB = 1_000_000;
+/** Ярко выделенные точки: &gt; 5 млн ₽. */
+const CHART_LABEL_HIGHLIGHT_RUB = 5_000_000;
+/** Не больше подписей на одну линию (плотность). */
+const CHART_LABEL_MAX_PER_LINE = 7;
 const CHART_LABEL_FONT_PX = 11;
 const APPROX_LABEL_H_PX = CHART_LABEL_FONT_PX + 3;
 const CHART_MARGIN_TOP_LIGHT_LABELS = 40;
-/** Отступ снизу: ось X + запас под тики месяцев (подписи значений не заходят в эту зону). */
+/** Отступ снизу: ось X + запас под тики месяцев (подписи не заходят в зону подписей месяцев). */
 const CHART_MARGIN_BOTTOM = 32;
-/** Минимальный зазор (px) между низом области подписей значений и верхом зоны месяцев оси X. */
-const X_AXIS_LABEL_BAND_RESERVE = 40;
-/** Факт — выше точки, слева; план — выше точки, справа (без подписей под точкой — не заезжаем на ось X). */
+/** Запас над зоной тиков оси X (px), включая мобильные переносы. */
+const X_AXIS_LABEL_BAND_RESERVE = 44;
+/** Факт — подпись выше точки; план — ниже точки (разводка по вертикали). */
 const LABEL_OFFSET_FACT_ABOVE = 14;
-const LABEL_OFFSET_PLAN_ABOVE = 14;
+const LABEL_OFFSET_PLAN_BELOW = 14;
 const LABEL_FACT_DX = 10;
 const LABEL_PLAN_DX = 10;
-/** Если маркер близко к нулю (низ графика), дополнительно поднимаем подписи. */
+/** Если маркер близко к нулю (низ графика), поднимаем подпись факта. */
 const NEAR_X_AXIS_PX = 72;
 const NEAR_AXIS_LIFT_MAX = 28;
 
-function isMajorDeviationRow(row: CashflowChartRow): boolean {
-  if (row.fact == null || row.deviation == null) return false;
-  const m = Math.max(row.plan, row.fact, 1);
-  return Math.abs(row.deviation) >= CASHFLOW_LABEL_MIN_RUB_FACT || Math.abs(row.deviation) >= 0.22 * m;
+function prevDefinedNumber(arr: (number | null)[], i: number): number | null {
+  for (let j = i - 1; j >= 0; j--) {
+    const v = arr[j];
+    if (v != null && Number.isFinite(v)) return v;
+  }
+  return null;
 }
 
-function isStrictLocalPeak(arr: (number | null)[], i: number): boolean {
+function nextDefinedNumber(arr: (number | null)[], i: number): number | null {
+  for (let j = i + 1; j < arr.length; j++) {
+    const v = arr[j];
+    if (v != null && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/** Локальный максимум по ряду с пропусками null (факт). */
+function isLocalPeakSparse(arr: (number | null)[], i: number): boolean {
   const v = arr[i];
-  if (v == null || v <= 0) return false;
+  if (v == null || !Number.isFinite(v)) return false;
+  const L = prevDefinedNumber(arr, i);
+  const R = nextDefinedNumber(arr, i);
+  if (L == null && R == null) return true;
+  if (L == null) return v > R!;
+  if (R == null) return v > L;
+  return v > L && v > R;
+}
+
+function isLocalValleySparse(arr: (number | null)[], i: number): boolean {
+  const v = arr[i];
+  if (v == null || !Number.isFinite(v)) return false;
+  const L = prevDefinedNumber(arr, i);
+  const R = nextDefinedNumber(arr, i);
+  if (L == null && R == null) return true;
+  if (L == null) return v < R!;
+  if (R == null) return v < L;
+  return v < L && v < R;
+}
+
+/** Пик/впадина для плана (плотный ряд чисел). */
+function isLocalPeakDense(arr: number[], i: number): boolean {
+  const v = arr[i];
+  if (!Number.isFinite(v)) return false;
   const n = arr.length;
-  if (n === 1) return true;
-  const l = i > 0 ? arr[i - 1] : null;
-  const r = i < n - 1 ? arr[i + 1] : null;
-  const lv = i > 0 ? (l ?? 0) : Number.NEGATIVE_INFINITY;
-  const rv = i < n - 1 ? (r ?? 0) : Number.NEGATIVE_INFINITY;
+  const lv = i > 0 ? arr[i - 1]! : Number.NEGATIVE_INFINITY;
+  const rv = i < n - 1 ? arr[i + 1]! : Number.NEGATIVE_INFINITY;
   if (i === 0) return v > rv;
   if (i === n - 1) return v > lv;
   return v > lv && v > rv;
 }
 
-function argMaxIndexDefined(arr: (number | null)[]): number {
-  let bi = -1;
-  let bv = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < arr.length; i++) {
-    const v = arr[i];
-    if (v == null) continue;
-    if (v > bv) {
-      bv = v;
-      bi = i;
-    }
-  }
-  return bi;
+function isLocalValleyDense(arr: number[], i: number): boolean {
+  const v = arr[i];
+  if (!Number.isFinite(v)) return false;
+  const n = arr.length;
+  const lv = i > 0 ? arr[i - 1]! : Number.POSITIVE_INFINITY;
+  const rv = i < n - 1 ? arr[i + 1]! : Number.POSITIVE_INFINITY;
+  if (i === 0) return v < rv;
+  if (i === n - 1) return v < lv;
+  return v < lv && v < rv;
 }
 
-function cashflowPointLabelSets(chartData: CashflowChartRow[]): {
-  showFact: Set<number>;
-  showPlan: Set<number>;
-} {
-  const n = chartData.length;
-  const showFact = new Set<number>();
-  const showPlan = new Set<number>();
-  if (n === 0) return { showFact, showPlan };
+function firstDefinedFactIndex(facts: (number | null)[]): number {
+  for (let i = 0; i < facts.length; i++) {
+    if (facts[i] != null && Number.isFinite(facts[i]!)) return i;
+  }
+  return -1;
+}
 
+function lastDefinedFactIndex(facts: (number | null)[]): number {
+  for (let i = facts.length - 1; i >= 0; i--) {
+    if (facts[i] != null && Number.isFinite(facts[i]!)) return i;
+  }
+  return -1;
+}
+
+type LabelSeries = "fact" | "plan";
+
+type LabelCandidate = {
+  series: LabelSeries;
+  index: number;
+  valueRub: number;
+  priority: number;
+};
+
+function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
+  const n = chartData.length;
+  if (n === 0) return [];
   const facts = chartData.map((d) => d.fact);
-  const plans = chartData.map((d) => d.plan);
-  const maxFI = argMaxIndexDefined(facts);
-  const maxPI = argMaxIndexDefined(plans);
-  const last = n - 1;
+  const firstF = firstDefinedFactIndex(facts);
+  const lastF = lastDefinedFactIndex(facts);
+  const out: LabelCandidate[] = [];
 
   for (let i = 0; i < n; i++) {
-    const d = chartData[i]!;
-    const dev = isMajorDeviationRow(d);
-    const peakF = isStrictLocalPeak(facts, i);
-    const peakP = isStrictLocalPeak(plans, i);
+    const v = facts[i];
+    if (v == null || !Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
 
-    if (d.fact != null && d.fact !== 0) {
-      const showFactHere =
-        i === last ||
-        (d.fact >= CASHFLOW_LABEL_MIN_RUB_FACT &&
-          (peakF || (maxFI >= 0 && i === maxFI))) ||
-        dev;
-      if (showFactHere) showFact.add(i);
-    }
-    if (d.plan !== 0) {
-      const showPlanHere =
-        i === last ||
-        d.plan >= CASHFLOW_PLAN_LABEL_MIN_RUB ||
-        peakP ||
-        (maxPI >= 0 && i === maxPI) ||
-        dev;
-      if (showPlanHere) showPlan.add(i);
-    }
+    const peak = isLocalPeakSparse(facts, i);
+    const valley = isLocalValleySparse(facts, i);
+    const high = v > CHART_LABEL_HIGHLIGHT_RUB;
+    const endpoint = i === firstF || i === lastF;
+    if (!(peak || valley || high || endpoint)) continue;
+
+    let priority = v;
+    if (high) priority += 3e9;
+    if (endpoint) priority += 1.5e9;
+    if (peak || valley) priority += 8e8;
+    if (peak) priority += 2e6;
+    if (valley) priority += 1e6;
+
+    out.push({ series: "fact", index: i, valueRub: v, priority });
   }
-
-  return { showFact, showPlan };
+  return out;
 }
 
-/** Разрежает набор индексов подписей: между соседними не ближе `minGap`, последний месяц сохраняется при необходимости. */
-function applyMinGapToLabels(show: Set<number>, n: number, minGap: number): Set<number> {
-  if (n <= 0 || show.size === 0) return show;
+function buildPlanLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
+  const n = chartData.length;
+  if (n === 0) return [];
+  const plans = chartData.map((d) => d.plan);
   const last = n - 1;
-  const keepLast = show.has(last);
-  const sorted = [...show].filter((i) => i !== last).sort((a, b) => a - b);
-  const out = new Set<number>();
-  let prev = -1e9;
-  for (const i of sorted) {
-    if (i - prev >= minGap) {
-      out.add(i);
-      prev = i;
-    }
+  const out: LabelCandidate[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const v = plans[i]!;
+    if (!Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
+
+    const peak = isLocalPeakDense(plans, i);
+    const valley = isLocalValleyDense(plans, i);
+    const high = v > CHART_LABEL_HIGHLIGHT_RUB;
+    const endpoint = i === 0 || i === last;
+    if (!(peak || valley || high || endpoint)) continue;
+
+    let priority = v;
+    if (high) priority += 3e9;
+    if (endpoint) priority += 1.5e9;
+    if (peak || valley) priority += 8e8;
+    if (peak) priority += 2e6;
+    if (valley) priority += 1e6;
+
+    out.push({ series: "plan", index: i, valueRub: v, priority });
   }
-  if (keepLast) out.add(last);
   return out;
+}
+
+function capLabelCandidates(cands: LabelCandidate[], maxN: number): LabelCandidate[] {
+  if (cands.length <= maxN) return cands;
+  return [...cands].sort((a, b) => b.priority - a.priority).slice(0, maxN);
 }
 
 function approxLabelWidthPx(text: string, fontPx: number): number {
   return Math.max(fontPx * 2, text.length * fontPx * 0.58);
 }
 
-function centeredRectsOverlap(
-  ax: number,
-  ay: number,
-  aw: number,
-  ah: number,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number,
-): boolean {
-  return Math.abs(ax - bx) < (aw + bw) / 2 && Math.abs(ay - by) < (ah + bh) / 2;
+const LABEL_COLLISION_PAD_X = 4;
+const LABEL_COLLISION_PAD_Y = 3;
+
+type LabelBBox = { left: number; top: number; right: number; bottom: number };
+
+function labelBBoxFact(factX: number, factY: number, wf: number, hf: number): LabelBBox {
+  const halfH = hf / 2;
+  return {
+    left: factX - wf - LABEL_COLLISION_PAD_X,
+    top: factY - halfH - LABEL_COLLISION_PAD_Y,
+    right: factX + LABEL_COLLISION_PAD_X,
+    bottom: factY + halfH + LABEL_COLLISION_PAD_Y,
+  };
+}
+
+function labelBBoxPlan(planX: number, planY: number, wp: number, hf: number): LabelBBox {
+  const halfH = hf / 2;
+  return {
+    left: planX - LABEL_COLLISION_PAD_X,
+    top: planY - halfH - LABEL_COLLISION_PAD_Y,
+    right: planX + wp + LABEL_COLLISION_PAD_X,
+    bottom: planY + halfH + LABEL_COLLISION_PAD_Y,
+  };
+}
+
+function bboxesOverlap(a: LabelBBox, b: LabelBBox): boolean {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 }
 
 function CashflowTooltip({
@@ -192,12 +263,12 @@ function CashflowTooltip({
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
         {row.fact != null ? (
           <>
-            <span className="text-[#1e40af]">Факт: {formatRubLabel(row.fact)}</span>
+            <span className="text-[#1e40af]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
             <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
-            <span className="text-orange-500">План: {formatRubLabel(row.plan)}</span>
+            <span className="text-orange-500">План: {formatCashflowTooltipRub(row.plan)}</span>
           </>
         ) : (
-          <span className="text-orange-500">План: {formatRubLabel(row.plan)}</span>
+          <span className="text-orange-500">План: {formatCashflowTooltipRub(row.plan)}</span>
         )}
       </div>
       {row.fact != null && row.deviation != null ? (
@@ -205,7 +276,7 @@ function CashflowTooltip({
           className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : mplPremium ? "border-black/[0.06]" : "border-mpl-border"}`}
         >
           <span className={darkChrome ? "text-slate-400" : "text-mpl-muted"}>Отклонение</span>
-          <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatRubLabel(row.deviation)}</span>
+          <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatCashflowTooltipRub(row.deviation)}</span>
         </div>
       ) : null}
     </div>
@@ -235,114 +306,162 @@ function CashflowDynamicsSvgLabels({
   const fontWeight = presLight ? 400 : 500;
   const opacity = presLight ? 0.9 : 1;
 
-  const { showFact, showPlan } = useMemo(() => {
-    const raw = cashflowPointLabelSets(chartData);
-    const n = chartData.length;
-    return {
-      showFact: applyMinGapToLabels(raw.showFact, n, CASHFLOW_LABEL_MIN_INDEX_GAP),
-      showPlan: applyMinGapToLabels(raw.showPlan, n, CASHFLOW_LABEL_MIN_INDEX_GAP),
+  const factCapped = useMemo(
+    () => capLabelCandidates(buildFactLabelCandidates(chartData), CHART_LABEL_MAX_PER_LINE),
+    [chartData],
+  );
+  const planCapped = useMemo(
+    () => capLabelCandidates(buildPlanLabelCandidates(chartData), CHART_LABEL_MAX_PER_LINE),
+    [chartData],
+  );
+
+  const placedLabels = useMemo(() => {
+    if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
+      return [] as Array<{
+        key: string;
+        series: LabelSeries;
+        x: number;
+        y: number;
+        text: string;
+        textAnchor: "start" | "end";
+      }>;
+    }
+
+    const halfH = APPROX_LABEL_H_PX / 2;
+    const plotBottomY = plot && plot.height > 0 ? plot.y + plot.height : chartH - CHART_MARGIN_BOTTOM;
+    const labelBandTop = plotBottomY - X_AXIS_LABEL_BAND_RESERVE;
+    /** Центр подписи факта (над точкой) не ниже этой линии — не наезжаем на подписи месяцев оси X. */
+    const factCenterYMax = labelBandTop - halfH;
+    /** Центр подписи плана (под точкой) не ниже этой линии. */
+    const planCenterYMax = labelBandTop - halfH;
+    const padX = 8;
+    const padTop = 8;
+
+    function proximityLiftFromAxis(yPt: number): number {
+      const dist = plotBottomY - yPt;
+      if (dist >= NEAR_X_AXIS_PX) return 0;
+      return NEAR_AXIS_LIFT_MAX * (1 - Math.max(0, dist) / NEAR_X_AXIS_PX);
+    }
+
+    type Resolved = {
+      key: string;
+      series: LabelSeries;
+      priority: number;
+      x: number;
+      y: number;
+      text: string;
+      textAnchor: "start" | "end";
     };
-  }, [chartData]);
+
+    const merged = [...factCapped, ...planCapped].sort((a, b) => b.priority - a.priority);
+    const accepted: Resolved[] = [];
+    const keptBoxes: LabelBBox[] = [];
+
+    for (const c of merged) {
+      const row = chartData[c.index]!;
+      const n = chartData.length;
+      let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
+      if (cx == null && plot && n > 0) {
+        cx = plot.x + ((c.index + 0.5) / n) * plot.width;
+      }
+      if (cx == null) continue;
+
+      const yPlanPt = yScale(row.plan);
+      if (yPlanPt == null) continue;
+      const yFactPt = row.fact != null ? yScale(row.fact) : null;
+
+      const liftP = proximityLiftFromAxis(yPlanPt);
+      const liftF = yFactPt != null ? proximityLiftFromAxis(yFactPt) : 0;
+
+      const chartLabelText = formatCashflowMillionsLabel(c.valueRub, false);
+      const w = approxLabelWidthPx(chartLabelText, CHART_LABEL_FONT_PX);
+      const h = APPROX_LABEL_H_PX;
+
+      let box: LabelBBox | null = null;
+      let resolved: Resolved | null = null;
+
+      if (c.series === "fact") {
+        if (row.fact == null || yFactPt == null) continue;
+        let factX = cx - LABEL_FACT_DX;
+        let factY = yFactPt - LABEL_OFFSET_FACT_ABOVE - liftF;
+        factX = clamp(factX, padX + w, chartW - padX);
+        factY = clamp(factY, padTop + halfH, factCenterYMax);
+        box = labelBBoxFact(factX, factY, w, h);
+        resolved = {
+          key: `fact-${row.periodKey}-${c.index}`,
+          series: "fact",
+          priority: c.priority,
+          x: factX,
+          y: factY,
+          text: chartLabelText,
+          textAnchor: "end",
+        };
+      } else {
+        let planX = cx + LABEL_PLAN_DX;
+        let planY = yPlanPt + LABEL_OFFSET_PLAN_BELOW - liftP;
+        planX = clamp(planX, padX, chartW - padX - w);
+        const planYMin = yPlanPt + 10;
+        if (planYMin > planCenterYMax) continue;
+        planY = clamp(planY, planYMin, planCenterYMax);
+        box = labelBBoxPlan(planX, planY, w, h);
+        resolved = {
+          key: `plan-${row.periodKey}-${c.index}`,
+          series: "plan",
+          priority: c.priority,
+          x: planX,
+          y: planY,
+          text: chartLabelText,
+          textAnchor: "start",
+        };
+      }
+
+      if (!box || !resolved) continue;
+
+      let overlaps = false;
+      for (const kb of keptBoxes) {
+        if (bboxesOverlap(box, kb)) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+
+      keptBoxes.push(box);
+      accepted.push(resolved);
+    }
+
+    return accepted.map((r) => ({
+      key: r.key,
+      series: r.series,
+      x: r.x,
+      y: r.y,
+      text: r.text,
+      textAnchor: r.textAnchor,
+    }));
+  }, [chartData, factCapped, planCapped, xScale, yScale, chartW, chartH, plot]);
 
   if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
     return null;
   }
 
-  const halfH = APPROX_LABEL_H_PX / 2;
-  const plotBottomY = plot && plot.height > 0 ? plot.y + plot.height : chartH - CHART_MARGIN_BOTTOM;
-  /** Верхняя граница центра подписи (в координатах SVG): не опускаем в полосу тиков месяцев оси X. */
-  const labelCenterYMax = plotBottomY - X_AXIS_LABEL_BAND_RESERVE - halfH;
-
-  const padX = 8;
-  const padTop = 8;
-
-  function proximityLiftFromAxis(yPt: number): number {
-    const dist = plotBottomY - yPt;
-    if (dist >= NEAR_X_AXIS_PX) return 0;
-    return NEAR_AXIS_LIFT_MAX * (1 - Math.max(0, dist) / NEAR_X_AXIS_PX);
-  }
-
   return (
     <g pointerEvents="none">
-      {chartData.map((row, i) => {
-        const n = chartData.length;
-        let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
-        if (cx == null && plot && n > 0) {
-          cx = plot.x + ((i + 0.5) / n) * plot.width;
-        }
-        const yPlanPt = yScale(row.plan);
-        if (cx == null || yPlanPt == null) return null;
-        const yFactPt = row.fact != null ? yScale(row.fact) : null;
-
-        const showF = showFact.has(i);
-        const showP = showPlan.has(i);
-
-        const liftP = proximityLiftFromAxis(yPlanPt);
-        const liftF = yFactPt != null ? proximityLiftFromAxis(yFactPt) : 0;
-        let factY = yFactPt != null ? yFactPt - LABEL_OFFSET_FACT_ABOVE - liftF : 0;
-        let planY = yPlanPt - LABEL_OFFSET_PLAN_ABOVE - liftP;
-
-        let factX = cx - LABEL_FACT_DX;
-        let planX = cx + LABEL_PLAN_DX;
-
-        const factText = showF && row.fact != null ? formatCashShort(row.fact) : "";
-        const planText = showP ? formatCashShort(row.plan) : "";
-        if (!factText && !planText) return null;
-
-        const wf = factText ? approxLabelWidthPx(factText, CHART_LABEL_FONT_PX) : 0;
-        const wp = planText ? approxLabelWidthPx(planText, CHART_LABEL_FONT_PX) : 0;
-        const hf = APPROX_LABEL_H_PX;
-        const hp = APPROX_LABEL_H_PX;
-
-        factX = clamp(factX, padX + wf, chartW - padX);
-        planX = clamp(planX, padX, chartW - padX - wp);
-        factY = clamp(factY, padTop + halfH, labelCenterYMax);
-        planY = clamp(planY, padTop + halfH, labelCenterYMax);
-
-        if (factText && planText) {
-          const factCx = factX - wf / 2;
-          const planCx = planX + wp / 2;
-          if (centeredRectsOverlap(factCx, factY, wf, hf, planCx, planY, wp, hp)) {
-            factY = clamp(factY - 10, padTop + halfH, labelCenterYMax);
-            planY = clamp(planY - 6, padTop + halfH, labelCenterYMax);
-          }
-        }
-
-        return (
-          <g key={`${row.periodKey}-${i}`}>
-            {factText ? (
-              <text
-                x={factX}
-                y={factY}
-                textAnchor="end"
-                dominantBaseline="middle"
-                fill={factFill}
-                fontSize={CHART_LABEL_FONT_PX}
-                fontWeight={fontWeight}
-                opacity={opacity}
-                className="tabular-nums"
-              >
-                {factText}
-              </text>
-            ) : null}
-            {planText ? (
-              <text
-                x={planX}
-                y={planY}
-                textAnchor="start"
-                dominantBaseline="middle"
-                fill={planFill}
-                fontSize={CHART_LABEL_FONT_PX}
-                fontWeight={fontWeight}
-                opacity={opacity}
-                className="tabular-nums"
-              >
-                {planText}
-              </text>
-            ) : null}
-          </g>
-        );
-      })}
+      {placedLabels.map((L) => (
+        <text
+          key={L.key}
+          x={L.x}
+          y={L.y}
+          textAnchor={L.textAnchor}
+          dominantBaseline="middle"
+          fill={L.series === "fact" ? factFill : planFill}
+          fontSize={CHART_LABEL_FONT_PX}
+          fontWeight={fontWeight}
+          opacity={opacity}
+          className="tabular-nums"
+        >
+          {L.text}
+        </text>
+      ))}
     </g>
   );
 }

@@ -58,6 +58,18 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
 }
 
 /**
+ * Тултип поступлений: &lt; 1 млн — полная сумма в ₽ (без дробных «млн»);
+ * от 1 млн — те же правила, что {@link formatCashflowDynamicsChartLabel}.
+ */
+export function formatCashflowTooltipRub(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  if (Math.abs(n) < 1_000_000) {
+    return rubFmt.format(Math.round(n));
+  }
+  return formatCashflowDynamicsChartLabel(n);
+}
+
+/**
  * @deprecated Используйте {@link formatCashflowMillionsLabel}; оставлено как алиас для подписей точек.
  * Короткая форма без «₽» в конце (единицы в заголовке графика).
  */
