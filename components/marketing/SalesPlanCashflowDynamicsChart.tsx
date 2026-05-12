@@ -391,8 +391,8 @@ function CashflowDynamicsWorkModeCalculationExplain() {
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-400/90" aria-hidden />
               <span>
-                Источник: загруженный в рабочем режиме <span className="font-medium text-slate-900">CSV графика платежей</span>{" "}
-                панели плана продаж.
+                Источник: отдельный <span className="font-medium text-slate-900">CSV графика платежей</span> (платёжный
+                календарь), без файла факта поступлений.
               </span>
             </li>
           </ul>
@@ -405,17 +405,23 @@ function CashflowDynamicsWorkModeCalculationExplain() {
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
               <span>
-                <span className="font-medium text-slate-900">Помесячный факт поступлений</span> — сумма по строкам
-                сделок только в колонках CSV, где в заголовке есть{" "}
-                <span className="font-medium text-slate-900">«зайдет»</span>, с распознаванием месяца и года в этом же
-                заголовке. Колонки без «зайдет», сальдо, накопления и долг не используются; значения не пересчитываются и не
-                сглаживаются — на графике сумма чисел из ячеек столбца.
+                Источник: отдельный <span className="font-medium text-slate-900">CSV факта поступлений</span> (отчёт о
+                притоке), не смешивается с CSV плана.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
               <span>
-                Если в файле нет колонок «зайдет …» с месяцем и годом, линия факта не строится.
+                <span className="font-medium text-slate-900">Помесячный факт</span> — колонки «зайдет …» с месяцем и годом
+                в заголовке; значение месяца — из <span className="font-medium text-slate-900">нижней строки итогов</span>{" "}
+                (итого/всего), без суммирования строк сделок и без колонок «План …».
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
+              <span>
+                Если в файле факта нет колонок «зайдет …» с месяцем и годом (или нет строки итогов), линия факта не
+                строится.
               </span>
             </li>
           </ul>
@@ -434,7 +440,7 @@ function CashflowDynamicsWorkModeCalculationExplain() {
           <div className={formulaCard}>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Помесячный факт</div>
             <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight text-slate-900 tabular-nums">
-              Fact_month = Σ(строки сделок) по колонке «зайдет» за месяц
+              Fact_month = ячейка итогов по колонке «зайдет» за месяц
             </p>
           </div>
           <div className={formulaCard}>
@@ -539,7 +545,7 @@ export function SalesPlanCashflowDynamicsChart({
           </h3>
           <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
             {planSourceNote ??
-              "План и факт — из загруженного CSV (колонки «План …» и явные колонки помесячного притока)."}
+              "План — из CSV графика платежей; факт — из отдельного CSV поступлений (колонки «зайдет …», итоговая строка)."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">

@@ -25,13 +25,21 @@ export function marketingPaymentPlanRawCsvPath(projectId: string): string {
   return path.join(MARKETING_PAYMENT_PLAN_DIR, `${sanitizeMarketingPaymentPlanProjectId(projectId)}.raw.csv`);
 }
 
+export function marketingPaymentPlanRawPlanCsvPath(projectId: string): string {
+  return path.join(MARKETING_PAYMENT_PLAN_DIR, `${sanitizeMarketingPaymentPlanProjectId(projectId)}.plan.raw.csv`);
+}
+
+export function marketingPaymentPlanRawFactCsvPath(projectId: string): string {
+  return path.join(MARKETING_PAYMENT_PLAN_DIR, `${sanitizeMarketingPaymentPlanProjectId(projectId)}.fact.raw.csv`);
+}
+
 export type MarketingPaymentPlanMeta = {
   fileName: string;
   uploadedAt: string;
   uploadedBy: string;
 };
 
-/** Актуальная версия: план и факт поступлений раздельно (факт только из явных колонок CSV). */
+/** Актуальная версия: план и факт — из разных CSV; метаданные файлов раздельно. */
 export type MarketingPaymentPlanFileV2 = {
   v: 2;
   projectId: string;
@@ -45,7 +53,12 @@ export type MarketingPaymentPlanFileV2 = {
   zaydetColumnDebug?: MarketingPaymentZaydetColumnDebugRow[];
   /** Помесячная сверка: сумма по CSV vs значение в графике. */
   zaydetMonthVerify?: MarketingPaymentZaydetMonthVerifyRow[];
+  /** Совместимость: раньше один файл задавал и план, и факт. */
   meta: MarketingPaymentPlanMeta;
+  /** Файл графика платежей (план). Если нет — берётся `meta` при отображении. */
+  planMeta?: MarketingPaymentPlanMeta | null;
+  /** Файл отчёта о фактических поступлениях. */
+  factMeta?: MarketingPaymentPlanMeta | null;
 };
 
 /**
@@ -70,6 +83,20 @@ export function normalizeMarketingPaymentPlanDoc(raw: unknown): MarketingPayment
   if (o.v === 2 && o.planByPeriodKey && typeof o.planByPeriodKey === "object") {
     const plan = o.planByPeriodKey as Record<string, number>;
     const fact = o.factByPeriodKey;
+    const planMetaRaw = o.planMeta as MarketingPaymentPlanMeta | null | undefined;
+    const factMetaRaw = o.factMeta as MarketingPaymentPlanMeta | null | undefined;
+    const planMeta =
+      planMetaRaw && typeof planMetaRaw === "object" && typeof planMetaRaw.fileName === "string"
+        ? planMetaRaw
+        : Object.keys(plan).length > 0
+          ? meta
+          : null;
+    const factMeta =
+      factMetaRaw && typeof factMetaRaw === "object" && typeof factMetaRaw.fileName === "string"
+        ? factMetaRaw
+        : fact != null && typeof fact === "object" && Object.keys(fact as Record<string, number>).length > 0
+          ? meta
+          : null;
     return {
       v: 2,
       projectId: String(o.projectId ?? "default"),
@@ -111,6 +138,8 @@ export function normalizeMarketingPaymentPlanDoc(raw: unknown): MarketingPayment
           })
         : [],
       meta,
+      planMeta,
+      factMeta,
     };
   }
 
@@ -128,6 +157,8 @@ export function normalizeMarketingPaymentPlanDoc(raw: unknown): MarketingPayment
       zaydetColumnDebug: [],
       zaydetMonthVerify: [],
       meta,
+      planMeta: meta,
+      factMeta: null,
     };
   }
 
