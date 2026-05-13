@@ -1,14 +1,13 @@
 "use client";
 
-import { Building2, Car, CircleHelp, Package, ShoppingBag, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import {
-  DEAL_SEGMENT_LABEL_RU,
   groupDealsBySegment,
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
+import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import { marketingMockData } from "@/lib/marketingMockData";
@@ -27,22 +26,6 @@ function segmentKpiGridLgClass(cardCount: number): string {
   return "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
 }
 
-const SEGMENT_ICONS: Record<DealSegmentKey, LucideIcon> = {
-  apartment: Building2,
-  parking: Car,
-  storage: Package,
-  commercial: ShoppingBag,
-  other: CircleHelp,
-};
-
-const SEGMENT_ICON_CLASS: Record<DealSegmentKey, string> = {
-  apartment: "text-indigo-500",
-  parking: "text-purple-500",
-  storage: "text-cyan-500",
-  commercial: "text-orange-500",
-  other: "text-slate-400",
-};
-
 /**
  * Визуал сегментов = та же база, что KPI (SalesPlanKpiDashboard): тройной градиент,
  * shadow 14px/36px, inset, radial сверху-слева; без жёсткой рамки — акцент через свечение.
@@ -57,7 +40,6 @@ type SegmentVisual = {
   sheen: string;
   /** Заливка микро-бара доли выручки */
   barFill: string;
-  label: string;
   value: string;
   tertiary: string;
 };
@@ -71,7 +53,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.28), transparent 52%)",
     sheen: "linear-gradient(125deg, rgba(129,140,248,0.22) 0%, transparent 42%, rgba(255,255,255,0.04) 100%)",
     barFill: "rgba(129, 140, 248, 0.92)",
-    label: "text-indigo-300/90",
     value: "text-indigo-50",
     tertiary: "text-slate-500/85",
   },
@@ -83,7 +64,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.26), transparent 52%)",
     sheen: "linear-gradient(125deg, rgba(167,139,250,0.2) 0%, transparent 42%, rgba(255,255,255,0.035) 100%)",
     barFill: "rgba(167, 139, 250, 0.9)",
-    label: "text-violet-300/90",
     value: "text-violet-50",
     tertiary: "text-slate-500/85",
   },
@@ -95,7 +75,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(103,232,249,0.14), transparent 52%)",
     sheen: "linear-gradient(125deg, rgba(148,163,184,0.14) 0%, transparent 45%, rgba(103,232,249,0.08) 100%)",
     barFill: "rgba(103, 232, 249, 0.55)",
-    label: "text-slate-400",
     value: "text-slate-100",
     tertiary: "text-slate-500/80",
   },
@@ -107,7 +86,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.26), transparent 52%)",
     sheen: "linear-gradient(125deg, rgba(251,146,60,0.22) 0%, transparent 40%, rgba(248,113,113,0.08) 100%)",
     barFill: "rgba(251, 146, 60, 0.95)",
-    label: "text-orange-300/90",
     value: "text-orange-50",
     tertiary: "text-slate-500/85",
   },
@@ -119,7 +97,6 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.12), transparent 52%)",
     sheen: "linear-gradient(125deg, rgba(148,163,184,0.16) 0%, transparent 45%, rgba(255,255,255,0.03) 100%)",
     barFill: "rgba(148, 163, 184, 0.75)",
-    label: "text-slate-400/95",
     value: "text-slate-50",
     tertiary: "text-slate-500/80",
   },
@@ -134,7 +111,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.24), transparent 55%)",
     sheen: "linear-gradient(125deg, rgba(129,140,248,0.18) 0%, transparent 50%, rgba(255,255,255,0.5) 100%)",
     barFill: "rgba(79, 70, 229, 0.88)",
-    label: "text-indigo-700/90",
     value: "text-indigo-950",
     tertiary: "text-slate-500",
   },
@@ -146,7 +122,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.22), transparent 55%)",
     sheen: "linear-gradient(125deg, rgba(167,139,250,0.16) 0%, transparent 50%, rgba(255,255,255,0.45) 100%)",
     barFill: "rgba(124, 58, 237, 0.82)",
-    label: "text-violet-800/90",
     value: "text-violet-950",
     tertiary: "text-slate-500",
   },
@@ -158,7 +133,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(34,211,238,0.12), transparent 55%)",
     sheen: "linear-gradient(125deg, rgba(148,163,184,0.12) 0%, transparent 50%, rgba(236,254,255,0.6) 100%)",
     barFill: "rgba(8, 145, 178, 0.65)",
-    label: "text-slate-600",
     value: "text-slate-900",
     tertiary: "text-slate-500",
   },
@@ -170,7 +144,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.22), transparent 55%)",
     sheen: "linear-gradient(125deg, rgba(251,146,60,0.16) 0%, transparent 48%, rgba(254,215,170,0.5) 100%)",
     barFill: "rgba(234, 88, 12, 0.88)",
-    label: "text-orange-800/90",
     value: "text-orange-950",
     tertiary: "text-slate-500",
   },
@@ -182,7 +155,6 @@ const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
     radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.16), transparent 55%)",
     sheen: "linear-gradient(125deg, rgba(148,163,184,0.1) 0%, transparent 52%, rgba(248,250,252,0.7) 100%)",
     barFill: "rgba(100, 116, 139, 0.55)",
-    label: "text-slate-600",
     value: "text-slate-900",
     tertiary: "text-slate-500",
   },
@@ -274,7 +246,6 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
     const grouped = groupDealsBySegment(filteredRows);
     const out: Array<{
       key: DealSegmentKey;
-      title: string;
       count: number;
       sum: number;
       avg: number;
@@ -287,7 +258,6 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
       const count = list.length;
       out.push({
         key,
-        title: DEAL_SEGMENT_LABEL_RU[key],
         count,
         sum,
         avg: count > 0 ? sum / count : 0,
@@ -342,14 +312,14 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
               ? SEGMENT_VISUAL_PREMIUM[c.key]
               : SEGMENT_VISUAL_WORK[c.key];
           const sharePct = Math.min(100, Math.max(0, c.share * 100));
-          const SegmentIcon = SEGMENT_ICONS[c.key];
-          const iconWrapCls = presDark
-            ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/10 backdrop-blur-[6px] ring-1 ring-white/10"
+          const iconWrapTone = presDark
+            ? "dark"
             : mplPremium && presentation
-              ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/70 backdrop-blur-[6px] ring-1 ring-black/[0.05]"
+              ? "premium"
               : presentation
-                ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-black/[0.06]"
-                : "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-slate-200/80";
+                ? "presentation"
+                : "work";
+          const labelTone = presDark ? "dark" : "work";
           return (
             <div key={c.key} className="flex h-full min-h-0 min-w-0 flex-col">
               <div
@@ -373,12 +343,12 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   aria-hidden
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
-                  <div className="mb-1 flex min-w-0 items-center gap-2">
-                    <div className={iconWrapCls} aria-hidden>
-                      <SegmentIcon className={`h-4 w-4 shrink-0 ${SEGMENT_ICON_CLASS[c.key]}`} strokeWidth={2} />
-                    </div>
-                    <span className={`min-w-0 text-[11px] uppercase tracking-wide ${vs.label}`}>{c.title}</span>
-                  </div>
+                  <MarketingDealSegmentHeader
+                    segment={c.key}
+                    iconWrapTone={iconWrapTone}
+                    labelTone={labelTone}
+                    className="mb-1"
+                  />
                   <div className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
                     <span className="tabular-nums">{numFmt.format(c.count)}</span>
                     <span className="opacity-70"> шт</span>

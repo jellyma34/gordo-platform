@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as parseDealsEnvelopeShape } from "@/lib/marketingDealsInputShape";
 import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
+import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
 /** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
@@ -85,21 +86,6 @@ function segmentKpiCardClass(variant: SegmentKpiVisualVariant): string {
       return "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
     case "commercial":
       return "rounded-xl border border-amber-400/75 bg-gradient-to-b from-amber-50/95 to-white p-4 shadow-sm ring-1 ring-amber-200/45";
-    default:
-      return "";
-  }
-}
-
-function segmentKpiTitleClass(variant: SegmentKpiVisualVariant): string {
-  switch (variant) {
-    case "apartment":
-      return "text-base font-bold text-indigo-950";
-    case "parking":
-      return "text-sm font-semibold text-slate-800";
-    case "storage":
-      return "text-sm font-semibold text-slate-800";
-    case "commercial":
-      return "text-base font-bold text-amber-950";
     default:
       return "";
   }
@@ -1435,7 +1421,6 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
         return {
           key,
           variant,
-          label: OBJECT_TYPE_LABEL_RU[key],
           count,
           sum,
           avgCheck: count > 0 ? sum / count : 0,
@@ -1745,9 +1730,11 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-              {segmentKpiRows.map((row) => (
+              {segmentKpiRows.map((row) => {
+                const segmentKey: DealSegmentKey = row.key === "unknown" ? "other" : row.key;
+                return (
                 <div key={row.key} className={segmentKpiCardClass(row.variant)}>
-                  <div className={segmentKpiTitleClass(row.variant)}>{row.label}</div>
+                  <MarketingDealSegmentHeader segment={segmentKey} iconWrapTone="work" labelTone="work" />
                   <div className="mt-4 space-y-4">
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Сделок</div>
@@ -1773,7 +1760,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import {
   buildDealsSegmentAnalyticsBundle,
@@ -277,7 +278,6 @@ function SegmentAnalyticsCard({
 }) {
   const skin = SEGMENT_CARD_SKIN[model.segment];
   const wrap = presDark ? skin.dark : mplPremium && presentation ? skin.premium : skin.work;
-  const titleCls = presDark ? skin.titleDark : skin.titleLight;
   const mutedCls = presDark ? skin.mutedDark : skin.mutedLight;
   const statValueCls = presDark ? "text-slate-50" : "text-slate-900";
   const bodyCls = presDark ? "text-slate-300/95" : "text-slate-700";
@@ -297,7 +297,14 @@ function SegmentAnalyticsCard({
 
       <div className={`relative flex flex-col ${stackGap}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h4 className={`text-sm font-bold tracking-tight ${titleCls}`}>{model.label}</h4>
+          <MarketingDealSegmentHeader
+            segment={model.segment}
+            iconWrapTone={
+              presDark ? "dark" : mplPremium && presentation ? "premium" : presentation ? "presentation" : "work"
+            }
+            labelTone={presDark ? "dark" : "work"}
+            className="min-w-0 flex-1 pr-2"
+          />
           <span
             className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold ${trendPillClass(model.trendLabel, presDark)}`}
           >
