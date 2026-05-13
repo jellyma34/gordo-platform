@@ -5,7 +5,6 @@ import { useMemo } from "react";
 import {
   DEALS_LABEL_EM_DASH,
   DEALS_LABEL_UNSPECIFIED,
-  type DealBuyerPaymentCategory,
   type DealBuyerProfile,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
@@ -42,21 +41,6 @@ function displayBuyerName(r: NormalizedDealRow): string {
   const c = r.clientLabel?.trim();
   if (c && c !== DEALS_LABEL_UNSPECIFIED) return c;
   return DEALS_LABEL_EM_DASH;
-}
-
-function paymentCategoryRu(c: DealBuyerPaymentCategory | null | undefined): string {
-  switch (c) {
-    case "mortgage":
-      return "Ипотека";
-    case "installment":
-      return "Рассрочка";
-    case "cash":
-      return "Наличные / полная оплата";
-    case "mixed":
-      return "Смешанная";
-    default:
-      return "";
-  }
 }
 
 function DistributionBar({ label, pct, color }: { label: string; pct: number; color: string }) {
@@ -264,43 +248,42 @@ export function MarketingDealsBuyerParamsPanel({ rows, loading }: Props) {
       <div>
         <div className={TABLE_SHELL}>
           <div className="max-h-[min(520px,68vh)] w-full overflow-auto">
-            <table className="min-w-[720px] w-full border-collapse text-left text-[13px]">
-              <thead className="sticky top-0 z-[1] border-b border-slate-200/90 bg-slate-50/95 backdrop-blur-sm">
-                <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                  <th className="px-4 py-2.5 font-medium">Покупатель</th>
-                  <th className="px-4 py-2.5 font-medium">Тип</th>
-                  <th className="px-4 py-2.5 font-medium">Город</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Возраст</th>
-                  <th className="px-4 py-2.5 font-medium">Способ покупки</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Бюджет</th>
+            <table className="w-full min-w-0 table-fixed border-collapse text-left text-[13px]">
+              <colgroup>
+                <col />
+                <col style={{ width: "3.5rem" }} />
+                <col style={{ width: "8rem" }} />
+              </colgroup>
+              <thead className="sticky top-0 z-[1] border-b border-slate-200/80 bg-slate-50/[0.97] backdrop-blur-sm">
+                <tr className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <th className="px-4 py-2.5 pl-4 pr-2 text-left font-medium">Покупатель</th>
+                  <th className="px-2 py-2.5 text-right font-medium tabular-nums">Возраст</th>
+                  <th className="px-4 py-2.5 pl-2 pr-4 text-right font-medium tabular-nums">Бюджет</th>
                 </tr>
               </thead>
               <tbody>
                 {slice.map((r, idx) => {
                   const bp: DealBuyerProfile = r.buyerProfile;
                   const age = buyerAgeYearsFromYmd(bp.birthDate);
-                  const pay =
-                    bp.paymentLabel?.trim() ||
-                    (bp.paymentCategory && bp.paymentCategory !== "unknown" ? paymentCategoryRu(bp.paymentCategory) : "") ||
-                    DEALS_LABEL_EM_DASH;
                   const budgetDisp =
                     bp.budgetRub != null && bp.budgetRub > 0 ? formatDealObjectTotalCompactRub(bp.budgetRub) : DEALS_LABEL_EM_DASH;
                   const phoneM = maskPhoneDisplay(bp.phone);
                   const emailM = maskEmailDisplay(bp.email);
                   const contactLine = [phoneM, emailM].filter(Boolean).join(" · ");
                   return (
-                    <tr key={`${r.dealDateMs}-${displayBuyerName(r)}-${idx}`} className="border-b border-slate-100/90 hover:bg-slate-50/80">
-                      <td className="px-4 py-2 align-top text-slate-900">
-                        <div className="font-semibold leading-snug">{displayBuyerName(r)}</div>
-                        {contactLine ? <div className="mt-0.5 font-mono text-[10px] text-slate-500">{contactLine}</div> : null}
+                    <tr key={`${r.dealDateMs}-${displayBuyerName(r)}-${idx}`} className="border-b border-slate-100/80 transition-colors hover:bg-slate-50/90">
+                      <td className="min-w-0 px-4 py-2.5 pl-4 pr-2 align-top">
+                        <div className="text-[13px] font-semibold leading-snug tracking-tight text-slate-900">{displayBuyerName(r)}</div>
+                        {contactLine ? (
+                          <div className="mt-1 font-mono text-[10px] leading-relaxed text-slate-500">{contactLine}</div>
+                        ) : null}
                       </td>
-                      <td className="px-4 py-2 text-slate-700">{bp.buyerType?.trim() || DEALS_LABEL_EM_DASH}</td>
-                      <td className="px-4 py-2 text-slate-700">{bp.city?.trim() || DEALS_LABEL_EM_DASH}</td>
-                      <td className="px-4 py-2 text-right tabular-nums text-slate-800">{age != null ? String(age) : DEALS_LABEL_EM_DASH}</td>
-                      <td className="max-w-[200px] px-4 py-2 text-slate-700">
-                        <span className="break-words">{pay}</span>
+                      <td className="whitespace-nowrap px-2 py-2.5 text-right text-[12px] tabular-nums text-slate-700">
+                        {age != null ? String(age) : DEALS_LABEL_EM_DASH}
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900">{budgetDisp}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 pl-2 pr-4 text-right text-[12px] font-medium tabular-nums tracking-tight text-slate-900">
+                        {budgetDisp}
+                      </td>
                     </tr>
                   );
                 })}

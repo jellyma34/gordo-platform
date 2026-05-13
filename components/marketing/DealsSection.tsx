@@ -836,6 +836,16 @@ export function dealObjectPricePerM2(price: number | null, areaTotal: number | n
   return Math.round(price / areaTotal);
 }
 
+/** Колонку ₽/м² в таблице параметров объекта показываем только если в срезе есть хотя бы одна квартира. */
+export function dealRowsIncludeApartmentsForPricePerM2Table(rows: readonly Pick<NormalizedDealRow, "dealType">[]): boolean {
+  return rows.some((r) => r.dealType === "apartment");
+}
+
+/** Значение ₽/м² в таблице — только для строки с сегментом «квартира». */
+export function dealRowShowsPricePerM2Cell(row: Pick<NormalizedDealRow, "dealType">): boolean {
+  return row.dealType === "apartment";
+}
+
 /** Стоимость для аналитики объекта: явная цена из JSON, иначе сумма сделки. */
 export function dealEffectiveObjectPriceRub(row: NormalizedDealRow): number {
   const p = row.objectParams.price;
@@ -2037,6 +2047,12 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
     return [...filteredRows].sort(compareForObjectParamsTable).slice(0, 50);
   }, [filteredRows]);
 
+  const objectParamsShowRubPerM2 = useMemo(
+    () => dealRowsIncludeApartmentsForPricePerM2Table(objectParamsTableRows),
+    [objectParamsTableRows],
+  );
+  const objectParamsTableColSpan = objectParamsShowRubPerM2 ? 7 : 6;
+
   const byTypeRows = useMemo(() => bucketTableRows(analytics.dealsByType), [analytics.dealsByType]);
 
   const activeFilterCount = [filterMonth, filterType, filterObject].filter(Boolean).length;
@@ -2379,8 +2395,8 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
         <p className="text-xs text-slate-500">
           До 50 сделок в срезе. Сортировка: сначала <span className="font-mono">object.category</span> (квартира → машиноместо → кладовая →
           коммерция), внутри группы — <span className="font-mono">deal.deal_date</span> по убыванию. Источник:{" "}
-          <span className="font-mono">data[]</span>. Маппинг полей и ₽/м² без изменений. <span className="font-mono">buyer</span> не
-          используется.
+          <span className="font-mono">data[]</span>. Колонка ₽/м² — только если в срезе есть квартиры; для кладовых, машино-мест и коммерции
+          значение не выводится. <span className="font-mono">buyer</span> не используется.
         </p>
         <div className={tableWrapClass}>
           <table className={tableClass}>
@@ -2390,7 +2406,7 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                 <th className="px-3 py-2.5">Тип</th>
                 <th className="px-3 py-2.5 text-right">Цена</th>
                 <th className="px-3 py-2.5 text-right">Площадь</th>
-                <th className="px-3 py-2.5 text-right">₽/м²</th>
+                {objectParamsShowRubPerM2 ? <th className="w-[6.5rem] px-3 py-2.5 text-right">₽/м²</th> : null}
                 <th className="px-3 py-2.5">Этаж</th>
                 <th className="px-3 py-2.5">Секция</th>
               </tr>
@@ -2409,11 +2425,15 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
                         {t.area != null ? `${dealObjectAreaFmt.format(t.area)} м²` : DEALS_LABEL_EM_DASH}
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
-                        {t.price_per_m2 != null
-                          ? `${dealObjectRubPerM2Fmt.format(t.price_per_m2)}\u00a0₽/м²`
-                          : DEALS_LABEL_EM_DASH}
-                      </td>
+                      {objectParamsShowRubPerM2 ? (
+                        <td className="w-[6.5rem] whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-800">
+                          {dealRowShowsPricePerM2Cell(r)
+                            ? t.price_per_m2 != null
+                              ? `${dealObjectRubPerM2Fmt.format(t.price_per_m2)}\u00a0₽/м²`
+                              : DEALS_LABEL_EM_DASH
+                            : null}
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2.5 tabular-nums text-slate-800">{t.floor ?? DEALS_LABEL_EM_DASH}</td>
                       <td className="px-3 py-2.5 text-slate-800">{t.section ?? DEALS_LABEL_EM_DASH}</td>
                     </tr>
@@ -2421,7 +2441,7 @@ export function DealsSection({ mode = "work" }: { mode?: DealsSectionMode }) {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-600">
+                  <td colSpan={objectParamsTableColSpan} className="px-3 py-6 text-center text-sm text-slate-600">
                     {DEALS_TABLE_NO_ROWS}
                   </td>
                 </tr>
