@@ -8,6 +8,9 @@ build
 *.log
 node_modules
 
+# visual studio
+.vs/
+
 # Локальные снимки импорта ГПР (MVP API `app/api/gpr/import`)
 data/gpr-import-*.json
 
