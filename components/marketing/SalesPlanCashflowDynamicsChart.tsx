@@ -5,7 +5,6 @@ import { useChartHeight, useChartWidth, usePlotArea, useXAxisScale, useYAxisScal
 
 import {
   cashflowRowsForChart,
-  getCashflowCalendarPeriodKeyNow,
   periodKeyToRuChartLabel,
   type CashflowChartMode,
   type CashflowChartRow,
@@ -30,59 +29,11 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
-import {
-  CASHFLOW_INFLOW_FACT_FUTURE,
-  cashflowInflowDotRingStroke,
-  cashflowInflowFactFutureLineBaseProps,
-  cashflowInflowFactLineProps,
-  cashflowInflowPlanLineProps,
-} from "@/lib/cashflowInflowChartSeries";
+import { cashflowInflowFactLineProps, cashflowInflowPlanLineProps } from "@/lib/cashflowInflowChartSeries";
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
-}
-
-type CashflowLineDotProps = { cx?: number; cy?: number; payload?: CashflowChartRow };
-
-function factFutureDotRenderer(calendarCutoffKey: string, presDark: boolean) {
-  const ring = cashflowInflowDotRingStroke(presDark);
-  const fill = presDark ? "#9ca3af" : CASHFLOW_INFLOW_FACT_FUTURE.stroke;
-  return (props: CashflowLineDotProps) => {
-    const p = props.payload;
-    if (p?.factFuture == null || props.cx == null || props.cy == null) return null;
-    if (p.periodKey <= calendarCutoffKey) return null;
-    return (
-      <circle
-        cx={props.cx}
-        cy={props.cy}
-        r={CASHFLOW_INFLOW_FACT_FUTURE.dotR}
-        fill={fill}
-        stroke={ring}
-        strokeWidth={1}
-      />
-    );
-  };
-}
-
-function factFutureActiveDotRenderer(calendarCutoffKey: string, presDark: boolean) {
-  const ring = cashflowInflowDotRingStroke(presDark);
-  const fill = presDark ? "#9ca3af" : CASHFLOW_INFLOW_FACT_FUTURE.stroke;
-  return (props: CashflowLineDotProps) => {
-    const p = props.payload;
-    if (p?.factFuture == null || props.cx == null || props.cy == null) return null;
-    if (p.periodKey <= calendarCutoffKey) return null;
-    return (
-      <circle
-        cx={props.cx}
-        cy={props.cy}
-        r={CASHFLOW_INFLOW_FACT_FUTURE.activeDotR}
-        fill={fill}
-        stroke={ring}
-        strokeWidth={1.5}
-      />
-    );
-  };
 }
 
 /** Постоянная подпись у точки только от 1 млн ₽; &lt; 1 млн — только тултип. */
@@ -512,8 +463,6 @@ function CashflowTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload as CashflowChartRow | undefined;
   if (!row) return null;
-  const calendarCutoff = getCashflowCalendarPeriodKeyNow();
-  const factIsFutureMonth = row.fact != null && row.periodKey > calendarCutoff;
   const base = darkChrome
     ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100"
     : mplPremium
@@ -525,19 +474,7 @@ function CashflowTooltip({
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
         {row.fact != null ? (
           <>
-            <span
-              className={
-                factIsFutureMonth
-                  ? darkChrome
-                    ? "text-slate-400"
-                    : mplPremium
-                      ? "text-mpl-muted"
-                      : "text-slate-500"
-                  : "text-[#1e40af]"
-              }
-            >
-              Факт: {formatCashflowTooltipRub(row.fact)}
-            </span>
+            <span className="text-[#1e40af]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
             <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
             <span className="text-orange-500">План: {formatCashflowTooltipRub(row.plan)}</span>
           </>
@@ -567,13 +504,11 @@ function pillHorizontalOverlap(aL: number, aR: number, bL: number, bR: number, g
  */
 function CashflowDynamicsSvgLabels({
   chartData,
-  calendarCutoffKey,
   presDark,
   mode,
   presentation,
 }: {
   chartData: CashflowChartRow[];
-  calendarCutoffKey: string;
   presDark: boolean;
   mode: CashflowChartMode;
   presentation: boolean;
@@ -596,10 +531,6 @@ function CashflowDynamicsSvgLabels({
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
   const factPillText = "#1d4ed8";
 
-  const factFuturePillFill = presDark ? "rgba(30,41,59,0.92)" : "#f1f5f9";
-  const factFuturePillStroke = presDark ? "rgba(148,163,184,0.55)" : "rgba(148,163,184,0.75)";
-  const factFuturePillText = presDark ? "#cbd5e1" : "#64748b";
-  const factFutureGuideStroke = presDark ? "rgba(148,163,184,0.5)" : "rgba(100,116,139,0.42)";
   const factCandidates = useMemo(() => buildFactLabelCandidates(chartData), [chartData]);
   const planCandidates = useMemo(() => buildPlanLabelCandidates(chartData), [chartData]);
 
@@ -647,7 +578,6 @@ function CashflowDynamicsSvgLabels({
       pillW: number;
       yFactPt: number;
       box: LabelBBox;
-      labelIsFuture: boolean;
     };
 
     const sorted = [...factCandidates].sort((a, b) => {
@@ -713,7 +643,6 @@ function CashflowDynamicsSvgLabels({
           }
         }
         const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
-        const labelIsFuture = row.periodKey > calendarCutoffKey;
         const candidate: Resolved = {
           key: `fact-${row.periodKey}-${c.index}`,
           priority: c.priority,
@@ -724,7 +653,6 @@ function CashflowDynamicsSvgLabels({
           pillW,
           yFactPt,
           box,
-          labelIsFuture,
         };
         if (!labelOverlapsAny(box, keptBoxes)) {
           best = candidate;
@@ -746,9 +674,9 @@ function CashflowDynamicsSvgLabels({
       pillW: r.pillW,
       pillH,
       text: r.text,
-      fill: r.labelIsFuture ? factFuturePillFill : factPillFill,
-      stroke: r.labelIsFuture ? factFuturePillStroke : factPillStroke,
-      textFill: r.labelIsFuture ? factFuturePillText : factPillText,
+      fill: factPillFill,
+      stroke: factPillStroke,
+      textFill: factPillText,
     }));
 
     const connectors: Conn[] = resolved.map((r) => {
@@ -757,13 +685,13 @@ function CashflowDynamicsSvgLabels({
       const segs = buildFactConnectorSegments(r.pointCx, r.pillCx, r.yFactPt, endY);
       return {
         key: `${r.key}-conn`,
-        stroke: r.labelIsFuture ? factFutureGuideStroke : factGuideStroke,
+        stroke: factGuideStroke,
         segs,
       };
     });
 
     return { connectors, pills };
-  }, [chartData, factCandidates, xScale, yScale, chartW, chartH, plot, presDark, mode, presentation, calendarCutoffKey]);
+  }, [chartData, factCandidates, xScale, yScale, chartW, chartH, plot, presDark, mode, presentation]);
 
   const planBand = useMemo((): { connectors: Conn[]; pills: Pill[] } => {
     if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0 || planCandidates.length === 0) {
@@ -1095,20 +1023,7 @@ export function SalesPlanCashflowDynamicsChart({
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
 
-  const calendarCutoffKey = getCashflowCalendarPeriodKeyNow();
-  const chartData = useMemo(
-    () => cashflowRowsForChart(rows, mode, planScale, calendarCutoffKey),
-    [rows, mode, planScale, calendarCutoffKey],
-  );
-
-  const factFutureDot = useMemo(
-    () => factFutureDotRenderer(calendarCutoffKey, presDark),
-    [calendarCutoffKey, presDark],
-  );
-  const factFutureActiveDot = useMemo(
-    () => factFutureActiveDotRenderer(calendarCutoffKey, presDark),
-    [calendarCutoffKey, presDark],
-  );
+  const chartData = useMemo(() => cashflowRowsForChart(rows, mode, planScale), [rows, mode, planScale]);
 
   const { yDomainMax, yTicks } = useMemo(() => {
     const vals = chartData.flatMap((d) => [d.plan, d.fact].filter((x): x is number => x != null));
@@ -1282,19 +1197,10 @@ export function SalesPlanCashflowDynamicsChart({
               content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
               cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
             />
-            <Line
-              type="monotone"
-              dataKey="factFuture"
-              name="Факт"
-              {...cashflowInflowFactFutureLineBaseProps(presDark)}
-              dot={factFutureDot}
-              activeDot={factFutureActiveDot}
-            />
+            <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
             <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
-            <Line type="monotone" dataKey="factPast" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
             <CashflowDynamicsSvgLabels
               chartData={chartData}
-              calendarCutoffKey={calendarCutoffKey}
               presDark={presDark}
               mode={mode}
               presentation={presentation}

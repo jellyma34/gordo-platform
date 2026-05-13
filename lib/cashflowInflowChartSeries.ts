@@ -10,15 +10,6 @@ export const CASHFLOW_INFLOW_FACT = {
   activeDotR: 5,
 } as const;
 
-/** Факт за границей текущего календарного месяца (ожидаемые поступления). */
-export const CASHFLOW_INFLOW_FACT_FUTURE = {
-  stroke: "#94a3b8",
-  strokeWidth: 2,
-  dotR: 3.75,
-  activeDotR: 5,
-  strokeOpacity: 0.9,
-} as const;
-
 export const CASHFLOW_INFLOW_PLAN = {
   stroke: "#ea580c",
   strokeWidth: 2,
@@ -45,21 +36,6 @@ export function cashflowInflowFactLineProps(presDark: boolean) {
       strokeWidth: 1,
     },
     activeDot: { r: CASHFLOW_INFLOW_FACT.activeDotR },
-    isAnimationActive: false as const,
-  };
-}
-
-/**
- * Базовые пропсы линии «факт — будущее» (stroke, strokeWidth, opacity).
- * Точки и activeDot задаются в графике: на стыке с текущим месяцем дублирующая точка скрыта.
- */
-export function cashflowInflowFactFutureLineBaseProps(presDark: boolean) {
-  const stroke = presDark ? "#9ca3af" : CASHFLOW_INFLOW_FACT_FUTURE.stroke;
-  return {
-    stroke,
-    strokeWidth: CASHFLOW_INFLOW_FACT_FUTURE.strokeWidth,
-    strokeOpacity: presDark ? 0.88 : CASHFLOW_INFLOW_FACT_FUTURE.strokeOpacity,
-    connectNulls: false as const,
     isAnimationActive: false as const,
   };
 }

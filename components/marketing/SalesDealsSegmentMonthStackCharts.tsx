@@ -204,9 +204,9 @@ function SegmentMonthBarChart({
       >
         {title}
       </div>
-      <div className={`w-full min-w-0 ${infographicMode ? "h-[118px] sm:h-[124px]" : "h-[100px] sm:h-[108px]"}`}>
+      <div className={`w-full min-w-0 ${infographicMode ? "h-[128px] sm:h-[134px]" : "h-[112px] sm:h-[118px]"}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 4, right: 4, left: infographicMode ? -4 : -8, bottom: 0 }} barCategoryGap={categoryGap} barGap={infographicMode ? 4 : 3}>
+          <BarChart data={data} margin={{ top: 4, right: 4, left: infographicMode ? -4 : -8, bottom: 2 }} barCategoryGap={categoryGap} barGap={infographicMode ? 4 : 3}>
             <CartesianGrid strokeDasharray="6 8" stroke={gridStroke} vertical={false} />
             <XAxis
               dataKey="labelShort"
@@ -214,9 +214,9 @@ function SegmentMonthBarChart({
               axisLine={false}
               tickLine={false}
               interval={0}
-              angle={n > 14 ? -35 : 0}
-              textAnchor={n > 14 ? "end" : "middle"}
-              height={n > 14 ? 38 : 16}
+              angle={-90}
+              textAnchor="end"
+              height={50}
             />
             <YAxis
               domain={[0, yMax]}
@@ -305,11 +305,13 @@ function SegmentAnalyticsCard({
             labelTone={presDark ? "dark" : "work"}
             className="min-w-0 flex-1 pr-2"
           />
-          <span
-            className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold ${trendPillClass(model.trendLabel, presDark)}`}
-          >
-            {model.trendLabel}
-          </span>
+          {model.trendLabel !== "Без существенных изменений" ? (
+            <span
+              className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold ${trendPillClass(model.trendLabel, presDark)}`}
+            >
+              {model.trendLabel}
+            </span>
+          ) : null}
         </div>
 
         <div className={`grid grid-cols-3 gap-3 sm:gap-4 ${presentation ? "pt-1" : ""}`}>

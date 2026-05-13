@@ -92,38 +92,12 @@ export function buildCashflowSeries(
 
 export type CashflowChartMode = "monthly" | "cumulative";
 
-/** Текущий календарный месяц `YYYY-MM` (локальное время браузера). */
-export function getCashflowCalendarPeriodKeyNow(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function splitFactPastFutureForCutoff(
-  periodKey: string,
-  factVal: number | null,
-  calendarCutoff: string,
-): { factPast: number | null; factFuture: number | null } {
-  if (factVal == null || !Number.isFinite(factVal)) {
-    return { factPast: null, factFuture: null };
-  }
-  return {
-    factPast: periodKey <= calendarCutoff ? factVal : null,
-    factFuture: periodKey >= calendarCutoff ? factVal : null,
-  };
-}
-
 export type CashflowChartRow = {
   periodKey: string;
   label: string;
   plan: number;
   fact: number | null;
   deviation: number | null;
-  /** Отрезок факта до текущего календарного месяца включительно (основной синий стиль). */
-  factPast: number | null;
-  /** Отрезок факта от текущего месяца вперёд (стык + будущее; приглушённый стиль). */
-  factFuture: number | null;
 };
 
 /**
@@ -134,30 +108,21 @@ export function cashflowRowsForChart(
   rows: CashflowSeriesRow[],
   mode: CashflowChartMode,
   planScale: number,
-  /** Явная граница «факт / ожидание» (`YYYY-MM`); по умолчанию — текущий календарный месяц. */
-  calendarCutoff?: string,
 ): CashflowChartRow[] {
   const scale = Number.isFinite(planScale) && planScale > 0 ? planScale : 1;
-  const calendarCutoffResolved =
-    calendarCutoff && /^\d{4}-\d{2}$/.test(calendarCutoff) ? calendarCutoff : getCashflowCalendarPeriodKeyNow();
   const scaled = rows.map((r) => ({
     ...r,
     planMonthScaled: Math.round(r.planMonth * scale),
   }));
 
   if (mode === "monthly") {
-    return scaled.map((r) => {
-      const { factPast, factFuture } = splitFactPastFutureForCutoff(r.periodKey, r.factMonth, calendarCutoffResolved);
-      return {
-        periodKey: r.periodKey,
-        label: r.label,
-        plan: r.planMonthScaled,
-        fact: r.factMonth,
-        deviation: r.factMonth == null ? null : r.factMonth - r.planMonthScaled,
-        factPast,
-        factFuture,
-      };
-    });
+    return scaled.map((r) => ({
+      periodKey: r.periodKey,
+      label: r.label,
+      plan: r.planMonthScaled,
+      fact: r.factMonth,
+      deviation: r.factMonth == null ? null : r.factMonth - r.planMonthScaled,
+    }));
   }
 
   let accPlan = 0;
@@ -165,16 +130,12 @@ export function cashflowRowsForChart(
   return scaled.map((r) => {
     accPlan += r.planMonthScaled;
     if (r.factMonth != null) accFact += r.factMonth;
-    const factVal = r.factMonth == null ? null : accFact;
-    const { factPast, factFuture } = splitFactPastFutureForCutoff(r.periodKey, factVal, calendarCutoffResolved);
     return {
       periodKey: r.periodKey,
       label: r.label,
       plan: accPlan,
-      fact: factVal,
+      fact: r.factMonth == null ? null : accFact,
       deviation: r.factMonth == null ? null : accFact - accPlan,
-      factPast,
-      factFuture,
     };
   });
 }

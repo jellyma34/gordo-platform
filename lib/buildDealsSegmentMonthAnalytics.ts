@@ -175,13 +175,6 @@ function argMaxBy<T>(arr: T[], score: (t: T) => number): number | null {
   return bestV > 0 ? best : null;
 }
 
-function formatRubShort(n: number): string {
-  const abs = Math.abs(Math.round(n));
-  if (abs >= 1_000_000) return `${Math.round(n / 1_000_000)} млн ₽`;
-  if (abs >= 1_000) return `${Math.round(n / 1_000)} тыс ₽`;
-  return `${Math.round(n)} ₽`;
-}
-
 const WHY_COPY: Record<DealsAnalyticsSegmentKey, string> = {
   apartment:
     "Квартиры обычно формируют основной объём выручки и задают ритм плана продаж: отклонения по этому сегменту быстрее всего бьют по прогнозу денег и темпу.",
@@ -214,39 +207,14 @@ function buildDeclineNote(months: SegmentMonthPoint[], peakDealsIdx: number | nu
   return `Снижение: ${parts.join("; ")}.`;
 }
 
-function stripReadableYearSuffix(labelReadable: string): string {
-  return labelReadable.replace(/\s+г\.?\s*$/i, "").trim();
-}
-
-/** Одна строка для инфографики в презентации (пик / тренд), без параграфов. */
-function buildPresentationInsightLine(
-  months: SegmentMonthPoint[],
-  totalDeals: number,
-  peakDealsMonthIndex: number | null,
-  peakRevenueMonthIndex: number | null,
-  trendLabel: string,
-): string {
+/** Одна строка для инфографики в презентации: только краткий тренд, без пиков по месяцам. */
+function buildPresentationInsightLine(totalDeals: number, trendLabel: string): string {
   if (totalDeals === 0) return "";
-
-  if (peakDealsMonthIndex != null) {
-    const r = stripReadableYearSuffix(months[peakDealsMonthIndex]!.labelReadable);
-    if (trendLabel.includes("Снижение")) {
-      return `Пик — ${r} · снижение темпа`;
-    }
-    return `Пик — ${r}`;
-  }
-
-  if (peakRevenueMonthIndex != null) {
-    const r = stripReadableYearSuffix(months[peakRevenueMonthIndex]!.labelReadable);
-    return `Макс. выручка — ${r}`;
-  }
-
   if (trendLabel.includes("Снижение выручки")) return "Снижение выручки";
   if (trendLabel.includes("Снижение числа")) return "Снижение темпа";
   if (trendLabel.includes("Рост выручки")) return "Рост выручки";
   if (trendLabel.includes("Рост числа")) return "Рост сделок";
   if (trendLabel === "Недостаточно периодов") return "";
-
   return "";
 }
 
@@ -255,10 +223,7 @@ function buildAnalyticsWhat(args: {
   label: string;
   months: SegmentMonthPoint[];
   totalDeals: number;
-  totalRevenueRub: number;
   shareRevPct: number;
-  peakDealsIdx: number | null;
-  peakRevIdx: number | null;
   declineNote: string | null;
   timelineFirst: string;
   timelineLast: string;
@@ -269,8 +234,6 @@ function buildAnalyticsWhat(args: {
     months,
     totalDeals,
     shareRevPct,
-    peakDealsIdx,
-    peakRevIdx,
     declineNote,
     timelineFirst,
     timelineLast,
@@ -286,23 +249,6 @@ function buildAnalyticsWhat(args: {
     sentences.push(`Квартиры формируют основной объём выручки в этом срезе (около ${Math.round(shareRevPct)}% суммы по четырём сегментам).`);
   } else {
     sentences.push(`«${label}» даёт около ${Math.round(shareRevPct)}% суммарной выручки по квартирам, паркингу, кладовым и коммерции.`);
-  }
-
-  if (peakDealsIdx != null) {
-    const pm = months[peakDealsIdx]!;
-    sentences.push(
-      `Пик по числу сделок — ${monthKeyReadable(pm.monthKey)} (${pm.deals} шт., ${monthKeyCompact(pm.monthKey)}).`,
-    );
-  }
-
-  if (peakRevIdx != null && peakRevIdx !== peakDealsIdx) {
-    const pr = months[peakRevIdx]!;
-    sentences.push(
-      `Максимум выручки — ${monthKeyReadable(pr.monthKey)} (${formatRubShort(pr.revenueRub)}, ${monthKeyCompact(pr.monthKey)}).`,
-    );
-  } else if (peakRevIdx != null && peakDealsIdx === peakRevIdx) {
-    const pr = months[peakRevIdx]!;
-    sentences.push(`Максимум выручки совпал с пиком сделок (${formatRubShort(pr.revenueRub)}).`);
   }
 
   if (months.length >= 2) {
@@ -414,10 +360,7 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
       label: DEALS_SEGMENT_LABELS[segment],
       months,
       totalDeals,
-      totalRevenueRub,
       shareRevPct,
-      peakDealsIdx: peakDealsMonthIndex,
-      peakRevIdx: peakRevenueMonthIndex,
       declineNote,
       timelineFirst: firstActivity,
       timelineLast: timelineEndMonth,
@@ -425,13 +368,7 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
 
     const analyticsWhy = WHY_COPY[segment];
 
-    const presentationInsightLine = buildPresentationInsightLine(
-      months,
-      totalDeals,
-      peakDealsMonthIndex,
-      peakRevenueMonthIndex,
-      trendLabel,
-    );
+    const presentationInsightLine = buildPresentationInsightLine(totalDeals, trendLabel);
 
     return {
       segment,
