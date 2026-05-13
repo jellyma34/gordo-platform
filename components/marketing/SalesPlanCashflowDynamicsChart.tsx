@@ -49,6 +49,12 @@ const CHART_MARGIN_BOTTOM = 82;
 const X_AXIS_LABEL_BAND_RESERVE = 44;
 /** Факт: зазор от точки до нижнего края таблетки + направляющая. */
 const LABEL_OFFSET_FACT_ABOVE = 10;
+/** Доп. подъём синих подписей факта: презентация + нарастающий итог (плато у линии). */
+const LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA = 18;
+/** Базовый доп. подъём для всех cumulative-лейблов факта (до плато / collision). */
+const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 8;
+/** Зазор конца направляющей до нижнего края таблетки факта (cumulative — чуть больше). */
+const CONNECTOR_GAP_FACT_TO_BADGE_CUM = 8;
 const LABEL_FACT_DX = 10;
 /** Если маркер близко к нулю (низ графика), поднимаем подпись факта. */
 const NEAR_X_AXIS_PX = 72;
@@ -67,6 +73,129 @@ const PLAN_BAND_INTER_ROW_GAP_PX = 12;
 const PLAN_BAND_CLEAR_ABOVE_CHART_BOTTOM = 26;
 const CONNECTOR_GAP_TO_BADGE_PX = 4;
 
+type PlotRect = { x: number; y: number; width: number; height: number };
+
+/** Минимум пикселей между нижним краем таблетки факта и полилинией факта (cumulative). */
+const CUM_FACT_LINE_CLEARANCE_PX = 10;
+
+function cumulativeFactPlateauExtraPx(minNeighborDyPx: number): number {
+  if (!Number.isFinite(minNeighborDyPx)) return 0;
+  if (minNeighborDyPx < 4) return 40;
+  if (minNeighborDyPx < 8) return 32;
+  if (minNeighborDyPx < 14) return 24;
+  if (minNeighborDyPx < 22) return 16;
+  if (minNeighborDyPx < 32) return 10;
+  return 0;
+}
+
+function cumulativeFactMinNeighborDyPx(
+  chartData: CashflowChartRow[],
+  index: number,
+  yScale: (v: number) => number | undefined,
+): number {
+  const row = chartData[index]!;
+  if (row.fact == null || !Number.isFinite(row.fact)) return Number.POSITIVE_INFINITY;
+  const y0 = yScale(row.fact);
+  if (y0 == null || !Number.isFinite(y0)) return Number.POSITIVE_INFINITY;
+  let best = Number.POSITIVE_INFINITY;
+  for (let j = index - 1; j >= 0; j--) {
+    const v = chartData[j]!.fact;
+    if (v != null && Number.isFinite(v)) {
+      const y1 = yScale(v);
+      if (y1 != null && Number.isFinite(y1)) best = Math.min(best, Math.abs(y0 - y1));
+      break;
+    }
+  }
+  for (let j = index + 1; j < chartData.length; j++) {
+    const v = chartData[j]!.fact;
+    if (v != null && Number.isFinite(v)) {
+      const y1 = yScale(v);
+      if (y1 != null && Number.isFinite(y1)) best = Math.min(best, Math.abs(y0 - y1));
+      break;
+    }
+  }
+  return best;
+}
+
+/** Категориальная ось X (месяц): Recharts `ScaleFunction` — приводим к узкой сигнатуре для подписей. */
+type CashflowChartXScale = (label: string, opts?: { position?: string }) => number | undefined;
+
+function factPointXForLabel(
+  row: CashflowChartRow,
+  index: number,
+  chartLen: number,
+  xScale: CashflowChartXScale,
+  plot: PlotRect | null | undefined,
+): number | null {
+  let x = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
+  if (x == null && plot && chartLen > 0) {
+    x = plot.x + ((index + 0.5) / chartLen) * plot.width;
+  }
+  return x != null && Number.isFinite(x) ? x : null;
+}
+
+/** Y полилинии факта в точке atX (линейная интерполяция между точками с ненулевым fact). */
+function cumulativeFactPolylineYAtX(
+  chartData: CashflowChartRow[],
+  atX: number,
+  yScale: (v: number) => number | undefined,
+  xScale: CashflowChartXScale,
+  plot: PlotRect | null | undefined,
+): number | null {
+  const n = chartData.length;
+  type Pt = { x: number; y: number };
+  const pts: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const row = chartData[i]!;
+    if (row.fact == null || !Number.isFinite(row.fact)) continue;
+    const x = factPointXForLabel(row, i, n, xScale, plot);
+    const y = yScale(row.fact);
+    if (x == null || y == null || !Number.isFinite(y)) continue;
+    pts.push({ x, y });
+  }
+  if (pts.length === 0) return null;
+  if (atX <= pts[0]!.x) return pts[0]!.y;
+  if (atX >= pts[pts.length - 1]!.x) return pts[pts.length - 1]!.y;
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1]!;
+    const b = pts[k]!;
+    if (atX >= a.x && atX <= b.x) {
+      const t = b.x === a.x ? 0 : (atX - a.x) / (b.x - a.x);
+      return a.y + t * (b.y - a.y);
+    }
+  }
+  return null;
+}
+
+/** Доп. сдвиг вверх, если нижний край таблетки опускается ниже полилинии факта у pillCx. */
+function cumulativeFactLineClearanceExtraPx(
+  chartData: CashflowChartRow[],
+  pillCx: number,
+  pillBottomY: number,
+  yScale: (v: number) => number | undefined,
+  xScale: CashflowChartXScale,
+  plot: PlotRect | null | undefined,
+): number {
+  const yLine = cumulativeFactPolylineYAtX(chartData, pillCx, yScale, xScale, plot);
+  if (yLine == null || !Number.isFinite(yLine)) return 0;
+  const limit = yLine - CUM_FACT_LINE_CLEARANCE_PX;
+  if (pillBottomY <= limit) return 0;
+  return Math.min(56, pillBottomY - limit + 2);
+}
+
+/** Сильнее разносить по dy при плато cumulative (перед общим stagger). */
+const CUM_FACT_PLATEAU_STAGGER_PREFIX: ReadonlyArray<{ dx: number; dy: number }> = [
+  { dx: 0, dy: 44 },
+  { dx: 0, dy: 56 },
+  { dx: 0, dy: 68 },
+  { dx: 14, dy: 40 },
+  { dx: -14, dy: 40 },
+  { dx: 22, dy: 48 },
+  { dx: -22, dy: 48 },
+  { dx: 30, dy: 52 },
+  { dx: -30, dy: 52 },
+];
+
 /** Согласовано с margin.left + YAxis.width в LineChart — таблетки не заезжают на подписи оси Y. */
 const CHART_MARGIN_LEFT_PX = 10;
 const CHART_Y_AXIS_WIDTH_PX = 88;
@@ -74,8 +203,6 @@ const CHART_Y_AXIS_WIDTH_PX = 88;
 const BADGE_CLEAR_FROM_PLOT_EDGE_PX = 8;
 const BADGE_CLEAR_FROM_CHART_TOP_PX = 10;
 const BADGE_CLEAR_FROM_CHART_RIGHT_PX = 10;
-
-type PlotRect = { x: number; y: number; width: number; height: number };
 
 function chartBadgeSafeBounds(
   plot: PlotRect | null | undefined,
@@ -373,13 +500,18 @@ function pillHorizontalOverlap(aL: number, aR: number, bL: number, bR: number, g
 
 /**
  * Подписи в координатах SVG (Recharts 3): факт и план — таблетки с направляющими, BI-стиль.
+ * В презентации + «Нарастающим итогом» подписи факта поднимаются сильнее, чтобы не лежать на stroke линии.
  */
 function CashflowDynamicsSvgLabels({
   chartData,
   presDark,
+  mode,
+  presentation,
 }: {
   chartData: CashflowChartRow[];
   presDark: boolean;
+  mode: CashflowChartMode;
+  presentation: boolean;
 }) {
   const shadowFilterId = `cf-badge-sh-${useId().replace(/:/g, "")}`;
   const xScale = useXAxisScale();
@@ -427,6 +559,8 @@ function CashflowDynamicsSvgLabels({
     const { safeLeft, safeRight, safeTop, plotBottomY } = chartBadgeSafeBounds(plot, chartW, chartH);
     const labelBandTop = plotBottomY - X_AXIS_LABEL_BAND_RESERVE;
     const pillH = BADGE_H_PX;
+    const isCumulativeFact = mode === "cumulative";
+    const factConnectorGapToBadge = isCumulativeFact ? CONNECTOR_GAP_FACT_TO_BADGE_CUM : CONNECTOR_GAP_TO_BADGE_PX;
 
     function proximityLiftFromAxis(yPt: number): number {
       const dist = plotBottomY - yPt;
@@ -469,21 +603,45 @@ function CashflowDynamicsSvgLabels({
       const pillW = approxLabelWidthPx(chartLabelText, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
       const halfW = pillW / 2;
       const halfH = pillH / 2;
-      const factPillCenterYMax = labelBandTop - CONNECTOR_GAP_TO_BADGE_PX - halfH;
+      const factPillCenterYMax = labelBandTop - factConnectorGapToBadge - halfH;
       const minCenterX = safeLeft + halfW;
       const maxCenterX = safeRight - halfW;
       let anchorX = cx - LABEL_FACT_DX;
       anchorX = clamp(anchorX, minCenterX, maxCenterX);
 
+      const neighborDyPx = isCumulativeFact ? cumulativeFactMinNeighborDyPx(chartData, c.index, yScale) : Number.POSITIVE_INFINITY;
+      const plateauExtra = isCumulativeFact ? cumulativeFactPlateauExtraPx(neighborDyPx) : 0;
+      const factOffsetCore =
+        LABEL_OFFSET_FACT_ABOVE +
+        (isCumulativeFact ? LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA : 0) +
+        (isCumulativeFact && presentation ? LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA : 0) +
+        plateauExtra;
+
+      const staggerTries =
+        isCumulativeFact && plateauExtra >= 16
+          ? [...CUM_FACT_PLATEAU_STAGGER_PREFIX, ...LABEL_STAGGER_TRIES]
+          : LABEL_STAGGER_TRIES;
+
       let best: Resolved | null = null;
-      for (let ti = 0; ti < LABEL_STAGGER_TRIES.length; ti++) {
-        const { dx, dy } = LABEL_STAGGER_TRIES[ti]!;
+      for (let ti = 0; ti < staggerTries.length; ti++) {
+        const { dx, dy } = staggerTries[ti]!;
         const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-        const pillCy = clamp(
-          yFactPt - LABEL_OFFSET_FACT_ABOVE - liftF - halfH - dy,
+        let pillCy = clamp(
+          yFactPt - factOffsetCore - liftF - halfH - dy,
           safeTop + halfH,
           factPillCenterYMax,
         );
+        if (isCumulativeFact) {
+          const xCat = xScale as unknown as CashflowChartXScale;
+          for (let guard = 0; guard < 4; guard++) {
+            const pillBottom = pillCy + halfH;
+            const lineEx = cumulativeFactLineClearanceExtraPx(chartData, pillCx, pillBottom, yScale, xCat, plot);
+            if (lineEx <= 0) break;
+            const nextCy = pillCy - lineEx;
+            if (nextCy >= pillCy - 0.25) break;
+            pillCy = clamp(nextCy, safeTop + halfH, factPillCenterYMax);
+          }
+        }
         const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
         const candidate: Resolved = {
           key: `fact-${row.periodKey}-${c.index}`,
@@ -523,7 +681,7 @@ function CashflowDynamicsSvgLabels({
 
     const connectors: Conn[] = resolved.map((r) => {
       const pillBottom = r.pillCy + pillH / 2;
-      const endY = pillBottom - CONNECTOR_GAP_TO_BADGE_PX;
+      const endY = pillBottom - factConnectorGapToBadge;
       const segs = buildFactConnectorSegments(r.pointCx, r.pillCx, r.yFactPt, endY);
       return {
         key: `${r.key}-conn`,
@@ -533,7 +691,7 @@ function CashflowDynamicsSvgLabels({
     });
 
     return { connectors, pills };
-  }, [chartData, factCandidates, xScale, yScale, chartW, chartH, plot, presDark]);
+  }, [chartData, factCandidates, xScale, yScale, chartW, chartH, plot, presDark, mode, presentation]);
 
   const planBand = useMemo((): { connectors: Conn[]; pills: Pill[] } => {
     if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0 || planCandidates.length === 0) {
@@ -1041,7 +1199,12 @@ export function SalesPlanCashflowDynamicsChart({
             />
             <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
             <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
-            <CashflowDynamicsSvgLabels chartData={chartData} presDark={presDark} />
+            <CashflowDynamicsSvgLabels
+              chartData={chartData}
+              presDark={presDark}
+              mode={mode}
+              presentation={presentation}
+            />
             </LineChart>
           </ResponsiveContainer>
         </div>
