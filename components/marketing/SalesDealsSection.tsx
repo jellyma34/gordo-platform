@@ -8,6 +8,8 @@ import { validateMarketingDealsUploadJson } from "@/lib/marketingDealsValidateUp
 import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 import { funnelStepConversionRates } from "@/lib/salesDealsMockData";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
+import { MarketingDealsObjectParamsPanel } from "@/components/marketing/MarketingDealsObjectParamsPanel";
+import { MarketingDealsBuyerParamsPanel } from "@/components/marketing/MarketingDealsBuyerParamsPanel";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import type { MarketingPeriodGranularity } from "./MarketingFilters";
 import {
@@ -320,6 +322,14 @@ function DealsMarketingEditPanel({
             Показано {previewSlice.length} из {filteredPreview.length} строк в фильтре.
           </p>
         ) : null}
+      </div>
+
+      <div className={CARD_EDIT}>
+        <MarketingDealsObjectParamsPanel rows={filteredPreview} loading={loading} />
+      </div>
+
+      <div className={CARD_EDIT}>
+        <MarketingDealsBuyerParamsPanel rows={filteredPreview} loading={loading} />
       </div>
 
       <div className={CARD_EDIT}>

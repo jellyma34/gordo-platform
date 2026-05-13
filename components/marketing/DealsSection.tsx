@@ -9,6 +9,14 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as parseDealsEnvelopeShape } from "@/lib/marketingDealsInputShape";
 import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
+import {
+  buyerEntityPickNum,
+  buyerEntityPickRaw,
+  buyerEntityPickStr,
+  logBuyerFieldCandidateDebug,
+  pickBuyerPrimaryFullName,
+} from "@/lib/marketingDealBuyerEntity";
+import { logBuyerJsonDebugIfEnabled, mergeBuyerProfileWithDeepScan } from "@/lib/marketingDealBuyerDeepScan";
 import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
@@ -156,6 +164,16 @@ export type DealObjectRef = {
 
 export type DealClientRef = {
   name?: string;
+  phone?: string;
+  email?: string;
+  mobile?: string;
+  tel?: string;
+  birth_date?: string;
+  birthDate?: string;
+  city?: string;
+  gender?: string;
+  type?: string;
+  client_type?: string;
 };
 
 export type DealExportRow = {
@@ -163,6 +181,9 @@ export type DealExportRow = {
   deal?: DealRecord;
   object?: DealObjectRef;
   client?: DealClientRef;
+  buyer?: Record<string, unknown>;
+  customer?: Record<string, unknown>;
+  person?: Record<string, unknown>;
   /** Верхнеуровневый проект, если не задан в object. */
   project?: string;
 };
@@ -227,6 +248,30 @@ export type DealObjectParams = {
   section: string | null;
 };
 
+export type DealBuyerPaymentCategory = "mortgage" | "installment" | "cash" | "mixed" | "unknown";
+
+/** Поля покупателя из JSON (гибкий маппинг). */
+export type DealBuyerProfile = {
+  fullName: string | null;
+  buyerType: string | null;
+  phone: string | null;
+  email: string | null;
+  birthDate: string | null;
+  city: string | null;
+  gender: string | null;
+  maritalStatus: string | null;
+  paymentLabel: string | null;
+  paymentCategory: DealBuyerPaymentCategory | null;
+  purchaseCount: number | null;
+  budgetRub: number | null;
+  occupation: string | null;
+  children: string | null;
+  family: string | null;
+  income: string | null;
+  /** Хотя бы одно «богатое» поле из buyer/client JSON (не только общий client_name сделки). */
+  hasRichFields: boolean;
+};
+
 export type NormalizedDealRow = {
   dealDate: string;
   dealDateMs: number;
@@ -256,6 +301,10 @@ export type NormalizedDealRow = {
   objectParams: DealObjectParams;
   /** Нормализованный `object.category` для сортировки таблицы «Параметры объекта». */
   objectCategoryCode: string | null;
+  /** Номер / ID объекта из JSON (см. {@link extractObjectUnitLabel}). */
+  objectUnitLabel: string | null;
+  /** Профиль покупателя из JSON (см. {@link extractDealBuyerProfile}). */
+  buyerProfile: DealBuyerProfile;
 };
 
 /** Порядок групп: flat → garage → storageroom → comm (остальные в конце). */
@@ -664,6 +713,12 @@ function collectDealSearchRoots(row: DealExportRow): Record<string, unknown>[] {
   add(row.deal);
   add(row.object);
 
+  const r = row as Record<string, unknown>;
+  add(r.buyer);
+  add(r.customer);
+  add(r.person);
+  add(r.client);
+
   const deal = row.deal;
   if (isPlainObject(deal)) {
     const dr = deal as Record<string, unknown>;
@@ -675,6 +730,10 @@ function collectDealSearchRoots(row: DealExportRow): Record<string, unknown>[] {
     add(dr.estate);
     add(dr.estate_object);
     add(dr.estateObject);
+    add(dr.buyer);
+    add(dr.customer);
+    add(dr.client);
+    add(dr.person);
   }
 
   const obj = row.object;
@@ -777,6 +836,13 @@ export function dealObjectPricePerM2(price: number | null, areaTotal: number | n
   return Math.round(price / areaTotal);
 }
 
+/** Стоимость для аналитики объекта: явная цена из JSON, иначе сумма сделки. */
+export function dealEffectiveObjectPriceRub(row: NormalizedDealRow): number {
+  const p = row.objectParams.price;
+  if (p != null && Number.isFinite(p) && p > 0) return p;
+  return Number.isFinite(row.sumRub) ? row.sumRub : 0;
+}
+
 /** Строка таблицы «Параметры объекта» (после {@link mapDeal}). */
 export type DealObjectParamsTableRow = {
   date: string;
@@ -790,7 +856,8 @@ export type DealObjectParamsTableRow = {
 
 export function toDealObjectParamsTableRow(row: NormalizedDealRow): DealObjectParamsTableRow {
   const p = row.objectParams;
-  const price = p.price ?? (Number.isFinite(row.sumRub) ? row.sumRub : null);
+  const eff = dealEffectiveObjectPriceRub(row);
+  const price = eff > 0 ? eff : null;
   return {
     date: row.dealDate,
     type: p.type,
@@ -1022,6 +1089,420 @@ const MAP_DEAL_SECTION_PATHS = [
   "deal.object.building",
 ];
 
+/** Номер / ID лота в выгрузках (Trankeys и др.). */
+const MAP_OBJECT_UNIT_KEYS = [
+  "flat_number",
+  "flatNumber",
+  "apartment_number",
+  "apartmentNumber",
+  "unit_number",
+  "unitNumber",
+  "object_number",
+  "objectNumber",
+  "lot_number",
+  "lotNumber",
+  "estate_number",
+  "estateNumber",
+  "premise_number",
+  "premiseNumber",
+  "flat",
+  "number",
+  "code",
+  "estate_id",
+  "estateId",
+  "object_uid",
+  "uid",
+  "crm_id",
+  "crmId",
+];
+
+const MAP_OBJECT_UNIT_PATHS = [
+  "object.flat_number",
+  "object.flatNumber",
+  "object.apartment_number",
+  "object.unit_number",
+  "object.number",
+  "object.id",
+  "object.estate_id",
+  "object.code",
+  "object.lot_number",
+  "deal.flat_number",
+  "deal.object_number",
+  "deal.unit_number",
+  "deal.apartment_number",
+];
+
+/**
+ * Человекочитаемый идентификатор объекта/лота из JSON (без mock).
+ */
+export function extractObjectUnitLabel(row: DealExportRow): string | null {
+  const picked = universalPickStr(row, MAP_OBJECT_UNIT_KEYS, MAP_OBJECT_UNIT_PATHS);
+  if (picked != null && picked.trim() !== "") return picked.trim();
+  if (row.id != null && String(row.id).trim() !== "") return String(row.id).trim();
+  return null;
+}
+
+const BUYER_NAME_KEYS = [
+  "name_full",
+  "nameFull",
+  "full_name",
+  "fullName",
+  "fio",
+  "client_full_name",
+  "clientFullName",
+  "customer_name",
+  "customerName",
+  "buyer_name",
+  "buyerName",
+  "person_name",
+  "personName",
+  "contact_name",
+  "contactName",
+  "display_name",
+  "displayName",
+  "representative_name",
+  "representativeName",
+  "client_name",
+  "clientName",
+];
+
+const BUYER_NAME_PATHS = [
+  "buyer.full_name",
+  "buyer.name",
+  "buyer.fio",
+  "client.name",
+  "customer.name",
+  "person.full_name",
+  "person.name",
+  "deal.buyer_name",
+  "deal.buyer.name",
+  "deal.client_name",
+  "deal.customer.name",
+  "deal.buyer_name_full",
+  "deal.person.name",
+];
+
+const BUYER_TYPE_KEYS = [
+  "buyer_type",
+  "buyerType",
+  "client_type",
+  "clientType",
+  "customer_type",
+  "customerType",
+  "person_type",
+  "personType",
+  "legal_status",
+  "legalStatus",
+  "entity_type",
+  "entityType",
+];
+
+const BUYER_TYPE_PATHS = [
+  "buyer.type",
+  "buyer.buyer_type",
+  "client.type",
+  "customer.type",
+  "person.type",
+  "deal.buyer_type",
+  "deal.client_type",
+];
+
+const BUYER_PHONE_KEYS = [
+  "phone",
+  "mobile",
+  "tel",
+  "telephone",
+  "cell",
+  "cell_phone",
+  "cellPhone",
+  "phone_number",
+  "phoneNumber",
+  "contact_phone",
+  "contactPhone",
+  "mobile_phone",
+  "mobilePhone",
+];
+
+const BUYER_PHONE_PATHS = [
+  "buyer.phone",
+  "buyer.mobile",
+  "client.phone",
+  "customer.phone",
+  "person.phone",
+  "deal.buyer_phone",
+  "deal.client_phone",
+  "deal.contact_phone",
+];
+
+const BUYER_EMAIL_KEYS = ["email", "e_mail", "eMail", "mail", "contact_email", "contactEmail", "buyer_email", "buyerEmail"];
+
+const BUYER_EMAIL_PATHS = [
+  "buyer.email",
+  "client.email",
+  "customer.email",
+  "person.email",
+  "deal.buyer_email",
+  "deal.client_email",
+];
+
+const BUYER_BIRTH_KEYS = [
+  "birth_date",
+  "birthDate",
+  "date_of_birth",
+  "dateOfBirth",
+  "dob",
+  "birthday",
+  "birth_day",
+  "birthDay",
+];
+
+const BUYER_BIRTH_PATHS = [
+  "buyer.birth_date",
+  "buyer.birthDate",
+  "client.birth_date",
+  "customer.birth_date",
+  "person.birth_date",
+  "deal.buyer_birth_date",
+];
+
+const BUYER_CITY_KEYS = ["city", "town", "locality", "settlement", "region", "geo_city", "geoCity", "address_city", "addressCity"];
+
+const BUYER_CITY_PATHS = [
+  "buyer.city",
+  "client.city",
+  "customer.city",
+  "person.city",
+  "deal.buyer_city",
+  "deal.client_city",
+  "object.city",
+];
+
+/** Город покупателя: без `object.city` (локация лота, не человек). */
+const BUYER_CITY_ENTITY_PATHS = BUYER_CITY_PATHS.filter((p) => !p.startsWith("object."));
+
+const BUYER_GENDER_KEYS = ["gender", "sex", "пол", "gender_code", "genderCode"];
+
+const BUYER_GENDER_PATHS = ["buyer.gender", "client.gender", "customer.gender", "person.gender", "deal.buyer_gender"];
+
+const BUYER_MARITAL_KEYS = [
+  "marital_status",
+  "maritalStatus",
+  "family_status",
+  "familyStatus",
+  "marriage",
+  "spouse_status",
+  "spouseStatus",
+];
+
+const BUYER_MARITAL_PATHS = [
+  "buyer.marital_status",
+  "client.marital_status",
+  "customer.marital_status",
+  "person.marital_status",
+  "deal.marital_status",
+];
+
+const BUYER_PAYMENT_KEYS = [
+  "payment_type",
+  "paymentType",
+  "payment_method",
+  "paymentMethod",
+  "payment",
+  "financing",
+  "finance_type",
+  "financeType",
+  "funding",
+  "purchase_method",
+  "purchaseMethod",
+  "pay_scheme",
+  "payScheme",
+];
+
+const BUYER_PAYMENT_PATHS = [
+  "buyer.payment_type",
+  "buyer.payment",
+  "client.payment_type",
+  "deal.payment_type",
+  "deal.payment_method",
+  "deal.financing",
+  "deal.finance_type",
+];
+
+const BUYER_BUDGET_KEYS = [
+  "budget",
+  "buyer_budget",
+  "buyerBudget",
+  "max_budget",
+  "maxBudget",
+  "planned_budget",
+  "plannedBudget",
+  "income_budget",
+  "incomeBudget",
+  "purchase_budget",
+  "purchaseBudget",
+];
+
+const BUYER_BUDGET_PATHS = [
+  "buyer.budget",
+  "client.budget",
+  "customer.budget",
+  "deal.buyer_budget",
+  "deal.budget",
+];
+
+const BUYER_PURCHASE_COUNT_KEYS = [
+  "purchase_count",
+  "purchaseCount",
+  "purchases",
+  "deals_count",
+  "dealsCount",
+  "buyer_deals",
+  "buyerDeals",
+  "orders_count",
+  "ordersCount",
+];
+
+const BUYER_PURCHASE_COUNT_PATHS = [
+  "buyer.purchase_count",
+  "client.purchase_count",
+  "customer.purchase_count",
+  "deal.buyer_purchase_count",
+];
+
+const BUYER_OCCUPATION_KEYS = [
+  "occupation",
+  "job",
+  "profession",
+  "work",
+  "workplace",
+  "position",
+  "employment",
+  "company_role",
+  "companyRole",
+];
+
+const BUYER_OCCUPATION_PATHS = [
+  "buyer.occupation",
+  "buyer.job",
+  "client.occupation",
+  "person.occupation",
+  "deal.buyer_occupation",
+];
+
+const BUYER_CHILDREN_KEYS = ["children", "children_count", "childrenCount", "kids", "child_count", "childCount", "dependants"];
+
+const BUYER_CHILDREN_PATHS = ["buyer.children", "client.children", "deal.children_count"];
+
+const BUYER_FAMILY_KEYS = ["family", "family_info", "familyInfo", "household", "family_members", "familyMembers"];
+
+const BUYER_FAMILY_PATHS = ["buyer.family", "client.family", "deal.family"];
+
+const BUYER_INCOME_KEYS = ["income", "salary", "monthly_income", "monthlyIncome", "annual_income", "annualIncome", "revenue"];
+
+const BUYER_INCOME_PATHS = ["buyer.income", "client.income", "customer.income", "deal.buyer_income"];
+
+export function classifyBuyerPayment(raw: string | null): { label: string | null; category: DealBuyerPaymentCategory | null } {
+  if (raw == null || String(raw).trim() === "") return { label: null, category: null };
+  const label = String(raw).trim();
+  const t = label.toLowerCase();
+  const hasM = /ипотек|mortgage|\bmort\b|кредит|залог/i.test(t);
+  const hasI = /рассроч|installment|расср|install/i.test(t);
+  const hasC = /наличн|\bcash\b|свои\s*ден|100\s*%|полная\s*оплат/i.test(t);
+  if (hasM && hasI) return { label, category: "mixed" };
+  if (hasM) return { label, category: "mortgage" };
+  if (hasI) return { label, category: "installment" };
+  if (hasC) return { label, category: "cash" };
+  return { label, category: "unknown" };
+}
+
+function formatChildrenPick(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(Math.round(raw));
+  const s = dealObjectStringOrNull(raw);
+  return s;
+}
+
+/**
+ * Профиль покупателя: приоритет name_full / name_last+name_first+name_middle из buyer/client/deal,
+ * без плоского поиска по всей строке (исключает CRM staff). Дополнение — {@link mergeBuyerProfileWithDeepScan}.
+ */
+export function extractDealBuyerProfile(row: DealExportRow): DealBuyerProfile {
+  const rowU = row as unknown;
+  const primaryName = pickBuyerPrimaryFullName(rowU);
+  const fullNameFallback = buyerEntityPickStr(rowU, BUYER_NAME_KEYS, BUYER_NAME_PATHS);
+  const fullName = primaryName?.fullName ?? fullNameFallback;
+
+  const buyerType = buyerEntityPickStr(rowU, BUYER_TYPE_KEYS, BUYER_TYPE_PATHS);
+  const phone = buyerEntityPickStr(rowU, BUYER_PHONE_KEYS, BUYER_PHONE_PATHS);
+  const email = buyerEntityPickStr(rowU, BUYER_EMAIL_KEYS, BUYER_EMAIL_PATHS);
+  const birthRaw = buyerEntityPickStr(rowU, BUYER_BIRTH_KEYS, BUYER_BIRTH_PATHS);
+  const birthDate = birthRaw != null && birthRaw.trim() !== "" ? birthRaw.trim().slice(0, 10) : null;
+  const city = buyerEntityPickStr(rowU, BUYER_CITY_KEYS, BUYER_CITY_ENTITY_PATHS);
+  const gender = buyerEntityPickStr(rowU, BUYER_GENDER_KEYS, BUYER_GENDER_PATHS);
+  const maritalStatus = buyerEntityPickStr(rowU, BUYER_MARITAL_KEYS, BUYER_MARITAL_PATHS);
+  const paymentRaw = buyerEntityPickStr(rowU, BUYER_PAYMENT_KEYS, BUYER_PAYMENT_PATHS);
+  const { label: paymentLabel, category: paymentCategory } = classifyBuyerPayment(paymentRaw);
+  const budgetRub = buyerEntityPickNum(rowU, BUYER_BUDGET_KEYS, BUYER_BUDGET_PATHS);
+  const purchaseCount = buyerEntityPickNum(rowU, BUYER_PURCHASE_COUNT_KEYS, BUYER_PURCHASE_COUNT_PATHS);
+  const occupation = buyerEntityPickStr(rowU, BUYER_OCCUPATION_KEYS, BUYER_OCCUPATION_PATHS);
+  const children = formatChildrenPick(buyerEntityPickRaw(rowU, BUYER_CHILDREN_KEYS, BUYER_CHILDREN_PATHS));
+  const family = buyerEntityPickStr(rowU, BUYER_FAMILY_KEYS, BUYER_FAMILY_PATHS);
+  const income = buyerEntityPickStr(rowU, BUYER_INCOME_KEYS, BUYER_INCOME_PATHS);
+
+  const hasRichFields = [
+    fullName,
+    buyerType,
+    phone,
+    email,
+    birthDate,
+    city,
+    gender,
+    maritalStatus,
+    paymentLabel,
+    occupation,
+    children,
+    family,
+    income,
+  ].some((x) => x != null && String(x).trim() !== "") || (budgetRub != null && budgetRub > 0) || (purchaseCount != null && purchaseCount > 0);
+
+  const base: DealBuyerProfile = {
+    fullName,
+    buyerType,
+    phone,
+    email,
+    birthDate,
+    city,
+    gender,
+    maritalStatus,
+    paymentLabel,
+    paymentCategory,
+    purchaseCount,
+    budgetRub,
+    occupation,
+    children,
+    family,
+    income,
+    hasRichFields,
+  };
+
+  const merged = mergeBuyerProfileWithDeepScan(row as unknown, base, classifyBuyerPayment);
+  const nameSrc =
+    primaryName?.fullName && merged.fullName === primaryName.fullName
+      ? primaryName.sourcePath
+      : merged.fullName === fullName
+        ? "buyerEntityPickStr"
+        : merged.fullName
+          ? "deepScanAugment"
+          : "none";
+  logBuyerFieldCandidateDebug({
+    buyerCandidate: merged.fullName,
+    sourcePath: nameSrc,
+    confidenceScore: primaryName?.confidenceScore ?? (merged.fullName ? 28 : 0),
+  });
+  logBuyerJsonDebugIfEnabled(row as unknown, merged.hasRichFields);
+  return merged;
+}
+
 /**
  * Сводит поля `deal` / `object` к {@link DealObjectParams}.
  * Приоритет полей выгрузки `data[]`: `deal.deal_sum`, `deal.deal_area`, `object.estate_area`, `object.category`, `object.estate_floor`, `object.geo_house_section`.
@@ -1141,6 +1622,8 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       clientLabel: n.client,
       objectParams: extractDealObjectParams(row),
       objectCategoryCode,
+      objectUnitLabel: extractObjectUnitLabel(row),
+      buyerProfile: extractDealBuyerProfile(row),
     });
   }
 
