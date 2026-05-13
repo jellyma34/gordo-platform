@@ -1,20 +1,18 @@
-import type { SalesReportPayload } from "@/lib/marketingSalesReportData";
+const RU_MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
 
-/**
- * Поступления (эскроу) из CRM (`cashFlowDiagnostic`) + план из CSV графика платежей.
- * Месячный факт — прирост накопительного эскроу по полному ряду CRM (включая месяцы до старта продаж),
- * но на график попадают только периоды ≥ `salesStartPeriodKey`.
- */
 export type CashflowSeriesRow = {
   periodKey: string;
   label: string;
-  /** План поступлений за месяц, ₽ (из CSV графика платежей). */
+  /** План поступлений за месяц, ₽ (из CSV: колонки «План …»). */
   planMonth: number;
-  /** Факт поступлений за месяц (прирост эскроу по CRM), ₽. После отчётного месяца — `null` (нет данных). */
+  /** Факт поступлений за месяц, ₽ — только из отдельного CSV факта (колонки «зайдет …»); иначе `null`. */
   factMonth: number | null;
 };
 
-const RU_MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
+/**
+ * Поступления: **план** только из CSV графика платежей; **факт** — только из отдельного CSV притока
+ * (колонки «зайдет …», нижняя строка итогов). Источники не смешиваются.
+ */
 
 export function periodKeyToRuChartLabel(periodKey: string): string {
   const y = periodKey.slice(0, 4);
@@ -26,34 +24,14 @@ export function periodKeyToRuChartLabel(periodKey: string): string {
   return `${RU_MONTH_SHORT[mi]}. ${yy}`;
 }
 
-function crmFactMonthByKey(monthSeries: SalesReportPayload["cashFlowDiagnostic"]["month"]): Map<string, number> {
-  const sorted = [...monthSeries].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-  const out = new Map<string, number>();
-  for (let i = 0; i < sorted.length; i++) {
-    const prev = i > 0 ? sorted[i - 1]!.escrowCumulative : 0;
-    const cur = sorted[i]!;
-    out.set(cur.periodKey, cur.escrowCumulative - prev);
-  }
-  return out;
-}
-
 export type BuildCashflowSeriesOptions = {
-  /**
-   * Первый отображаемый месяц (YYYY-MM): «официальный» старт продаж по проекту.
-   * Раньше — точки CRM не выводятся; помесячный факт для первого показанного месяца всё равно считается
-   * от предыдущего месяца в полном массиве CRM (накопительный эскроу).
-   */
   salesStartPeriodKey?: string | null;
-  /**
-   * Последний месяц, для которого на графике cashflow показывается факт (YYYY-MM, включительно).
-   * Для более поздних месяцев `factMonth` = `null` (без интерполяции и без «заморозки» кумулятива).
-   */
   factThroughPeriodKey?: string | null;
 };
 
 export function buildCashflowSeries(
-  data: SalesReportPayload,
-  planByPeriodKey?: Readonly<Record<string, number>> | null,
+  planByPeriodKey: Readonly<Record<string, number>> | null | undefined,
+  factByPeriodKey: Readonly<Record<string, number>> | null | undefined,
   options?: BuildCashflowSeriesOptions,
 ): CashflowSeriesRow[] {
   const salesStartRaw = options?.salesStartPeriodKey?.trim();
@@ -63,17 +41,19 @@ export function buildCashflowSeries(
   const factThrough =
     factThroughRaw && /^\d{4}-\d{2}$/.test(factThroughRaw) ? factThroughRaw : null;
 
-  const cf = [...data.cashFlowDiagnostic.month].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-  const factByKey = crmFactMonthByKey(cf);
-  const labelByKey = new Map(cf.map((p) => [p.periodKey, p.label] as const));
+  const plan = planByPeriodKey ?? {};
+  const fact = factByPeriodKey ?? null;
+  const hasFactSeries = fact != null && Object.keys(fact).length > 0;
 
   const keys = new Set<string>();
-  for (const p of cf) {
-    if (salesStart && p.periodKey < salesStart) continue;
-    keys.add(p.periodKey);
+  for (const k of Object.keys(plan)) {
+    if (!/^\d{4}-\d{2}$/.test(k)) continue;
+    if (salesStart && k < salesStart) continue;
+    keys.add(k);
   }
-  if (planByPeriodKey) {
-    for (const k of Object.keys(planByPeriodKey)) {
+  if (hasFactSeries) {
+    for (const k of Object.keys(fact!)) {
+      if (!/^\d{4}-\d{2}$/.test(k)) continue;
       if (salesStart && k < salesStart) continue;
       keys.add(k);
     }
@@ -82,19 +62,28 @@ export function buildCashflowSeries(
   const sortedKeys = [...keys].sort((a, b) => a.localeCompare(b));
 
   const rows = sortedKeys.map((periodKey) => {
-    const planMonth =
-      planByPeriodKey && planByPeriodKey[periodKey] != null ? Math.round(planByPeriodKey[periodKey]!) : 0;
-    const rawFact = factByKey.get(periodKey) ?? 0;
-    const factMonth =
-      factThrough && periodKey > factThrough ? null : rawFact;
-    const label = labelByKey.get(periodKey) ?? periodKeyToRuChartLabel(periodKey);
+    const planRaw = plan[periodKey];
+    const planMonth = planRaw != null && Number.isFinite(Number(planRaw)) ? Number(planRaw) : 0;
+    let factMonth: number | null = null;
+    if (hasFactSeries) {
+      if (factThrough && periodKey > factThrough) {
+        factMonth = null;
+      } else if (Object.prototype.hasOwnProperty.call(fact!, periodKey)) {
+        const fv = fact![periodKey];
+        factMonth = fv != null && Number.isFinite(Number(fv)) ? Number(fv) : null;
+      } else {
+        factMonth = null;
+      }
+    }
+    const label = periodKeyToRuChartLabel(periodKey);
     return { periodKey, label, planMonth, factMonth };
   });
 
   while (rows.length > 1) {
     const last = rows[rows.length - 1]!;
+    const planNonZero = last.planMonth !== 0;
     const factNonZero = last.factMonth != null && last.factMonth !== 0;
-    if (last.planMonth !== 0 || factNonZero) break;
+    if (planNonZero || factNonZero) break;
     rows.pop();
   }
 
@@ -103,10 +92,16 @@ export function buildCashflowSeries(
 
 export type CashflowChartMode = "monthly" | "cumulative";
 
+/**
+ * Строка для Recharts: `plan` — оранжевая линия «План»; `fact` — синяя «Факт».
+ * Оба ряда на весь горизонт `rows` (без обрезки по текущей дате); `fact` и `deviation` — `null`, если в месяце нет значения факта в данных.
+ */
 export type CashflowChartRow = {
   periodKey: string;
   label: string;
+  /** Оранжевая серия (план). */
   plan: number;
+  /** Синяя серия (факт). */
   fact: number | null;
   deviation: number | null;
 };
@@ -127,13 +122,17 @@ export function cashflowRowsForChart(
   }));
 
   if (mode === "monthly") {
-    return scaled.map((r) => ({
-      periodKey: r.periodKey,
-      label: r.label,
-      plan: r.planMonthScaled,
-      fact: r.factMonth,
-      deviation: r.factMonth == null ? null : r.factMonth - r.planMonthScaled,
-    }));
+    return scaled.map((r) => {
+      const planFull = r.planMonthScaled;
+      const deviation = r.factMonth == null ? null : r.factMonth - r.planMonthScaled;
+      return {
+        periodKey: r.periodKey,
+        label: r.label,
+        plan: planFull,
+        fact: r.factMonth,
+        deviation,
+      };
+    });
   }
 
   let accPlan = 0;
@@ -141,12 +140,13 @@ export function cashflowRowsForChart(
   return scaled.map((r) => {
     accPlan += r.planMonthScaled;
     if (r.factMonth != null) accFact += r.factMonth;
+    const factDisplayed = r.factMonth == null ? null : accFact;
     return {
       periodKey: r.periodKey,
       label: r.label,
       plan: accPlan,
-      fact: r.factMonth == null ? null : accFact,
-      deviation: r.factMonth == null ? null : accFact - accPlan,
+      fact: factDisplayed,
+      deviation: factDisplayed == null ? null : factDisplayed - accPlan,
     };
   });
 }

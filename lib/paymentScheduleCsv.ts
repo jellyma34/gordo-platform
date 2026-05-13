@@ -1,14 +1,77 @@
 import Papa from "papaparse";
 
-export type PaymentScheduleParseResult =
-  | {
-      ok: true;
-      byPeriodKey: Record<string, number>;
-      /** Первая колонка плана («План март 2026») и др. */
-      columnPeriodKeys: string[];
-      reportAsOf?: string;
-    }
-  | { ok: false; error: string };
+/** Сообщение UI, если не удалось автоматически найти помесячные колонки факта. */
+export const PAYMENT_CSV_FACT_MAPPING_REQUIRED_RU =
+  "Не удалось выделить колонки месяцев по шаблонам дат (например «апрель 2026», «май 2026», «июн.26») в верхней части таблицы.";
+
+/** Нет нижней строки итогов с суммами по помесячным колонкам факта. */
+export const PAYMENT_CSV_FACT_TOTAL_ROW_REQUIRED_RU =
+  "Не найдена нижняя строка итогов (итого/всего) с помесячными суммами по колонкам факта — проверьте выгрузку из Excel.";
+
+/** Отладка факта: по каждой распознанной колонке притока — ячейка в нижней строке итогов. */
+export type MarketingPaymentZaydetColumnDebugRow = {
+  rawHeader: string;
+  /** Канонический период YYYY-MM. */
+  parsedMonth: string;
+  /** Число из ячейки в нижней строке итогов (или 0, если строка не найдена). */
+  parsedSum: number;
+};
+
+/** Сверка помесячно: число учтённых ячеек и сумма по столбцам «зайдет» за месяц. */
+export type MarketingPaymentZaydetMonthVerifyRow = {
+  month: string;
+  rawCsvSum: number;
+  displayedValue: number;
+  /** Для факта из нижней строки итогов: 1 на месяц (или 0, если месяц не импортирован). */
+  parsedCellCount: number;
+};
+
+export type MarketingPaymentCsvParseOk = {
+  ok: true;
+  /** Помесячный план оплаты по графику (колонки «План <месяц> <год>» / «мар.26» и т.п.). */
+  planByPeriodKey: Record<string, number>;
+  /**
+   * Помесячный **приток** по колонкам «зайдет» (месяц + год): значения **нижней строки итогов** в CSV,
+   * как в Excel (помесячные суммы уже агрегированы в таблице). Детальные строки сделок не суммируются.
+   */
+  factByPeriodKey: Record<string, number> | null;
+  factUnavailableReason: string | null;
+  columnPeriodKeysPlan: string[];
+  columnPeriodKeysFact: string[];
+  /** Сводка по каждой колонке «зайдет» для сверки с CSV и графиком (режим редактирования). */
+  zaydetColumnDebug: MarketingPaymentZaydetColumnDebugRow[];
+  zaydetMonthVerify: MarketingPaymentZaydetMonthVerifyRow[];
+  reportAsOf?: string;
+  /** Сводка предупреждений плана и факта при разборе одного CSV. */
+  warnings?: string[];
+};
+
+export type MarketingPaymentCsvParseResult = MarketingPaymentCsvParseOk | { ok: false; error: string };
+
+/** Только платёжный календарь (колонки «План …» / «мар.26»); без «зайдет» и без факта. */
+export type MarketingPaymentPlanOnlyCsvParseOk = {
+  ok: true;
+  planByPeriodKey: Record<string, number>;
+  columnPeriodKeysPlan: string[];
+  reportAsOf?: string;
+  /** Нестрогие замечания (файл разобран, но были эвристики). */
+  warnings?: string[];
+};
+export type MarketingPaymentPlanOnlyCsvParseResult = MarketingPaymentPlanOnlyCsvParseOk | { ok: false; error: string };
+
+/** Только помесячный приток по колонкам факта (нижняя строка итогов); без сумм по «План …». */
+export type MarketingPaymentFactOnlyCsvParseOk = {
+  ok: true;
+  factByPeriodKey: Record<string, number> | null;
+  factUnavailableReason: string | null;
+  columnPeriodKeysFact: string[];
+  zaydetColumnDebug: MarketingPaymentZaydetColumnDebugRow[];
+  zaydetMonthVerify: MarketingPaymentZaydetMonthVerifyRow[];
+  reportAsOf?: string;
+  /** Предупреждения: частичный разбор, эвристика итогов и т.п. */
+  warnings?: string[];
+};
+export type MarketingPaymentFactOnlyCsvParseResult = MarketingPaymentFactOnlyCsvParseOk | { ok: false; error: string };
 
 const RU_MONTH_WORD: Record<string, number> = {
   январь: 1,
@@ -52,19 +115,330 @@ const RU_ABBREV3: Record<string, number> = {
   дек: 12,
 };
 
+/**
+ * Деньги из ячейки CSV: без умножений на 1000 / 1e6, только разбор строки.
+ * Пробелы и неразрывные пробелы убираются; десятичный разделитель — запятая или точка (одна запятая → точка);
+ * всё, кроме цифр, одной точки и знака минус, отбрасывается.
+ */
 export function parseMoneyRu(raw: unknown): number {
-  const s = String(raw ?? "")
-    .trim()
+  if (raw == null || raw === "") return 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+
+  const s0 = String(raw).trim();
+  if (!s0) return 0;
+
+  const cleaned = s0
     .replace(/\s/g, "")
     .replace(/\u00a0/g, "")
-    .replace(",", ".");
-  if (!s) return 0;
-  const n = parseFloat(s);
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
+
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
+}
+
+function buildZaydetMonthVerifyRows(
+  factByPeriodKey: Record<string, number> | null,
+  zaydetColumnDebug: MarketingPaymentZaydetColumnDebugRow[],
+  parsedCellCountByMonth: Record<string, number> | undefined,
+): MarketingPaymentZaydetMonthVerifyRow[] {
+  const rawByMonth = new Map<string, number>();
+  for (const r of zaydetColumnDebug) {
+    rawByMonth.set(r.parsedMonth, (rawByMonth.get(r.parsedMonth) ?? 0) + r.parsedSum);
+  }
+  const months = new Set<string>();
+  for (const k of rawByMonth.keys()) months.add(k);
+  if (factByPeriodKey) {
+    for (const k of Object.keys(factByPeriodKey)) {
+      if (/^\d{4}-\d{2}$/.test(k)) months.add(k);
+    }
+  }
+  return [...months]
+    .sort((a, b) => a.localeCompare(b))
+    .map((month) => {
+      const rawCsvSum =
+        factByPeriodKey != null && Object.prototype.hasOwnProperty.call(factByPeriodKey, month)
+          ? Number(factByPeriodKey[month])
+          : (rawByMonth.get(month) ?? 0);
+      const displayedValue =
+        factByPeriodKey != null && Object.prototype.hasOwnProperty.call(factByPeriodKey, month)
+          ? Number(factByPeriodKey[month])
+          : 0;
+      const parsedCellCount =
+        parsedCellCountByMonth != null && Object.prototype.hasOwnProperty.call(parsedCellCountByMonth, month)
+          ? Number(parsedCellCountByMonth[month])
+          : 0;
+      return { month, rawCsvSum, displayedValue, parsedCellCount };
+    });
+}
+
+/** Только начало строки: итоги в дальних колонках («всего к оплате» и т.п.) не отсекают строку сделки целиком. */
+function rowLeadingCellsProbe(row: string[], maxCells = 8): string {
+  const n = Math.min(maxCells, row.length);
+  const parts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    parts.push(String(row[i] ?? "").trim().toLowerCase());
+  }
+  return parts.join(" ");
+}
+
+/** Текст строки целиком (для поиска нижней строки итогов — подпись часто в середине строки Export). */
+function rowJoinedForTotalDetection(row: string[]): string {
+  return row.map((c) => String(c ?? "").trim().toLowerCase()).join(" ");
+}
+
+/** Промежуточные итоги: не использовать как финальную строку помесячных total внизу листа. */
+function isPaymentCsvIntermediateSummaryRow(row: string[]): boolean {
+  const s = rowJoinedForTotalDetection(row);
+  return /промежуточн|подытог|в\s+том\s+числе|субтотал/i.test(s);
+}
+
+/**
+ * Финальная строка итогов внизу отчёта (не промежуточный итог).
+ * В т.ч. строка вида «НАКОПИТЕЛЬНО НА ЭСКРОУ …» — подпись может быть не в первых ячейках.
+ */
+function isPaymentCsvGrandTotalRow(row: string[]): boolean {
+  if (isPaymentCsvIntermediateSummaryRow(row)) return false;
+  const s = rowJoinedForTotalDetection(row);
+  if (!s.trim()) return false;
+  if (/\bитого\b|\bвсего\b|накопител|суммарн|subtotal/i.test(s)) return true;
+  const c0 = String(row[0] ?? "").trim().toLowerCase();
+  if (/^итого\b|^всего\b/i.test(c0)) return true;
+  const c1 = String(row[1] ?? "").trim().toLowerCase();
+  if (c1 === "итого" || /^итого\b/i.test(c1)) return true;
+  return false;
+}
+
+function timelineNonZeroStats(row: string[], periodToCol: Map<string, number>): { hits: number; sumAbs: number } {
+  let hits = 0;
+  let sumAbs = 0;
+  for (const col of periodToCol.values()) {
+    const v = Math.abs(parseMoneyRu(row[col] ?? ""));
+    if (v > 1e-12) {
+      hits++;
+      sumAbs += v;
+    }
+  }
+  return { hits, sumAbs };
+}
+
+/**
+ * Геометрия: нижняя строка итогов — снизу вверх.
+ * 1) Строка с подписью итого/всего и числами в колонках таймлайна.
+ * 2) Иначе нижняя строка с «широким» заполнением числовых колонок месяцев.
+ * 3) Иначе последняя строка с любым минимальным набором чисел в колонках месяцев.
+ */
+function findFactBottomTotalsRowIdx(
+  rows: string[][],
+  bodyStartRow: number,
+  periodToCol: Map<string, number>,
+): { idx: number; warnings: string[] } {
+  const w: string[] = [];
+  const k = periodToCol.size;
+  if (k === 0) return { idx: -1, warnings: w };
+  const minWeak = Math.max(1, Math.min(2, k));
+  const minStrong = k <= 5 ? k : Math.max(4, Math.ceil(k * 0.45));
+
+  for (let i = rows.length - 1; i >= bodyStartRow; i--) {
+    const row = rows[i]!;
+    if (!row.some((c) => String(c ?? "").trim() !== "")) continue;
+    if (isVerbaRepeatedTableHeaderRow(row)) continue;
+    if (isPaymentCsvIntermediateSummaryRow(row)) continue;
+    const { hits, sumAbs } = timelineNonZeroStats(row, periodToCol);
+    if (hits < 1 || sumAbs <= 0) continue;
+    if (isPaymentCsvGrandTotalRow(row)) {
+      w.push("Итоги: строка с подписью итого/всего внизу листа.");
+      return { idx: i, warnings: w };
+    }
+  }
+
+  for (let i = rows.length - 1; i >= bodyStartRow; i--) {
+    const row = rows[i]!;
+    if (!row.some((c) => String(c ?? "").trim() !== "")) continue;
+    if (isVerbaRepeatedTableHeaderRow(row)) continue;
+    if (isPaymentCsvIntermediateSummaryRow(row)) continue;
+    const { hits, sumAbs } = timelineNonZeroStats(row, periodToCol);
+    if (hits >= minStrong && sumAbs > 0) {
+      w.push(
+        "Итоги: нижняя строка с наибольшим заполнением колонок месяцев (без явной подписи «итого»/«всего»).",
+      );
+      return { idx: i, warnings: w };
+    }
+  }
+
+  for (let i = rows.length - 1; i >= bodyStartRow; i--) {
+    const row = rows[i]!;
+    if (!row.some((c) => String(c ?? "").trim() !== "")) continue;
+    if (isVerbaRepeatedTableHeaderRow(row)) continue;
+    if (isPaymentCsvIntermediateSummaryRow(row)) continue;
+    const { hits, sumAbs } = timelineNonZeroStats(row, periodToCol);
+    if (hits >= minWeak && sumAbs > 0) {
+      w.push(
+        "Итоги: последняя по файлу строка с числами в колонках месяцев — проверьте, что это строка итогов.",
+      );
+      return { idx: i, warnings: w };
+    }
+  }
+
+  return { idx: -1, warnings: w };
+}
+
+function isPaymentCsvSummaryLikeRow(row: string[]): boolean {
+  const head = rowLeadingCellsProbe(row, 8);
+  if (/\bнакопит/i.test(head)) return true;
+  if (/\bитого\b|\bвсего\b|промежуточн|подытог|субтотал|subtotal|суммарн|в\s+том\s+числе/i.test(head)) {
+    return true;
+  }
+  const c0 = String(row[0] ?? "").trim().toLowerCase();
+  if (/^итого\b|^всего\b/i.test(c0)) return true;
+  const c1 = String(row[1] ?? "").trim().toLowerCase();
+  if (c1 === "итого" || /^итого\b/i.test(c1)) return true;
+  return false;
+}
+
+/** Повтор шапки таблицы Верба (не строки с суммами). */
+function isVerbaRepeatedTableHeaderRow(row: string[]): boolean {
+  const c0 = String(row[0] ?? "").trim().toLowerCase();
+  const c1 = String(row[1] ?? "").trim().toLowerCase();
+  if (/^вид\s+договора/i.test(c0)) return true;
+  if (/^номер\s+и\s+дата\s+договора/i.test(c1)) return true;
+  if (/идентификационн/i.test(c0)) return true;
+  return false;
 }
 
 function toPeriodKey(y: number, m: number): string {
   return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+/** Нормализация шапки для извлечения периода (без использования «сырого» текста как ключа). */
+function normalizeHeaderForPeriodParse(raw: unknown): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Стволы месяцев для fuzzy includes (длинные раньше коротких). Значение — календарный месяц 1…12. */
+const FUZZY_MONTH_STEM_TO_M: { stem: string; m: number }[] = [
+  { stem: "сентябр", m: 9 },
+  { stem: "октябр", m: 10 },
+  { stem: "ноябр", m: 11 },
+  { stem: "декабр", m: 12 },
+  { stem: "феврал", m: 2 },
+  { stem: "январ", m: 1 },
+  { stem: "август", m: 8 },
+  { stem: "апрел", m: 4 },
+  { stem: "мае", m: 5 },
+  { stem: "июль", m: 7 },
+  { stem: "март", m: 3 },
+  { stem: "май", m: 5 },
+  { stem: "июн", m: 6 },
+  { stem: "июл", m: 7 },
+];
+
+function extractMonthYearFromNormalizedScheduleHeader(h: string): { month: number; year: number } | null {
+  let month: number | null = null;
+  for (const { stem, m } of FUZZY_MONTH_STEM_TO_M) {
+    if (h.includes(stem)) {
+      month = m;
+      break;
+    }
+  }
+  if (month == null) return null;
+
+  let year: number | null = null;
+  const fourAll = [...h.matchAll(/\b((?:19|20)\d{2})\b/g)];
+  if (fourAll.length > 0) {
+    year = Number(fourAll[fourAll.length - 1]![1]);
+  } else {
+    const twoAll = [...h.matchAll(/(?:^|\D)(\d{2})(?:\D|$)/g)];
+    for (let i = twoAll.length - 1; i >= 0; i--) {
+      const v = Number(twoAll[i]![1]);
+      if (Number.isFinite(v) && v >= 0 && v <= 99) {
+        year = 2000 + v;
+        break;
+      }
+    }
+  }
+  if (year == null || !Number.isFinite(year)) return null;
+  return { month, year };
+}
+
+export type VerbaHeaderParsedMeta = {
+  month: number;
+  year: number;
+  type: "fact" | "plan";
+  /** Канонический ключ периода YYYY-MM. */
+  periodKey: string;
+};
+
+/**
+ * Строго колонки с подстрокой «зайдет» в заголовке (после нормализации). Месяц/год — только из текста шапки.
+ */
+export function parseZaydetColumnMetaStrict(raw: unknown): VerbaHeaderParsedMeta | null {
+  const rawHeader = String(raw ?? "").trim();
+  if (!rawHeader) return null;
+  const h = normalizeHeaderForPeriodParse(raw);
+  if (!h || !h.includes("зайдет")) return null;
+  const my = extractMonthYearFromNormalizedScheduleHeader(h);
+  if (!my) return null;
+  const periodKey = toPeriodKey(my.year, my.month);
+  return { month: my.month, year: my.year, type: "fact", periodKey };
+}
+
+/** Служебные / неграфиковые колонки: ДДУ, долг, накопления, покупатели и т.п. — не использовать для помесячного плана. */
+function isExcludedServiceColumnHeader(cell: string): boolean {
+  const t = String(cell ?? "")
+    .replace(/\r|\n/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!t) return false;
+  if (/^[а-яё]{3,5}\.\d{2}$/i.test(t.replace(/\s/g, ""))) return false;
+  if (/^план\s+[а-яё]+\s+\d{4}$/i.test(t)) return false;
+
+  const bad =
+    /задолжен|долг\s+на|остаток|сумма\s+по\s+дду|сумма\s+дду|^сумма\s+дду|оплата\s+до|регистрац|покупател|заказчик|^фио$|наименование\s+док|документ\s+регистр|накопител|на\s+эскроу|к\s+оплате$|^оплачено$|первонач|^цена\s|стоимост|договор(?!$)/i.test(
+      t,
+    );
+  if (bad) return true;
+  if (/^итого$|^всего$|^сумма$/i.test(t)) return true;
+  if (/^\d{4}$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Только колонки графика платёжного календаря:
+ * - «мар.26», «апр.26», …
+ * - «План март 2026» (то же, что якорная колонка в первой строке)
+ * Не использовать: голые годы, задолженность, сумма ДДУ и т.д.
+ */
+function cellToSchedulePeriodKey(cell: string): string | null {
+  const raw = String(cell ?? "").trim();
+  if (!raw || isExcludedServiceColumnHeader(raw)) return null;
+
+  const compact = raw.replace(/\s/g, "");
+  const abb = compact.match(/^([а-яё]{3,5})\.(\d{2})$/i);
+  if (abb) {
+    const pref = abb[1]!.toLowerCase().slice(0, 3);
+    const mm = RU_ABBREV3[pref];
+    if (!mm) return null;
+    const yy = Number(abb[2]);
+    if (!Number.isFinite(yy)) return null;
+    return toPeriodKey(2000 + yy, mm);
+  }
+
+  const planHit = matchPlanMonthCell(raw);
+  if (planHit) return toPeriodKey(planHit.colPeriod.y, planHit.colPeriod.m);
+
+  return null;
 }
 
 /** Одна колонка на periodKey: при дублях в `colToPeriod` берём самую левую, без двойного суммирования. */
@@ -88,27 +462,203 @@ function matchPlanMonthCell(cell: string): { colPeriod: { y: number; m: number }
   return { colPeriod: { y: year, m: month } };
 }
 
-function parseAbbrevOrYearCell(cell: string): string | null {
+function looksLikeDataRowFirstCell(cell: string): boolean {
   const t = cell.trim();
-  if (!t) return null;
-  const abb = t.match(/^([а-яё]{3,5})\.(\d{2})\s*$/i);
-  if (abb) {
-    const pref = abb[1].toLowerCase().slice(0, 3);
-    const mm = RU_ABBREV3[pref];
-    if (!mm) return null;
-    const yy = Number(abb[2]);
-    if (!Number.isFinite(yy)) return null;
-    return toPeriodKey(2000 + yy, mm);
+  return /^\d+-\d+(-\d+)?$/i.test(t);
+}
+
+/** Разбор строк CSV с автоподбором разделителя (; или ,) по первой непустой строке. */
+function parseSpreadsheetRows(text: string): string[][] {
+  const lines = text.split(/\r?\n/);
+  const first = (lines.find((l) => l.trim().length > 0) ?? "").trim();
+  const semi = (first.match(/;/g) ?? []).length;
+  const comma = (first.match(/,/g) ?? []).length;
+  const delimiter = semi >= comma ? ";" : ",";
+  const parsed = Papa.parse<string[]>(text, {
+    delimiter,
+    quoteChar: '"',
+    header: false,
+    skipEmptyLines: false,
+  });
+  if (parsed.errors?.length) {
+    console.warn("[payment csv]", parsed.errors.slice(0, 2));
   }
-  if (/^\d{4}$/.test(t)) {
-    return `${t}-01`;
+  const rawRows = (Array.isArray(parsed.data) ? parsed.data : []) as string[][];
+  return rawRows.filter((row) => Array.isArray(row) && row.some((c) => String(c ?? "").trim() !== ""));
+}
+
+/**
+ * Колонка **таймлайна** на листе: только месяц + год (или «мар.26» и т.п.).
+ * Семантика «факт», «оплачено», «эскроу», «зайдет» не требуется — это геометрия горизонтальной шкалы.
+ */
+function classifyFactSpreadsheetTimelineCell(raw: string): { periodKey: string } | null {
+  const rawHeader = String(raw ?? "").trim();
+  if (!rawHeader) return null;
+  if (isExcludedServiceColumnHeader(rawHeader)) return null;
+
+  const abbrevPk = cellToSchedulePeriodKey(rawHeader);
+  if (abbrevPk) return { periodKey: abbrevPk };
+
+  const h = normalizeHeaderForPeriodParse(rawHeader);
+  if (!h) return null;
+  const my = extractMonthYearFromNormalizedScheduleHeader(h);
+  if (!my) return null;
+  return { periodKey: toPeriodKey(my.year, my.month) };
+}
+
+/**
+ * Помесячная колонка **плана** (календарь): «План …», «мар.26», «зайдет …» в файле графика.
+ * Колонки, распознанные только как факт (без «зайдет»/«зашло»), в план не входят.
+ */
+function classifyPlanScheduleHeaderCell(raw: string): { periodKey: string } | null {
+  const rawHeader = String(raw ?? "").trim();
+  if (!rawHeader) return null;
+  const h = normalizeHeaderForPeriodParse(rawHeader);
+
+  const z = parseZaydetColumnMetaStrict(rawHeader);
+  if (z) return { periodKey: z.periodKey };
+
+  const planHit = matchPlanMonthCell(rawHeader);
+  if (planHit) return { periodKey: toPeriodKey(planHit.colPeriod.y, planHit.colPeriod.m) };
+
+  const abbrevPk = cellToSchedulePeriodKey(rawHeader);
+  if (abbrevPk) return { periodKey: abbrevPk };
+
+  if (/\bплан\b/.test(h)) {
+    const my = extractMonthYearFromNormalizedScheduleHeader(h);
+    if (my) return { periodKey: toPeriodKey(my.year, my.month) };
   }
   return null;
 }
 
-function looksLikeDataRowFirstCell(cell: string): boolean {
-  const t = cell.trim();
-  return /^\d+-\d+(-\d+)?$/i.test(t);
+/** Сколько строк вниз от якоря склеивать при чтении шапки (Excel: «зайдет» / «май 2026» в двух строках). */
+const HEADER_VERTICAL_MERGE_SPAN = 10;
+
+/** Поиск строки-якоря шапки только в верхней части листа (метаданные / пустые строки выше таблицы). */
+const HEADER_ANCHOR_SCAN_MAX_ROW = 60;
+
+/**
+ * Склеивает текст шапки по вертикали в одном столбце (merge / многострочные заголовки).
+ */
+function mergedVerticalHeaderText(rows: string[][], startRow: number, colJ: number, spanRows: number): string {
+  const parts: string[] = [];
+  const end = Math.min(rows.length, startRow + Math.max(1, spanRows));
+  for (let i = startRow; i < end; i++) {
+    const t = String(rows[i]?.[colJ] ?? "").trim();
+    if (t) parts.push(t);
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function countMergedHeaderHits(
+  rows: string[][],
+  startRow: number,
+  classify: (raw: string) => { periodKey: string } | null,
+  spanRows = HEADER_VERTICAL_MERGE_SPAN,
+): number {
+  const row = rows[startRow];
+  if (!row) return 0;
+  let n = 0;
+  for (let j = 0; j < row.length; j++) {
+    const text = mergedVerticalHeaderText(rows, startRow, j, spanRows);
+    if (text && classify(text)) n++;
+  }
+  return n;
+}
+
+/** Лучшая строка-якорь шапки: максимум распознанных колонок после вертикального склеивания. */
+function findBestHeaderRowIndex(
+  rows: string[][],
+  classify: (raw: string) => { periodKey: string } | null,
+): { idx: number; score: number } {
+  let bestI = -1;
+  let bestS = -1;
+  const limit = Math.min(rows.length, HEADER_ANCHOR_SCAN_MAX_ROW);
+  for (let i = 0; i < limit; i++) {
+    const s = countMergedHeaderHits(rows, i, classify, HEADER_VERTICAL_MERGE_SPAN);
+    if (s > bestS) {
+      bestS = s;
+      bestI = i;
+    }
+  }
+  return { idx: bestI, score: bestS };
+}
+
+/** Собирает колонку j → период, склеивая до `mergeDepth` строк начиная с `bandStart`. */
+function buildMergedColToPeriodFromVertical(
+  rows: string[][],
+  bandStart: number,
+  mergeDepth: number,
+  classify: (raw: string) => { periodKey: string } | null,
+): Map<number, string> {
+  const colTo = new Map<number, string>();
+  const scanEnd = Math.min(rows.length, bandStart + mergeDepth);
+  const maxJ = maxColsInRowRange(rows, bandStart, scanEnd);
+  for (let j = 0; j < maxJ; j++) {
+    const text = mergedVerticalHeaderText(rows, bandStart, j, mergeDepth);
+    if (!text) continue;
+    const hit = classify(text);
+    if (hit) colTo.set(j, hit.periodKey);
+  }
+  return colTo;
+}
+
+/** Fallback: шапка только в первых ~10 строках (метаданные выше, таблица сразу с колонками). */
+function buildMergedColToPeriodFromTopRows(
+  rows: string[][],
+  topRows: number,
+  classify: (raw: string) => { periodKey: string } | null,
+): Map<number, string> {
+  const depth = Math.min(Math.max(5, topRows), rows.length, HEADER_VERTICAL_MERGE_SPAN);
+  return buildMergedColToPeriodFromVertical(rows, 0, depth, classify);
+}
+
+/** Расширение полосы шапки вниз: учитывает склеенные подзаголовки. */
+function extendHeaderBandEnd(
+  rows: string[][],
+  bestIdx: number,
+  bestScore: number,
+  classify: (raw: string) => { periodKey: string } | null,
+): number {
+  let end = bestIdx + 1;
+  const threshold = Math.max(2, Math.ceil(Math.max(bestScore, 3) * 0.2));
+  const limit = Math.min(rows.length, bestIdx + 55);
+  for (let i = bestIdx + 1; i < limit; i++) {
+    const row = rows[i]!;
+    const c0 = String(row[0] ?? "").trim();
+    if (looksLikeDataRowFirstCell(c0)) break;
+    const s1 = String(row[1] ?? "").trim().toLowerCase();
+    if (s1.includes("итого") && countMergedHeaderHits(rows, i, classify, 6) === 0) break;
+
+    const hs = countMergedHeaderHits(rows, i, classify, 6);
+    if (hs >= threshold || (bestScore <= 3 && hs >= 1)) {
+      end = i + 1;
+    }
+  }
+  return end;
+}
+
+function maxColsInRowRange(rows: string[][], from: number, toExclusive: number): number {
+  let m = 0;
+  for (let i = from; i < toExclusive; i++) {
+    m = Math.max(m, rows[i]!.length);
+  }
+  return m;
+}
+
+function findFirstDataRowIndex(rows: string[][], minRow: number, periodToCol: Map<string, number>): number {
+  for (let i = minRow; i < rows.length; i++) {
+    const row = rows[i]!;
+    const c0 = String(row[0] ?? "").trim();
+    if (looksLikeDataRowFirstCell(c0)) return i;
+    if (isPaymentCsvSummaryLikeRow(row)) continue;
+    let sum = 0;
+    for (const col of periodToCol.values()) {
+      sum += Math.abs(parseMoneyRu(row[col] ?? ""));
+    }
+    if (sum > 0 && c0.length > 0 && !isPaymentCsvGrandTotalRow(row)) return i;
+  }
+  return minRow;
 }
 
 function extractReportAsOf(rows: string[][]): string | undefined {
@@ -142,134 +692,312 @@ export function decodePaymentScheduleCsvBuffer(buffer: ArrayBuffer): string {
 }
 
 /**
- * Разбор CSV графика платежей: строка с «План <месяц> <год>», следующая строка с «апр.26» …
- * Суммы по месяцам — из строки «Итого», иначе суммирование строк сделок.
+ * Декодирование CSV отчёта о фактических поступлениях (часто Windows-1251).
  */
-export function parsePaymentScheduleCsv(text: string): PaymentScheduleParseResult {
-  const parsed = Papa.parse<string[]>(text, {
-    delimiter: ";",
-    quoteChar: '"',
-    header: false,
-    skipEmptyLines: false,
-  });
-  if (parsed.errors?.length) {
-    console.warn("[payment schedule CSV]", parsed.errors.slice(0, 3));
+export function decodePaymentFactInflowCsvBuffer(buffer: ArrayBuffer): string {
+  const cp1251 = new TextDecoder("windows-1251").decode(buffer);
+  if (
+    /зайдет|зашло\s+в|поступлен|отчетн|отчётн|факт|оплачено|эскроу|поступил/i.test(cp1251) ||
+    /план\s+[а-яё]+\s+\d{4}/i.test(cp1251) ||
+    /рассрочка/i.test(cp1251) ||
+    /дду/i.test(cp1251) ||
+    (/(?:19|20)\d{2}/.test(cp1251) &&
+      /январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентяб|октяб|нояб|декаб/i.test(cp1251))
+  ) {
+    return cp1251;
   }
+  return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+}
 
-  const rawRows = (Array.isArray(parsed.data) ? parsed.data : []) as string[][];
-  const rows = rawRows.filter((row) => Array.isArray(row) && row.some((c) => String(c ?? "").trim() !== ""));
+function rowLooksLikeNumericPlanRow(row: string[], periodToCol: Map<string, number>): boolean {
+  let nz = 0;
+  for (const col of periodToCol.values()) {
+    if (parseMoneyRu(row[col] ?? "") !== 0) nz++;
+  }
+  return nz >= 2;
+}
 
+function parsePlanFromRows(rows: string[][]): MarketingPaymentPlanOnlyCsvParseResult {
   if (rows.length < 3) {
-    return { ok: false, error: "Файл слишком короткий — ожидался отчёт с графиком платежей." };
+    return { ok: false, error: "Файл слишком короткий — ожидался график платежей с помесячными колонками." };
   }
+  const warnings: string[] = [];
+  const { idx: hi, score: hs } = findBestHeaderRowIndex(rows, classifyPlanScheduleHeaderCell);
+  let colToPeriod = new Map<number, string>();
+  let anchor = hi;
+  let bandEnd = 0;
+  let mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
 
-  let planRowIdx = -1;
-  let planCol = -1;
-  let firstMonth: { y: number; m: number } | null = null;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    for (let j = 0; j < row.length; j++) {
-      const cell = String(row[j] ?? "").trim();
-      const hit = matchPlanMonthCell(cell);
-      if (hit) {
-        planRowIdx = i;
-        planCol = j;
-        firstMonth = hit.colPeriod;
-        break;
-      }
+  if (hi >= 0 && hs >= 1) {
+    bandEnd = extendHeaderBandEnd(rows, hi, hs, classifyPlanScheduleHeaderCell);
+    mergeDepth = Math.max(HEADER_VERTICAL_MERGE_SPAN, bandEnd - hi + 6);
+    colToPeriod = buildMergedColToPeriodFromVertical(rows, hi, mergeDepth, classifyPlanScheduleHeaderCell);
+  }
+  if (colToPeriod.size === 0) {
+    const top = buildMergedColToPeriodFromTopRows(rows, 12, classifyPlanScheduleHeaderCell);
+    if (top.size > 0) {
+      colToPeriod = top;
+      anchor = 0;
+      bandEnd = Math.min(12, rows.length);
+      mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
+      warnings.push("Шапка плана собрана из первых строк листа (многострочные заголовки / merge).");
     }
-    if (planRowIdx >= 0) break;
   }
 
-  if (planRowIdx < 0 || planCol < 0 || !firstMonth) {
+  if (anchor < 0 || colToPeriod.size === 0) {
     return {
       ok: false,
-      error: "Не найдена строка заголовка с колонкой вида «План март 2026».",
+      error:
+        "Не удалось автоматически найти шапку таблицы с помесячным планом (ищутся колонки вида «План май 2026», «мар.26», «зайдет июнь 2026»).",
     };
   }
 
-  const colToPeriod = new Map<number, string>();
-  colToPeriod.set(planCol, toPeriodKey(firstMonth.y, firstMonth.m));
+  const periodToCol = firstColIndexPerPeriodKey(colToPeriod);
+  const columnPeriodKeysPlan = [...periodToCol.keys()].sort((a, b) => a.localeCompare(b));
 
-  const ingestMonthCellsFromRow = (row: string[]) => {
-    for (let j = 0; j < row.length; j++) {
-      const cell = String(row[j] ?? "").trim();
-      const pk = parseAbbrevOrYearCell(cell);
-      if (pk) colToPeriod.set(j, pk);
-    }
-  };
-
-  const planRow = rows[planRowIdx]!;
-  for (let j = planCol + 1; j < planRow.length; j++) {
-    const cell = String(planRow[j] ?? "").trim();
-    const pk = parseAbbrevOrYearCell(cell);
-    if (pk) colToPeriod.set(j, pk);
+  if (columnPeriodKeysPlan.length === 0) {
+    return { ok: false, error: "Не удалось сопоставить колонки месяцев плана по содержимому заголовков." };
   }
 
-  let abbrevRowIdx = -1;
-  for (let i = planRowIdx + 1; i < Math.min(planRowIdx + 30, rows.length); i++) {
+  const dataFirst = findFirstDataRowIndex(rows, Math.max(bandEnd, anchor + 1), periodToCol);
+  const byPeriodKey: Record<string, number> = {};
+  let dataStarted = false;
+
+  for (let i = dataFirst; i < rows.length; i++) {
     const row = rows[i]!;
     const c0 = String(row[0] ?? "").trim();
-    const s1 = String(row[1] ?? "").trim().toLowerCase();
-    if (looksLikeDataRowFirstCell(c0)) break;
-    if (s1.includes("итого")) break;
-    let hits = 0;
-    for (let j = 0; j < row.length; j++) {
-      const cell = String(row[j] ?? "").trim();
-      if (parseAbbrevOrYearCell(cell)) hits++;
+    const c0Lower = c0.toLowerCase();
+    const c1 = String(row[1] ?? "").trim().toLowerCase();
+
+    if (/^итого\b|^всего\b|^в\s+том\s+числе/i.test(c0Lower)) continue;
+    if (c1 === "итого" || /^итого\b/i.test(c1)) continue;
+    if (isPaymentCsvSummaryLikeRow(row)) continue;
+
+    const likeData =
+      looksLikeDataRowFirstCell(c0) ||
+      (rowLooksLikeNumericPlanRow(row, periodToCol) && !isPaymentCsvGrandTotalRow(row));
+
+    if (!dataStarted) {
+      if (likeData) dataStarted = true;
+      else continue;
     }
-    if (hits > 0) {
-      ingestMonthCellsFromRow(row);
-      abbrevRowIdx = i;
-    }
-  }
+    if (!likeData) continue;
 
-  const periodToCol = firstColIndexPerPeriodKey(colToPeriod);
-  const columnPeriodKeys = [...periodToCol.keys()].sort((a, b) => a.localeCompare(b));
-
-  if (columnPeriodKeys.length === 0) {
-    return { ok: false, error: "Не удалось сопоставить колонки месяцев." };
-  }
-
-  let totalsRowIdx = -1;
-  for (let i = planRowIdx; i < rows.length; i++) {
-    const row = rows[i]!;
-    const s1 = String(row[1] ?? "").trim().toLowerCase();
-    if (s1.includes("итого")) totalsRowIdx = i;
-  }
-
-  const byPeriodKey: Record<string, number> = {};
-
-  if (totalsRowIdx >= 0) {
-    const trow = rows[totalsRowIdx]!;
     for (const [pk, col] of periodToCol) {
-      byPeriodKey[pk] = parseMoneyRu(trow[col]);
-    }
-  } else {
-    let dataStarted = false;
-    for (let i = abbrevRowIdx >= 0 ? abbrevRowIdx + 1 : planRowIdx + 1; i < rows.length; i++) {
-      const row = rows[i]!;
-      const c0 = String(row[0] ?? "").trim();
-      if (/итого/i.test(c0) || row.some((c) => /итого/i.test(String(c ?? "").trim()))) break;
-      if (!dataStarted) {
-        if (looksLikeDataRowFirstCell(c0)) dataStarted = true;
-        else continue;
-      }
-      if (!looksLikeDataRowFirstCell(c0)) continue;
-      for (const [pk, col] of periodToCol) {
-        byPeriodKey[pk] = (byPeriodKey[pk] ?? 0) + parseMoneyRu(row[col]);
-      }
+      byPeriodKey[pk] = (byPeriodKey[pk] ?? 0) + parseMoneyRu(row[col]);
     }
   }
 
   const reportAsOf = extractReportAsOf(rows);
 
   if (Object.keys(byPeriodKey).length === 0) {
-    return { ok: false, error: "В файле нет числовых сумм в колонках плана платежей." };
+    return { ok: false, error: "В файле нет числовых сумм в распознанных колонках плана платежей." };
   }
 
-  return { ok: true, byPeriodKey, columnPeriodKeys, reportAsOf };
+  return {
+    ok: true,
+    planByPeriodKey: byPeriodKey,
+    columnPeriodKeysPlan,
+    reportAsOf,
+    warnings: warnings.length ? warnings : undefined,
+  };
+}
+
+function parseFactFromRows(rows: string[][]): MarketingPaymentFactOnlyCsvParseResult {
+  if (rows.length < 2) {
+    return { ok: false, error: "Пустой или слишком короткий CSV." };
+  }
+  const warnings: string[] = [];
+  let hi = -1;
+  let hs = 0;
+  let colToPeriod = new Map<number, string>();
+  let bandEnd = 0;
+  let mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
+
+  ({ idx: hi, score: hs } = findBestHeaderRowIndex(rows, classifyFactSpreadsheetTimelineCell));
+
+  if (hi >= 0 && hs >= 1) {
+    bandEnd = extendHeaderBandEnd(rows, hi, Math.max(hs, 1), classifyFactSpreadsheetTimelineCell);
+    mergeDepth = Math.max(HEADER_VERTICAL_MERGE_SPAN, bandEnd - hi + 6);
+    colToPeriod = buildMergedColToPeriodFromVertical(rows, hi, mergeDepth, classifyFactSpreadsheetTimelineCell);
+  }
+
+  if (colToPeriod.size === 0) {
+    const top = buildMergedColToPeriodFromTopRows(rows, 12, classifyFactSpreadsheetTimelineCell);
+    if (top.size > 0) {
+      colToPeriod = top;
+      hi = 0;
+      bandEnd = Math.min(12, rows.length);
+      mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
+      warnings.push(
+        "Шапка факта собрана из первых строк листа (разнесённые по строкам подписи, merge).",
+      );
+    }
+  }
+
+  if (colToPeriod.size === 0) {
+    return {
+      ok: true,
+      factByPeriodKey: null,
+      factUnavailableReason: PAYMENT_CSV_FACT_MAPPING_REQUIRED_RU,
+      columnPeriodKeysFact: [],
+      zaydetColumnDebug: [],
+      zaydetMonthVerify: [],
+      reportAsOf: extractReportAsOf(rows),
+      warnings: [
+        "Не удалось найти горизонтальную шкалу месяцев (апрель 2026, май 2026, мар.26 и т.п.). Файл сохранён без помесячного факта.",
+        ...warnings,
+      ],
+    };
+  }
+
+  const periodToCol = firstColIndexPerPeriodKey(colToPeriod);
+  const columnPeriodKeysFact = [...periodToCol.keys()].sort((a, b) => a.localeCompare(b));
+
+  const zaydetByCol = new Map<number, { periodKey: string; rawHeader: string }>();
+  const factPeriodToColSets = new Map<string, Set<number>>();
+  for (const [j, pk] of colToPeriod.entries()) {
+    const rawHeader = mergedVerticalHeaderText(rows, hi, j, mergeDepth);
+    zaydetByCol.set(j, { periodKey: pk, rawHeader: rawHeader || pk });
+    let s = factPeriodToColSets.get(pk);
+    if (!s) {
+      s = new Set<number>();
+      factPeriodToColSets.set(pk, s);
+    }
+    s.add(j);
+  }
+
+  const factAcc: Record<string, number> = {};
+  const factZaydetCellCount: Record<string, number> = {};
+  for (const pk of factPeriodToColSets.keys()) {
+    factAcc[pk] = 0;
+    factZaydetCellCount[pk] = 0;
+  }
+
+  const zaydetColToPeriod = new Map<number, string>();
+  for (const [j, info] of zaydetByCol) zaydetColToPeriod.set(j, info.periodKey);
+  const zaydetFirstColByPeriod = firstColIndexPerPeriodKey(zaydetColToPeriod);
+
+  const bodyStartRow = Math.max(bandEnd, hi + 1);
+  const totalsPick =
+    bodyStartRow < rows.length
+      ? findFactBottomTotalsRowIdx(rows, bodyStartRow, periodToCol)
+      : { idx: -1 as number, warnings: [] as string[] };
+  const factTotalRowIdx = totalsPick.idx;
+  warnings.push(...totalsPick.warnings);
+
+  if (factTotalRowIdx >= 0) {
+    const totalRow = rows[factTotalRowIdx]!;
+    for (const pk of factPeriodToColSets.keys()) {
+      const col = zaydetFirstColByPeriod.get(pk);
+      if (col === undefined) continue;
+      factAcc[pk] = parseMoneyRu(totalRow[col]);
+      factZaydetCellCount[pk] = 1;
+    }
+  }
+
+  const zaydetColumnDebug: MarketingPaymentZaydetColumnDebugRow[] = [...zaydetByCol.keys()]
+    .sort((a, b) => a - b)
+    .map((j) => {
+      const info = zaydetByCol.get(j)!;
+      const parsedSum =
+        factTotalRowIdx >= 0 ? parseMoneyRu(rows[factTotalRowIdx]![j]) : 0;
+      return { rawHeader: info.rawHeader, parsedMonth: info.periodKey, parsedSum };
+    });
+
+  const reportAsOf = extractReportAsOf(rows);
+
+  let factByPeriodKey: Record<string, number> | null = null;
+  let factUnavailableReason: string | null = null;
+  if (factPeriodToColSets.size === 0) {
+    factUnavailableReason = PAYMENT_CSV_FACT_MAPPING_REQUIRED_RU;
+  } else if (factTotalRowIdx < 0) {
+    factUnavailableReason = PAYMENT_CSV_FACT_TOTAL_ROW_REQUIRED_RU;
+    warnings.push("Нижняя строка итогов не найдена; помесячный факт не извлечён.");
+  } else {
+    factByPeriodKey = factAcc;
+  }
+
+  const zaydetMonthVerify = buildZaydetMonthVerifyRows(factByPeriodKey, zaydetColumnDebug, factZaydetCellCount);
+
+  return {
+    ok: true,
+    factByPeriodKey,
+    factUnavailableReason,
+    columnPeriodKeysFact,
+    zaydetColumnDebug,
+    zaydetMonthVerify,
+    reportAsOf,
+    warnings: warnings.length ? warnings : undefined,
+  };
+}
+
+/**
+ * План из CSV графика платежей: автопоиск шапки по всему листу, колонки «План …», «мар.26», «зайдет …» в файле графика;
+ * сумма по строкам сделок (не из строки итогов).
+ */
+export function parsePlanCsv(text: string): MarketingPaymentPlanOnlyCsvParseResult {
+  return parsePlanFromRows(parseSpreadsheetRows(text));
+}
+
+/** Совместимость с API: то же, что {@link parsePlanCsv}. */
+export const parsePaymentPlanScheduleCsv = parsePlanCsv;
+
+/**
+ * Факт из CSV: **геометрия листа** — горизонтальная шкала по шаблонам «месяц + год» / «мар.26»;
+ * значения — из **нижней** строки с числами в этих колонках (итоги). Семантика «факт», «оплачено», «зайдет» не обязательна.
+ */
+export function parseFactCsv(text: string): MarketingPaymentFactOnlyCsvParseResult {
+  return parseFactFromRows(parseSpreadsheetRows(text));
+}
+
+/** Совместимость с API: то же, что {@link parseFactCsv}. */
+export const parsePaymentFactInflowCsv = parseFactCsv;
+
+/**
+ * Совмещённый разбор одного CSV (легаси): план и факт извлекаются **независимыми** классификаторами
+ * {@link parsePlanFromRows} и {@link parseFactFromRows} по одному набору строк.
+ */
+export function parsePaymentScheduleCsv(text: string): MarketingPaymentCsvParseResult {
+  const rows = parseSpreadsheetRows(text);
+  if (rows.length < 3) {
+    return { ok: false, error: "Файл слишком короткий — ожидался отчёт с графиком платежей." };
+  }
+  const planR = parsePlanFromRows(rows);
+  if (!planR.ok) {
+    return { ok: false, error: planR.error };
+  }
+  const factR = parseFactFromRows(rows);
+  const warn: string[] = [];
+  if (planR.warnings) warn.push(...planR.warnings.map((w: string) => `[План] ${w}`));
+  if (factR.ok && factR.warnings) warn.push(...factR.warnings.map((w: string) => `[Факт] ${w}`));
+
+  if (!factR.ok) {
+    return {
+      ok: true,
+      planByPeriodKey: planR.planByPeriodKey,
+      factByPeriodKey: null,
+      factUnavailableReason: factR.error,
+      columnPeriodKeysPlan: planR.columnPeriodKeysPlan,
+      columnPeriodKeysFact: [],
+      zaydetColumnDebug: [],
+      zaydetMonthVerify: [],
+      reportAsOf: planR.reportAsOf ?? extractReportAsOf(rows),
+      warnings: warn.length ? warn : undefined,
+    };
+  }
+  return {
+    ok: true,
+    planByPeriodKey: planR.planByPeriodKey,
+    factByPeriodKey: factR.factByPeriodKey,
+    factUnavailableReason: factR.factUnavailableReason,
+    columnPeriodKeysPlan: planR.columnPeriodKeysPlan,
+    columnPeriodKeysFact: factR.columnPeriodKeysFact,
+    zaydetColumnDebug: factR.zaydetColumnDebug ?? [],
+    zaydetMonthVerify: factR.zaydetMonthVerify ?? [],
+    reportAsOf: factR.reportAsOf ?? planR.reportAsOf ?? extractReportAsOf(rows),
+    warnings: warn.length ? warn : undefined,
+  };
 }
 
 /** Падеж «в ноябре», «в феврале» и т.д. для заголовков выгрузок вида «зашло в ноябре 2025». */
@@ -313,160 +1041,70 @@ function resolveRuMonthWord(word: string): number | null {
   return RU_ABBREV3[stem] ?? null;
 }
 
-function normalizeVerbaHeaderCell(raw: unknown): string {
-  return String(raw ?? "")
-    .replace(/\r/g, " ")
-    .replace(/\n/g, " ")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+/**
+ * Из одной ячейки шапки: для факта графика допускается только «зайдет …»;
+ * тип «план» — вспомогательно (заголовок содержит «план», но не «зайдет»).
+ */
+export function parseVerbaScheduleHeaderCell(raw: unknown): VerbaHeaderParsedMeta | null {
+  const z = parseZaydetColumnMetaStrict(raw);
+  if (z) return z;
+  let h = normalizeHeaderForPeriodParse(raw);
+  if (!h || h.includes("зайдет")) return null;
+  if (!h.includes("план")) return null;
+  const my = extractMonthYearFromNormalizedScheduleHeader(h);
+  if (!my) return null;
+  return { month: my.month, year: my.year, type: "plan", periodKey: toPeriodKey(my.year, my.month) };
 }
 
-/**
- * Одна ячейка заголовка: «зайдет в феврале 2025», «зашло в ноябре 2025», «зашло январь 2026».
- */
-export function matchVerbaMonthHeaderCell(cell: unknown): string | null {
-  let s = normalizeVerbaHeaderCell(cell);
+/** @returns Канонический periodKey или null — колонки притока по заголовку (в т.ч. «факт», «оплачено», «зайдет»). */
+export function matchZaydetMonthPeriodKey(cell: unknown): string | null {
+  const s = String(cell ?? "").trim();
   if (!s) return null;
-  s = s.replace(/^зз+ашло/i, "зашло");
-  const lower = s.toLowerCase();
-  const tryYear = (mw: string, yRaw: string): string | null => {
-    let y = Number(yRaw);
-    if (!Number.isFinite(y)) return null;
-    if (y < 100) y += 2000;
-    const m = resolveRuMonthWord(mw);
-    if (!m) return null;
-    return toPeriodKey(y, m);
-  };
-  const patterns: Array<{ re: RegExp; g: number; y: number }> = [
-    { re: /зайдет\s+в\s+([а-яё]+)\s+(\d{4})/i, g: 1, y: 2 },
-    { re: /зашло\s+в\s+([а-яё]+)\s+(\d{4})/i, g: 1, y: 2 },
-    { re: /зашло\s+([а-яё]+)\s+(\d{4})/i, g: 1, y: 2 },
-    /** «зайдет май 2026», «зайдет август 2026» (без предлога «в», год может быть на следующей строке в ячейке). */
-    { re: /зайдет\s+([а-яё]+)\s+(\d{4})/i, g: 1, y: 2 },
-    { re: /зайдет\s+в\s+([а-яё]+)\s+(\d{2})(?:\D|$)/i, g: 1, y: 2 },
-    { re: /зашло\s+в\s+([а-яё]+)\s+(\d{2})(?:\D|$)/i, g: 1, y: 2 },
-    { re: /зашло\s+([а-яё]+)\s+(\d{2})(?:\D|$)/i, g: 1, y: 2 },
-  ];
-  for (const { re, g, y } of patterns) {
-    const m = lower.match(re);
-    if (!m) continue;
-    const pk = tryYear(m[g]!, m[y]!);
-    if (pk) return pk;
-  }
-  return null;
+  return parseZaydetColumnMetaStrict(s)?.periodKey ?? classifyFactSpreadsheetTimelineCell(s)?.periodKey ?? null;
 }
 
-function findVerbaHeaderRowIdx(rows: string[][]): number {
-  let bestI = -1;
-  let bestCnt = 0;
-  for (let i = 0; i < Math.min(20, rows.length); i++) {
-    let cnt = 0;
-    for (const cell of rows[i]!) {
-      if (matchVerbaMonthHeaderCell(cell)) cnt++;
-    }
-    if (cnt > bestCnt) {
-      bestCnt = cnt;
-      bestI = i;
-    }
-  }
-  return bestCnt >= 2 ? bestI : -1;
-}
-
-/** Строка итога «НАКОПИТЕЛЬНО НА ЭСКРОУ с паркингом», не субтоталы по квартирам/кладовым. */
-function findVerbaGrandEscrowRowIdx(rows: string[][]): number {
-  let best = -1;
-  let bestScore = -Infinity;
-  for (let i = 0; i < rows.length; i++) {
-    const joined = rows[i]!.map((c) => String(c ?? "")).join(" ").toLowerCase();
-    if (!joined.includes("накопит") || !joined.includes("эскроу")) continue;
-    let score = 0;
-    if (joined.includes("паркинг")) score += 100;
-    if (joined.includes("по квартирам")) score -= 50;
-    if (joined.includes("кладов")) score -= 50;
-    if (joined.includes("коммерц")) score -= 50;
-    if (joined.includes("машиномест")) score -= 50;
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
-    }
-  }
-  return best;
+/** @deprecated Используйте {@link parseVerbaScheduleHeaderCell}. */
+export function matchVerbaMonthHeaderCell(cell: unknown): string | null {
+  return matchZaydetMonthPeriodKey(cell);
 }
 
 /**
- * Выгрузка «факт поступлений» / эскроу: помесячные колонки в шапке, одна строка «НАКОПИТЕЛЬНО НА ЭСКРОУ…».
- * Берём только эту строку — без суммирования по сделкам и без субитогов (квартиры+кладовые+…).
+ * Легаси: только факт из выгрузки (то же автодетект, что {@link parseFactCsv}).
  */
-export function parseVerbaEscrowInflowScheduleCsv(text: string): PaymentScheduleParseResult {
-  const parsed = Papa.parse<string[]>(text, {
-    delimiter: ";",
-    quoteChar: '"',
-    header: false,
-    skipEmptyLines: false,
-  });
-  if (parsed.errors?.length) {
-    console.warn("[verba payment CSV]", parsed.errors.slice(0, 3));
-  }
-
-  const rawRows = (Array.isArray(parsed.data) ? parsed.data : []) as string[][];
-  const rows = rawRows.filter((row) => Array.isArray(row) && row.some((c) => String(c ?? "").trim() !== ""));
-
-  if (rows.length < 3) {
-    return { ok: false, error: "Файл слишком короткий — не найдена сводная строка эскроу." };
-  }
-
-  const headerIdx = findVerbaHeaderRowIdx(rows);
-  if (headerIdx < 0) {
-    return {
-      ok: false,
-      error: "Не найдены колонки месяцев вида «зашло в ноябре 2025» / «зашло январь 2026».",
-    };
-  }
-
-  const hdr = rows[headerIdx]!;
-  const colToPeriod = new Map<number, string>();
-  const seenPeriodKey = new Set<string>();
-  for (let j = 0; j < hdr.length; j++) {
-    const pk = matchVerbaMonthHeaderCell(hdr[j]);
-    if (!pk || seenPeriodKey.has(pk)) continue;
-    seenPeriodKey.add(pk);
-    colToPeriod.set(j, pk);
-  }
-
-  if (colToPeriod.size === 0) {
-    return { ok: false, error: "Не удалось сопоставить колонки с месяцами (формат Верба/эскроу)." };
-  }
-
-  const totalsIdx = findVerbaGrandEscrowRowIdx(rows);
-  if (totalsIdx < 0) {
-    return {
-      ok: false,
-      error: "Не найдена строка «НАКОПИТЕЛЬНО НА ЭСКРОУ» (итог с паркингом).",
-    };
-  }
-
-  const totalsRow = rows[totalsIdx]!;
-  const periodToCol = firstColIndexPerPeriodKey(colToPeriod);
-  const byPeriodKey: Record<string, number> = {};
-  for (const [pk, col] of periodToCol) {
-    byPeriodKey[pk] = parseMoneyRu(totalsRow[col]);
-  }
-
-  const columnPeriodKeys = [...periodToCol.keys()].sort((a, b) => a.localeCompare(b));
-  const reportAsOf = extractReportAsOf(rows);
-
-  const hasNumeric = Object.values(byPeriodKey).some((v) => Number.isFinite(v) && v !== 0);
-  if (!hasNumeric) {
-    return { ok: false, error: "В сводной строке эскроу нет числовых сумм по месяцам." };
-  }
-
-  return { ok: true, byPeriodKey, columnPeriodKeys, reportAsOf };
+function parseVerbaMonthlyInflowFromDealRowsCsv(text: string): MarketingPaymentCsvParseResult {
+  const r = parseFactCsv(text);
+  if (!r.ok) return { ok: false, error: r.error };
+  return {
+    ok: true,
+    planByPeriodKey: {},
+    factByPeriodKey: r.factByPeriodKey,
+    factUnavailableReason: r.factUnavailableReason,
+    columnPeriodKeysPlan: [],
+    columnPeriodKeysFact: r.columnPeriodKeysFact,
+    zaydetColumnDebug: r.zaydetColumnDebug ?? [],
+    zaydetMonthVerify: r.zaydetMonthVerify ?? [],
+    reportAsOf: r.reportAsOf,
+    warnings: r.warnings,
+  };
 }
 
-/** Сначала формат «План март 2026», иначе выгрузка эскроу с колонками «зашло…». */
-export function parsePaymentScheduleCsvOrVerba(text: string): PaymentScheduleParseResult {
+/**
+ * Сначала график платежей с колонкой «План …», иначе выгрузка Верба с колонками «зайдет …».
+ */
+export function parseMarketingPaymentCsvStrict(text: string): MarketingPaymentCsvParseResult {
   const std = parsePaymentScheduleCsv(text);
   if (std.ok) return std;
-  return parseVerbaEscrowInflowScheduleCsv(text);
+
+  const verba = parseVerbaMonthlyInflowFromDealRowsCsv(text);
+  if (verba.ok) return verba;
+
+  return {
+    ok: false,
+    error: [!std.ok ? std.error : "", !verba.ok ? verba.error : ""].filter(Boolean).join(" "),
+  };
+}
+
+/** @deprecated Используйте {@link parseMarketingPaymentCsvStrict}. */
+export function parsePaymentScheduleCsvOrVerba(text: string): MarketingPaymentCsvParseResult {
+  return parseMarketingPaymentCsvStrict(text);
 }

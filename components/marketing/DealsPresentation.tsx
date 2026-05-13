@@ -1,11 +1,11 @@
 "use client";
 
+import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { useMemo } from "react";
 
 import {
   buildDealsMonthSeries,
   DEAL_SEGMENT_KEYS,
-  DEAL_SEGMENT_LABEL_RU,
   DEALS_LABEL_EM_DASH,
   transformDealsData,
   type DealSegmentKey,
@@ -90,7 +90,6 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
         plan != null && plan > 0 ? ((sum - plan) / plan) * 100 : null;
       return {
         key,
-        label: DEAL_SEGMENT_LABEL_RU[key],
         count,
         sum,
         share,
@@ -164,9 +163,6 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
 
       <section>
         <h2 className="text-center text-lg font-semibold text-slate-900">Структура продаж по сегментам</h2>
-        <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-slate-500">
-          Распределение продаж по типам недвижимости.
-        </p>
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {segmentBlocks.map((b) => (
             <div
@@ -174,7 +170,7 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
               className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100"
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{b.label}</p>
+                <MarketingDealSegmentHeader segment={b.key} iconWrapTone="work" labelTone="work" className="min-w-0 flex-1" />
                 <span
                   className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusBadgeClass(b.status)}`}
                 >

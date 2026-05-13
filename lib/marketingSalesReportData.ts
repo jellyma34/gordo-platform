@@ -300,7 +300,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
       { periodKey: "2025-11", label: "ноя. 25", dduCumulative: 305_000_000, escrowCumulative: 280_000_000 },
       { periodKey: "2025-12", label: "дек. 25", dduCumulative: 355_000_000, escrowCumulative: 320_000_000 },
       { periodKey: "2026-01", label: "янв. 26", dduCumulative: 390_000_000, escrowCumulative: 360_000_000 },
-      { periodKey: "2026-02", label: "фев. 26", dduCumulative: 800_000_000, escrowCumulative: 720_000_000 },
+      { periodKey: "2026-02", label: "фев. 26", dduCumulative: 430_000_000, escrowCumulative: 405_000_000 },
       { periodKey: "2026-03", label: "мар. 26", dduCumulative: 1_130_000_000, escrowCumulative: 892_000_000 },
       { periodKey: "2026-04", label: "апр. 26", dduCumulative: 1_210_000_000, escrowCumulative: 950_000_000 },
     ],

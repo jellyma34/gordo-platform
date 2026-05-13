@@ -15,7 +15,8 @@ import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
 } from "@/lib/filterDealsForSegmentChartPeriod";
-import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
+import { formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import {
   MPL_PREMIUM_CHART_SHELL,
   MPL_PREMIUM_FILTER_SELECT_10,
@@ -45,16 +46,21 @@ function SegmentBarTooltip({
   payload,
   presDark,
   mplPremium,
+  suppress,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: SegmentPlanFactBarRow }>;
   presDark: boolean;
   mplPremium: boolean;
+  /** Нет реальных данных (плейсхолдер осей) — тултип не показываем. */
+  suppress?: boolean;
 }) {
-  if (!active || !payload?.length) return null;
+  if (suppress || !active || !payload?.length) return null;
   const row = payload[0]?.payload as SegmentPlanFactBarRow | undefined;
   if (!row) return null;
-  const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
+  const fact = Number.isFinite(row.fact) ? row.fact : 0;
+  const plan = Number.isFinite(row.plan) ? row.plan : 0;
+  const pct = plan > 0 ? ((fact / plan) * 100).toFixed(1) : "—";
   const shell = presDark
     ? "rounded-lg border border-slate-500/40 bg-[#0b1220]/95 px-3 py-2 text-xs text-slate-100 shadow-lg"
     : mplPremium
@@ -68,13 +74,13 @@ function SegmentBarTooltip({
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>Факт: </span>
           <span style={{ color: "#2563EB" }} className="font-medium">
-            {rubFmt.format(Math.round(row.fact))}
+            {formatCompactMoneyAxis(fact)}
           </span>
         </div>
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
           <span style={{ color: "#F97316" }} className="font-medium">
-            {rubFmt.format(Math.round(row.plan))}
+            {formatCompactMoneyAxis(plan)}
           </span>
         </div>
         <div
@@ -88,30 +94,11 @@ function SegmentBarTooltip({
   );
 }
 
-/** Подписи над столбцами: «млн / млрд» без ₽ (меньше шума на графике). */
-function formatSegmentBarTopLabel(value: number): string {
-  if (value == null || !Number.isFinite(value)) return "";
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "−" : "";
-  if (abs >= 1_000_000_000) {
-    const b = abs / 1_000_000_000;
-    const s =
-      Math.abs(b - Math.round(b)) < 1e-6 ? String(Math.round(b)) : b.toFixed(1).replace(".", ",");
-    return `${sign}${s} млрд`;
-  }
-  if (abs >= 1_000_000) {
-    const m = abs / 1_000_000;
-    const s =
-      Math.abs(m - Math.round(m)) < 1e-6 ? String(Math.round(m)) : m.toFixed(1).replace(".", ",");
-    return `${sign}${s} млн`;
-  }
-  return value.toLocaleString("ru-RU");
-}
-
+/** Подписи над столбцами — те же правила, что ось Y (`formatCompactMoneyAxis`). */
 function formatBarTopLabel(v: unknown): string {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n === 0) return "";
-  return formatSegmentBarTopLabel(n);
+  return formatCompactMoneyAxis(n);
 }
 
 function monthKeyLabelRu(monthKey: string): string {
@@ -174,15 +161,15 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const sortedMonthKeys = useMemo(
     () =>
-      [...new Set(dealsRows.map((r) => r.monthKey).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort(),
+      [...new Set(dealsRows.map((r) => normalizeMonthKey(r.monthKey)).filter((k): k is string => k != null))].sort(),
     [dealsRows],
   );
 
   const monthOptionsForSelect = useMemo(() => {
     const out = [...sortedMonthKeys];
     if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) {
-      const mk = planReportAsOfYmd.slice(0, 7);
-      if (!out.includes(mk)) out.push(mk);
+      const mk = normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
+      if (mk && !out.includes(mk)) out.push(mk);
     }
     return out.sort();
   }, [sortedMonthKeys, planReportAsOfYmd]);
@@ -191,7 +178,8 @@ export function SalesPlanSegmentPlanFactBarChart({
     const seen = new Set<string>();
     const opts: { id: string; label: string }[] = [];
     for (const key of sortedMonthKeys) {
-      const [y, m] = key.split("-").map(Number);
+      const canon = normalizeMonthKey(key) ?? key;
+      const [y, m] = canon.split("-").map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
       const q = Math.floor((m - 1) / 3);
       const id = `${y}-${q}`;
@@ -205,9 +193,14 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const monthKeyForFilter = useMemo(() => {
     if (periodMode !== "month") return null;
-    if (userMonthKey && monthOptionsForSelect.includes(userMonthKey)) return userMonthKey;
+    if (userMonthKey) {
+      const canon = normalizeMonthKey(userMonthKey) ?? userMonthKey;
+      if (monthOptionsForSelect.includes(canon)) return canon;
+    }
     if (sortedMonthKeys.length > 0) return sortedMonthKeys[sortedMonthKeys.length - 1]!;
-    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) return planReportAsOfYmd.slice(0, 7);
+    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) {
+      return normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
+    }
     return null;
   }, [periodMode, userMonthKey, sortedMonthKeys, monthOptionsForSelect, planReportAsOfYmd]);
 
@@ -231,15 +224,19 @@ export function SalesPlanSegmentPlanFactBarChart({
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
     });
-    return buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
-  }, [
-    dealsRows,
-    fallbackTotalPlanRub,
-    periodMode,
-    planReportAsOfYmd,
-    monthKeyForFilter,
-    quarterIdForFilter,
-  ]);
+    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[segment-plan-chart]", {
+        periodMode,
+        selectedMonthKey: periodMode === "month" ? monthKeyForFilter : null,
+        selectedQuarterId: periodMode === "quarter" ? quarterIdForFilter : null,
+        filteredDealsCount: byPeriod.length,
+        groupedSegmentTotals: built.map((r) => ({ name: r.name, fact: r.fact, plan: r.plan })),
+        finalChartDatasetRowCount: built.length,
+      });
+    }
+    return built;
+  }, [dealsRows, fallbackTotalPlanRub, periodMode, planReportAsOfYmd, monthKeyForFilter, quarterIdForFilter]);
 
   useEffect(() => {
     if (segmentScope === "all") return;
@@ -253,6 +250,21 @@ export function SalesPlanSegmentPlanFactBarChart({
     return segmentBarRowsAll.filter((r) => r.name === label);
   }, [segmentBarRowsAll, segmentScope]);
 
+  /** Плейсхолдер категорий для осей при отсутствии строк после фильтра. */
+  const emptyPlaceholderRows = useMemo((): SegmentPlanFactBarRow[] => {
+    if (segmentScope === "all") {
+      return DEAL_SEGMENT_KEYS.map((k) => ({
+        name: DEAL_SEGMENT_LABEL_RU[k],
+        fact: 0,
+        plan: 0,
+      }));
+    }
+    return [{ name: DEAL_SEGMENT_LABEL_RU[segmentScope], fact: 0, plan: 0 }];
+  }, [segmentScope]);
+
+  const showEmptyOverlay = rows.length === 0;
+  const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
+
   const segmentSelectOptions = useMemo(() => {
     const withData = new Set(segmentBarRowsAll.map((r) => r.name));
     return [
@@ -265,15 +277,18 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [segmentBarRowsAll]);
 
   const barCategoryGapPct = useMemo(() => {
-    const n = rows.length;
+    const n = displayRows.length;
     if (n <= 1) return "6%";
     if (n <= 2) return "12%";
     if (n <= 4) return "18%";
     return "22%";
-  }, [rows.length]);
+  }, [displayRows.length]);
 
   const yDomain = useMemo((): [number, number] => {
-    const vals = rows.flatMap((r) => [r.fact, r.plan]);
+    if (rows.length === 0) return [0, 1];
+    const vals = rows
+      .flatMap((r) => [r.fact, r.plan])
+      .map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
     const max = Math.max(0, ...vals);
     const head = max > 0 ? max * 0.14 : 1;
     return [0, max + head];
@@ -281,10 +296,6 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const gridStroke = presDark ? "rgba(148,163,184,0.12)" : "rgba(148,163,184,0.35)";
   const axisColor = presDark ? "#94a3b8" : "#64748b";
-
-  if (rows.length === 0) {
-    return null;
-  }
 
   return (
     <div
@@ -302,9 +313,6 @@ export function SalesPlanSegmentPlanFactBarChart({
         <h3 className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}>
           Выполнение плана продаж по сегментам
         </h3>
-        <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-          Факт и план по сегментам. Сначала отбор сделок по выбранному месяцу или кварталу (те же ключи, что «Сделки по месяцам»), затем агрегация по сегментам.
-        </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
             <span className={filterLabelCls}>Период графика</span>
@@ -381,13 +389,13 @@ export function SalesPlanSegmentPlanFactBarChart({
         </div>
       </div>
 
-      <div className="h-[300px] min-h-[280px] w-full min-w-0">
+      <div className="relative h-[300px] min-h-[280px] w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={rows}
-            margin={{ top: 28, right: 8, left: 4, bottom: 8 }}
+            data={displayRows}
+            margin={{ top: 28, right: 8, left: 8, bottom: 8 }}
             barCategoryGap={barCategoryGapPct}
-            barGap={rows.length <= 2 ? 6 : 8}
+            barGap={displayRows.length <= 2 ? 6 : 8}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis
@@ -402,17 +410,26 @@ export function SalesPlanSegmentPlanFactBarChart({
               tick={{ fill: axisColor, fontSize: 10 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => numFmt.format(Math.round(v as number))}
-              width={44}
+              tickFormatter={(v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? formatCompactMoneyAxis(n) : "";
+              }}
+              width={56}
             />
             <Tooltip
               cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.08)" }}
-              content={<SegmentBarTooltip presDark={presDark} mplPremium={presentation && mplLight} />}
+              content={
+                <SegmentBarTooltip
+                  presDark={presDark}
+                  mplPremium={presentation && mplLight}
+                  suppress={showEmptyOverlay}
+                />
+              }
             />
             <Bar
               dataKey="fact"
               name="Факт"
-              fill="#2563EB"
+              fill={showEmptyOverlay ? "transparent" : "#2563EB"}
               radius={[8, 8, 0, 0]}
               maxBarSize={52}
               isAnimationActive={false}
@@ -420,7 +437,7 @@ export function SalesPlanSegmentPlanFactBarChart({
               <LabelList
                 dataKey="fact"
                 position="top"
-                fill="#2563EB"
+                fill={showEmptyOverlay ? "transparent" : "#2563EB"}
                 fontSize={11}
                 fontWeight={500}
                 className="tabular-nums"
@@ -430,7 +447,7 @@ export function SalesPlanSegmentPlanFactBarChart({
             <Bar
               dataKey="plan"
               name="План"
-              fill="#F97316"
+              fill={showEmptyOverlay ? "transparent" : "#F97316"}
               radius={[8, 8, 0, 0]}
               maxBarSize={52}
               isAnimationActive={false}
@@ -438,7 +455,7 @@ export function SalesPlanSegmentPlanFactBarChart({
               <LabelList
                 dataKey="plan"
                 position="top"
-                fill="#F97316"
+                fill={showEmptyOverlay ? "transparent" : "#F97316"}
                 fontSize={11}
                 fontWeight={500}
                 className="tabular-nums"
@@ -447,6 +464,20 @@ export function SalesPlanSegmentPlanFactBarChart({
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        {showEmptyOverlay ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-4"
+            aria-live="polite"
+          >
+            <p
+              className={`max-w-md text-center text-sm font-medium leading-snug ${
+                presDark ? "text-slate-200" : presentation ? "text-mpl-text" : "text-slate-800"
+              }`}
+            >
+              Нет данных за выбранный период
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className={`mt-3 flex flex-wrap items-center gap-4 text-[10px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
