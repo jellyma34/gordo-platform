@@ -94,21 +94,21 @@ function cumulativeFactMinNeighborDyPx(
   yScale: (v: number) => number | undefined,
 ): number {
   const row = chartData[index]!;
-  if (row.fact == null || !Number.isFinite(row.fact)) return Number.POSITIVE_INFINITY;
-  const y0 = yScale(row.fact);
+  if (!Number.isFinite(row.plan)) return Number.POSITIVE_INFINITY;
+  const y0 = yScale(row.plan);
   if (y0 == null || !Number.isFinite(y0)) return Number.POSITIVE_INFINITY;
   let best = Number.POSITIVE_INFINITY;
   for (let j = index - 1; j >= 0; j--) {
-    const v = chartData[j]!.fact;
-    if (v != null && Number.isFinite(v)) {
+    const v = chartData[j]!.plan;
+    if (Number.isFinite(v)) {
       const y1 = yScale(v);
       if (y1 != null && Number.isFinite(y1)) best = Math.min(best, Math.abs(y0 - y1));
       break;
     }
   }
   for (let j = index + 1; j < chartData.length; j++) {
-    const v = chartData[j]!.fact;
-    if (v != null && Number.isFinite(v)) {
+    const v = chartData[j]!.plan;
+    if (Number.isFinite(v)) {
       const y1 = yScale(v);
       if (y1 != null && Number.isFinite(y1)) best = Math.min(best, Math.abs(y0 - y1));
       break;
@@ -134,7 +134,7 @@ function factPointXForLabel(
   return x != null && Number.isFinite(x) ? x : null;
 }
 
-/** Y полилинии факта в точке atX (линейная интерполяция между точками с ненулевым fact). */
+/** Y полилинии плана в точке atX (линейная интерполяция между точками plan). */
 function cumulativeFactPolylineYAtX(
   chartData: CashflowChartRow[],
   atX: number,
@@ -147,9 +147,9 @@ function cumulativeFactPolylineYAtX(
   const pts: Pt[] = [];
   for (let i = 0; i < n; i++) {
     const row = chartData[i]!;
-    if (row.fact == null || !Number.isFinite(row.fact)) continue;
+    if (!Number.isFinite(row.plan)) continue;
     const x = factPointXForLabel(row, i, n, xScale, plot);
-    const y = yScale(row.fact);
+    const y = yScale(row.plan);
     if (x == null || y == null || !Number.isFinite(y)) continue;
     pts.push({ x, y });
   }
@@ -289,18 +289,6 @@ function isLocalValleySparse(arr: (number | null)[], i: number): boolean {
   return v < L && v < R;
 }
 
-/** Пик/впадина для плана (плотный ряд чисел). */
-function isLocalPeakDense(arr: number[], i: number): boolean {
-  const v = arr[i];
-  if (!Number.isFinite(v)) return false;
-  const n = arr.length;
-  const lv = i > 0 ? arr[i - 1]! : Number.NEGATIVE_INFINITY;
-  const rv = i < n - 1 ? arr[i + 1]! : Number.NEGATIVE_INFINITY;
-  if (i === 0) return v > rv;
-  if (i === n - 1) return v > lv;
-  return v > lv && v > rv;
-}
-
 function firstDefinedFactIndex(facts: (number | null)[]): number {
   for (let i = 0; i < facts.length; i++) {
     if (facts[i] != null && Number.isFinite(facts[i]!)) return i;
@@ -338,7 +326,7 @@ function buildPeakBefore(peakAt: boolean[]): boolean[] {
 function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
   const n = chartData.length;
   if (n === 0) return [];
-  const facts = chartData.map((d) => d.fact);
+  const facts = chartData.map((d) => d.plan);
   const firstF = firstDefinedFactIndex(facts);
   const lastF = lastDefinedFactIndex(facts);
   const peakAt = facts.map((_, i) => isLocalPeakSparse(facts, i));
@@ -376,15 +364,15 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate
 function buildPlanLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
   const n = chartData.length;
   if (n === 0) return [];
-  const plans = chartData.map((d) => d.plan);
+  const plans = chartData.map((d) => d.fact);
   const last = n - 1;
-  const peakAt = plans.map((_, i) => isLocalPeakDense(plans, i));
+  const peakAt = plans.map((_, i) => isLocalPeakSparse(plans, i));
   const out: LabelCandidate[] = [];
   const seen = new Set<string>();
 
   for (let i = 0; i < n; i++) {
-    const v = plans[i]!;
-    if (!Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
+    const v = plans[i];
+    if (v == null || !Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
 
     const peak = peakAt[i]!;
     const endpoint = i === 0 || i === last;
@@ -472,15 +460,13 @@ function CashflowTooltip({
     <div className={`rounded-lg px-3 py-2 text-xs shadow-lg ring-1 ${base}`}>
       <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
+        <span className="text-[#1e40af]">План: {formatCashflowTooltipRub(row.plan)}</span>
         {row.fact != null ? (
           <>
-            <span className="text-[#1e40af]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
             <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
-            <span className="text-orange-500">План: {formatCashflowTooltipRub(row.plan)}</span>
+            <span className="text-orange-500">Факт: {formatCashflowTooltipRub(row.fact)}</span>
           </>
-        ) : (
-          <span className="text-orange-500">План: {formatCashflowTooltipRub(row.plan)}</span>
-        )}
+        ) : null}
       </div>
       {row.fact != null && row.deviation != null ? (
         <div
@@ -595,8 +581,8 @@ function CashflowDynamicsSvgLabels({
         cx = plot.x + ((c.index + 0.5) / n) * plot.width;
       }
       if (cx == null) continue;
-      const yFactPt = row.fact != null ? yScale(row.fact) : null;
-      if (row.fact == null || yFactPt == null) continue;
+      const yFactPt = yScale(row.plan);
+      if (yFactPt == null) continue;
 
       const liftF = proximityLiftFromAxis(yFactPt);
       const chartLabelText = formatCashflowMillionsLabel(c.valueRub, false);
@@ -726,7 +712,8 @@ function CashflowDynamicsSvgLabels({
         cx = plot.x + ((c.index + 0.5) / n) * plot.width;
       }
       if (cx == null) continue;
-      const yLine = yScale(row.plan);
+      if (row.fact == null || !Number.isFinite(row.fact)) continue;
+      const yLine = yScale(row.fact);
       if (yLine == null) continue;
       const text = formatCashflowMillionsLabel(c.valueRub, false);
       const tw = approxLabelWidthPx(text, BADGE_FONT_PX);
@@ -1197,8 +1184,8 @@ export function SalesPlanCashflowDynamicsChart({
               content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
               cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
             />
-            <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
-            <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
+            <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowFactLineProps(presDark)} />
+            <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowPlanLineProps(presDark)} />
             <CashflowDynamicsSvgLabels
               chartData={chartData}
               presDark={presDark}

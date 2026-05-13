@@ -92,10 +92,16 @@ export function buildCashflowSeries(
 
 export type CashflowChartMode = "monthly" | "cumulative";
 
+/**
+ * Строка для Recharts: `plan` — оранжевая линия «План»; `fact` — синяя «Факт».
+ * Оба ряда на весь горизонт `rows` (без обрезки по текущей дате); `fact` и `deviation` — `null`, если в месяце нет значения факта в данных.
+ */
 export type CashflowChartRow = {
   periodKey: string;
   label: string;
+  /** Оранжевая серия (план). */
   plan: number;
+  /** Синяя серия (факт). */
   fact: number | null;
   deviation: number | null;
 };
@@ -116,13 +122,17 @@ export function cashflowRowsForChart(
   }));
 
   if (mode === "monthly") {
-    return scaled.map((r) => ({
-      periodKey: r.periodKey,
-      label: r.label,
-      plan: r.planMonthScaled,
-      fact: r.factMonth,
-      deviation: r.factMonth == null ? null : r.factMonth - r.planMonthScaled,
-    }));
+    return scaled.map((r) => {
+      const planFull = r.planMonthScaled;
+      const deviation = r.factMonth == null ? null : r.factMonth - r.planMonthScaled;
+      return {
+        periodKey: r.periodKey,
+        label: r.label,
+        plan: planFull,
+        fact: r.factMonth,
+        deviation,
+      };
+    });
   }
 
   let accPlan = 0;
@@ -130,12 +140,13 @@ export function cashflowRowsForChart(
   return scaled.map((r) => {
     accPlan += r.planMonthScaled;
     if (r.factMonth != null) accFact += r.factMonth;
+    const factDisplayed = r.factMonth == null ? null : accFact;
     return {
       periodKey: r.periodKey,
       label: r.label,
       plan: accPlan,
-      fact: r.factMonth == null ? null : accFact,
-      deviation: r.factMonth == null ? null : accFact - accPlan,
+      fact: factDisplayed,
+      deviation: factDisplayed == null ? null : factDisplayed - accPlan,
     };
   });
 }
