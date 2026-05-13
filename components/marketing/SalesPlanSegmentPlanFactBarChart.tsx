@@ -16,7 +16,7 @@ import {
   type SegmentChartPeriodMode,
 } from "@/lib/filterDealsForSegmentChartPeriod";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
-import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import { formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import {
   MPL_PREMIUM_CHART_SHELL,
   MPL_PREMIUM_FILTER_SELECT_10,
@@ -74,13 +74,13 @@ function SegmentBarTooltip({
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>Факт: </span>
           <span style={{ color: "#2563EB" }} className="font-medium">
-            {rubFmt.format(Math.round(fact))}
+            {formatCompactMoneyAxis(fact)}
           </span>
         </div>
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
           <span style={{ color: "#F97316" }} className="font-medium">
-            {rubFmt.format(Math.round(plan))}
+            {formatCompactMoneyAxis(plan)}
           </span>
         </div>
         <div
@@ -94,30 +94,11 @@ function SegmentBarTooltip({
   );
 }
 
-/** Подписи над столбцами: «млн / млрд» без ₽ (меньше шума на графике). */
-function formatSegmentBarTopLabel(value: number): string {
-  if (value == null || !Number.isFinite(value)) return "";
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "−" : "";
-  if (abs >= 1_000_000_000) {
-    const b = abs / 1_000_000_000;
-    const s =
-      Math.abs(b - Math.round(b)) < 1e-6 ? String(Math.round(b)) : b.toFixed(1).replace(".", ",");
-    return `${sign}${s} млрд`;
-  }
-  if (abs >= 1_000_000) {
-    const m = abs / 1_000_000;
-    const s =
-      Math.abs(m - Math.round(m)) < 1e-6 ? String(Math.round(m)) : m.toFixed(1).replace(".", ",");
-    return `${sign}${s} млн`;
-  }
-  return value.toLocaleString("ru-RU");
-}
-
+/** Подписи над столбцами — те же правила, что ось Y (`formatCompactMoneyAxis`). */
 function formatBarTopLabel(v: unknown): string {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n === 0) return "";
-  return formatSegmentBarTopLabel(n);
+  return formatCompactMoneyAxis(n);
 }
 
 function monthKeyLabelRu(monthKey: string): string {
@@ -415,7 +396,7 @@ export function SalesPlanSegmentPlanFactBarChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={displayRows}
-            margin={{ top: 28, right: 8, left: 4, bottom: 8 }}
+            margin={{ top: 28, right: 8, left: 8, bottom: 8 }}
             barCategoryGap={barCategoryGapPct}
             barGap={displayRows.length <= 2 ? 6 : 8}
           >
@@ -434,9 +415,9 @@ export function SalesPlanSegmentPlanFactBarChart({
               tickLine={false}
               tickFormatter={(v) => {
                 const n = Number(v);
-                return Number.isFinite(n) ? numFmt.format(Math.round(n)) : "";
+                return Number.isFinite(n) ? formatCompactMoneyAxis(n) : "";
               }}
-              width={44}
+              width={56}
             />
             <Tooltip
               cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.08)" }}

@@ -6,6 +6,83 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 export const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
+/** Убирает лишние нули после запятой в ручной записи «2,20» → «2,2», «245,0» → «245». */
+function trimRuDecimalZeros(s: string): string {
+  if (!s.includes(",")) return s;
+  return s.replace(/,(0+)$/, "").replace(/,$/, "");
+}
+
+/**
+ * Компактная сумма в рублях **только в млн** (без «₽», без `toLocaleString` с разрядными пробелами).
+ * Правила: &lt; 1 млн — дробь (нап. 0,5 млн); 1…99,9 млн — до одной десятичной при необходимости;
+ * ≥ 100 млн — целые миллионы, если значение целое, иначе одна десятичная.
+ */
+export function formatMillionsCompact(rub: number): string {
+  if (!Number.isFinite(rub)) return "—";
+  const sign = rub < 0 ? "−" : "";
+  const absRub = Math.abs(rub);
+  if (absRub === 0) return "0 млн";
+
+  const mln = absRub / 1_000_000;
+  const nearlyInt = (x: number) => Math.abs(x - Math.round(x)) < 1e-6;
+
+  if (mln < 1) {
+    const decimals = mln >= 0.1 ? 1 : 2;
+    const s = trimRuDecimalZeros(mln.toFixed(decimals).replace(".", ","));
+    return `${sign}${s} млн`;
+  }
+
+  if (mln >= 100) {
+    if (nearlyInt(mln)) {
+      return `${sign}${Math.round(mln)} млн`;
+    }
+    const s = trimRuDecimalZeros(mln.toFixed(1).replace(".", ","));
+    return `${sign}${s} млн`;
+  }
+
+  if (nearlyInt(mln)) {
+    return `${sign}${Math.round(mln)} млн`;
+  }
+  return `${sign}${mln.toFixed(1).replace(".", ",")} млн`;
+}
+
+/** Округление «как на оси BI»: до 0,5 млрд до 10, затем целые млрд, затем шаг 10 млрд. */
+function snapBillionsExecutive(bln: number): number {
+  if (!Number.isFinite(bln) || bln <= 0) return 0;
+  if (bln < 10) return Math.round(bln * 2) / 2;
+  if (bln < 100) return Math.round(bln);
+  return Math.round(bln / 10) * 10;
+}
+
+function formatBillionsAxisCore(bln: number): string {
+  const nearlyInt = (x: number) => Math.abs(x - Math.round(x)) < 1e-6;
+  if (nearlyInt(bln)) return String(Math.round(bln));
+  return trimRuDecimalZeros(bln.toFixed(1).replace(".", ","));
+}
+
+/**
+ * Подписи оси / тултипа / баров для графика «Выполнение плана по сегментам»:
+ * до ~1 млрд — компактные **млн** (см. `formatMillionsCompact`);
+ * с **≥ 999 млн** рублей — **млрд** с ровными деловыми значениями (без «999,1 млн», «1024 млн»).
+ */
+export function formatCompactMoneyAxis(rub: number): string {
+  if (!Number.isFinite(rub)) return "—";
+  if (rub === 0) return "0 млн";
+
+  const sign = rub < 0 ? "−" : "";
+  const absRub = Math.abs(rub);
+  const mln = absRub / 1_000_000;
+
+  if (mln >= 999) {
+    const rawBln = absRub / 1_000_000_000;
+    const bln = snapBillionsExecutive(rawBln);
+    const core = formatBillionsAxisCore(bln);
+    return `${sign}${core} млрд`;
+  }
+
+  return formatMillionsCompact(rub);
+}
+
 export function compactRub(n: number): string {
   return Math.abs(n) >= 1_000_000
     ? `${n < 0 ? "−" : ""}${numFmt.format(Math.round(Math.abs(n) / 1_000_000))} \u043c\u043b\u043d \u20bd`
