@@ -300,10 +300,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   return (
     <div className="mb-7 w-full min-w-0 max-w-none">
-      <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
-      <p className={`mb-4 max-w-none text-[11px] leading-snug ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-        Распределение продаж по типам недвижимости.
-      </p>
+      <h2 className={`mb-4 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
       <div className={gridClass}>
         {cards.map((c) => {
           const vs = presDark

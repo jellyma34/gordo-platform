@@ -24,12 +24,6 @@ import {
 } from "@/components/charting/rechartsClient";
 import type { XAxisTickContentProps } from "recharts";
 
-function fmtChartSpan(ym: string): string {
-  const [y, m] = ym.split("-");
-  if (!y || !m) return ym;
-  return `${m}.${y.slice(2)}`;
-}
-
 type SegmentCardSkin = {
   dark: string;
   premium: string;
@@ -198,15 +192,20 @@ function SegmentMonthBarChart({
   };
 
   return (
-    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "p-2 sm:p-2.5" : "p-1.5 sm:p-2"}`}>
+    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2.5 pt-2.5 sm:px-3 sm:pb-3 sm:pt-3" : "px-2 pb-2 pt-2 sm:px-2.5 sm:pb-2.5"}`}>
       <div
-        className={`mb-0.5 px-0.5 ${infographicMode ? "text-[9px]" : "text-[8px]"} font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}
+        className={`mb-2 pl-11 pr-1 sm:pl-12 ${infographicMode ? "text-[9px]" : "text-[8px]"} font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}
       >
         {title}
       </div>
       <div className={`w-full min-w-0 ${infographicMode ? "h-[128px] sm:h-[134px]" : "h-[112px] sm:h-[118px]"}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 4, right: 4, left: infographicMode ? -4 : -8, bottom: 2 }} barCategoryGap={categoryGap} barGap={infographicMode ? 4 : 3}>
+          <BarChart
+            data={data}
+            margin={{ top: infographicMode ? 12 : 10, right: 6, left: 2, bottom: 2 }}
+            barCategoryGap={categoryGap}
+            barGap={infographicMode ? 4 : 3}
+          >
             <CartesianGrid strokeDasharray="6 8" stroke={gridStroke} vertical={false} />
             <XAxis
               dataKey="labelShort"
@@ -417,9 +416,6 @@ export function SalesDealsSegmentMonthStackCharts({ dealsRows, presentation }: P
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900";
   const subCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600";
 
-  const firstM = bundle.timelineMonthKeys[0];
-  const lastM = bundle.timelineMonthKeys[bundle.timelineMonthKeys.length - 1];
-
   if (!hasMonths) {
     return (
       <div className={shellClass}>
@@ -436,16 +432,11 @@ export function SalesDealsSegmentMonthStackCharts({ dealsRows, presentation }: P
     <div className={shellClass}>
       <div className={presentation ? "mb-5" : "mb-4"}>
         <h3 className={`text-sm font-semibold ${titleCls}`}>Сделки</h3>
-        {presentation ? (
-          <p className={`mt-1 text-[10px] leading-relaxed ${subCls}`}>
-            Единая ось: {firstM ? fmtChartSpan(firstM) : ""}–{lastM ? fmtChartSpan(lastM) : ""}
-          </p>
-        ) : (
+        {!presentation ? (
           <p className={`mt-0.5 text-[11px] leading-snug ${subCls}`}>
-            Динамика сделок и выручки по сегментам недвижимости. Единая ось: с {firstM ? fmtChartSpan(firstM) : ""} по {lastM ? fmtChartSpan(lastM) : ""}{" "}
-            (с первого месяца с реальными сделками в срезе до последнего месяца с активностью; пустые месяцы до старта не показываются).
+            Динамика сделок и выручки по сегментам недвижимости.
           </p>
-        )}
+        ) : null}
       </div>
 
       <div className={`grid grid-cols-1 ${presentation ? "gap-5 lg:gap-6" : "gap-4"} lg:grid-cols-2`}>

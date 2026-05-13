@@ -313,9 +313,6 @@ export function SalesPlanSegmentPlanFactBarChart({
         <h3 className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}>
           Выполнение плана продаж по сегментам
         </h3>
-        <p className={`mt-0.5 text-[11px] ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
-          Факт и план по сегментам. Сначала отбор сделок по выбранному месяцу или кварталу (те же ключи, что «Сделки по месяцам»), затем агрегация по сегментам.
-        </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
             <span className={filterLabelCls}>Период графика</span>

@@ -163,9 +163,6 @@ function DealsPresentation({ dealsByMonth, segmentPlanRub }: Props) {
 
       <section>
         <h2 className="text-center text-lg font-semibold text-slate-900">Структура продаж по сегментам</h2>
-        <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-slate-500">
-          Распределение продаж по типам недвижимости.
-        </p>
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {segmentBlocks.map((b) => (
             <div
