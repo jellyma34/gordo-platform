@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as parseDealsEnvelopeShape } from "@/lib/marketingDealsInputShape";
 import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
 /** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
 const DealsPresentationPanel = dynamic(() => import("./DealsPresentation"), { ssr: false });
@@ -486,7 +487,7 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
     planRub,
     dateStr,
     dateMs: parseDealDateMs(dateStr),
-    monthKey: monthKeyFromDate(dateStr),
+    monthKey: normalizeMonthKey(monthKeyFromDate(dateStr)) ?? monthKeyFromDate(dateStr),
     status,
     client,
     dealKind,

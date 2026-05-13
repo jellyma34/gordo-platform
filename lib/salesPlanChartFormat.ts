@@ -58,15 +58,11 @@ export function formatCashflowDynamicsChartLabel(n: number): string {
 }
 
 /**
- * Тултип поступлений: &lt; 1 млн — полная сумма в ₽ (без дробных «млн»);
- * от 1 млн — те же правила, что {@link formatCashflowDynamicsChartLabel}.
+ * Тултип поступлений: всегда полная сумма в ₽ (целые рубли), без сокращений «млн».
  */
 export function formatCashflowTooltipRub(n: number): string {
   if (!Number.isFinite(n)) return "";
-  if (Math.abs(n) < 1_000_000) {
-    return rubFmt.format(Math.round(n));
-  }
-  return formatCashflowDynamicsChartLabel(n);
+  return rubFmt.format(Math.round(n));
 }
 
 /**

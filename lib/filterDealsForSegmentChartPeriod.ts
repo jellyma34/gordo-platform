@@ -1,4 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
 /** Режим периода для графика «Выполнение плана по сегментам» (локальный, не путать с MarketingPeriodGranularity). */
 export type SegmentChartPeriodMode = "month" | "quarter" | "all";
@@ -26,8 +27,9 @@ function parseYmdToLocalParts(ymd: string): { year: number; monthIndex: number }
 }
 
 function monthKeyToYearMonth(k: string): { year: number; monthIndex: number } | null {
-  if (!/^\d{4}-\d{2}$/.test(k)) return null;
-  const [y, m] = k.split("-").map(Number);
+  const canon = normalizeMonthKey(k);
+  if (!canon || !/^\d{4}-\d{2}$/.test(canon)) return null;
+  const [y, m] = canon.split("-").map(Number);
   if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return null;
   return { year: y, monthIndex: m - 1 };
 }
@@ -38,7 +40,13 @@ export function resolveFallbackYearMonth(
   fallbackAsOfYmd: string | null | undefined,
   now: Date,
 ): { selectedYear: number; selectedMonth: number } {
-  const keys = [...new Set(rows.map((r) => r.monthKey).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort();
+  const keys = [
+    ...new Set(
+      rows
+        .map((r) => normalizeMonthKey(r.monthKey))
+        .filter((k): k is string => k != null && /^\d{4}-\d{2}$/.test(k)),
+    ),
+  ].sort();
   if (keys.length > 0) {
     const maxKey = keys[keys.length - 1]!;
     const parts = monthKeyToYearMonth(maxKey);
@@ -49,36 +57,29 @@ export function resolveFallbackYearMonth(
   return { selectedYear: now.getFullYear(), selectedMonth: now.getMonth() };
 }
 
-/** Сравнение календарного месяца с полями строки (как после normalizeDeal: monthKey / dealDate). */
-function rowMatchesCalendarMonth(d: NormalizedDealRow, year: number, monthIndex: number): boolean {
+/** Канонический YYYY-MM строки сделки (дата сделки приоритетнее monthKey). */
+function rowCanonicalMonthKey(d: NormalizedDealRow): string | null {
   const head = String(d.dealDate ?? "").trim().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(head)) {
-    const [ys, ms] = head.split("-").map(Number);
-    return ys === year && ms === monthIndex + 1;
+    return normalizeMonthKey(head);
   }
-  if (/^\d{4}-\d{2}$/.test(d.monthKey)) {
-    const [ys, ms] = d.monthKey.split("-").map(Number);
-    return ys === year && ms === monthIndex + 1;
-  }
-  return false;
+  return normalizeMonthKey(d.monthKey);
+}
+
+/** Сравнение календарного месяца с полями строки (как после normalizeDeal: monthKey / dealDate). */
+function rowMatchesCalendarMonth(d: NormalizedDealRow, year: number, monthIndex: number): boolean {
+  const want = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+  const rowKey = rowCanonicalMonthKey(d);
+  return rowKey != null && rowKey === want;
 }
 
 function rowMatchesQuarter(d: NormalizedDealRow, year: number, selectedQuarter: number): boolean {
-  const head = String(d.dealDate ?? "").trim().slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) {
-    const [ys, ms, ds] = head.split("-").map(Number);
-    if (ys !== year || ms < 1 || ms > 12) return false;
-    void ds;
-    const q = Math.floor((ms - 1) / 3);
-    return q === selectedQuarter;
-  }
-  if (/^\d{4}-\d{2}$/.test(d.monthKey)) {
-    const [ys, ms] = d.monthKey.split("-").map(Number);
-    if (ys !== year || ms < 1 || ms > 12) return false;
-    const q = Math.floor((ms - 1) / 3);
-    return q === selectedQuarter;
-  }
-  return false;
+  const mk = rowCanonicalMonthKey(d);
+  if (!mk) return false;
+  const [ys, ms] = mk.split("-").map(Number);
+  if (ys !== year || ms < 1 || ms > 12) return false;
+  const q = Math.floor((ms - 1) / 3);
+  return q === selectedQuarter;
 }
 
 function parseQuarterId(id: string): { year: number; quarter: number } | null {
