@@ -38,7 +38,7 @@ function pctText(pct: number | null): string {
   return `${dec1Fmt.format(pct)}%`;
 }
 
-/** Агрегированные сегменты для BI-графиков (план/факт, доля, выполнение). */
+/** Агрегированные сегменты для BI-графиков (план/факт, выполнение). */
 const EXECUTION_MACRO_IDS: SalesPlanExecutionRowId[] = ["apartments", "parking", "storage", "commercial"];
 
 /** Цвет столбца «% выполнения» для графика: зелёный &gt;95%, оранжевый 85–95%, красный &lt;85%. */
@@ -137,16 +137,6 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
       .filter((x): x is NonNullable<typeof x> => x != null);
   }, [byRowId]);
 
-  const shareChartRows = useMemo(
-    () =>
-      EXECUTION_MACRO_IDS.map((id) => {
-        const r = byRowId.get(id);
-        if (!r) return null;
-        return { key: id, name: r.name, share: Math.max(0, r.shareOfVolumePct) };
-      }).filter((x): x is NonNullable<typeof x> => x != null),
-    [byRowId],
-  );
-
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
     for (const row of planFactChartRows) {
@@ -155,12 +145,6 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
     if (m <= 0) return [0, 1];
     return [0, m * 1.08];
   }, [planFactChartRows]);
-
-  const shareYMax = useMemo(() => {
-    let m = 0;
-    for (const row of shareChartRows) m = Math.max(m, row.share);
-    return Math.max(100, m * 1.12);
-  }, [shareChartRows]);
 
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -202,9 +186,7 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
         mutedCls={mutedCls}
         planFactChartRows={planFactChartRows}
         completionChartRows={completionChartRows}
-        shareChartRows={shareChartRows}
         planFactYDomain={planFactYDomain}
-        shareYMax={shareYMax}
       />
 
       <div className={tableWrap}>
@@ -261,9 +243,7 @@ function ExecutionMacroChartsBlock({
   mutedCls,
   planFactChartRows,
   completionChartRows,
-  shareChartRows,
   planFactYDomain,
-  shareYMax,
 }: {
   presDark: boolean;
   presentation: boolean;
@@ -271,9 +251,7 @@ function ExecutionMacroChartsBlock({
   mutedCls: string;
   planFactChartRows: { key: string; name: string; plan: number; fact: number }[];
   completionChartRows: { key: string; name: string; pct: number | null; barLen: number; label: string; fill: string }[];
-  shareChartRows: { key: string; name: string; share: number }[];
   planFactYDomain: [number, number];
-  shareYMax: number;
 }) {
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
@@ -301,16 +279,12 @@ function ExecutionMacroChartsBlock({
 
   const hasPlanFact = planFactChartRows.length > 0;
   const hasCompletion = completionChartRows.length > 0;
-  const hasShare = shareChartRows.length > 0;
-
-  const shareLabelFmt = (v: unknown) => {
-    const n = typeof v === "number" ? v : Number(v);
-    if (!Number.isFinite(n)) return "";
-    return `${dec1Fmt.format(n)}%`;
-  };
 
   return (
-    <div className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:mb-5 lg:grid-cols-3 lg:gap-4" aria-label="Визуальная аналитика исполнения плана">
+    <div
+      className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:mb-5 sm:grid-cols-2 sm:gap-4"
+      aria-label="Визуальная аналитика исполнения плана"
+    >
       <div className={chartCard}>
         <div className={chartTitle}>План vs факт (накопительно)</div>
         <div className="relative min-h-0 flex-1 w-full min-w-0">
@@ -468,69 +442,6 @@ function ExecutionMacroChartsBlock({
             <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
             ниже 85%
           </span>
-        </div>
-      </div>
-
-      <div className={chartCard}>
-        <div className={chartTitle}>Доля объёма продаж</div>
-        <div className="relative min-h-0 flex-1 w-full min-w-0">
-          {hasShare ? (
-            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-              <BarChart data={shareChartRows} margin={{ top: 12, right: 6, left: 0, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: chartAxis, fontSize: 10 }}
-                  axisLine={{ stroke: chartGrid }}
-                  tickLine={false}
-                  interval={0}
-                  height={40}
-                />
-                <YAxis
-                  domain={[0, shareYMax]}
-                  tick={{ fill: chartAxis, fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={40}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload as (typeof shareChartRows)[0] | undefined;
-                    if (!row) return null;
-                    return tooltipFrame(
-                      <>
-                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
-                        <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
-                          {dec1Fmt.format(row.share)}% от объёма
-                        </div>
-                      </>,
-                    );
-                  }}
-                />
-                <Bar
-                  dataKey="share"
-                  fill={presDark ? "#38bdf8" : "#0ea5e9"}
-                  radius={[6, 6, 0, 0]}
-                  maxBarSize={48}
-                  isAnimationActive={false}
-                >
-                  <LabelList
-                    dataKey="share"
-                    position="top"
-                    fill={chartAxis}
-                    fontSize={10}
-                    fontWeight={500}
-                    formatter={shareLabelFmt}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className={`flex h-[200px] items-center justify-center text-xs ${mutedCls}`}>Нет данных для графика</p>
-          )}
         </div>
       </div>
     </div>
