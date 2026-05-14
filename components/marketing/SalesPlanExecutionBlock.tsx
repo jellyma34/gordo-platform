@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
+import { PlanExecutionMonthlyPlanFactLineCard } from "@/components/marketing/PlanExecutionMonthlyPlanFactLineCard";
 import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import {
   formatReportDateRu,
@@ -187,6 +188,13 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
         planFactChartRows={planFactChartRows}
         completionChartRows={completionChartRows}
         planFactYDomain={planFactYDomain}
+      />
+
+      <PlanExecutionMonthlyPlanFactLineCard
+        monthlyPlanFact={data.monthlyPlanFact}
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplPremium}
       />
 
       <div className={tableWrap}>

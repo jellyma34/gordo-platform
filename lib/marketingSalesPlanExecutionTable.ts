@@ -40,16 +40,46 @@ export type SalesPlanExecutionSummary = {
   deviationRub: number;
 };
 
+/** Помесячный план/факт (₽ за месяц) для линейного графика «План vs факт» — импорт Excel/JSON. */
+export type SalesPlanExecutionMonthlyPoint = {
+  periodKey: string;
+  planRub: number;
+  factRub: number;
+};
+
 export type SalesPlanExecutionDataset = {
   /** YYYY-MM-DD — отчётная дата блока */
   reportDateYmd: string;
   summary: SalesPlanExecutionSummary;
   rows: SalesPlanExecutionRow[];
+  /** Ряд месяцев YYYY-MM; при отсутствии — блок графика не показывается */
+  monthlyPlanFact?: SalesPlanExecutionMonthlyPoint[] | null;
 };
 
 /** Демо-набор для UI до импорта Excel/JSON (структура совместима с импортом). */
+const EXECUTION_DEMO_MONTHLY_KEYS = [
+  "2025-04",
+  "2025-05",
+  "2025-06",
+  "2025-07",
+  "2025-08",
+  "2025-09",
+  "2025-10",
+  "2025-11",
+  "2025-12",
+  "2026-01",
+  "2026-02",
+  "2026-03",
+] as const;
+
 export const MARKETING_SALES_PLAN_EXECUTION_DEMO: SalesPlanExecutionDataset = {
   reportDateYmd: "2026-03-31",
+  monthlyPlanFact: EXECUTION_DEMO_MONTHLY_KEYS.map((periodKey, i) => {
+    const planRub = 128_000_000 + (i % 6) * 11_500_000 + (i % 4) * 4_250_000;
+    const drift = (i % 5) * 2_800_000 + (i % 3) * 1_400_000;
+    const factRub = Math.max(45_000_000, planRub - 18_000_000 - drift + ((i * 7) % 5) * 1_200_000);
+    return { periodKey, planRub, factRub };
+  }),
   summary: {
     planCumulativeRub: 4_820_000_000,
     factCumulativeRub: 4_215_000_000,

@@ -454,7 +454,7 @@ function labelOverlapsAny(box: LabelBBox, boxes: readonly LabelBBox[]): boolean 
   return false;
 }
 
-function CashflowTooltip({
+export function CashflowTooltip({
   active,
   payload,
   darkChrome,
@@ -507,7 +507,7 @@ function pillHorizontalOverlap(aL: number, aR: number, bL: number, bR: number, g
  * Подписи в координатах SVG (Recharts 3): факт и план — таблетки с направляющими, BI-стиль.
  * В презентации + «Нарастающим итогом» подписи факта поднимаются сильнее, чтобы не лежать на stroke линии.
  */
-function CashflowDynamicsSvgLabels({
+export function CashflowDynamicsSvgLabels({
   chartData,
   presDark,
   mode,
