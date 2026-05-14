@@ -1,21 +1,69 @@
 ﻿# CLAUDE.md
 
-## Project
+## Project overview
 
-GORDO Platform — enterprise real estate development management platform.
+GORDO is a real-estate development management platform.
 
-The system combines:
-- construction management
-- financial planning
-- sales analytics
-- marketing analytics
-- apartment matrix analytics
-- project charter calculations
-- BIM/Revit-based metrics
-- estimate and budget analytics
+Core stack:
+- Next.js App Router
+- TypeScript
+- FastAPI backend
+- PostgreSQL
+- Railway deployment
 
-Main goal:
-predict and control construction and financial risks across the project lifecycle.
+Main modules:
+- Marketing
+- Construction (GPR / TMC / Tenders)
+- Admin
+- Auth
+- Finance (partial)
+- Analytics
+
+Documentation index:
+- docs/architecture.md
+- docs/modules.md
+- docs/frontend.md
+- docs/backend.md
+- docs/auth.md
+- docs/construction.md
+- docs/marketing.md
+- docs/finance.md
+- docs/ppr.md
+- docs/roadmap.md
+- docs/conventions.md
+
+## AI agent rules
+
+Before modifying code:
+1. Read relevant docs first
+2. Make minimal patches only
+3. Never refactor unrelated modules
+4. Preserve existing architecture
+5. Preserve UI style and chart behavior
+6. Prefer editing existing files over creating new abstractions
+7. Do not rename APIs/components without request
+8. Avoid large-scale rewrites
+9. Do not touch deployment configs unless requested
+10. Never commit automatically
+
+## Important project conventions
+
+- Marketing module is production-critical
+- Presentation mode and Edit mode are separate behaviors
+- CSV/JSON imports must remain backward compatible
+- Plan/fact chart logic is sensitive
+- Railway environments:
+  - dev
+  - tester
+  - production
+
+## Current priorities
+
+1. Marketing analytics
+2. Presentation generation
+3. Construction/GPR workflows
+4. Financial planning
+5. Performance optimization
 
 ---
 
@@ -215,3 +263,4 @@ Do NOT modify:
 - DB connection logic
 
 unless explicitly requested.
+
