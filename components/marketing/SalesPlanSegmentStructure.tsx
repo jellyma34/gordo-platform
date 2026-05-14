@@ -371,7 +371,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   <div className="mt-1.5 tabular-nums leading-snug">
                     <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средняя стоимость м²</div>
                     <div
-                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                      className={`mt-0.5 text-[14px] font-medium leading-tight whitespace-nowrap tabular-nums ${presDark ? "text-slate-50" : "text-[#111827]"}`}
                     >
                       {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
                     </div>

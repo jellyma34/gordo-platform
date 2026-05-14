@@ -317,28 +317,32 @@ function SegmentAnalyticsCard({
           ) : null}
         </div>
 
-        <div className={`grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 sm:gap-x-4 sm:gap-y-4 ${presentation ? "pt-1" : "pt-0.5"}`}>
-          <div>
+        <div
+          className={`grid grid-cols-2 gap-x-2.5 gap-y-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(10.25rem,1.4fr)] sm:gap-x-3 sm:gap-y-4 ${presentation ? "pt-1" : "pt-0.5"}`}
+        >
+          <div className="min-w-0">
             <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Сделок</div>
             <div className={`mt-1.5 text-lg font-bold tabular-nums sm:text-xl ${statValueCls}`}>
               {numFmt.format(model.totalDeals)}
             </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Выручка</div>
             <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
               {compactRub(model.totalRevenueRub)}
             </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Средний чек</div>
             <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
               {model.totalDeals > 0 ? compactRub(model.avgCheckRub) : "—"}
             </div>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 sm:min-w-[10rem]">
             <div className={`text-[10px] font-medium leading-snug tracking-normal ${mutedCls}`}>Средняя стоимость м²</div>
-            <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
+            <div
+              className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg whitespace-nowrap ${statValueCls}`}
+            >
               {model.avgPricePerM2Rub != null ? formatAvgPricePerM2Rub(model.avgPricePerM2Rub) : "—"}
             </div>
           </div>
