@@ -103,7 +103,10 @@ export function formatCompactCashflowRub(n: number): string {
   return `${sign}${abs}`;
 }
 
-/** Денежные значения на графике «Динамика поступлений»: всегда в млн ₽ (или млрд при необходимости). */
+/**
+ * Денежные значения на графике «Динамика поступлений»: число в **единицах миллионов рублей** (или млрд как «X,XX»),
+ * без слов «млн» / «млрд»; при `withRubSuffix` — суффикс « ₽».
+ */
 export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): string {
   if (!Number.isFinite(n)) return "";
   const rub = withRubSuffix ? " ₽" : "";
@@ -118,7 +121,7 @@ export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): s
       b >= 1
         ? { maximumFractionDigits: 1, minimumFractionDigits: 0 }
         : { maximumFractionDigits: 2, minimumFractionDigits: 0 };
-    return `${sign}${b.toLocaleString("ru-RU", opts)} млрд${rub}`;
+    return `${sign}${b.toLocaleString("ru-RU", opts)}${rub}`;
   }
 
   const mln = absRub / 1_000_000;
@@ -126,25 +129,25 @@ export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): s
     mln >= 1
       ? { maximumFractionDigits: 1, minimumFractionDigits: 0 }
       : { maximumFractionDigits: 2, minimumFractionDigits: 0 };
-  return `${sign}${mln.toLocaleString("ru-RU", opts)} млн${rub}`;
+  return `${sign}${mln.toLocaleString("ru-RU", opts)}${rub}`;
 }
 
-/** Подписи на графике «Динамика поступлений» (tooltip, отклонение): всегда млн/млрд ₽. */
+/** Подписи на графике «Динамика поступлений» (tooltip, отклонение): как {@link formatCashflowMillionsLabel} с « ₽». */
 export function formatCashflowDynamicsChartLabel(n: number): string {
   return formatCashflowMillionsLabel(n, true);
 }
 
 /**
- * Тултип поступлений: всегда полная сумма в ₽ (целые рубли), без сокращений «млн».
+ * Тултип поступлений: те же числовые правила, что у подписей графика (млн руб. как число + « ₽»), без слова «млн».
  */
 export function formatCashflowTooltipRub(n: number): string {
   if (!Number.isFinite(n)) return "";
-  return rubFmt.format(Math.round(n));
+  return formatCashflowMillionsLabel(n, true);
 }
 
 /**
  * @deprecated Используйте {@link formatCashflowMillionsLabel}; оставлено как алиас для подписей точек.
- * Короткая форма без «₽» в конце (единицы в заголовке графика).
+ * Короткая форма без «₽» в конце (масштаб оси и заголовок — в млн руб. как число).
  */
 export function formatCashShort(value: number): string {
   if (value == null || !Number.isFinite(value)) return "";
@@ -152,14 +155,14 @@ export function formatCashShort(value: number): string {
 }
 
 /**
- * Ось и тултип мини-графика выручки: те же правила, что у «Динамика поступлений» (всегда млн/млрд), без «₽» в строке.
+ * Ось и тултип мини-графика выручки: те же правила, что у «Динамика поступлений», без «₽» в строке.
  */
 export function formatSegmentMiniRevenueChartNumber(n: number): string {
   if (!Number.isFinite(n)) return "";
   return formatCashflowMillionsLabel(n, false);
 }
 
-/** Подписи оси Y графика поступлений: в млн ₽ (те же правила дробной части, что у подписей точек). */
+/** Подписи оси Y графика поступлений: масштаб млн руб. как число + « ₽». */
 export function formatCashflowYAxisMlnRub(v: number): string {
   if (!Number.isFinite(v)) return "";
   if (v === 0) return "0";

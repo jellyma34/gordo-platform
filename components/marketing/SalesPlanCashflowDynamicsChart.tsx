@@ -868,6 +868,8 @@ type Props = {
   presentation: boolean;
   /** Зарезервировано для совместимости; под заголовком не отображается. */
   planSourceNote?: string;
+  /** Как в `buildCashflowSeries`: явная граница факта (YYYY-MM); `null` — до текущего календарного месяца. */
+  factThroughPeriodKey?: string | null;
   /** Предупреждение, если факт поступлений из CSV не выделен (нет колонок притока). */
   factUnavailableMessage?: string | null;
   zaydetMonthVerify?: MarketingPaymentZaydetMonthVerifyRow[] | null;
@@ -980,7 +982,8 @@ function CashflowDynamicsWorkModeCalculationExplain() {
             <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden />
               <span>
                 <span className="font-semibold text-slate-900">Факт</span> строится только по колонкам с «зайдет» в
-                заголовке; пропуски по оси X не заполняются из сальдо и других столбцов.
+                заголовке; до отчётного месяца включительно линия не обрывается на пустых месяцах (последнее известное
+                значение).
               </span>
           </li>
           <li className="flex gap-2">
@@ -1002,6 +1005,7 @@ export function SalesPlanCashflowDynamicsChart({
   planScale,
   presentation,
   planSourceNote: _planSourceNote,
+  factThroughPeriodKey,
   factUnavailableMessage,
   zaydetMonthVerify,
   showZaydetCsvDebugTable,
@@ -1010,7 +1014,10 @@ export function SalesPlanCashflowDynamicsChart({
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
 
-  const chartData = useMemo(() => cashflowRowsForChart(rows, mode, planScale), [rows, mode, planScale]);
+  const chartData = useMemo(
+    () => cashflowRowsForChart(rows, mode, planScale, { factThroughPeriodKey: factThroughPeriodKey ?? null }),
+    [rows, mode, planScale, factThroughPeriodKey],
+  );
 
   const { yDomainMax, yTicks } = useMemo(() => {
     const vals = chartData.flatMap((d) => [d.plan, d.fact].filter((x): x is number => x != null));
@@ -1057,7 +1064,7 @@ export function SalesPlanCashflowDynamicsChart({
         <h3
           className={`mb-2 text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
         >
-          Динамика поступлений (млн&nbsp;₽)
+          Динамика поступлений
         </h3>
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} />

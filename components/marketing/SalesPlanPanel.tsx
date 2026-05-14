@@ -2424,6 +2424,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           rows={cashflowSeriesBase}
           planScale={cashflowPlanScale}
           planSourceNote={cashflowPlanNote}
+          factThroughPeriodKey={null}
           factUnavailableMessage={
             paymentPlanHydrated && hasAnyPaymentCsv ? paymentFactUnavailableReason : null
           }
