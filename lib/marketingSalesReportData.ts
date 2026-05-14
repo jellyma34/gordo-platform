@@ -221,7 +221,7 @@ export type RootCauseWaterfallModel = {
 
 export const marketingSalesReportMock: SalesReportPayload = {
   projectName: "ЖК Гордо",
-  asOf: "2026-03-31",
+  asOf: "2026-04-30",
   salesData: {
     revenue: {
       planProject: 4_850_000_000,
@@ -270,7 +270,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
   },
   planAnalytics: {
     month: {
-      currentPeriodKey: "2026-03",
+      currentPeriodKey: "2026-04",
       forecastPercentComplete: 84.2,
       runRate: {
         avgMonthlyRevenueRub: 362_000_000,
@@ -279,7 +279,7 @@ export const marketingSalesReportMock: SalesReportPayload = {
       },
     },
     quarter: {
-      currentPeriodKey: "2026-Q1",
+      currentPeriodKey: "2026-Q2",
       forecastPercentComplete: 84.2,
       runRate: {
         avgMonthlyRevenueRub: 362_000_000,

@@ -15,6 +15,7 @@ import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
 } from "@/lib/filterDealsForSegmentChartPeriod";
+import { isStagnantDealMonthNoNewSales } from "@/lib/marketingDealMonthCumulative";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import {
@@ -165,19 +166,23 @@ export function SalesPlanSegmentPlanFactBarChart({
     [dealsRows],
   );
 
+  const anchorMonthKey = useMemo(() => {
+    if (!planReportAsOfYmd || !/^\d{4}-\d{2}/.test(planReportAsOfYmd)) return null;
+    return normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
+  }, [planReportAsOfYmd]);
+
   const monthOptionsForSelect = useMemo(() => {
-    const out = [...sortedMonthKeys];
-    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) {
-      const mk = normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
-      if (mk && !out.includes(mk)) out.push(mk);
-    }
-    return out.sort();
-  }, [sortedMonthKeys, planReportAsOfYmd]);
+    const out = new Set(sortedMonthKeys);
+    if (anchorMonthKey) out.add(anchorMonthKey);
+    return [...out].sort();
+  }, [sortedMonthKeys, anchorMonthKey]);
 
   const quarterOptions = useMemo(() => {
     const seen = new Set<string>();
     const opts: { id: string; label: string }[] = [];
-    for (const key of sortedMonthKeys) {
+    const monthKeysForQuarter = new Set(sortedMonthKeys);
+    if (anchorMonthKey) monthKeysForQuarter.add(anchorMonthKey);
+    for (const key of monthKeysForQuarter) {
       const canon = normalizeMonthKey(key) ?? key;
       const [y, m] = canon.split("-").map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
@@ -189,7 +194,7 @@ export function SalesPlanSegmentPlanFactBarChart({
     }
     opts.sort((a, b) => a.id.localeCompare(b.id));
     return opts;
-  }, [sortedMonthKeys]);
+  }, [sortedMonthKeys, anchorMonthKey]);
 
   const monthKeyForFilter = useMemo(() => {
     if (periodMode !== "month") return null;
@@ -197,12 +202,10 @@ export function SalesPlanSegmentPlanFactBarChart({
       const canon = normalizeMonthKey(userMonthKey) ?? userMonthKey;
       if (monthOptionsForSelect.includes(canon)) return canon;
     }
-    if (sortedMonthKeys.length > 0) return sortedMonthKeys[sortedMonthKeys.length - 1]!;
-    if (planReportAsOfYmd && /^\d{4}-\d{2}/.test(planReportAsOfYmd)) {
-      return normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
-    }
+    if (monthOptionsForSelect.length > 0) return monthOptionsForSelect[monthOptionsForSelect.length - 1]!;
+    if (anchorMonthKey) return anchorMonthKey;
     return null;
-  }, [periodMode, userMonthKey, sortedMonthKeys, monthOptionsForSelect, planReportAsOfYmd]);
+  }, [periodMode, userMonthKey, monthOptionsForSelect, anchorMonthKey]);
 
   const quarterIdForFilter = useMemo(() => {
     if (periodMode !== "quarter") return null;
@@ -224,13 +227,24 @@ export function SalesPlanSegmentPlanFactBarChart({
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
     });
-    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, fallbackTotalPlanRub);
+    const stagnantMonth =
+      periodMode === "month" && monthKeyForFilter != null
+        ? isStagnantDealMonthNoNewSales(dealsRows, monthKeyForFilter)
+        : false;
+    const showZeroSalesSegments =
+      (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
+      (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
+    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, showZeroSalesSegments ? null : fallbackTotalPlanRub, {
+      showZeroSalesSegments,
+    });
     if (process.env.NODE_ENV === "development") {
       console.debug("[segment-plan-chart]", {
         periodMode,
         selectedMonthKey: periodMode === "month" ? monthKeyForFilter : null,
         selectedQuarterId: periodMode === "quarter" ? quarterIdForFilter : null,
         filteredDealsCount: byPeriod.length,
+        stagnantMonth,
+        showZeroSalesSegments,
         groupedSegmentTotals: built.map((r) => ({ name: r.name, fact: r.fact, plan: r.plan })),
         finalChartDatasetRowCount: built.length,
       });
@@ -262,7 +276,8 @@ export function SalesPlanSegmentPlanFactBarChart({
     return [{ name: DEAL_SEGMENT_LABEL_RU[segmentScope], fact: 0, plan: 0 }];
   }, [segmentScope]);
 
-  const showEmptyOverlay = rows.length === 0;
+  /** Нет сделок вовсе (режим «Все» / пустой JSON) — не путать с нулевым фактом за выбранный месяц. */
+  const showEmptyOverlay = rows.length === 0 && periodMode === "all";
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {

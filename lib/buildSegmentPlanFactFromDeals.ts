@@ -11,17 +11,27 @@ function segmentRowHasData(row: SegmentPlanFactBarRow): boolean {
   return row.fact !== 0 || row.plan !== 0;
 }
 
+export type BuildSegmentPlanFactFromDealsOptions = {
+  /**
+   * Период выбран, но факт продаж по JSON = 0 (пустой отбор по месяцу / «застой» cumulative deals):
+   * показываем все сегменты с нулевым фактом, без скрытия строк и без распределения плана из fallback-мока.
+   */
+  showZeroSalesSegments?: boolean;
+};
+
 /**
  * Факт — сумма {@link NormalizedDealRow.sumRub} по сегменту (та же группировка, что карточки «Структура продаж»).
  * План — сумма {@link NormalizedDealRow.planRub} из JSON, если по сделкам есть явные поля;
  * иначе доли `fallbackTotalPlanRub` пропорционально факту по всем сегментам (включая «Прочее»).
  *
- * Сегменты без факта и без плана не возвращаются — на графике и в выгрузке только смысловые категории.
+ * При `showZeroSalesSegments` не используем fallback для плана: факт только из JSON (нули — валидные данные).
  */
 export function buildSegmentPlanFactBarDataFromDeals(
   filteredRows: NormalizedDealRow[],
   fallbackTotalPlanRub: number | null | undefined,
+  options?: BuildSegmentPlanFactFromDealsOptions,
 ): SegmentPlanFactBarRow[] {
+  const showZero = options?.showZeroSalesSegments === true;
   const grouped = groupDealsBySegment(filteredRows);
 
   const facts: Record<DealSegmentKey, number> = {
@@ -50,17 +60,29 @@ export function buildSegmentPlanFactBarDataFromDeals(
 
   const explicitSum = DEAL_SEGMENT_KEYS.reduce((s, k) => s + explicitPlans[k], 0);
 
+  const keep = (row: SegmentPlanFactBarRow) => showZero || segmentRowHasData(row);
+
   if (explicitSum > 0) {
     return DEAL_SEGMENT_KEYS.map((key) => ({
       name: DEAL_SEGMENT_LABEL_RU[key],
       fact: Number.isFinite(facts[key]) ? facts[key] : 0,
       plan: Number.isFinite(explicitPlans[key]) ? explicitPlans[key] : 0,
-    })).filter(segmentRowHasData);
+    })).filter(keep);
   }
 
   const totalPlan =
-    fallbackTotalPlanRub != null && Number.isFinite(fallbackTotalPlanRub) ? Math.max(0, fallbackTotalPlanRub) : 0;
+    !showZero && fallbackTotalPlanRub != null && Number.isFinite(fallbackTotalPlanRub)
+      ? Math.max(0, fallbackTotalPlanRub)
+      : 0;
   const sumFacts = DEAL_SEGMENT_KEYS.reduce((s, k) => s + (Number.isFinite(facts[k]) ? facts[k] : 0), 0);
+
+  if (showZero && sumFacts === 0) {
+    return DEAL_SEGMENT_KEYS.map((key) => ({
+      name: DEAL_SEGMENT_LABEL_RU[key],
+      fact: 0,
+      plan: 0,
+    }));
+  }
 
   if (totalPlan > 0 && sumFacts > 0) {
     return DEAL_SEGMENT_KEYS.map((key) => {
@@ -72,12 +94,12 @@ export function buildSegmentPlanFactBarDataFromDeals(
         fact: f,
         plan,
       };
-    }).filter(segmentRowHasData);
+    }).filter(keep);
   }
 
   return DEAL_SEGMENT_KEYS.map((key) => ({
     name: DEAL_SEGMENT_LABEL_RU[key],
     fact: Number.isFinite(facts[key]) ? facts[key] : 0,
     plan: 0,
-  })).filter(segmentRowHasData);
+  })).filter(keep);
 }

@@ -962,6 +962,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         {
           salesStartPeriodKey: marketingMockData.projectSalesStartPeriodKey,
           factThroughPeriodKey: null,
+          dealDatesForStagnantMonthCheck:
+            marketingDealsFiltered.length > 0 ? marketingDealsFiltered : null,
         },
       ),
     [
@@ -969,6 +971,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       hasFactMonths,
       paymentPlanByPeriodKey,
       paymentFactByPeriodKey,
+      marketingDealsFiltered,
     ],
   );
   const cashflowPlanScale = hasPlanMonths ? 1 : revenuePlanScale;

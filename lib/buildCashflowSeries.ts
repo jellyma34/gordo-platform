@@ -1,3 +1,5 @@
+import { cumulativeDealCountThroughMonthMap } from "@/lib/marketingDealMonthCumulative";
+
 const RU_MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
 
 export type CashflowSeriesRow = {
@@ -31,28 +33,17 @@ export function cashflowCalendarNowPeriodKey(now: Date = new Date()): string {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
-function nextMonthPeriodKey(periodKey: string): string {
-  const [ys, ms] = periodKey.split("-").map(Number);
-  let y = ys!;
-  let mo = ms!;
-  mo += 1;
-  if (mo > 12) {
-    mo = 1;
-    y += 1;
-  }
-  return `${y}-${String(mo).padStart(2, "0")}`;
-}
-
 /**
- * Последний месяц, для которого на графике допускается «факт»: не позже сегодняшнего месяца;
- * при явном `factThroughPeriodKey` в прошлом — не позже этой границы.
+ * Последний месяц **включительно**, для которого на графике рисуется **план** (оранжевая серия):
+ * не позже текущего календарного месяца; при явном `planDisplayThroughPeriodKey` в прошлом — не позже этой границы.
+ * Серия **факта** (синяя) по горизонту не ограничивается этой функцией.
  */
-export function cashflowFactDisplayEndPeriodKey(
-  factThroughPeriodKey?: string | null,
+export function cashflowPlanDisplayEndPeriodKey(
+  planDisplayThroughPeriodKey?: string | null,
   now: Date = new Date(),
 ): string {
   const nowKey = cashflowCalendarNowPeriodKey(now);
-  const raw = factThroughPeriodKey?.trim();
+  const raw = planDisplayThroughPeriodKey?.trim();
   if (raw && /^\d{4}-\d{2}$/.test(raw)) {
     return raw < nowKey ? raw : nowKey;
   }
@@ -61,8 +52,42 @@ export function cashflowFactDisplayEndPeriodKey(
 
 export type BuildCashflowSeriesOptions = {
   salesStartPeriodKey?: string | null;
+  /**
+   * Зарезервировано (совместимость с вызовами): граница отображения **плана** задаётся
+   * в {@link cashflowRowsForChart}, не здесь.
+   */
   factThroughPeriodKey?: string | null;
+  /**
+   * Сделки из помесячного JSON (`dealDateMs`): если к концу месяца **накопленное** число сделок
+   * совпадает с предыдущим календарным месяцем в ряду — новых продаж не было, `factMonth` для этого месяца = 0
+   * (не дублируем факт поступлений из CSV и не тянем значение «Нарастающим» через forward-fill).
+   */
+  dealDatesForStagnantMonthCheck?: readonly { dealDateMs: number }[] | null;
 };
+
+/**
+ * Если `dealsCount` на конец месяца не вырос к предыдущему месяцу ряда — в этом месяце не было новых продаж: `factMonth = 0`.
+ * Соответствует правилу: `currentMonth.dealsCount === previousMonth.dealsCount` → продажи за месяц 0.
+ */
+function applyStagnantDealCountZeroFactMonth(
+  rows: CashflowSeriesRow[],
+  dealRows: readonly { dealDateMs: number }[] | null | undefined,
+): CashflowSeriesRow[] {
+  if (!dealRows?.length || rows.length < 2) return rows;
+  const keys = rows.map((r) => r.periodKey);
+  const cum = cumulativeDealCountThroughMonthMap(dealRows, keys);
+  return rows.map((row, i) => {
+    if (i === 0) return row;
+    const prevPk = rows[i - 1]!.periodKey;
+    const curC = cum[row.periodKey];
+    const prevC = cum[prevPk];
+    if (curC === undefined || prevC === undefined) return row;
+    if (curC === prevC) {
+      return { ...row, factMonth: 0 };
+    }
+    return row;
+  });
+}
 
 export function buildCashflowSeries(
   planByPeriodKey: Readonly<Record<string, number>> | null | undefined,
@@ -72,11 +97,6 @@ export function buildCashflowSeries(
   const salesStartRaw = options?.salesStartPeriodKey?.trim();
   const salesStart =
     salesStartRaw && /^\d{4}-\d{2}$/.test(salesStartRaw) ? salesStartRaw : null;
-  const factThroughRaw = options?.factThroughPeriodKey?.trim();
-  const factThrough =
-    factThroughRaw && /^\d{4}-\d{2}$/.test(factThroughRaw) ? factThroughRaw : null;
-  const displayEnd = cashflowFactDisplayEndPeriodKey(factThrough);
-
   const plan = planByPeriodKey ?? {};
   const fact = factByPeriodKey ?? null;
   const hasFactSeries = fact != null && Object.keys(fact).length > 0;
@@ -97,14 +117,12 @@ export function buildCashflowSeries(
 
   const sortedKeys = [...keys].sort((a, b) => a.localeCompare(b));
 
-  const rows = sortedKeys.map((periodKey) => {
+  let rows: CashflowSeriesRow[] = sortedKeys.map((periodKey) => {
     const planRaw = plan[periodKey];
     const planMonth = planRaw != null && Number.isFinite(Number(planRaw)) ? Number(planRaw) : 0;
     let factMonth: number | null = null;
     if (hasFactSeries) {
-      if (periodKey > displayEnd) {
-        factMonth = null;
-      } else if (Object.prototype.hasOwnProperty.call(fact!, periodKey)) {
+      if (Object.prototype.hasOwnProperty.call(fact!, periodKey)) {
         const fv = fact![periodKey];
         factMonth = fv != null && Number.isFinite(Number(fv)) ? Number(fv) : null;
       } else {
@@ -115,6 +133,10 @@ export function buildCashflowSeries(
     return { periodKey, label, planMonth, factMonth };
   });
 
+  rows = hasFactSeries
+    ? applyStagnantDealCountZeroFactMonth(rows, options?.dealDatesForStagnantMonthCheck ?? null)
+    : rows;
+
   while (rows.length > 1) {
     const last = rows[rows.length - 1]!;
     const planNonZero = last.planMonth !== 0;
@@ -123,47 +145,37 @@ export function buildCashflowSeries(
     rows.pop();
   }
 
-  if (rows.length > 0 && hasFactSeries) {
-    let lastPk = rows[rows.length - 1]!.periodKey;
-    while (lastPk < displayEnd) {
-      lastPk = nextMonthPeriodKey(lastPk);
-      rows.push({
-        periodKey: lastPk,
-        label: periodKeyToRuChartLabel(lastPk),
-        planMonth: 0,
-        factMonth: null,
-      });
-    }
-  }
-
   return rows;
 }
 
 export type CashflowChartMode = "monthly" | "cumulative";
 
 /**
- * Строка для Recharts: `plan` — оранжевая линия «План»; `fact` — синяя «Факт».
- * `fact` после границы отображения (сегодня или `factThroughPeriodKey` в прошлом) — `null`;
- * до границы пустые месяцы в CSV для кумулятива заполняются последним накопленным фактом, для помесячного — последним известным фактом месяца.
+ * Строка для Recharts: `fact` — синяя «Факт» (полный горизонт из CSV);
+ * `plan` — оранжевая «План» (после {@link cashflowPlanDisplayEndPeriodKey} — `null`, линия не рисуется).
  */
 export type CashflowChartRow = {
   periodKey: string;
   label: string;
-  /** Оранжевая серия (план). */
-  plan: number;
+  /** Оранжевая серия (план); после границы отображения — `null`. */
+  plan: number | null;
   /** Синяя серия (факт). */
   fact: number | null;
   deviation: number | null;
 };
 
 export type CashflowRowsForChartOptions = {
-  /** Как в `buildCashflowSeries`: граница «факт не позже» (иначе берётся текущий месяц). */
+  /**
+   * Граница включительно для **плана** (YYYY-MM): позже — `plan: null` на графике.
+   * `null`/не задано — текущий календарный месяц. На **факт** не влияет.
+   */
   factThroughPeriodKey?: string | null;
 };
 
 /**
  * Помесячные точки для графика: `plan` / `fact` — только величины **за месяц**.
  * В режиме «Нарастающим итогом» кумулятив считается здесь **один раз** (сумма помесячных).
+ * Факт — полный горизонт `rows`; план для `periodKey` строго после границы отображения — `null`.
  */
 export function cashflowRowsForChart(
   rows: CashflowSeriesRow[],
@@ -171,7 +183,7 @@ export function cashflowRowsForChart(
   planScale: number,
   options?: CashflowRowsForChartOptions,
 ): CashflowChartRow[] {
-  const displayEnd = cashflowFactDisplayEndPeriodKey(options?.factThroughPeriodKey ?? null);
+  const planDisplayEnd = cashflowPlanDisplayEndPeriodKey(options?.factThroughPeriodKey ?? null);
   const scale = Number.isFinite(planScale) && planScale > 0 ? planScale : 1;
   const scaled = rows.map((r) => ({
     ...r,
@@ -182,16 +194,18 @@ export function cashflowRowsForChart(
     let lastRawMonthly: number | null = null;
     return scaled.map((r) => {
       const planFull = r.planMonthScaled;
-      const afterEnd = r.periodKey > displayEnd;
-      const raw = afterEnd ? null : r.factMonth;
+      const afterPlanEnd = r.periodKey > planDisplayEnd;
+      const raw = r.factMonth;
       if (raw != null) lastRawMonthly = raw;
       const factDisplayed =
-        afterEnd ? null : raw != null ? raw : lastRawMonthly != null ? lastRawMonthly : null;
-      const deviation = raw == null ? null : raw - planFull;
+        raw != null ? raw : lastRawMonthly != null ? lastRawMonthly : null;
+      const planDisplayed = afterPlanEnd ? null : planFull;
+      const deviation =
+        afterPlanEnd || raw == null ? null : raw - planFull;
       return {
         periodKey: r.periodKey,
         label: r.label,
-        plan: planFull,
+        plan: planDisplayed,
         fact: factDisplayed,
         deviation,
       };
@@ -203,19 +217,21 @@ export function cashflowRowsForChart(
   let hadCsvFact = false;
   return scaled.map((r) => {
     accPlan += r.planMonthScaled;
-    const afterEnd = r.periodKey > displayEnd;
-    const raw = afterEnd ? null : r.factMonth;
+    const raw = r.factMonth;
     if (raw != null) {
       accFact += raw;
       hadCsvFact = true;
     }
-    const factDisplayed = afterEnd ? null : hadCsvFact ? accFact : null;
+    const afterPlanEnd = r.periodKey > planDisplayEnd;
+    const planDisplayed = afterPlanEnd ? null : accPlan;
+    const factDisplayed = hadCsvFact ? accFact : null;
     return {
       periodKey: r.periodKey,
       label: r.label,
-      plan: accPlan,
+      plan: planDisplayed,
       fact: factDisplayed,
-      deviation: factDisplayed == null ? null : factDisplayed - accPlan,
+      deviation:
+        afterPlanEnd || factDisplayed == null ? null : factDisplayed - accPlan,
     };
   });
 }
