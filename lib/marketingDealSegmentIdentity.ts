@@ -24,22 +24,24 @@ export const MARKETING_DEAL_SEGMENT_ICON_LUCIDE_CLASS: Record<MarketingDealSegme
   other: "text-slate-400",
 };
 
-/** Скруглённый контейнер иконки: те же классы, что у карточек структуры продаж. */
+/**
+ * Квадратная обёртка иконки (фикс. 40×40): светлый фон в work, без деформации SVG внутри.
+ */
 export const MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS = {
   dark:
-    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/10",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/12 p-2 ring-1 ring-white/12",
   premium:
-    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/85 ring-1 ring-black/[0.04]",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/90 p-2 ring-1 ring-black/[0.05]",
   presentation:
-    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 ring-1 ring-black/[0.05]",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/92 p-2 ring-1 ring-black/[0.06]",
   work:
-    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-50 ring-1 ring-slate-200/60",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-slate-100/95 p-2 ring-1 ring-slate-200/70",
 } as const;
 
 export type MarketingDealSegmentIconWrapTone = keyof typeof MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS;
 
 /**
- * Типографика подписи сегмента рядом с иконкой (uppercase, как в KPI «Структура продаж»).
+ * Типографика подписи сегмента рядом с иконкой.
  * Premium наследует те же цвета, что work (см. SEGMENT_VISUAL_PREMIUM в SalesPlanSegmentStructure).
  */
 export const MARKETING_DEAL_SEGMENT_HEADER_LABEL_CLASS: Record<

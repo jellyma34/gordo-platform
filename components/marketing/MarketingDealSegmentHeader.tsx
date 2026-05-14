@@ -33,9 +33,7 @@ function asUiKey(segment: DealSegmentKey): MarketingDealSegmentUiKey {
   return segment;
 }
 
-/**
- * Единый заголовок сегмента: иконка + uppercase-подпись (KPI, «Структура продаж», карточки «Сделки»).
- */
+/** Единый заголовок сегмента: иконка в квадратной обёртке + подпись (KPI, «Структура продаж», «Сделки»). */
 export function MarketingDealSegmentHeader({
   segment,
   iconWrapTone,
@@ -56,7 +54,7 @@ export function MarketingDealSegmentHeader({
   return (
     <div className={`flex min-w-0 items-center gap-3 ${className}`.trim()}>
       <div className={wrap} aria-hidden>
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${iconStroke}`} strokeWidth={1.75} />
+        <Icon className={`h-5 w-5 shrink-0 ${iconStroke}`} strokeWidth={2} />
       </div>
       <span className={labelResolved}>{text}</span>
     </div>
