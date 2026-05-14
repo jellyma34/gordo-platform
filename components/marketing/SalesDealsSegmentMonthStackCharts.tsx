@@ -38,55 +38,55 @@ type SegmentCardSkin = {
 const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
   apartment: {
     dark:
-      "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-indigo-900/42 via-slate-900/38 to-slate-900/60 shadow-[0_14px_36px_rgba(99,102,241,0.26)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(99,102,241,0.15)]",
+      "rounded-2xl border border-slate-600/45 bg-gradient-to-br from-indigo-950/35 via-slate-900/40 to-slate-950/55 shadow-[0_10px_28px_rgba(0,0,0,0.22)]",
     premium:
-      "rounded-[18px] border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-indigo-50/45 shadow-[0_10px_25px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+      "rounded-2xl border border-black/[0.04] bg-gradient-to-br from-white via-white to-indigo-50/25 shadow-[0_4px_22px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)]",
     work:
-      "rounded-xl border border-slate-200/90 bg-gradient-to-br from-indigo-100/85 via-white to-indigo-50/70 shadow-[0_12px_30px_rgba(99,102,241,0.18)] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(99,102,241,0.10)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.28), transparent 52%)",
+      "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
+    radial: "radial-gradient(circle at 14% 12%, rgba(99,102,241,0.07), transparent 58%)",
     titleDark: "text-indigo-300/90",
     titleLight: "text-indigo-800",
     mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-500",
+    mutedLight: "text-slate-400",
   },
   parking: {
     dark:
-      "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-violet-900/40 via-slate-900/38 to-slate-900/60 shadow-[0_14px_36px_rgba(139,92,246,0.24)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(167,139,250,0.14)]",
+      "rounded-2xl border border-slate-600/45 bg-gradient-to-br from-violet-950/32 via-slate-900/40 to-slate-950/55 shadow-[0_10px_28px_rgba(0,0,0,0.22)]",
     premium:
-      "rounded-[18px] border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-violet-50/45 shadow-[0_10px_25px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+      "rounded-2xl border border-black/[0.04] bg-gradient-to-br from-white via-white to-violet-50/25 shadow-[0_4px_22px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)]",
     work:
-      "rounded-xl border border-slate-200/90 bg-gradient-to-br from-violet-100/85 via-white to-violet-50/70 shadow-[0_12px_30px_rgba(139,92,246,0.16)] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(167,139,250,0.09)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.26), transparent 52%)",
+      "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
+    radial: "radial-gradient(circle at 14% 12%, rgba(139,92,246,0.07), transparent 58%)",
     titleDark: "text-violet-300/90",
     titleLight: "text-violet-800",
     mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-500",
+    mutedLight: "text-slate-400",
   },
   storage: {
     dark:
-      "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-slate-800/48 via-slate-900/38 to-slate-900/60 shadow-[0_14px_36px_rgba(34,211,238,0.16)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(103,232,249,0.08)]",
+      "rounded-2xl border border-slate-600/45 bg-gradient-to-br from-slate-800/40 via-slate-900/40 to-slate-950/55 shadow-[0_10px_28px_rgba(0,0,0,0.22)]",
     premium:
-      "rounded-[18px] border border-black/[0.03] bg-gradient-to-br from-white/92 via-white to-cyan-50/35 shadow-[0_10px_25px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+      "rounded-2xl border border-black/[0.04] bg-gradient-to-br from-white via-white to-cyan-50/20 shadow-[0_4px_22px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)]",
     work:
-      "rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-100/90 via-white to-cyan-50/65 shadow-[0_12px_30px_rgba(14,116,144,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(34,211,238,0.07)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(103,232,249,0.14), transparent 52%)",
+      "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
+    radial: "radial-gradient(circle at 14% 12%, rgba(6,182,212,0.06), transparent 58%)",
     titleDark: "text-slate-300",
     titleLight: "text-cyan-900",
     mutedDark: "text-slate-500/80",
-    mutedLight: "text-slate-500",
+    mutedLight: "text-slate-400",
   },
   commercial: {
     dark:
-      "rounded-2xl border border-slate-600/50 bg-gradient-to-br from-orange-900/40 via-slate-900/38 to-slate-900/60 shadow-[0_14px_36px_rgba(249,115,22,0.24)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_36px_rgba(251,146,60,0.12)]",
+      "rounded-2xl border border-slate-600/45 bg-gradient-to-br from-orange-950/30 via-slate-900/40 to-slate-950/55 shadow-[0_10px_28px_rgba(0,0,0,0.22)]",
     premium:
-      "rounded-[18px] border border-black/[0.03] bg-gradient-to-br from-white/90 via-white to-amber-50/40 shadow-[0_10px_25px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(0,0,0,0.07)] transition-[transform,box-shadow] duration-200 ease-out",
+      "rounded-2xl border border-black/[0.04] bg-gradient-to-br from-white via-white to-amber-50/22 shadow-[0_4px_22px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)]",
     work:
-      "rounded-xl border border-slate-200/85 bg-gradient-to-br from-orange-100/88 via-white to-amber-50/70 shadow-[0_12px_30px_rgba(234,88,12,0.16)] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(251,146,60,0.09)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.26), transparent 52%)",
+      "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
+    radial: "radial-gradient(circle at 14% 12%, rgba(249,115,22,0.07), transparent 58%)",
     titleDark: "text-orange-300/90",
     titleLight: "text-orange-900",
     mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-500",
+    mutedLight: "text-slate-400",
   },
 };
 
@@ -94,28 +94,28 @@ function trendPillClass(trend: string, presDark: boolean): string {
   if (trend === "Нет сделок" || trend === "Недостаточно периодов") {
     return presDark
       ? "border border-slate-500/35 bg-slate-900/45 text-slate-400"
-      : "border border-slate-200 bg-slate-50 text-slate-600";
+      : "border border-slate-200/90 bg-slate-50/90 text-slate-600";
   }
   if (trend.includes("Снижение")) {
     return presDark
       ? "border border-rose-500/45 bg-rose-950/35 text-rose-200"
-      : "border border-rose-200 bg-rose-50 text-rose-800";
+      : "border border-rose-100 bg-rose-50/90 text-rose-800";
   }
   if (trend.includes("Рост")) {
     return presDark
       ? "border border-emerald-500/45 bg-emerald-950/30 text-emerald-200"
-      : "border border-emerald-200 bg-emerald-50 text-emerald-800";
+      : "border border-emerald-100 bg-emerald-50/90 text-emerald-800";
   }
   return presDark
     ? "border border-slate-500/40 bg-slate-900/40 text-slate-300"
-    : "border border-slate-200 bg-slate-50 text-slate-700";
+    : "border border-slate-200/90 bg-slate-50/90 text-slate-700";
 }
 
-/** Вторичные мини-графики: меньше контраста сетки. */
+/** Вторичные мини-графики: лёгкая сетка, спокойные оси. */
 function chartWellClass(presDark: boolean, presentation: boolean): string {
-  if (presDark) return "rounded-lg border border-white/10 bg-black/15";
-  if (presentation) return "rounded-lg border border-black/[0.05] bg-white/40";
-  return "rounded-lg border border-slate-200/70 bg-white/70";
+  if (presDark) return "rounded-xl border border-white/[0.08] bg-black/12";
+  if (presentation) return "rounded-xl border border-slate-200/50 bg-white";
+  return "rounded-xl border border-slate-200/55 bg-white";
 }
 
 function SegmentMonthBarChart({
@@ -159,9 +159,9 @@ function SegmentMonthBarChart({
     const m = Math.max(0, ...data.map((d) => d[dataKey]));
     return m > 0 ? m * 1.1 : 1;
   }, [data, dataKey]);
-  const gridStroke = presDark ? "rgba(148,163,184,0.05)" : "rgba(148,163,184,0.18)";
-  const axisColor = presDark ? "#94a3b8" : "#64748b";
-  const categoryGap = infographicMode ? (n <= 6 ? "22%" : n <= 10 ? "26%" : "32%") : n <= 6 ? "20%" : n <= 10 ? "24%" : "30%";
+  const gridStroke = presDark ? "rgba(148,163,184,0.06)" : "rgba(148,163,184,0.11)";
+  const axisColor = presDark ? "#94a3b8" : "#a1a7b3";
+  const categoryGap = infographicMode ? (n <= 6 ? "26%" : n <= 10 ? "30%" : "36%") : n <= 6 ? "24%" : n <= 10 ? "28%" : "34%";
   const lastI = n - 1;
   const renderMonthTick = (props: XAxisTickContentProps) => {
     const { x, y, payload, index, textAnchor, angle } = props;
@@ -170,9 +170,9 @@ function SegmentMonthBarChart({
     const fill = muted
       ? presDark
         ? "rgba(148,163,184,0.4)"
-        : "rgba(100,116,139,0.48)"
+        : "rgba(148,163,184,0.42)"
       : axisColor;
-    const fs = n > 14 ? 7 : 8;
+    const fs = n > 14 ? 7.5 : 8.5;
     const v = payload?.value;
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
@@ -192,37 +192,37 @@ function SegmentMonthBarChart({
   };
 
   return (
-    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2.5 pt-2.5 sm:px-3 sm:pb-3 sm:pt-3" : "px-2 pb-2 pt-2 sm:px-2.5 sm:pb-2.5"}`}>
+    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-3 pb-3 pt-3 sm:px-3.5 sm:pb-3.5 sm:pt-3.5" : "px-3 pb-2.5 pt-3 sm:px-3.5 sm:pb-3 sm:pt-3"}`}>
       <div
-        className={`mb-2 pl-11 pr-1 sm:pl-12 ${infographicMode ? "text-[9px]" : "text-[8px]"} font-bold uppercase tracking-wide ${presDark ? "text-slate-500" : "text-slate-500"}`}
+        className={`mb-2.5 pl-11 pr-2 sm:pl-[3.25rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-500" : "text-slate-400"}`}
       >
         {title}
       </div>
-      <div className={`w-full min-w-0 ${infographicMode ? "h-[128px] sm:h-[134px]" : "h-[112px] sm:h-[118px]"}`}>
+      <div className={`w-full min-w-0 ${infographicMode ? "h-[132px] sm:h-[140px]" : "h-[118px] sm:h-[126px]"}`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 12 : 10, right: 6, left: 2, bottom: 2 }}
+            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 4 }}
             barCategoryGap={categoryGap}
-            barGap={infographicMode ? 4 : 3}
+            barGap={infographicMode ? 5 : 4}
           >
-            <CartesianGrid strokeDasharray="6 8" stroke={gridStroke} vertical={false} />
+            <CartesianGrid strokeDasharray="4 10" stroke={gridStroke} vertical={false} />
             <XAxis
               dataKey="labelShort"
               tick={renderMonthTick}
               axisLine={false}
               tickLine={false}
               interval={0}
-              angle={-90}
+              angle={-42}
               textAnchor="end"
-              height={50}
+              height={54}
             />
             <YAxis
               domain={[0, yMax]}
-              tick={{ fill: axisColor, fontSize: 8 }}
+              tick={{ fill: axisColor, fontSize: 9 }}
               axisLine={false}
               tickLine={false}
-              width={dataKey === "revenueRub" ? 32 : 26}
+              width={dataKey === "revenueRub" ? 34 : 28}
               tickCount={4}
               tickFormatter={(v) => yTickFmt(Number(v))}
             />
@@ -243,7 +243,7 @@ function SegmentMonthBarChart({
               }
               labelStyle={presDark ? { color: "#e2e8f0" } : { color: "#334155" }}
             />
-            <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={infographicMode ? 28 : 26} isAnimationActive={false}>
+            <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={infographicMode ? 22 : 20} isAnimationActive={false}>
               {data.map((_, i) => {
                 const isPeak = peakIndex != null && i === peakIndex;
                 const ring = ringLastBar && i === lastI;
@@ -278,65 +278,67 @@ function SegmentAnalyticsCard({
   const skin = SEGMENT_CARD_SKIN[model.segment];
   const wrap = presDark ? skin.dark : mplPremium && presentation ? skin.premium : skin.work;
   const mutedCls = presDark ? skin.mutedDark : skin.mutedLight;
-  const statValueCls = presDark ? "text-slate-50" : "text-slate-900";
-  const bodyCls = presDark ? "text-slate-300/95" : "text-slate-700";
-  const sectionTitleCls = presDark ? "text-slate-200" : "text-slate-800";
+  const statValueCls = presDark ? "text-slate-50" : "text-slate-950";
+  const bodyCls = presDark ? "text-slate-300/95" : "text-slate-600";
+  const sectionTitleCls = presDark ? "text-slate-200" : "text-slate-500";
   const lastPt = model.months.length > 0 ? model.months[model.months.length - 1]! : null;
   const ringLast =
     model.declineNote != null &&
     model.months.length >= 2 &&
     lastPt != null &&
     !(lastPt.reportingTail && lastPt.deals === 0 && lastPt.revenueRub === 0);
-  const cardPad = presentation ? "p-5 sm:p-6" : "p-4 sm:p-5";
-  const stackGap = presentation ? "gap-5" : "gap-3";
+  const cardPad = presentation ? "p-6 sm:p-7" : "p-5 sm:p-6";
+  const stackGap = presentation ? "gap-6" : "gap-5";
 
   return (
     <div className={`relative overflow-hidden ${cardPad} ${wrap}`}>
-      <div aria-hidden className="pointer-events-none absolute inset-0 opacity-90" style={{ background: skin.radial }} />
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 ${presDark ? "opacity-80" : "opacity-[0.28]"}`}
+        style={{ background: skin.radial }}
+      />
 
       <div className={`relative flex flex-col ${stackGap}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
           <MarketingDealSegmentHeader
             segment={model.segment}
             iconWrapTone={
               presDark ? "dark" : mplPremium && presentation ? "premium" : presentation ? "presentation" : "work"
             }
             labelTone={presDark ? "dark" : "work"}
-            className="min-w-0 flex-1 pr-2"
+            className="min-w-0 flex-1 gap-3 pr-2 pt-0.5"
           />
           {model.trendLabel !== "Без существенных изменений" ? (
             <span
-              className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold ${trendPillClass(model.trendLabel, presDark)}`}
+              className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium ${trendPillClass(model.trendLabel, presDark)}`}
             >
               {model.trendLabel}
             </span>
           ) : null}
         </div>
 
-        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 ${presentation ? "pt-1" : ""}`}>
+        <div className={`grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 sm:gap-x-4 sm:gap-y-4 ${presentation ? "pt-1" : "pt-0.5"}`}>
           <div>
-            <div className={`text-[9px] font-semibold uppercase tracking-wide ${mutedCls}`}>Сделок</div>
-            <div className={`mt-1 text-base font-black tabular-nums sm:text-lg ${statValueCls}`}>
+            <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Сделок</div>
+            <div className={`mt-1.5 text-lg font-bold tabular-nums sm:text-xl ${statValueCls}`}>
               {numFmt.format(model.totalDeals)}
             </div>
           </div>
           <div>
-            <div className={`text-[9px] font-semibold uppercase tracking-wide ${mutedCls}`}>Выручка</div>
-            <div className={`mt-1 text-sm font-black tabular-nums leading-tight sm:text-base ${statValueCls}`}>
+            <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Выручка</div>
+            <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
               {compactRub(model.totalRevenueRub)}
             </div>
           </div>
           <div>
-            <div className={`text-[9px] font-semibold uppercase tracking-wide ${mutedCls}`}>Средний чек</div>
-            <div className={`mt-1 text-sm font-black tabular-nums leading-tight sm:text-base ${statValueCls}`}>
+            <div className={`text-[10px] font-medium tracking-normal ${mutedCls}`}>Средний чек</div>
+            <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
               {model.totalDeals > 0 ? compactRub(model.avgCheckRub) : "—"}
             </div>
           </div>
           <div className="min-w-0">
-            <div className={`text-[9px] font-semibold uppercase leading-tight tracking-wide ${mutedCls}`}>
-              Средняя стоимость м²
-            </div>
-            <div className={`mt-1 text-sm font-black tabular-nums leading-tight sm:text-base ${statValueCls}`}>
+            <div className={`text-[10px] font-medium leading-snug tracking-normal ${mutedCls}`}>Средняя стоимость м²</div>
+            <div className={`mt-1.5 text-base font-bold tabular-nums leading-snug sm:text-lg ${statValueCls}`}>
               {model.avgPricePerM2Rub != null ? formatAvgPricePerM2Rub(model.avgPricePerM2Rub) : "—"}
             </div>
           </div>
@@ -352,20 +354,20 @@ function SegmentAnalyticsCard({
           ) : null
         ) : (
           <div
-            className={`space-y-2.5 rounded-xl border px-3 py-2.5 text-[11px] leading-snug sm:text-[12px] ${presDark ? "border-white/10 bg-black/10" : "border-slate-200/80 bg-white/45"}`}
+            className={`space-y-3 rounded-xl border px-4 py-3 text-[11px] leading-relaxed sm:text-[12px] ${presDark ? "border-white/10 bg-black/10" : "border-slate-200/70 bg-slate-50/40"}`}
           >
             <div>
-              <div className={`mb-1 text-[9px] font-bold uppercase tracking-wider ${sectionTitleCls}`}>Что происходит</div>
+              <div className={`mb-1 text-[10px] font-semibold tracking-normal ${sectionTitleCls}`}>Что происходит</div>
               <p className={bodyCls}>{model.analyticsWhat}</p>
             </div>
-            <div className={`border-t pt-2 ${presDark ? "border-white/10" : "border-slate-200/70"}`}>
-              <div className={`mb-1 text-[9px] font-bold uppercase tracking-wider ${sectionTitleCls}`}>Почему важно</div>
+            <div className={`border-t pt-3 ${presDark ? "border-white/10" : "border-slate-200/60"}`}>
+              <div className={`mb-1 text-[10px] font-semibold tracking-normal ${sectionTitleCls}`}>Почему важно</div>
               <p className={bodyCls}>{model.analyticsWhy}</p>
             </div>
           </div>
         )}
 
-        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${presentation ? "md:gap-4" : "md:gap-2.5"}`}>
+        <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${presentation ? "md:gap-5" : "md:gap-4"}`}>
           <SegmentMonthBarChart
             title="По месяцам — шт."
             rows={model.months}
@@ -411,23 +413,23 @@ export function SalesDealsSegmentMonthStackCharts({ dealsRows, presentation }: P
   const bundle = useMemo(() => buildDealsSegmentAnalyticsBundle(dealsRows), [dealsRows]);
   const hasMonths = bundle.timelineMonthKeys.length > 0;
 
-  const shellPad = presentation ? "p-5 sm:p-6" : "p-4 sm:p-5";
+  const shellPad = presentation ? "p-6 sm:p-7" : "p-5 sm:p-6";
   const shellClass =
     presDark
-      ? `mb-7 overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] shadow-sm ${shellPad}`
+      ? `mb-8 overflow-visible rounded-2xl border border-slate-700/55 bg-[#1e293b] shadow-[0_8px_28px_rgba(0,0,0,0.2)] ${shellPad}`
       : presentation && mplLight
-        ? `mb-7 overflow-visible ${shellPad} ${MPL_PREMIUM_CHART_SHELL}`
+        ? `mb-8 overflow-visible ${shellPad} ${MPL_PREMIUM_CHART_SHELL}`
         : presentation
-          ? `mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart shadow-sm ${shellPad}`
-          : `mb-7 overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm ${shellPad}`;
+          ? `mb-8 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart shadow-[0_4px_22px_rgba(15,23,42,0.05)] ${shellPad}`
+          : `mb-8 overflow-visible rounded-2xl border border-slate-200/70 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.04)] ${shellPad}`;
 
-  const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900";
-  const subCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600";
+  const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
+  const subCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-500";
 
   if (!hasMonths) {
     return (
       <div className={shellClass}>
-        <h3 className={`text-sm font-semibold ${titleCls}`}>Сделки</h3>
+        <h3 className={`text-sm font-semibold tracking-tight ${titleCls}`}>Сделки</h3>
         <p className={`mt-0.5 text-[11px] ${subCls}`}>Динамика сделок и выручки по сегментам недвижимости.</p>
         <p className={`mt-4 text-xs ${subCls}`}>
           Нет сделок с валидным месяцем в текущем срезе (загрузите выгрузку или смените фильтр объекта).
@@ -438,16 +440,16 @@ export function SalesDealsSegmentMonthStackCharts({ dealsRows, presentation }: P
 
   return (
     <div className={shellClass}>
-      <div className={presentation ? "mb-5" : "mb-4"}>
-        <h3 className={`text-sm font-semibold ${titleCls}`}>Сделки</h3>
+      <div className={presentation ? "mb-6" : "mb-5"}>
+        <h3 className={`text-sm font-semibold tracking-tight ${titleCls}`}>Сделки</h3>
         {!presentation ? (
-          <p className={`mt-0.5 text-[11px] leading-snug ${subCls}`}>
+          <p className={`mt-1 text-[11px] leading-relaxed ${subCls}`}>
             Динамика сделок и выручки по сегментам недвижимости.
           </p>
         ) : null}
       </div>
 
-      <div className={`grid grid-cols-1 ${presentation ? "gap-5 lg:gap-6" : "gap-4"} lg:grid-cols-2`}>
+      <div className={`grid grid-cols-1 ${presentation ? "gap-6 lg:gap-7" : "gap-5"} lg:grid-cols-2`}>
         {bundle.segments.map((model) => (
           <SegmentAnalyticsCard
             key={model.segment}

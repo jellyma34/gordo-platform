@@ -44,8 +44,8 @@ function SidebarLabel({ collapsed, children }: { collapsed: boolean; children: R
 
 function navItemClass(active: boolean, collapsed: boolean) {
   const align = collapsed ? "justify-center gap-0 px-0" : "justify-start gap-3 px-3";
-  return `flex w-full items-center rounded-md py-2.5 text-sm font-medium transition-all duration-300 ${align} ${
-    active ? "bg-blue-500/10 text-blue-600" : "text-slate-500 hover:bg-slate-100"
+  return `flex w-full items-center rounded-lg py-2.5 text-sm font-medium transition-all duration-300 ${align} ${
+    active ? "bg-slate-900/[0.04] text-slate-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
   }`;
 }
 
@@ -65,12 +65,12 @@ function SidebarModeSwitch({ variant, collapsed }: { variant: "presentation" | "
   const editHref = `/edit/marketing?tab=${presentation ? tabFromPresentation : tabWhenEditing}`;
 
   const align = collapsed ? "justify-center gap-0 px-0 py-2" : "justify-start gap-2 px-3 py-2";
-  const inactiveLink = `flex w-full items-center rounded-lg border border-transparent text-sm font-medium text-slate-700 transition-all duration-300 hover:bg-slate-200 ${align}`;
-  const activeRow = `flex w-full items-center rounded-lg bg-blue-500/10 text-sm font-medium text-blue-600 ${align}`;
+  const inactiveLink = `flex w-full items-center rounded-lg border border-transparent text-sm font-medium text-slate-600 transition-all duration-300 hover:bg-slate-50 hover:text-slate-900 ${align}`;
+  const activeRow = `flex w-full items-center rounded-lg bg-slate-900/[0.04] text-sm font-medium text-slate-900 ${align}`;
 
   return (
     <div
-      className={`flex shrink-0 flex-col gap-1 border-t border-slate-200 transition-all duration-300 ${
+      className={`flex shrink-0 flex-col gap-1 border-t border-slate-200/80 transition-all duration-300 ${
         collapsed ? "px-1 pt-2 pb-20" : "px-3 pt-3 pb-20"
       }`}
     >
@@ -147,7 +147,7 @@ export function MarketingAppSidebar({ variant }: Props) {
 
   return (
     <aside
-      className={`sticky top-0 flex h-full min-h-0 shrink-0 flex-col justify-between self-stretch overflow-hidden border-r border-slate-200 bg-slate-50 transition-all duration-300 ${asideWidth}`}
+      className={`sticky top-0 flex h-full min-h-0 shrink-0 flex-col justify-between self-stretch overflow-hidden border-r border-slate-200/70 bg-white transition-all duration-300 ${asideWidth}`}
       aria-label="Навигация маркетинга"
     >
       <div className={`min-h-0 flex-1 overflow-hidden transition-all duration-300 ${topPad}`}>
@@ -156,7 +156,7 @@ export function MarketingAppSidebar({ variant }: Props) {
             <button
               type="button"
               onClick={toggleCollapsed}
-              className="rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100"
+              className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
               aria-expanded={!collapsed}
               aria-label={collapsed ? "Развернуть боковое меню" : "Свернуть боковое меню"}
             >
@@ -170,7 +170,7 @@ export function MarketingAppSidebar({ variant }: Props) {
                 type="button"
                 onClick={() => chrome.onBackToBlocks()}
                 title="К блокам"
-                className={`flex w-full items-center rounded-md py-2 text-sm font-medium text-slate-700 transition-all duration-300 hover:bg-slate-100 ${
+                className={`flex w-full items-center rounded-lg py-2 text-sm font-medium text-slate-600 transition-all duration-300 hover:bg-slate-50 hover:text-slate-900 ${
                   collapsed ? "justify-center px-0" : "justify-start gap-2 px-3"
                 }`}
               >

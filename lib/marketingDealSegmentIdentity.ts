@@ -27,13 +27,13 @@ export const MARKETING_DEAL_SEGMENT_ICON_LUCIDE_CLASS: Record<MarketingDealSegme
 /** Скруглённый контейнер иконки: те же классы, что у карточек структуры продаж. */
 export const MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS = {
   dark:
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/10 backdrop-blur-[6px] ring-1 ring-white/10",
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/10",
   premium:
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/70 backdrop-blur-[6px] ring-1 ring-black/[0.05]",
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/85 ring-1 ring-black/[0.04]",
   presentation:
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-black/[0.06]",
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 ring-1 ring-black/[0.05]",
   work:
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/60 backdrop-blur-[6px] ring-1 ring-slate-200/80",
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-50 ring-1 ring-slate-200/60",
 } as const;
 
 export type MarketingDealSegmentIconWrapTone = keyof typeof MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS;
@@ -62,6 +62,6 @@ export const MARKETING_DEAL_SEGMENT_HEADER_LABEL_CLASS: Record<
   },
 };
 
-/** Базовая строка заголовка сегмента (размер, начертание, uppercase). */
+/** Базовая строка заголовка сегмента (без uppercase — меньше визуального шума). */
 export const MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE =
-  "min-w-0 text-[11px] font-semibold uppercase tracking-wide";
+  "min-w-0 text-[12px] font-semibold leading-snug tracking-tight";

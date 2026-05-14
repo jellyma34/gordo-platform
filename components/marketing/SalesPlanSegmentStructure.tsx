@@ -104,59 +104,59 @@ const SEGMENT_VISUAL_PRESENTATION: Record<DealSegmentKey, SegmentVisual> = {
 
 const SEGMENT_VISUAL_WORK: Record<DealSegmentKey, SegmentVisual> = {
   apartment: {
-    card: "bg-gradient-to-br from-indigo-100/85 via-white to-indigo-50/70",
-    glow: "shadow-[0_12px_30px_rgba(99,102,241,0.18)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(99,102,241,0.10)]",
-    hoverGlow: "hover:shadow-[0_18px_38px_rgba(99,102,241,0.24)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.24), transparent 55%)",
-    sheen: "linear-gradient(125deg, rgba(129,140,248,0.18) 0%, transparent 50%, rgba(255,255,255,0.5) 100%)",
+    card: "bg-gradient-to-br from-white via-white to-indigo-50/40",
+    glow: "shadow-[0_4px_22px_rgba(15,23,42,0.045)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]",
+    hoverGlow: "hover:shadow-[0_8px_26px_rgba(99,102,241,0.12)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.12), transparent 58%)",
+    sheen: "linear-gradient(125deg, rgba(129,140,248,0.10) 0%, transparent 50%, rgba(255,255,255,0.45) 100%)",
     barFill: "rgba(79, 70, 229, 0.88)",
     value: "text-indigo-950",
-    tertiary: "text-slate-500",
+    tertiary: "text-slate-400",
   },
   parking: {
-    card: "bg-gradient-to-br from-violet-100/85 via-white to-violet-50/70",
-    glow: "shadow-[0_12px_30px_rgba(139,92,246,0.16)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(167,139,250,0.09)]",
-    hoverGlow: "hover:shadow-[0_18px_38px_rgba(139,92,246,0.22)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.22), transparent 55%)",
-    sheen: "linear-gradient(125deg, rgba(167,139,250,0.16) 0%, transparent 50%, rgba(255,255,255,0.45) 100%)",
+    card: "bg-gradient-to-br from-white via-white to-violet-50/38",
+    glow: "shadow-[0_4px_22px_rgba(15,23,42,0.045)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]",
+    hoverGlow: "hover:shadow-[0_8px_26px_rgba(139,92,246,0.11)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(167,139,250,0.11), transparent 58%)",
+    sheen: "linear-gradient(125deg, rgba(167,139,250,0.09) 0%, transparent 50%, rgba(255,255,255,0.4) 100%)",
     barFill: "rgba(124, 58, 237, 0.82)",
     value: "text-violet-950",
-    tertiary: "text-slate-500",
+    tertiary: "text-slate-400",
   },
   storage: {
-    card: "bg-gradient-to-br from-slate-100/90 via-white to-cyan-50/65",
-    glow: "shadow-[0_12px_30px_rgba(14,116,144,0.12)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(34,211,238,0.07)]",
-    hoverGlow: "hover:shadow-[0_18px_38px_rgba(14,116,144,0.18)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(34,211,238,0.12), transparent 55%)",
-    sheen: "linear-gradient(125deg, rgba(148,163,184,0.12) 0%, transparent 50%, rgba(236,254,255,0.6) 100%)",
+    card: "bg-gradient-to-br from-white via-white to-cyan-50/35",
+    glow: "shadow-[0_4px_22px_rgba(15,23,42,0.04)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]",
+    hoverGlow: "hover:shadow-[0_8px_26px_rgba(14,116,144,0.09)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(34,211,238,0.08), transparent 58%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.08) 0%, transparent 50%, rgba(236,254,255,0.45) 100%)",
     barFill: "rgba(8, 145, 178, 0.65)",
     value: "text-slate-900",
-    tertiary: "text-slate-500",
+    tertiary: "text-slate-400",
   },
   commercial: {
-    card: "bg-gradient-to-br from-orange-100/85 via-white to-amber-50/70",
-    glow: "shadow-[0_12px_30px_rgba(234,88,12,0.16)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(251,146,60,0.10)]",
-    hoverGlow: "hover:shadow-[0_18px_38px_rgba(234,88,12,0.22)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.22), transparent 55%)",
-    sheen: "linear-gradient(125deg, rgba(251,146,60,0.16) 0%, transparent 48%, rgba(254,215,170,0.5) 100%)",
+    card: "bg-gradient-to-br from-white via-white to-amber-50/38",
+    glow: "shadow-[0_4px_22px_rgba(15,23,42,0.045)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]",
+    hoverGlow: "hover:shadow-[0_8px_26px_rgba(234,88,12,0.10)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(251,146,60,0.10), transparent 58%)",
+    sheen: "linear-gradient(125deg, rgba(251,146,60,0.09) 0%, transparent 48%, rgba(254,215,170,0.35) 100%)",
     barFill: "rgba(234, 88, 12, 0.88)",
     value: "text-orange-950",
-    tertiary: "text-slate-500",
+    tertiary: "text-slate-400",
   },
   other: {
-    card: "bg-gradient-to-br from-slate-100/95 via-white to-slate-50/80",
-    glow: "shadow-[0_12px_30px_rgba(71,85,105,0.1)]",
-    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_26px_rgba(100,116,139,0.08)]",
-    hoverGlow: "hover:shadow-[0_18px_38px_rgba(71,85,105,0.16)]",
-    radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.16), transparent 55%)",
-    sheen: "linear-gradient(125deg, rgba(148,163,184,0.1) 0%, transparent 52%, rgba(248,250,252,0.7) 100%)",
+    card: "bg-gradient-to-br from-white via-white to-slate-50/70",
+    glow: "shadow-[0_4px_22px_rgba(15,23,42,0.04)]",
+    insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]",
+    hoverGlow: "hover:shadow-[0_8px_26px_rgba(71,85,105,0.08)]",
+    radial: "radial-gradient(circle at 18% 15%, rgba(148,163,184,0.10), transparent 58%)",
+    sheen: "linear-gradient(125deg, rgba(148,163,184,0.07) 0%, transparent 52%, rgba(248,250,252,0.55) 100%)",
     barFill: "rgba(100, 116, 139, 0.55)",
     value: "text-slate-900",
-    tertiary: "text-slate-500",
+    tertiary: "text-slate-400",
   },
 };
 
@@ -361,11 +361,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                     <span className="tabular-nums">{compactRub(c.sum)}</span>
                   </div>
                   <div className="mt-1.5 tabular-nums leading-snug">
-                    <div
-                      className={`text-[12px] leading-tight ${presDark ? "text-slate-300" : "text-[#6B7280]"}`}
-                    >
-                      Средний чек
-                    </div>
+                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
                     <div
                       className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
                     >
@@ -373,11 +369,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                     </div>
                   </div>
                   <div className="mt-1.5 tabular-nums leading-snug">
-                    <div
-                      className={`text-[12px] leading-tight ${presDark ? "text-slate-300" : "text-[#6B7280]"}`}
-                    >
-                      Средняя стоимость м²
-                    </div>
+                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средняя стоимость м²</div>
                     <div
                       className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
                     >
@@ -386,7 +378,7 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                   </div>
                   <div className="mt-2">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className={`text-[10px] font-semibold uppercase tracking-wide ${vs.tertiary}`}>Доля выручки</span>
+                      <span className={`text-[10px] font-medium tracking-normal ${vs.tertiary}`}>Доля выручки</span>
                       <span className={`text-[11px] tabular-nums leading-none ${vs.tertiary}`}>{shareFmt.format(c.share)}</span>
                     </div>
                     <div

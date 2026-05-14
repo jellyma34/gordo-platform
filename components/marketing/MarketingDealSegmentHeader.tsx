@@ -54,9 +54,9 @@ export function MarketingDealSegmentHeader({
   const text = labelOverride ?? DEAL_SEGMENT_LABEL_RU[segment];
 
   return (
-    <div className={`flex min-w-0 items-center gap-2 ${className}`.trim()}>
+    <div className={`flex min-w-0 items-center gap-3 ${className}`.trim()}>
       <div className={wrap} aria-hidden>
-        <Icon className={`h-4 w-4 shrink-0 ${iconStroke}`} strokeWidth={2} />
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${iconStroke}`} strokeWidth={1.75} />
       </div>
       <span className={labelResolved}>{text}</span>
     </div>

@@ -28,9 +28,9 @@ const selectEdit =
 const labelCls = (p: boolean, mplLight: boolean) =>
   p
     ? mplLight
-      ? "text-[11px] font-medium uppercase tracking-wide text-mpl-muted"
-      : "text-[11px] font-medium uppercase tracking-wide text-slate-500"
-    : "text-xs font-medium text-slate-600";
+      ? "text-[11px] font-medium text-mpl-muted"
+      : "text-[11px] font-medium text-slate-500"
+    : "text-xs font-medium text-slate-500";
 
 export function MarketingFilters({
   presentation,

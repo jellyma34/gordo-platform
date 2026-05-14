@@ -80,10 +80,10 @@ export function MarketingWorkspace({
   const filterWell = presDark
     ? "rounded-2xl border border-slate-700/60 bg-[#1e293b]/80 p-4 sm:p-5"
     : premiumLight
-      ? `${MPL_PREMIUM_GLASS_MAIN} p-4 sm:p-5`
+      ? `${MPL_PREMIUM_GLASS_MAIN} p-5 sm:p-6`
       : presentation
-        ? "rounded-2xl border border-mpl-border bg-mpl-card p-4 sm:p-5"
-        : "rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5";
+        ? "rounded-2xl border border-mpl-border bg-mpl-card p-5 sm:p-6"
+        : "rounded-2xl border border-slate-200/70 bg-white p-5 sm:p-6 shadow-[0_4px_24px_rgba(15,23,42,0.04)]";
 
   return (
     <MarketingDealsFeedProvider>
@@ -102,7 +102,7 @@ export function MarketingWorkspace({
             showPeriod={presentation || activeTab !== "deals"}
           />
 
-          <div className="mt-5 min-w-0">
+          <div className="mt-6 min-w-0">
             {activeTab === "sales" ? (
               <SalesPlanPanel
                 presentation={presentation}
