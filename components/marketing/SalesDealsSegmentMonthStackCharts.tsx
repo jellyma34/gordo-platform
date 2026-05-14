@@ -161,7 +161,7 @@ function SegmentMonthBarChart({
   }, [data, dataKey]);
   const gridStroke = presDark ? "rgba(148,163,184,0.06)" : "rgba(148,163,184,0.11)";
   const axisColor = presDark ? "#94a3b8" : "#a1a7b3";
-  const categoryGap = infographicMode ? (n <= 6 ? "26%" : n <= 10 ? "30%" : "36%") : n <= 6 ? "24%" : n <= 10 ? "28%" : "34%";
+  const categoryGap = infographicMode ? (n <= 6 ? "18%" : n <= 10 ? "22%" : "28%") : n <= 6 ? "16%" : n <= 10 ? "20%" : "26%";
   const lastI = n - 1;
   /** Тик месяца: полный контроль SVG — Recharts 3 иначе может оборачивать tick в rotate(-90). */
   const renderMonthTick = (props: XAxisTickContentProps) => {
@@ -173,7 +173,7 @@ function SegmentMonthBarChart({
         ? "rgba(148,163,184,0.4)"
         : "rgba(148,163,184,0.42)"
       : axisColor;
-    const fs = n > 14 ? 7.5 : 8.5;
+    const fs = n > 14 ? 8.5 : 9.5;
     const v = payload?.value;
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
@@ -196,19 +196,19 @@ function SegmentMonthBarChart({
   };
 
   return (
-    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-3 pb-3 pt-3 sm:px-3.5 sm:pb-3.5 sm:pt-3.5" : "px-3 pb-2.5 pt-3 sm:px-3.5 sm:pb-3 sm:pt-3"}`}>
+    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}>
       <div
-        className={`mb-2.5 pl-11 pr-2 sm:pl-[3.25rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-500" : "text-slate-400"}`}
+        className={`mb-1.5 pl-10 pr-1 sm:pl-[2.6rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-500" : "text-slate-400"}`}
       >
         {title}
       </div>
-      <div className={`w-full min-w-0 ${infographicMode ? "h-[132px] sm:h-[140px]" : "h-[118px] sm:h-[126px]"}`}>
+      <div className={`w-full min-w-0 ${infographicMode ? "h-[158px] sm:h-[172px]" : "h-[148px] sm:h-[162px]"}`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 28 }}
+            margin={{ top: infographicMode ? 10 : 8, right: 4, left: 2, bottom: 30 }}
             barCategoryGap={categoryGap}
-            barGap={infographicMode ? 5 : 4}
+            barGap={infographicMode ? 3 : 2}
           >
             <CartesianGrid strokeDasharray="4 10" stroke={gridStroke} vertical={false} />
             <XAxis
@@ -220,14 +220,14 @@ function SegmentMonthBarChart({
               angle={0}
               textAnchor="end"
               tickMargin={10}
-              height={60}
+              height={62}
             />
             <YAxis
               domain={[0, yMax]}
-              tick={{ fill: axisColor, fontSize: 9 }}
+              tick={{ fill: axisColor, fontSize: 10 }}
               axisLine={false}
               tickLine={false}
-              width={dataKey === "revenueRub" ? 34 : 28}
+              width={dataKey === "revenueRub" ? 38 : 32}
               tickCount={4}
               tickFormatter={(v) => yTickFmt(Number(v))}
             />
@@ -248,7 +248,7 @@ function SegmentMonthBarChart({
               }
               labelStyle={presDark ? { color: "#e2e8f0" } : { color: "#334155" }}
             />
-            <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={infographicMode ? 22 : 20} isAnimationActive={false}>
+            <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={infographicMode ? 32 : 28} isAnimationActive={false}>
               {data.map((_, i) => {
                 const isPeak = peakIndex != null && i === peakIndex;
                 const ring = ringLastBar && i === lastI;
@@ -376,7 +376,7 @@ function SegmentAnalyticsCard({
           </div>
         )}
 
-        <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${presentation ? "md:gap-5" : "md:gap-4"}`}>
+        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${presentation ? "md:gap-4" : "md:gap-3"}`}>
           <SegmentMonthBarChart
             title="По месяцам — шт."
             rows={model.months}
