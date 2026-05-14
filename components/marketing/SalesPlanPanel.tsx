@@ -2462,6 +2462,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           presentation={presentation}
           presDark={presDark}
           mplPremium={mplPremium}
+          showDetailTable={!presentation && mode === "view"}
           dataset={salesPlanExecutionDataset}
         />
       </>

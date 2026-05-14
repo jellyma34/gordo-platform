@@ -58,11 +58,19 @@ type Props = {
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
+  /** Таблица детализации — только вне презентации и вне edit mode (view / data). */
+  showDetailTable?: boolean;
   /** Если не задано — демо-набор до импорта Excel/JSON */
   dataset?: SalesPlanExecutionDataset;
 };
 
-export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, dataset }: Props) {
+export function SalesPlanExecutionBlock({
+  presentation,
+  presDark,
+  mplPremium,
+  showDetailTable = true,
+  dataset,
+}: Props) {
   const data = dataset ?? MARKETING_SALES_PLAN_EXECUTION_DEMO;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -197,49 +205,53 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
         mplPremium={mplPremium}
       />
 
-      <div className={tableWrap}>
-        <table className="w-full min-w-[920px] border-collapse text-left">
-          <thead>
-            <tr>
-              <th
-                className={`${thCls} sticky left-0 z-[1] min-w-[10.5rem] max-w-[14rem] ${presDark ? "bg-slate-900/95" : "bg-slate-50/95"}`}
-              >
-                Наименование
-              </th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>План проекта</th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>План на отчётный месяц</th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>План накопительно</th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>Факт накопительно</th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>Отклонение</th>
-              <th className={`${thCls} whitespace-nowrap`}>% выполнения</th>
-              <th className={`${thCls} whitespace-nowrap text-right`}>% от общего объёма</th>
-              <th className={`${thCls} w-10 text-center`} title="Комментарий к отклонению" />
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row) => (
-              <ExecutionTableRow
-                key={row.id}
-                row={row}
-                presDark={presDark}
-                tdBase={tdBase}
-                zebra={!row.isTotal ? zebra : ""}
-                totalRow={row.isTotal ? totalRow : ""}
-                openComments={openComments}
-                onToggleComment={toggleComment}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {showDetailTable ? (
+        <>
+          <div className={tableWrap}>
+            <table className="w-full min-w-[920px] border-collapse text-left">
+              <thead>
+                <tr>
+                  <th
+                    className={`${thCls} sticky left-0 z-[1] min-w-[10.5rem] max-w-[14rem] ${presDark ? "bg-slate-900/95" : "bg-slate-50/95"}`}
+                  >
+                    Наименование
+                  </th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>План проекта</th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>План на отчётный месяц</th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>План накопительно</th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>Факт накопительно</th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>Отклонение</th>
+                  <th className={`${thCls} whitespace-nowrap`}>% выполнения</th>
+                  <th className={`${thCls} whitespace-nowrap text-right`}>% от общего объёма</th>
+                  <th className={`${thCls} w-10 text-center`} title="Комментарий к отклонению" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row) => (
+                  <ExecutionTableRow
+                    key={row.id}
+                    row={row}
+                    presDark={presDark}
+                    tdBase={tdBase}
+                    zebra={!row.isTotal ? zebra : ""}
+                    totalRow={row.isTotal ? totalRow : ""}
+                    openComments={openComments}
+                    onToggleComment={toggleComment}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <p className={`mt-3 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
-        Данные подготовлены под импорт Excel/JSON — типы и демо:{" "}
-        <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
-          lib/marketingSalesPlanExecutionTable.ts
-        </code>
-        .
-      </p>
+          <p className={`mt-3 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
+            Данные подготовлены под импорт Excel/JSON — типы и демо:{" "}
+            <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+              lib/marketingSalesPlanExecutionTable.ts
+            </code>
+            .
+          </p>
+        </>
+      ) : null}
     </section>
   );
 }
