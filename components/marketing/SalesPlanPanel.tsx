@@ -30,11 +30,13 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
 import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanFileV2, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
+import { MARKETING_SALES_PLAN_EXECUTION_DEMO } from "@/lib/marketingSalesPlanExecutionTable";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
+import { SalesPlanExecutionBlock } from "@/components/marketing/SalesPlanExecutionBlock";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
@@ -943,6 +945,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const marketingDealsFiltered = useMemo(
     () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
     [dealsFeed.rows, objectId],
+  );
+
+  /** До импорта Excel/JSON: демо-структура + отчётная дата из текущего отчёта панели. */
+  const salesPlanExecutionDataset = useMemo(
+    () => ({
+      ...MARKETING_SALES_PLAN_EXECUTION_DEMO,
+      reportDateYmd: report.asOf,
+    }),
+    [report.asOf],
   );
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
@@ -2447,6 +2458,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         {!dealsFeed.loading ? (
           <SalesDealsSegmentMonthStackCharts dealsRows={marketingDealsFiltered} presentation={presentation} />
         ) : null}
+        <SalesPlanExecutionBlock
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          dataset={salesPlanExecutionDataset}
+        />
       </>
 
       {presentation ? (
