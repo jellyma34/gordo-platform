@@ -30,7 +30,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
 import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanFileV2, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
-import { MARKETING_SALES_PLAN_EXECUTION_DEMO } from "@/lib/marketingSalesPlanExecutionTable";
+import type { SalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutionTable";
+import { emptySalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutionTable";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
@@ -688,8 +689,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [scheduleWarnings, setScheduleWarnings] = useState<string[] | null>(null);
   const paymentPlanCsvInputRef = useRef<HTMLInputElement>(null);
   const paymentFactCsvInputRef = useRef<HTMLInputElement>(null);
+  const salesPlanExecutionCsvInputRef = useRef<HTMLInputElement>(null);
   /** В презентации блок после «Выполнение плана…» свёрнут по умолчанию. */
   const [presAdvancedAnalyticsOpen, setPresAdvancedAnalyticsOpen] = useState(false);
+  const [executionDataset, setExecutionDataset] = useState<SalesPlanExecutionDataset>(() => emptySalesPlanExecutionDataset(""));
+  const [executionMeta, setExecutionMeta] = useState<{ fileName: string; uploadedAt: string; uploadedBy: string } | null>(null);
+  const [executionWarnings, setExecutionWarnings] = useState<string[]>([]);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+  const [executionHydrated, setExecutionHydrated] = useState(false);
+  const [executionSource, setExecutionSource] = useState<"json" | "csv" | "empty" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -947,14 +955,117 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     [dealsFeed.rows, objectId],
   );
 
-  /** До импорта Excel/JSON: демо-структура + отчётная дата из текущего отчёта панели. */
-  const salesPlanExecutionDataset = useMemo(
-    () => ({
-      ...MARKETING_SALES_PLAN_EXECUTION_DEMO,
-      reportDateYmd: report.asOf,
-    }),
-    [report.asOf],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setExecutionError(null);
+      try {
+        const qs = new URLSearchParams({
+          projectId: paymentPlanProjectId,
+          reportAsOf: report.asOf,
+        });
+        const res = await fetch(`/api/marketing/sales-plan-execution?${qs.toString()}`, { cache: "no-store" });
+        const j = (await res.json()) as {
+          ok?: boolean;
+          dataset?: SalesPlanExecutionDataset;
+          meta?: { fileName: string; uploadedAt: string; uploadedBy: string } | null;
+          source?: "json" | "csv" | "empty";
+          warnings?: string[];
+          error?: string;
+        };
+        if (cancelled) return;
+        setExecutionSource(j?.source ?? null);
+        if (j?.dataset && typeof j.dataset === "object") {
+          setExecutionDataset({
+            ...j.dataset,
+            reportDateYmd: j.dataset.reportDateYmd?.trim() || report.asOf,
+          });
+        } else {
+          setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+        }
+        setExecutionMeta(j?.meta ?? null);
+        setExecutionWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        if (typeof j?.error === "string") setExecutionError(j.error);
+      } catch {
+        if (!cancelled) {
+          setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+          setExecutionError("Не удалось загрузить исполнение плана продаж.");
+        }
+      } finally {
+        if (!cancelled) setExecutionHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentPlanProjectId, report.asOf]);
+
+  const onSalesPlanExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setExecutionError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("projectId", paymentPlanProjectId);
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      fd.append("reportAsOf", report.asOf);
+      const res = await fetch("/api/marketing/sales-plan-execution", { method: "POST", body: fd });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        dataset?: SalesPlanExecutionDataset;
+        meta?: { fileName: string; uploadedAt: string; uploadedBy: string };
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok) {
+        setExecutionError(typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана.");
+        if (j?.dataset) {
+          setExecutionDataset({
+            ...j.dataset,
+            reportDateYmd: j.dataset.reportDateYmd?.trim() || report.asOf,
+          });
+        }
+        setExecutionMeta(j?.meta ?? null);
+        setExecutionWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        return;
+      }
+      if (j.dataset) {
+        setExecutionDataset({
+          ...j.dataset,
+          reportDateYmd: j.dataset.reportDateYmd?.trim() || report.asOf,
+        });
+      }
+      setExecutionMeta(j.meta ?? null);
+      setExecutionSource("json");
+      setExecutionWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+    } catch {
+      setExecutionError("Не удалось отправить CSV исполнения плана.");
+    }
+    if (salesPlanExecutionCsvInputRef.current) salesPlanExecutionCsvInputRef.current.value = "";
+  };
+
+  const clearSalesPlanExecutionCsv = async () => {
+    setExecutionError(null);
+    try {
+      const dr = await fetch(
+        `/api/marketing/sales-plan-execution?projectId=${encodeURIComponent(paymentPlanProjectId)}`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setExecutionError("Не удалось сбросить данные исполнения на сервере.");
+        return;
+      }
+      setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+      setExecutionMeta(null);
+      setExecutionSource("empty");
+      setExecutionWarnings([]);
+    } catch {
+      setExecutionError("Не удалось сбросить исполнение плана.");
+    }
+    if (salesPlanExecutionCsvInputRef.current) salesPlanExecutionCsvInputRef.current.value = "";
+  };
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
 
@@ -2366,6 +2477,67 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={salesPlanExecutionCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={onSalesPlanExecutionCsvSelected}
+              />
+              <button
+                type="button"
+                disabled={!executionHydrated}
+                className={
+                  presDark
+                    ? "rounded-md border border-violet-400/40 bg-violet-500/15 px-2.5 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-45"
+                    : "rounded-md border border-violet-500/50 bg-violet-500/10 px-2.5 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-45"
+                }
+                onClick={() => salesPlanExecutionCsvInputRef.current?.click()}
+              >
+                Исполнение плана (Верба CSV)
+              </button>
+              {executionMeta || executionSource === "csv" ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={() => void clearSalesPlanExecutionCsv()}
+                >
+                  Сбросить исполнение (CSV/JSON)
+                </button>
+              ) : null}
+            </div>
+            {executionError ? (
+              <p className="text-xs font-medium text-rose-600">{executionError}</p>
+            ) : null}
+            {executionWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {executionWarnings.map((w, i) => (
+                  <li key={`${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            {executionHydrated ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Исполнение плана: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                  {executionMeta?.fileName ??
+                    (executionSource === "csv" ? "default.raw.csv (репозиторий)" : executionSource === "empty" ? "нет данных" : "—")}
+                </span>
+                {executionMeta ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                    <span className="tabular-nums">{new Date(executionMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{executionMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {!paymentPlanHydrated ? (
               <span className="text-slate-500">Загрузка сохранённых данных…</span>
             ) : null}
@@ -2463,7 +2635,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           presDark={presDark}
           mplPremium={mplPremium}
           showDetailTable={!presentation && mode === "view"}
-          dataset={salesPlanExecutionDataset}
+          dataset={executionDataset}
         />
       </>
 

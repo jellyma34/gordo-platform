@@ -18,7 +18,6 @@ import { PlanExecutionMonthlyPlanFactLineCard } from "@/components/marketing/Pla
 import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import {
   formatReportDateRu,
-  MARKETING_SALES_PLAN_EXECUTION_DEMO,
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
   type SalesPlanExecutionRowId,
@@ -60,8 +59,8 @@ type Props = {
   mplPremium: boolean;
   /** Таблица детализации — только вне презентации и вне edit mode (view / data). */
   showDetailTable?: boolean;
-  /** Если не задано — демо-набор до импорта Excel/JSON */
-  dataset?: SalesPlanExecutionDataset;
+  /** Данные из CSV/JSON API (без демо в коде) */
+  dataset: SalesPlanExecutionDataset;
 };
 
 export function SalesPlanExecutionBlock({
@@ -71,17 +70,17 @@ export function SalesPlanExecutionBlock({
   showDetailTable = true,
   dataset,
 }: Props) {
-  const data = dataset ?? MARKETING_SALES_PLAN_EXECUTION_DEMO;
+  const data = dataset;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
 
   const shell = presDark
-    ? "mb-7 rounded-2xl border border-slate-700/55 bg-[#1e293b] p-5 shadow-[0_8px_28px_rgba(0,0,0,0.2)] sm:p-6"
+    ? "mb-7 rounded-2xl border border-slate-700/55 bg-[#1e293b] px-5 pb-5 pt-4 shadow-[0_8px_28px_rgba(0,0,0,0.2)] sm:px-6 sm:pb-6 sm:pt-4"
     : mplPremium && presentation
-      ? `mb-7 p-5 sm:p-6 ${MPL_PREMIUM_GLASS_MAIN}`
+      ? `mb-7 px-5 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-4 ${MPL_PREMIUM_GLASS_MAIN}`
       : presentation
-        ? "mb-7 rounded-2xl border border-mpl-border bg-mpl-card p-5 shadow-sm sm:p-6"
-        : "mb-7 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] sm:p-6";
+        ? "mb-7 rounded-2xl border border-mpl-border bg-mpl-card px-5 pb-5 pt-4 shadow-sm sm:px-6 sm:pb-6 sm:pt-4"
+        : "mb-7 rounded-2xl border border-slate-200/70 bg-white px-5 pb-5 pt-4 shadow-[0_4px_24px_rgba(15,23,42,0.04)] sm:px-6 sm:pb-6 sm:pt-4";
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
@@ -93,26 +92,6 @@ export function SalesPlanExecutionBlock({
   const totalRow = presDark
     ? "border-t border-white/10 bg-slate-900/70 font-semibold text-slate-50"
     : "border-t border-slate-200 bg-slate-100/80 font-semibold text-slate-900";
-
-  const summary = data.summary;
-
-  const summaryItems = useMemo(
-    () => [
-      { label: "План", value: compactRub(summary.planCumulativeRub) },
-      { label: "Факт", value: compactRub(summary.factCumulativeRub) },
-      { label: "Выполнение %", value: pctText(summary.completionPct) },
-      {
-        label: "Отклонение",
-        value: summary.deviationRub === 0 ? "—" : compactRub(summary.deviationRub),
-        accent: summary.deviationRub < 0 ? "text-rose-600" : summary.deviationRub > 0 ? "text-emerald-600" : undefined,
-      },
-    ],
-    [summary],
-  );
-
-  const kpiCard = presDark
-    ? "rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2.5"
-    : "rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 
   const byRowId = useMemo(() => executionRowsById(data.rows), [data.rows]);
 
@@ -165,50 +144,50 @@ export function SalesPlanExecutionBlock({
 
   return (
     <section className={shell} aria-labelledby="sales-plan-exec-heading">
-      <div className="mb-4 flex flex-col gap-2 sm:mb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-2 flex flex-col gap-1 sm:mb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
         <h2 id="sales-plan-exec-heading" className={`text-base font-semibold tracking-tight sm:text-lg ${titleCls}`}>
           Исполнение плана продаж
         </h2>
-        <div className={`text-xs sm:text-sm ${mutedCls}`}>
-          Отчётная дата:{" "}
-          <span className={`tabular-nums font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{reportLabel}</span>
+        <div className={`shrink-0 text-xs tabular-nums sm:text-sm ${mutedCls}`}>
+          Отчётная дата{" "}
+          <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{reportLabel}</span>
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:grid-cols-4 sm:gap-3">
-        {summaryItems.map((it) => (
-          <div key={it.label} className={kpiCard}>
-            <div className={`text-[10px] font-medium uppercase tracking-wide ${mutedCls}`}>{it.label}</div>
-            <div
-              className={`mt-1 text-sm font-bold tabular-nums sm:text-base ${it.accent ?? (presDark ? "text-slate-50" : "text-slate-900")}`}
-            >
-              {it.value}
-            </div>
-          </div>
-        ))}
+      <div className="flex min-w-0 w-full flex-col gap-3 sm:gap-4">
+        <ExecutionMacroChartsBlock
+          presDark={presDark}
+          presentation={presentation}
+          mplPremium={mplPremium}
+          mutedCls={mutedCls}
+          planFactChartRows={planFactChartRows}
+          completionChartRows={completionChartRows}
+          planFactYDomain={planFactYDomain}
+        />
+
+        <div className="min-w-0 w-full max-w-none">
+          <PlanExecutionMonthlyPlanFactLineCard
+            monthlyPlanFact={data.monthlyPlanFact}
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+          />
+        </div>
       </div>
 
-      <ExecutionMacroChartsBlock
-        presDark={presDark}
-        presentation={presentation}
-        mplPremium={mplPremium}
-        mutedCls={mutedCls}
-        planFactChartRows={planFactChartRows}
-        completionChartRows={completionChartRows}
-        planFactYDomain={planFactYDomain}
-      />
-
-      <PlanExecutionMonthlyPlanFactLineCard
-        monthlyPlanFact={data.monthlyPlanFact}
-        presentation={presentation}
-        presDark={presDark}
-        mplPremium={mplPremium}
-      />
-
       {showDetailTable ? (
-        <>
-          <div className={tableWrap}>
-            <table className="w-full min-w-[920px] border-collapse text-left">
+        data.rows.length === 0 ? (
+          <p className={`mt-4 text-sm ${mutedCls}`}>
+            Нет строк исполнения: загрузите CSV в режиме редактирования или положите файл в{" "}
+            <code className={`rounded px-1 py-0.5 text-xs ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+              data/marketing-sales-plan-execution/
+            </code>
+            .
+          </p>
+        ) : (
+          <>
+            <div className={`${tableWrap} mt-4`}>
+              <table className="w-full min-w-[920px] border-collapse text-left">
               <thead>
                 <tr>
                   <th
@@ -243,14 +222,19 @@ export function SalesPlanExecutionBlock({
             </table>
           </div>
 
-          <p className={`mt-3 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
-            Данные подготовлены под импорт Excel/JSON — типы и демо:{" "}
+          <p className={`mt-4 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
+            Источник: CSV →{" "}
             <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
-              lib/marketingSalesPlanExecutionTable.ts
+              lib/salesPlanExecutionCsv.ts
+            </code>{" "}
+            · API{" "}
+            <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+              /api/marketing/sales-plan-execution
             </code>
             .
           </p>
-        </>
+          </>
+        )
       ) : null}
     </section>
   );
@@ -302,7 +286,7 @@ function ExecutionMacroChartsBlock({
 
   return (
     <div
-      className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:mb-5 sm:grid-cols-2 sm:gap-4"
+      className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4"
       aria-label="Визуальная аналитика исполнения плана"
     >
       <div className={chartCard}>
