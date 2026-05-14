@@ -163,6 +163,7 @@ function SegmentMonthBarChart({
   const axisColor = presDark ? "#94a3b8" : "#a1a7b3";
   const categoryGap = infographicMode ? (n <= 6 ? "26%" : n <= 10 ? "30%" : "36%") : n <= 6 ? "24%" : n <= 10 ? "28%" : "34%";
   const lastI = n - 1;
+  /** Тик месяца: полный контроль SVG — Recharts 3 иначе может оборачивать tick в rotate(-90). */
   const renderMonthTick = (props: XAxisTickContentProps) => {
     const { x, y, payload, index } = props;
     const row = rows[index];
@@ -177,19 +178,20 @@ function SegmentMonthBarChart({
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
     const yf = typeof y === "number" ? y : Number(y);
-    /** Кастомный tick: всегда −45° (Recharts иногда передаёт −90 — тогда подписи «висят» вертикально). */
-    const MONTH_TICK_ANGLE = -45;
     return (
-      <text
-        x={xf}
-        y={yf}
-        fill={fill}
-        fontSize={fs}
-        textAnchor="end"
-        transform={`rotate(${MONTH_TICK_ANGLE}, ${xf}, ${yf})`}
-      >
-        {label}
-      </text>
+      <g transform={`translate(${xf},${yf})`}>
+        <text
+          x={0}
+          y={0}
+          fill={fill}
+          fontSize={fs}
+          textAnchor="end"
+          dominantBaseline="central"
+          transform="rotate(-45)"
+        >
+          {label}
+        </text>
+      </g>
     );
   };
 
@@ -204,7 +206,7 @@ function SegmentMonthBarChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 20 }}
+            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 28 }}
             barCategoryGap={categoryGap}
             barGap={infographicMode ? 5 : 4}
           >
@@ -215,10 +217,10 @@ function SegmentMonthBarChart({
               axisLine={false}
               tickLine={false}
               interval={0}
-              angle={-45}
+              angle={0}
               textAnchor="end"
-              tickMargin={8}
-              height={56}
+              tickMargin={10}
+              height={60}
             />
             <YAxis
               domain={[0, yMax]}
