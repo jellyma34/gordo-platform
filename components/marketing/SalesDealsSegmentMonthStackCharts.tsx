@@ -164,7 +164,7 @@ function SegmentMonthBarChart({
   const categoryGap = infographicMode ? (n <= 6 ? "26%" : n <= 10 ? "30%" : "36%") : n <= 6 ? "24%" : n <= 10 ? "28%" : "34%";
   const lastI = n - 1;
   const renderMonthTick = (props: XAxisTickContentProps) => {
-    const { x, y, payload, index, textAnchor, angle } = props;
+    const { x, y, payload, index } = props;
     const row = rows[index];
     const muted = row?.reportingTail === true;
     const fill = muted
@@ -177,15 +177,16 @@ function SegmentMonthBarChart({
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
     const yf = typeof y === "number" ? y : Number(y);
-    const rot = Number.isFinite(Number(angle)) ? Number(angle) : -45;
+    /** Кастомный tick: всегда −45° (Recharts иногда передаёт −90 — тогда подписи «висят» вертикально). */
+    const MONTH_TICK_ANGLE = -45;
     return (
       <text
         x={xf}
         y={yf}
         fill={fill}
         fontSize={fs}
-        textAnchor={textAnchor ?? "end"}
-        transform={`rotate(${rot}, ${xf}, ${yf})`}
+        textAnchor="end"
+        transform={`rotate(${MONTH_TICK_ANGLE}, ${xf}, ${yf})`}
       >
         {label}
       </text>
@@ -203,7 +204,7 @@ function SegmentMonthBarChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 6 }}
+            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 20 }}
             barCategoryGap={categoryGap}
             barGap={infographicMode ? 5 : 4}
           >
@@ -216,8 +217,8 @@ function SegmentMonthBarChart({
               interval={0}
               angle={-45}
               textAnchor="end"
-              tickMargin={6}
-              height={52}
+              tickMargin={8}
+              height={56}
             />
             <YAxis
               domain={[0, yMax]}
