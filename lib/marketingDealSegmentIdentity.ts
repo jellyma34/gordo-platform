@@ -25,17 +25,17 @@ export const MARKETING_DEAL_SEGMENT_ICON_LUCIDE_CLASS: Record<MarketingDealSegme
 };
 
 /**
- * Квадратная обёртка иконки (фикс. 40×40): светлый фон в work, без деформации SVG внутри.
+ * Квадратная обёртка иконки (40×40): мягкая обводка, лёгкий фон, без резкого ring — единый enterprise-стиль.
  */
 export const MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS = {
   dark:
-    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/12 p-2 ring-1 ring-white/12",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.055] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
   premium:
-    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/90 p-2 ring-1 ring-black/[0.05]",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-900/[0.04] bg-white/78 p-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
   presentation:
-    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/92 p-2 ring-1 ring-black/[0.06]",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-900/[0.045] bg-white/82 p-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.035)]",
   work:
-    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-slate-100/95 p-2 ring-1 ring-slate-200/70",
+    "box-border flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200/25 bg-gradient-to-br from-white to-slate-50/90 p-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.035)]",
 } as const;
 
 export type MarketingDealSegmentIconWrapTone = keyof typeof MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS;
