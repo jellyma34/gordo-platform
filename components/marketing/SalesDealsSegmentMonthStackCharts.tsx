@@ -177,14 +177,15 @@ function SegmentMonthBarChart({
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
     const yf = typeof y === "number" ? y : Number(y);
+    const rot = Number.isFinite(Number(angle)) ? Number(angle) : -45;
     return (
       <text
         x={xf}
         y={yf}
         fill={fill}
         fontSize={fs}
-        textAnchor={textAnchor}
-        transform={angle ? `rotate(${angle}, ${xf}, ${yf})` : undefined}
+        textAnchor={textAnchor ?? "end"}
+        transform={`rotate(${rot}, ${xf}, ${yf})`}
       >
         {label}
       </text>
@@ -202,7 +203,7 @@ function SegmentMonthBarChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 4 }}
+            margin={{ top: infographicMode ? 14 : 12, right: 8, left: 4, bottom: 6 }}
             barCategoryGap={categoryGap}
             barGap={infographicMode ? 5 : 4}
           >
@@ -213,9 +214,10 @@ function SegmentMonthBarChart({
               axisLine={false}
               tickLine={false}
               interval={0}
-              angle={-42}
+              angle={-45}
               textAnchor="end"
-              height={54}
+              tickMargin={6}
+              height={52}
             />
             <YAxis
               domain={[0, yMax]}
