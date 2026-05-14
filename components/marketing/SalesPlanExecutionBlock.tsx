@@ -1,16 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 
-import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "@/components/charting/rechartsClient";
+import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import {
   formatReportDateRu,
   MARKETING_SALES_PLAN_EXECUTION_DEMO,
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
+  type SalesPlanExecutionRowId,
 } from "@/lib/marketingSalesPlanExecutionTable";
-import { compactRub, dec1Fmt, numFmt } from "@/lib/salesPlanChartFormat";
+import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 
 function completionBarTone(pct: number | null): { track: string; fill: string } {
   if (pct == null || !Number.isFinite(pct)) {
@@ -24,6 +36,21 @@ function completionBarTone(pct: number | null): { track: string; fill: string } 
 function pctText(pct: number | null): string {
   if (pct == null || !Number.isFinite(pct)) return "—";
   return `${dec1Fmt.format(pct)}%`;
+}
+
+/** Агрегированные сегменты для BI-графиков (план/факт, доля, выполнение). */
+const EXECUTION_MACRO_IDS: SalesPlanExecutionRowId[] = ["apartments", "parking", "storage", "commercial"];
+
+/** Цвет столбца «% выполнения» для графика: зелёный &gt;95%, оранжевый 85–95%, красный &lt;85%. */
+function completionChartFill(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return "#94a3b8";
+  if (pct > 95) return "#10b981";
+  if (pct >= 85) return "#f97316";
+  return "#ef4444";
+}
+
+function executionRowsById(rows: SalesPlanExecutionRow[]): Map<SalesPlanExecutionRowId, SalesPlanExecutionRow> {
+  return new Map(rows.map((r) => [r.id, r]));
 }
 
 type Props = {
@@ -78,6 +105,63 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
     ? "rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2.5"
     : "rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 
+  const byRowId = useMemo(() => executionRowsById(data.rows), [data.rows]);
+
+  const planFactChartRows = useMemo(
+    () =>
+      EXECUTION_MACRO_IDS.map((id) => {
+        const r = byRowId.get(id);
+        if (!r) return null;
+        return { key: id, name: r.name, plan: r.planCumulativeRub, fact: r.factCumulativeRub };
+      }).filter((x): x is NonNullable<typeof x> => x != null),
+    [byRowId],
+  );
+
+  const completionChartRows = useMemo(() => {
+    const verticalOrder: SalesPlanExecutionRowId[] = ["commercial", "storage", "parking", "apartments"];
+    return verticalOrder
+      .map((id) => {
+        const r = byRowId.get(id);
+        if (!r) return null;
+        const pct = r.completionPct;
+        const n = pct != null && Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : null;
+        return {
+          key: id,
+          name: r.name,
+          pct: n,
+          barLen: n ?? 0,
+          label: n == null ? "" : `${dec1Fmt.format(n)}%`,
+          fill: completionChartFill(pct),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+  }, [byRowId]);
+
+  const shareChartRows = useMemo(
+    () =>
+      EXECUTION_MACRO_IDS.map((id) => {
+        const r = byRowId.get(id);
+        if (!r) return null;
+        return { key: id, name: r.name, share: Math.max(0, r.shareOfVolumePct) };
+      }).filter((x): x is NonNullable<typeof x> => x != null),
+    [byRowId],
+  );
+
+  const planFactYDomain = useMemo((): [number, number] => {
+    let m = 0;
+    for (const row of planFactChartRows) {
+      m = Math.max(m, row.plan, row.fact);
+    }
+    if (m <= 0) return [0, 1];
+    return [0, m * 1.08];
+  }, [planFactChartRows]);
+
+  const shareYMax = useMemo(() => {
+    let m = 0;
+    for (const row of shareChartRows) m = Math.max(m, row.share);
+    return Math.max(100, m * 1.12);
+  }, [shareChartRows]);
+
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -110,6 +194,18 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
           </div>
         ))}
       </div>
+
+      <ExecutionMacroChartsBlock
+        presDark={presDark}
+        presentation={presentation}
+        mplPremium={mplPremium}
+        mutedCls={mutedCls}
+        planFactChartRows={planFactChartRows}
+        completionChartRows={completionChartRows}
+        shareChartRows={shareChartRows}
+        planFactYDomain={planFactYDomain}
+        shareYMax={shareYMax}
+      />
 
       <div className={tableWrap}>
         <table className="w-full min-w-[920px] border-collapse text-left">
@@ -155,6 +251,289 @@ export function SalesPlanExecutionBlock({ presentation, presDark, mplPremium, da
         .
       </p>
     </section>
+  );
+}
+
+function ExecutionMacroChartsBlock({
+  presDark,
+  presentation,
+  mplPremium,
+  mutedCls,
+  planFactChartRows,
+  completionChartRows,
+  shareChartRows,
+  planFactYDomain,
+  shareYMax,
+}: {
+  presDark: boolean;
+  presentation: boolean;
+  mplPremium: boolean;
+  mutedCls: string;
+  planFactChartRows: { key: string; name: string; plan: number; fact: number }[];
+  completionChartRows: { key: string; name: string; pct: number | null; barLen: number; label: string; fill: string }[];
+  shareChartRows: { key: string; name: string; share: number }[];
+  planFactYDomain: [number, number];
+  shareYMax: number;
+}) {
+  const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
+  const chartAxis = presDark ? "#94a3b8" : "#64748b";
+  const chartCard = presDark
+    ? "flex min-h-[220px] min-w-0 flex-col rounded-xl border border-white/10 bg-slate-900/30 p-3 sm:min-h-[252px] sm:p-4"
+    : presentation
+      ? "flex min-h-[220px] min-w-0 flex-col rounded-xl border border-mpl-border/80 bg-white/60 p-3 shadow-sm sm:min-h-[252px] sm:p-4"
+      : "flex min-h-[220px] min-w-0 flex-col rounded-xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:min-h-[252px] sm:p-4";
+  const chartTitle = presDark
+    ? "mb-2 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+    : presentation
+      ? "mb-2 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-mpl-muted"
+      : "mb-2 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  const legendCls = `mt-2 flex flex-wrap gap-3 text-[10px] tabular-nums ${mutedCls}`;
+  const mplTooltipPremium = mplPremium && presentation && !presDark;
+
+  const tooltipFrame = (body: ReactNode) =>
+    presDark ? (
+      <div className="rounded-lg border border-slate-500/40 bg-[#0b1220]/95 px-3 py-2 text-xs text-slate-100 shadow-lg">{body}</div>
+    ) : mplTooltipPremium ? (
+      <div className={MPL_PREMIUM_TOOLTIP_SHELL}>{body}</div>
+    ) : (
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-lg">{body}</div>
+    );
+
+  const hasPlanFact = planFactChartRows.length > 0;
+  const hasCompletion = completionChartRows.length > 0;
+  const hasShare = shareChartRows.length > 0;
+
+  const shareLabelFmt = (v: unknown) => {
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n)) return "";
+    return `${dec1Fmt.format(n)}%`;
+  };
+
+  return (
+    <div className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:mb-5 lg:grid-cols-3 lg:gap-4" aria-label="Визуальная аналитика исполнения плана">
+      <div className={chartCard}>
+        <div className={chartTitle}>План vs факт (накопительно)</div>
+        <div className="relative min-h-0 flex-1 w-full min-w-0">
+          {hasPlanFact ? (
+            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+              <BarChart
+                data={planFactChartRows}
+                margin={{ top: 10, right: 6, left: 0, bottom: 4 }}
+                barGap={6}
+                barCategoryGap="28%"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={{ stroke: chartGrid }}
+                  tickLine={false}
+                  interval={0}
+                  height={36}
+                />
+                <YAxis
+                  domain={planFactYDomain}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={52}
+                  tickFormatter={(v) => (Number.isFinite(Number(v)) ? formatCompactMoneyAxis(Number(v)) : "")}
+                />
+                <Tooltip
+                  cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0]?.payload as (typeof planFactChartRows)[0] | undefined;
+                    if (!row) return null;
+                    const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
+                    return tooltipFrame(
+                      <>
+                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
+                        <div className={`mt-1.5 space-y-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                          <div>
+                            <span className={presDark ? "text-slate-400" : "text-slate-500"}>План: </span>
+                            <span style={{ color: "#F97316" }} className="font-medium">
+                              {formatCompactMoneyAxis(row.plan)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className={presDark ? "text-slate-400" : "text-slate-500"}>Факт: </span>
+                            <span style={{ color: "#2563EB" }} className="font-medium">
+                              {formatCompactMoneyAxis(row.fact)}
+                            </span>
+                          </div>
+                          <div className={`border-t pt-1.5 ${presDark ? "border-slate-600/50" : "border-slate-200"}`}>
+                            <span className={presDark ? "text-slate-400" : "text-slate-500"}>Выполнение: </span>
+                            <span className="font-semibold">{pct === "—" ? pct : `${pct}%`}</span>
+                          </div>
+                        </div>
+                      </>,
+                    );
+                  }}
+                />
+                <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className={`flex h-[200px] items-center justify-center text-xs ${mutedCls}`}>Нет данных для графика</p>
+          )}
+        </div>
+        {hasPlanFact ? (
+          <div className={legendCls}>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2 w-3.5 rounded-sm bg-[#2563EB]" />
+              Факт
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2 w-3.5 rounded-sm bg-[#F97316]" />
+              План
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className={chartCard}>
+        <div className={chartTitle}>Выполнение %</div>
+        <div className="relative min-h-0 flex-1 w-full min-w-0">
+          {hasCompletion ? (
+            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+              <BarChart
+                layout="vertical"
+                data={completionChartRows}
+                margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
+                barCategoryGap={14}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+                <XAxis
+                  type="number"
+                  domain={[0, 108]}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={{ stroke: chartGrid }}
+                  tickLine={false}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={78}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0]?.payload as (typeof completionChartRows)[0] | undefined;
+                    if (!row) return null;
+                    return tooltipFrame(
+                      <>
+                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
+                        <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                          {row.pct == null ? "—" : `${dec1Fmt.format(row.pct)}%`}
+                        </div>
+                      </>,
+                    );
+                  }}
+                />
+                <Bar dataKey="barLen" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
+                  {completionChartRows.map((entry) => (
+                    <Cell key={entry.key} fill={entry.fill} />
+                  ))}
+                  <LabelList
+                    dataKey="label"
+                    position="right"
+                    fill={chartAxis}
+                    fontSize={10}
+                    fontWeight={500}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className={`flex h-[200px] items-center justify-center text-xs ${mutedCls}`}>Нет данных для графика</p>
+          )}
+        </div>
+        <div className={`${legendCls} gap-x-4 gap-y-1`}>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2 w-3.5 rounded-sm bg-emerald-500" />
+            выше 95%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2 w-3.5 rounded-sm bg-orange-500" />
+            85–95%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
+            ниже 85%
+          </span>
+        </div>
+      </div>
+
+      <div className={chartCard}>
+        <div className={chartTitle}>Доля объёма продаж</div>
+        <div className="relative min-h-0 flex-1 w-full min-w-0">
+          {hasShare ? (
+            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+              <BarChart data={shareChartRows} margin={{ top: 12, right: 6, left: 0, bottom: 4 }} barCategoryGap="30%">
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={{ stroke: chartGrid }}
+                  tickLine={false}
+                  interval={0}
+                  height={40}
+                />
+                <YAxis
+                  domain={[0, shareYMax]}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={40}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip
+                  cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0]?.payload as (typeof shareChartRows)[0] | undefined;
+                    if (!row) return null;
+                    return tooltipFrame(
+                      <>
+                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
+                        <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                          {dec1Fmt.format(row.share)}% от объёма
+                        </div>
+                      </>,
+                    );
+                  }}
+                />
+                <Bar
+                  dataKey="share"
+                  fill={presDark ? "#38bdf8" : "#0ea5e9"}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={48}
+                  isAnimationActive={false}
+                >
+                  <LabelList
+                    dataKey="share"
+                    position="top"
+                    fill={chartAxis}
+                    fontSize={10}
+                    fontWeight={500}
+                    formatter={shareLabelFmt}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className={`flex h-[200px] items-center justify-center text-xs ${mutedCls}`}>Нет данных для графика</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
