@@ -11,7 +11,7 @@ import {
   type DealsSegmentCardModel,
 } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
-import { compactRub, formatSegmentMiniRevenueChartNumber, numFmt } from "@/lib/salesPlanChartFormat";
+import { compactRub, formatAvgPricePerM2Rub, formatSegmentMiniRevenueChartNumber, numFmt } from "@/lib/salesPlanChartFormat";
 import {
   Bar,
   BarChart,
@@ -313,7 +313,7 @@ function SegmentAnalyticsCard({
           ) : null}
         </div>
 
-        <div className={`grid grid-cols-3 gap-3 sm:gap-4 ${presentation ? "pt-1" : ""}`}>
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 ${presentation ? "pt-1" : ""}`}>
           <div>
             <div className={`text-[9px] font-semibold uppercase tracking-wide ${mutedCls}`}>Сделок</div>
             <div className={`mt-1 text-base font-black tabular-nums sm:text-lg ${statValueCls}`}>
@@ -330,6 +330,14 @@ function SegmentAnalyticsCard({
             <div className={`text-[9px] font-semibold uppercase tracking-wide ${mutedCls}`}>Средний чек</div>
             <div className={`mt-1 text-sm font-black tabular-nums leading-tight sm:text-base ${statValueCls}`}>
               {model.totalDeals > 0 ? compactRub(model.avgCheckRub) : "—"}
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className={`text-[9px] font-semibold uppercase leading-tight tracking-wide ${mutedCls}`}>
+              Средняя стоимость м²
+            </div>
+            <div className={`mt-1 text-sm font-black tabular-nums leading-tight sm:text-base ${statValueCls}`}>
+              {model.avgPricePerM2Rub != null ? formatAvgPricePerM2Rub(model.avgPricePerM2Rub) : "—"}
             </div>
           </div>
         </div>

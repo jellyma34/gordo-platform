@@ -11,7 +11,7 @@ import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDeal
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import { marketingMockData } from "@/lib/marketingMockData";
-import { compactRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
 
@@ -250,18 +250,24 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
       sum: number;
       avg: number;
       share: number;
+      soldAreaM2: number;
     }> = [];
     for (const key of SEGMENT_ORDER) {
       const list = grouped[key];
       if (list.length === 0) continue;
       const sum = list.reduce((s, r) => s + r.sumRub, 0);
       const count = list.length;
+      const soldAreaM2 = list.reduce((s, r) => {
+        const a = r.objectParams.areaTotal;
+        return s + (a != null && Number.isFinite(a) && a > 0 ? a : 0);
+      }, 0);
       out.push({
         key,
         count,
         sum,
         avg: count > 0 ? sum / count : 0,
         share: totalSum > 0 ? sum / totalSum : 0,
+        soldAreaM2,
       });
     }
     return out;
@@ -364,6 +370,18 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
                       className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
                     >
                       {rubFmt.format(c.avg)}
+                    </div>
+                  </div>
+                  <div className="mt-1.5 tabular-nums leading-snug">
+                    <div
+                      className={`text-[12px] leading-tight ${presDark ? "text-slate-300" : "text-[#6B7280]"}`}
+                    >
+                      Средняя стоимость м²
+                    </div>
+                    <div
+                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                    >
+                      {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
                     </div>
                   </div>
                   <div className="mt-2">

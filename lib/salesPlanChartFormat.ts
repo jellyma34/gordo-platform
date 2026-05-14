@@ -162,11 +162,17 @@ export function formatSegmentMiniRevenueChartNumber(n: number): string {
   return formatCashflowMillionsLabel(n, false);
 }
 
-/** Подписи оси Y графика поступлений: масштаб млн руб. как число + « ₽». */
+/**
+ * Подписи оси Y графика «Динамика поступлений» (серые тики слева): число + « млн ₽» или « млрд ₽».
+ * Подписи на линии, тултип и прочие места используют {@link formatCashflowMillionsLabel} / {@link formatCashflowTooltipRub} — без «млн» в строке.
+ */
 export function formatCashflowYAxisMlnRub(v: number): string {
   if (!Number.isFinite(v)) return "";
-  if (v === 0) return "0";
-  return formatCashflowMillionsLabel(v, true);
+  const absRub = Math.abs(v);
+  const core = formatCashflowMillionsLabel(v, false);
+  if (core === "") return "";
+  if (absRub >= 1_000_000_000) return `${core} млрд ₽`;
+  return `${core} млн ₽`;
 }
 
 /** Ось Y: min 0, max = округление вверх(max(данные)×1.1) с шагом 50 или 100 млн. */
@@ -206,4 +212,21 @@ export function structureBalanceBarLabelLine(deltaShare: number, deltaRub: numbe
   else if (absR >= 1_000) rub = `${sRub}${numFmt.format(Math.round(absR / 1_000))}K`;
   else rub = `${sRub}${numFmt.format(Math.round(absR))}`;
   return `${pct} · ${rub}`;
+}
+
+/**
+ * Средняя стоимость м² для карточек сегментов: «185 000 ₽/м²» или «1,2 млн ₽/м²» при значении ≥ 1 млн ₽/м².
+ */
+export function formatAvgPricePerM2Rub(rubPerM2: number): string {
+  if (!Number.isFinite(rubPerM2) || rubPerM2 <= 0) return "—";
+  const sign = rubPerM2 < 0 ? "−" : "";
+  const abs = Math.abs(rubPerM2);
+  if (abs >= 1_000_000) {
+    const mln = abs / 1_000_000;
+    const nearlyInt = Math.abs(mln - Math.round(mln)) < 1e-6;
+    const raw = nearlyInt ? String(Math.round(mln)) : mln.toFixed(1).replace(".", ",");
+    const core = raw.includes(",") ? trimRuDecimalZeros(raw) : raw;
+    return `${sign}${core} млн ₽/м²`;
+  }
+  return `${sign}${numFmt.format(Math.round(abs))} ₽/м²`;
 }

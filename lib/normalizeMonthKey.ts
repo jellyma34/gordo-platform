@@ -114,3 +114,15 @@ export function normalizeMonthKey(input: string | null | undefined): string | nu
 
   return null;
 }
+
+/** Короткие подписи для оси графиков и карточек сегментов: «сен 25» из `YYYY-MM`. */
+const RU_MONTH_SHORT_CHART = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
+
+export function formatMonthKeyShortRuYY(monthKey: string): string {
+  const [y, m] = monthKey.split("-");
+  const yi = Number(y);
+  const mi = Number(m);
+  if (!Number.isFinite(yi) || !Number.isFinite(mi) || mi < 1 || mi > 12) return monthKey;
+  const mon = RU_MONTH_SHORT_CHART[mi - 1]!;
+  return `${mon} ${String(yi).slice(-2)}`;
+}

@@ -18,7 +18,7 @@ import {
 } from "@/lib/marketingDealBuyerEntity";
 import { logBuyerJsonDebugIfEnabled, mergeBuyerProfileWithDeepScan } from "@/lib/marketingDealBuyerDeepScan";
 import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
-import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
+import { formatMonthKeyShortRuYY, normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
 /** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
 const DealsPresentationPanel = dynamic(() => import("./DealsPresentation"), { ssr: false });
@@ -1751,7 +1751,7 @@ export function buildDealsMonthSeries(grouped: DealsPerMonthGrouped): DealsMonth
         Number.isFinite(yi) && Number.isFinite(mi)
           ? new Date(yi, mi - 1, 1).toLocaleDateString("ru-RU", { month: "short", year: "numeric" })
           : monthKey;
-      const chartLabel = `${m}.${String(y).slice(-2)}`;
+      const chartLabel = formatMonthKeyShortRuYY(monthKey);
       const avgCheck = val.count > 0 ? val.sum / val.count : 0;
       return {
         monthKey,

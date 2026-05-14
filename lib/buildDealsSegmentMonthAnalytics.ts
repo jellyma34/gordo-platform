@@ -3,6 +3,7 @@ import {
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
+import { formatMonthKeyShortRuYY } from "@/lib/normalizeMonthKey";
 
 /** Четыре сегмента недвижимости для аналитики «Сделки» (без «Прочее»). */
 export const DEALS_ANALYTICS_SEGMENT_KEYS = ["apartment", "parking", "storage", "commercial"] as const;
@@ -32,7 +33,7 @@ export const DEALS_SEGMENT_PEAK_HEX: Record<DealsAnalyticsSegmentKey, string> = 
 
 export type SegmentMonthPoint = {
   monthKey: string;
-  /** Подпись оси: «09.25» */
+  /** Подпись оси: «сен 25» */
   labelShort: string;
   /** Тултип / текст: «ноябрь 2025 г.» */
   labelReadable: string;
@@ -59,6 +60,10 @@ export type DealsSegmentCardModel = {
   peakDealsMonthIndex: number | null;
   /** Индекс в `months` максимума выручки. */
   peakRevenueMonthIndex: number | null;
+  /** Сумма площадей по сделкам сегмента (м²), где в выгрузке есть `areaTotal` > 0. */
+  totalSoldAreaM2: number;
+  /** `totalRevenueRub / totalSoldAreaM2` или null, если площади нет. */
+  avgPricePerM2Rub: number | null;
   /** Подпись для спада или null. */
   declineNote: string | null;
   analyticsWhat: string;
@@ -85,12 +90,6 @@ const emptyMonthSlots = (): Record<DealsAnalyticsSegmentKey, MonthCell> => ({
   storage: { c: 0, s: 0 },
   commercial: { c: 0, s: 0 },
 });
-
-function monthKeyCompact(ym: string): string {
-  const [y, m] = ym.split("-");
-  if (!y || !m) return ym;
-  return `${m}.${y.slice(2)}`;
-}
 
 function monthKeyReadable(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
@@ -195,12 +194,12 @@ function buildDeclineNote(months: SegmentMonthPoint[], peakDealsIdx: number | nu
   const parts: string[] = [];
   if (peakDealsIdx != null && peakDealsIdx < last && peakD > 0 && lastM.deals < peakD * 0.55) {
     parts.push(
-      `после пика по числу сделок (${monthKeyCompact(months[peakDealsIdx]!.monthKey)}) темп ниже`,
+      `после пика по числу сделок (${formatMonthKeyShortRuYY(months[peakDealsIdx]!.monthKey)}) темп ниже`,
     );
   }
   if (peakRevIdx != null && peakRevIdx < last && peakR > 0 && lastM.revenueRub < peakR * 0.55) {
     parts.push(
-      `выручка в последнем месяце заметно ниже максимума (${monthKeyCompact(months[peakRevIdx]!.monthKey)})`,
+      `выручка в последнем месяце заметно ниже максимума (${formatMonthKeyShortRuYY(months[peakRevIdx]!.monthKey)})`,
     );
   }
   if (parts.length === 0) return null;
@@ -291,6 +290,12 @@ function findStrongestRun(values: number[]): { start: number; end: number; len: 
  */
 export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): DealsSegmentAnalyticsBundle {
   const perMonth = new Map<string, ReturnType<typeof emptyMonthSlots>>();
+  const soldAreaBySegment: Record<DealsAnalyticsSegmentKey, number> = {
+    apartment: 0,
+    parking: 0,
+    storage: 0,
+    commercial: 0,
+  };
 
   for (const r of rows) {
     if (!isAnalyticsSegment(r.dealType)) continue;
@@ -303,6 +308,10 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
     }
     slot[seg].c += 1;
     slot[seg].s += Number.isFinite(r.sumRub) ? r.sumRub : 0;
+    const a = r.objectParams.areaTotal;
+    if (a != null && Number.isFinite(a) && a > 0) {
+      soldAreaBySegment[seg] += a;
+    }
   }
 
   const rawKeys = [...perMonth.keys()].sort();
@@ -334,7 +343,7 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
       const cell = perMonth.get(mk)?.[segment] ?? { c: 0, s: 0 };
       return {
         monthKey: mk,
-        labelShort: monthKeyCompact(mk),
+        labelShort: formatMonthKeyShortRuYY(mk),
         labelReadable: monthKeyReadable(mk),
         deals: cell.c,
         revenueRub: cell.s,
@@ -344,6 +353,8 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
 
     const totalDeals = months.reduce((s, m) => s + m.deals, 0);
     const totalRevenueRub = months.reduce((s, m) => s + m.revenueRub, 0);
+    const totalSoldAreaM2 = soldAreaBySegment[segment];
+    const avgPricePerM2Rub = totalSoldAreaM2 > 0 ? totalRevenueRub / totalSoldAreaM2 : null;
     const avgCheckRub = totalDeals > 0 ? totalRevenueRub / totalDeals : 0;
     const trendLabel = totalDeals === 0 ? "Нет сделок" : computeTrendLabel(months);
 
@@ -378,6 +389,8 @@ export function buildDealsSegmentAnalyticsBundle(rows: NormalizedDealRow[]): Dea
       months,
       totalDeals,
       totalRevenueRub,
+      totalSoldAreaM2,
+      avgPricePerM2Rub,
       avgCheckRub,
       trendLabel,
       peakDealsMonthIndex: peakDealsMonthIndex,
