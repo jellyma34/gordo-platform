@@ -38,8 +38,6 @@ export type ParseSalesUnitsExecutionCsvFail = {
 
 export type ParseSalesUnitsExecutionCsvResult = ParseSalesUnitsExecutionCsvOk | ParseSalesUnitsExecutionCsvFail;
 
-const DELIM = ";";
-
 const SEGMENT_ORDER: readonly { key: UnitsExecutionSegmentRow["key"]; label: string; aliases: readonly string[] }[] = [
   { key: "apartments", label: "Квартиры", aliases: ["квартиры"] },
   { key: "parking", label: "Парковки", aliases: ["парковки", "паркинг"] },
@@ -68,13 +66,30 @@ function normCell(s: string): string {
     .trim();
 }
 
-/** Заголовок для сопоставления колонок: lower, без *, NBSP→пробел, схлопывание пробелов. */
-function normHeaderForUnitsMap(s: string): string {
-  return normCell(s)
+/**
+ * Нормализация заголовка ячейки (Excel CSV): lower, trim, без :, *, переносов, «скрытых» пробелов, ё→е.
+ * Используется для поиска строки заголовков и сопоставления колонок.
+ */
+function normalizeHeader(s: string): string {
+  return preprocessCell(String(s ?? ""))
+    .replace(/\r\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/:/g, "")
     .replace(/\*/g, "")
-    .replace(/[\u00a0\u202f\u2009]/g, " ")
+    .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a\u200b\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Разделитель: приоритет как в Excel-экспорте — `;`, иначе таб, иначе запятая. */
+function detectDelimiter(raw: string): ";" | "\t" | "," {
+  const s = stripBomStart(raw);
+  if (s.includes(";")) return ";";
+  if (s.includes("\t")) return "\t";
+  return ",";
 }
 
 /** «88,2%», «1 234», «34» → число */
@@ -91,22 +106,24 @@ export function normalizeUnitCell(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function splitRow(line: string): string[] {
-  return line.split(DELIM).map((c) => preprocessCell(c));
+function splitRow(line: string, delim: ";" | "\t" | ","): string[] {
+  return line.split(delim).map((c) => preprocessCell(c));
 }
 
-function findHeaderRowIndex(lines: string[]): number {
+function findHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
   for (let i = 0; i < lines.length; i++) {
-    const row = splitRow(lines[i] ?? "");
-    const joined = row.map(normCell).join(" ");
-    if (joined.includes("наименован")) return i;
+    const row = splitRow(lines[i] ?? "", delim);
+    for (const cell of row) {
+      const h = normalizeHeader(cell);
+      if (h.includes("наимен") || h.includes("наименование")) return i;
+    }
   }
   return -1;
 }
 
 function pickCol(headers: string[], predicate: (n: string) => boolean): number | null {
   for (let i = 0; i < headers.length; i++) {
-    const n = normHeaderForUnitsMap(headers[i] ?? "");
+    const n = normalizeHeader(headers[i] ?? "");
     if (!n) continue;
     if (predicate(n)) return i;
   }
@@ -121,7 +138,7 @@ function buildColumnIndices(headers: string[]): {
   completionPct: number | null;
   shareVol: number | null;
 } | null {
-  const nameCol = pickCol(headers, (n) => n.includes("наименован"));
+  const nameCol = pickCol(headers, (n) => n.includes("наимен") || n.includes("наименование"));
   if (nameCol == null) return null;
 
   /** План в штуках: «план накопит…»; fallback — план+накопит без % / выполн / проект. */
@@ -224,9 +241,9 @@ function ruDateToYmd(text: string): string | null {
   return null;
 }
 
-function extractReportDateYmd(lines: string[]): string {
+function extractReportDateYmd(lines: string[], delim: ";" | "\t" | ","): string {
   for (const line of lines) {
-    const row = splitRow(line);
+    const row = splitRow(line, delim);
     if (row.length < 2) continue;
     const a0 = normCell(row[0] ?? "");
     if (a0.includes("отчетн") || a0.includes("отчётн")) {
@@ -246,19 +263,24 @@ function extractReportDateYmd(lines: string[]): string {
 
 export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecutionCsvResult {
   const warnings: string[] = [];
+  const delim = detectDelimiter(text);
   const lines = splitLines(text).filter((l) => preprocessCell(l) !== "");
   if (lines.length < 2) {
     return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
   }
 
-  const reportDateYmd = extractReportDateYmd(lines);
+  const reportDateYmd = extractReportDateYmd(lines, delim);
 
-  const headerIdx = findHeaderRowIndex(lines);
+  const headerIdx = findHeaderRowIndex(lines, delim);
   if (headerIdx < 0) {
     return { ok: false, error: "Не найдена строка заголовков (нужна колонка «Наименование»).", warnings };
   }
 
-  const headerRow = splitRow(lines[headerIdx] ?? "");
+  const headerRow = splitRow(lines[headerIdx] ?? "", delim);
+  const normalizedHeaderRow = headerRow.map(normalizeHeader);
+  console.log("RAW HEADER ROW", headerRow);
+  console.log("NORMALIZED HEADER", normalizedHeaderRow);
+
   const col = buildColumnIndices(headerRow);
   if (!col) {
     return {
@@ -289,7 +311,7 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
   const parsedRows: { segment: string; plan: number; fact: number; completion: number }[] = [];
 
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    const row = splitRow(lines[i] ?? "");
+    const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
     const nameRaw = preprocessCell(row[nameCol] ?? "");
     const nameNorm = normCell(nameRaw);
