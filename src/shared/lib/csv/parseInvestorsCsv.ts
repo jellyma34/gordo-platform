@@ -66,15 +66,33 @@ export function shouldSilentlySkipInvestorsCsvMonthLabel(monthRaw: string): bool
 }
 
 /**
+ * Нормализация числа для графиков и агрегации: только `number` или строка вида «39 314 694,00», «26,5».
+ * Объекты и прочие типы — 0 (см. {@link parseRuNumber} для ячеек CSV).
+ */
+export function toNumber(value: unknown): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value !== "string") {
+    return 0;
+  }
+  const n = Number(
+    value
+      .replace(/[\s\u00a0\u202f\u2009]+/g, "")
+      .replace(",", ".")
+      .replace(/[^\d.-]/g, ""),
+  );
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * Суммы в формате «39 314 694,00» (пробелы / NBSP, запятая — десятичный разделитель).
+ * Для произвольных значений ячеек CSV (не только string/number).
  */
 export function parseRuNumber(value: unknown): number {
+  if (typeof value === "number" || typeof value === "string") {
+    return toNumber(value);
+  }
   if (value == null) return 0;
-  const str = String(value)
-    .trim()
-    .replace(/[\s\u00a0\u202f]+/g, "")
-    .replace(",", ".")
-    .replace(/[^0-9.-]/g, "");
-  const num = Number(str);
-  return Number.isFinite(num) ? num : 0;
+  return toNumber(String(value).trim());
 }

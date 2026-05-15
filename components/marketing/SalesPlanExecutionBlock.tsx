@@ -22,9 +22,13 @@ import {
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
 } from "@/lib/marketingSalesPlanExecutionTable";
-import type { InvestorsCompletionChartRow, InvestorsPlanFactChartRow } from "@/lib/marketingInvestorsCsv";
+import {
+  buildInvestorsCompletionChartRowsFromPlanFact,
+  type InvestorsCompletionChartRow,
+  type InvestorsPlanFactChartRow,
+} from "@/lib/marketingInvestorsCsv";
 import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
-import { parseRuNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
+import { toNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 /** Данные для графиков «План vs факт (накопительно)» и «Выполнение %» из investors CSV (localStorage). */
 export type InvestorsMacroChartsPayload = {
@@ -235,15 +239,6 @@ export function SalesPlanExecutionBlock({
 }
 
 type InvestorsMacroPlanFactRow = { key: string; name: string; plan: number; fact: number };
-type InvestorsMacroCompletionRow = {
-  key: string;
-  name: string;
-  pct: number | null;
-  barLen: number;
-  completion: number;
-  label: string;
-  fill: string;
-};
 
 /** Два верхних bar chart: только `investorsMacroCharts`, без executionDataset / Verba CSV. */
 function ExecutionMacroChartsBlock({
@@ -267,40 +262,32 @@ function ExecutionMacroChartsBlock({
     const src = investorsMacroCharts.planFactChartRows;
     if (!Array.isArray(src)) return [];
     return src.map((r) => ({
-      key: r.key,
-      name: r.name,
-      plan: parseRuNumber(r.plan as unknown),
-      fact: parseRuNumber(r.fact as unknown),
+      key: String(r.key ?? ""),
+      name: String(r.name ?? ""),
+      plan: toNumber(r.plan as unknown),
+      fact: toNumber(r.fact as unknown),
     }));
   }, [investorsMacroCharts]);
 
-  const completionChartRows = useMemo((): InvestorsMacroCompletionRow[] => {
-    if (investorsMacroCharts === undefined || investorsMacroCharts === null) return [];
-    const src = investorsMacroCharts.completionChartRows;
-    if (!Array.isArray(src)) return [];
-    return src.map((r) => {
-      const pctNum =
-        r.pct == null || !Number.isFinite(Number(r.pct)) ? null : Math.max(0, Number(r.pct));
-      const barLen = pctNum == null ? 0 : Math.min(108, pctNum);
-      return {
-        ...r,
-        pct: pctNum,
-        barLen,
-        completion: barLen,
-      };
-    });
-  }, [investorsMacroCharts]);
+  const completionChartRows = useMemo((): InvestorsCompletionChartRow[] => {
+    return buildInvestorsCompletionChartRowsFromPlanFact(planFactChartRows);
+  }, [planFactChartRows]);
 
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
     for (const row of planFactChartRows) {
-      m = Math.max(m, row.plan, row.fact);
+      const p = toNumber(row.plan as unknown);
+      const f = toNumber(row.fact as unknown);
+      if (Number.isFinite(p)) m = Math.max(m, p);
+      if (Number.isFinite(f)) m = Math.max(m, f);
     }
-    if (m <= 0) return [0, 1];
+    if (m <= 0 || !Number.isFinite(m)) return [0, 1];
     return [0, m * 1.08];
   }, [planFactChartRows]);
 
   console.log("[ExecutionMacroChartsBlock render]", { planFactChartRows, completionChartRows });
+  console.table(planFactChartRows);
+  console.table(completionChartRows);
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
@@ -457,19 +444,19 @@ function ExecutionMacroChartsBlock({
                   cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload as InvestorsMacroCompletionRow | undefined;
+                    const row = payload[0]?.payload as InvestorsCompletionChartRow | undefined;
                     if (!row) return null;
                     return tooltipFrame(
                       <>
                         <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
                         <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
-                          {row.pct == null ? "—" : `${dec1Fmt.format(row.pct)}%`}
+                          {`${dec1Fmt.format(row.pct)}%`}
                         </div>
                       </>,
                     );
                   }}
                 />
-                <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
+                <Bar dataKey="barLen" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
                   {completionChartRows.map((entry) => (
                     <Cell key={entry.key} fill={entry.fill} />
                   ))}

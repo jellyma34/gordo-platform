@@ -4,6 +4,7 @@ import {
   isInvestorsCsvHeaderLine,
   parseRuNumber,
   shouldSilentlySkipInvestorsCsvMonthLabel,
+  toNumber,
 } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 /** Ключ хранилища (префикс); полный ключ — {@link marketingInvestorsCsvLocalStorageKey}. */
@@ -21,7 +22,8 @@ export type InvestorsPlanFactChartRow = { key: string; name: string; plan: numbe
 export type InvestorsCompletionChartRow = {
   key: string;
   name: string;
-  pct: number | null;
+  /** 0…∞; при плане 0 — 0 (не null). */
+  pct: number;
   barLen: number;
   label: string;
   fill: string;
@@ -191,7 +193,7 @@ function buildColumnMap(headerCells: string[]): ColIdx | null {
 
 function numAt(row: string[], idx: number | null): number {
   if (idx == null || idx < 0 || idx >= row.length) return 0;
-  return parseRuNumber(row[idx]);
+  return toNumber(row[idx]);
 }
 
 /** План из колонки «… сумма»; факт из колонки «… факт» или временно = plan. */
@@ -201,25 +203,34 @@ function numAtPlanFact(row: string[], planIdx: number | null, factIdx: number | 
   return { plan, fact };
 }
 
-function completionChartFill(pct: number | null): string {
-  if (pct == null || !Number.isFinite(pct)) return "#94a3b8";
+function completionChartFill(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return "#94a3b8";
   if (pct > 95) return "#10b981";
   if (pct >= 85) return "#f97316";
   return "#ef4444";
 }
 
 function buildCompletionRow(key: MacroCategoryKey, name: string, plan: number, fact: number): InvestorsCompletionChartRow {
-  const rawPct = plan > 0 && Number.isFinite(plan) ? (fact / plan) * 100 : null;
-  const n = rawPct != null && Number.isFinite(rawPct) ? Math.max(0, rawPct) : null;
-  const barLen = n == null ? 0 : Math.min(108, n);
+  const planN = toNumber(plan);
+  const factN = toNumber(fact);
+  const rawPct = planN > 0 ? (factN / planN) * 100 : 0;
+  const n = Number.isFinite(rawPct) ? Math.max(0, rawPct) : 0;
+  const barLen = Math.min(108, n);
   return {
     key,
     name,
     pct: n,
     barLen,
-    label: n == null ? "" : `${dec1Fmt.format(n)}%`,
+    label: `${dec1Fmt.format(n)}%`,
     fill: completionChartFill(n),
   };
+}
+
+/** Ряды «Выполнение %» из нормализованных план/факт (только числа для Recharts). */
+export function buildInvestorsCompletionChartRowsFromPlanFact(
+  planFactRows: readonly InvestorsPlanFactChartRow[],
+): InvestorsCompletionChartRow[] {
+  return planFactRows.map((r) => buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact));
 }
 
 export type ParseMarketingInvestorsCsvResult =
@@ -309,14 +320,14 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
       monthKey: monthKeyRu(month, year),
       year,
       month,
-      apartmentsPlan: ap.plan,
-      apartmentsFact: ap.fact,
-      parkingPlan: pk.plan,
-      parkingFact: pk.fact,
-      storagePlan: st.plan,
-      storageFact: st.fact,
-      commercialPlan: cm.plan,
-      commercialFact: cm.fact,
+      apartmentsPlan: toNumber(ap.plan as unknown),
+      apartmentsFact: toNumber(ap.fact as unknown),
+      parkingPlan: toNumber(pk.plan as unknown),
+      parkingFact: toNumber(pk.fact as unknown),
+      storagePlan: toNumber(st.plan as unknown),
+      storageFact: toNumber(st.fact as unknown),
+      commercialPlan: toNumber(cm.plan as unknown),
+      commercialFact: toNumber(cm.fact as unknown),
     });
   }
 
@@ -333,14 +344,14 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
 
   const totals = parsedRows.reduce(
     (acc, r) => ({
-      apartmentsPlan: acc.apartmentsPlan + (Number.isFinite(r.apartmentsPlan) ? r.apartmentsPlan : 0),
-      apartmentsFact: acc.apartmentsFact + (Number.isFinite(r.apartmentsFact) ? r.apartmentsFact : 0),
-      parkingPlan: acc.parkingPlan + (Number.isFinite(r.parkingPlan) ? r.parkingPlan : 0),
-      parkingFact: acc.parkingFact + (Number.isFinite(r.parkingFact) ? r.parkingFact : 0),
-      storagePlan: acc.storagePlan + (Number.isFinite(r.storagePlan) ? r.storagePlan : 0),
-      storageFact: acc.storageFact + (Number.isFinite(r.storageFact) ? r.storageFact : 0),
-      commercialPlan: acc.commercialPlan + (Number.isFinite(r.commercialPlan) ? r.commercialPlan : 0),
-      commercialFact: acc.commercialFact + (Number.isFinite(r.commercialFact) ? r.commercialFact : 0),
+      apartmentsPlan: acc.apartmentsPlan + toNumber(r.apartmentsPlan as unknown),
+      apartmentsFact: acc.apartmentsFact + toNumber(r.apartmentsFact as unknown),
+      parkingPlan: acc.parkingPlan + toNumber(r.parkingPlan as unknown),
+      parkingFact: acc.parkingFact + toNumber(r.parkingFact as unknown),
+      storagePlan: acc.storagePlan + toNumber(r.storagePlan as unknown),
+      storageFact: acc.storageFact + toNumber(r.storageFact as unknown),
+      commercialPlan: acc.commercialPlan + toNumber(r.commercialPlan as unknown),
+      commercialFact: acc.commercialFact + toNumber(r.commercialFact as unknown),
     }),
     {
       apartmentsPlan: 0,
@@ -366,8 +377,8 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   const planFactChartRows: InvestorsPlanFactChartRow[] = MACRO_ORDER.map(({ key, name }) => ({
     key,
     name,
-    plan: byKey[key].plan,
-    fact: byKey[key].fact,
+    plan: toNumber(byKey[key].plan as unknown),
+    fact: toNumber(byKey[key].fact as unknown),
   }));
 
   console.table(planFactChartRows);
@@ -375,6 +386,8 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   const completionChartRows: InvestorsCompletionChartRow[] = planFactChartRows.map((r) =>
     buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
   );
+
+  console.table(completionChartRows);
 
   const investorsMacroChartsPayload = { planFactChartRows, completionChartRows };
   console.log("[parsed investors charts]", {
@@ -386,13 +399,38 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   return { ok: true, planFactChartRows, completionChartRows, warnings };
 }
 
+function normalizeStoredPlanFactRow(raw: unknown): InvestorsPlanFactChartRow {
+  if (!raw || typeof raw !== "object") {
+    return { key: "", name: "", plan: 0, fact: 0 };
+  }
+  const row = raw as Record<string, unknown>;
+  return {
+    key: String(row.key ?? ""),
+    name: String(row.name ?? ""),
+    plan: toNumber(row.plan),
+    fact: toNumber(row.fact),
+  };
+}
+
 export function parseStoredMarketingInvestorsCsv(raw: unknown): MarketingInvestorsCsvStoredV1 | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   if (o.v !== 1) return null;
   if (typeof o.updatedAt !== "string" || typeof o.fileName !== "string") return null;
   if (!Array.isArray(o.planFactChartRows) || !Array.isArray(o.completionChartRows)) return null;
-  return o as MarketingInvestorsCsvStoredV1;
+  const warnings = Array.isArray(o.warnings) ? (o.warnings.filter((w) => typeof w === "string") as string[]) : [];
+  const planFactChartRows = o.planFactChartRows.map((row: unknown) => normalizeStoredPlanFactRow(row));
+  const completionChartRows = planFactChartRows.map((r) =>
+    buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
+  );
+  return {
+    v: 1,
+    updatedAt: o.updatedAt,
+    fileName: o.fileName,
+    planFactChartRows,
+    completionChartRows,
+    warnings,
+  };
 }
 
 export function readMarketingInvestorsCsvFromLocalStorage(projectId: string): MarketingInvestorsCsvStoredV1 | null {

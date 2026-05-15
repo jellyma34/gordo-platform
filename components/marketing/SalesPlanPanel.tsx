@@ -713,7 +713,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [investorsMacroCharts, setInvestorsMacroCharts] = useState<InvestorsMacroChartsPayload | null | undefined>(undefined);
   const [investorsCsvError, setInvestorsCsvError] = useState<string | null>(null);
   const [investorsCsvWarnings, setInvestorsCsvWarnings] = useState<string[]>([]);
-  const [investorsCsvMeta, setInvestorsCsvMeta] = useState<{ fileName: string; uploadedAt: string } | null>(null);
+  const [investorsCsvMeta, setInvestorsCsvMeta] = useState<{
+    fileName: string;
+    uploadedAt: string;
+    macroChartRowCount: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1045,7 +1049,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       completionLen: next.completionChartRows?.length,
     });
     setInvestorsMacroCharts(next);
-    setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
+    setInvestorsCsvMeta({
+      fileName: doc.fileName,
+      uploadedAt: doc.updatedAt,
+      macroChartRowCount: doc.planFactChartRows?.length ?? 0,
+    });
     setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
   }, [paymentPlanProjectId]);
 
@@ -1149,7 +1157,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       };
       console.log("[saving investors charts] (upload handler post-write setState)", chartsState);
       setInvestorsMacroCharts(chartsState);
-      setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
+      setInvestorsCsvMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        macroChartRowCount: doc.planFactChartRows?.length ?? 0,
+      });
       setInvestorsCsvWarnings(doc.warnings);
     } catch {
       setInvestorsCsvError("Не удалось прочитать инвесторский CSV.");
@@ -2687,7 +2699,13 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <span className={presDark ? "text-slate-500" : "text-slate-500"}>Исполнение плана: </span>
                 <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>
                   {executionMeta?.fileName ??
-                    (executionSource === "csv" ? "default.raw.csv (репозиторий)" : executionSource === "empty" ? "нет данных" : "—")}
+                    (executionSource === "csv"
+                      ? "default.raw.csv (репозиторий)"
+                      : executionSource === "empty"
+                        ? investorsCsvMeta
+                          ? `инвесторский CSV загружен · ${investorsCsvMeta.macroChartRowCount} катег. графика`
+                          : "нет данных"
+                        : "—")}
                 </span>
                 {executionMeta ? (
                   <>
