@@ -100,31 +100,52 @@ type ColIdx = {
   commercialFact: number | null;
 };
 
-function scorePair(n: string, seg: string, wantPlan: boolean): number {
-  if (n.includes("расторж")) return -100;
-  if (!n.includes(seg)) return 0;
-  const hasPlan = n.includes("план") || n.includes("планов");
-  const hasFact = n.includes("факт") || n.includes("фактич");
-  if (wantPlan) {
-    if (hasFact && !hasPlan) return 0;
-    if (hasPlan) return 100;
-    if (n.includes(seg) && n.length < 48) return 45;
-    return 0;
-  }
-  if (hasPlan && !hasFact) return 0;
-  if (hasFact) return 100;
-  if (n.includes(seg) && n.length < 48) return 40;
-  return 0;
-}
-
-function pickColumn(headers: string[], seg: string, wantPlan: boolean): number | null {
+/** Wide-table: «квартиры сумма», «паркинг сумма» — колонка с ₽, в названии есть «сумм». */
+function pickWideSumColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
   let best: { i: number; s: number } | null = null;
   for (let i = 0; i < headers.length; i++) {
     const n = normHeaderCell(headers[i] ?? "");
-    const s = scorePair(n, seg, wantPlan);
-    if (s > 0 && (!best || s > best.s)) best = { i, s };
+    if (n.includes("расторж") || n.includes("итого")) continue;
+    if (!categoryMatch(n)) continue;
+    if (!n.includes("сумм")) continue;
+    let s = 80;
+    if (n.includes("факт") || n.includes("фактич")) s -= 20;
+    if (n.includes("план") || n.includes("планов")) s -= 15;
+    if (!best || s > best.s) best = { i, s };
   }
-  return best && best.s >= 30 ? best.i : null;
+  return best?.i ?? null;
+}
+
+/** Отдельная колонка факта по категории; если нет — в numAtPlanFact подставим plan. */
+function pickOptionalFactColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
+  let best: { i: number; s: number } | null = null;
+  for (let i = 0; i < headers.length; i++) {
+    const n = normHeaderCell(headers[i] ?? "");
+    if (n.includes("расторж") || n.includes("итого")) continue;
+    if (!categoryMatch(n)) continue;
+    if (!n.includes("факт") && !n.includes("фактич")) continue;
+    if (n.includes("план") && !n.includes("факт") && !n.includes("фактич")) continue;
+    let s = 70;
+    if (n.includes("сумм")) s += 10;
+    if (!best || s > best.s) best = { i, s };
+  }
+  return best?.i ?? null;
+}
+
+function matchApartments(n: string): boolean {
+  return n.includes("квартир");
+}
+
+function matchParking(n: string): boolean {
+  return n.includes("парк") || n.includes("парков") || n.includes("машино");
+}
+
+function matchStorage(n: string): boolean {
+  return n.includes("кладов");
+}
+
+function matchCommercial(n: string): boolean {
+  return n.includes("коммерч") || n.includes("коммерц") || n.includes("нжп");
 }
 
 function findYearMonthColumns(headers: string[]): { year: number; month: number } {
@@ -141,16 +162,16 @@ function findYearMonthColumns(headers: string[]): { year: number; month: number 
 function buildColumnMap(headerCells: string[]): ColIdx | null {
   const { year, month } = findYearMonthColumns(headerCells);
 
-  const apartmentsPlan = pickColumn(headerCells, "квартир", true);
-  const apartmentsFact = pickColumn(headerCells, "квартир", false);
-  const parkingPlan = pickColumn(headerCells, "парк", true) ?? pickColumn(headerCells, "машино", true);
-  const parkingFact = pickColumn(headerCells, "парк", false) ?? pickColumn(headerCells, "машино", false);
-  const storagePlan = pickColumn(headerCells, "кладов", true);
-  const storageFact = pickColumn(headerCells, "кладов", false);
-  const commercialPlan = pickColumn(headerCells, "коммерч", true) ?? pickColumn(headerCells, "нжп", true);
-  const commercialFact = pickColumn(headerCells, "коммерч", false) ?? pickColumn(headerCells, "нжп", false);
+  const apartmentsPlan = pickWideSumColumn(headerCells, matchApartments);
+  const apartmentsFact = pickOptionalFactColumn(headerCells, matchApartments);
+  const parkingPlan = pickWideSumColumn(headerCells, matchParking);
+  const parkingFact = pickOptionalFactColumn(headerCells, matchParking);
+  const storagePlan = pickWideSumColumn(headerCells, matchStorage);
+  const storageFact = pickOptionalFactColumn(headerCells, matchStorage);
+  const commercialPlan = pickWideSumColumn(headerCells, matchCommercial);
+  const commercialFact = pickOptionalFactColumn(headerCells, matchCommercial);
 
-  if (apartmentsPlan == null && apartmentsFact == null) {
+  if (apartmentsPlan == null) {
     return null;
   }
 
@@ -171,6 +192,13 @@ function buildColumnMap(headerCells: string[]): ColIdx | null {
 function numAt(row: string[], idx: number | null): number {
   if (idx == null || idx < 0 || idx >= row.length) return 0;
   return parseRuNumber(row[idx]);
+}
+
+/** План из колонки «… сумма»; факт из колонки «… факт» или временно = plan. */
+function numAtPlanFact(row: string[], planIdx: number | null, factIdx: number | null): { plan: number; fact: number } {
+  const plan = numAt(row, planIdx);
+  const fact = factIdx != null ? numAt(row, factIdx) : plan;
+  return { plan, fact };
 }
 
 function completionChartFill(pct: number | null): string {
@@ -247,7 +275,8 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   if (!colMap) {
     return {
       ok: false,
-      error: "Заголовок найден, но не удалось сопоставить колонки план/факт для квартир.",
+      error:
+        "Заголовок найден, но не найдена колонка «квартиры сумма» (или аналог с «сумма» по квартирам). Проверьте названия колонок.",
       warnings,
     };
   }
@@ -270,28 +299,24 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     if (!year || !month) continue;
     if (shouldSilentlySkipInvestorsCsvMonthLabel(month)) continue;
 
-    const apartmentsPlan = numAt(row, colMap.apartmentsPlan);
-    const apartmentsFact = numAt(row, colMap.apartmentsFact);
-    const parkingPlan = numAt(row, colMap.parkingPlan);
-    const parkingFact = numAt(row, colMap.parkingFact);
-    const storagePlan = numAt(row, colMap.storagePlan);
-    const storageFact = numAt(row, colMap.storageFact);
-    const commercialPlan = numAt(row, colMap.commercialPlan);
-    const commercialFact = numAt(row, colMap.commercialFact);
+    const ap = numAtPlanFact(row, colMap.apartmentsPlan, colMap.apartmentsFact);
+    const pk = numAtPlanFact(row, colMap.parkingPlan, colMap.parkingFact);
+    const st = numAtPlanFact(row, colMap.storagePlan, colMap.storageFact);
+    const cm = numAtPlanFact(row, colMap.commercialPlan, colMap.commercialFact);
 
     parsedRows.push({
       rowIndex1: lineIdx + 1,
       monthKey: monthKeyRu(month, year),
       year,
       month,
-      apartmentsPlan,
-      apartmentsFact,
-      parkingPlan,
-      parkingFact,
-      storagePlan,
-      storageFact,
-      commercialPlan,
-      commercialFact,
+      apartmentsPlan: ap.plan,
+      apartmentsFact: ap.fact,
+      parkingPlan: pk.plan,
+      parkingFact: pk.fact,
+      storagePlan: st.plan,
+      storageFact: st.fact,
+      commercialPlan: cm.plan,
+      commercialFact: cm.fact,
     });
   }
 
@@ -308,6 +333,17 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
 
   const last = parsedRows[parsedRows.length - 1]!;
 
+  console.log("mapped investors row", {
+    apartmentsPlan: last.apartmentsPlan,
+    apartmentsFact: last.apartmentsFact,
+    parkingPlan: last.parkingPlan,
+    parkingFact: last.parkingFact,
+    storagePlan: last.storagePlan,
+    storageFact: last.storageFact,
+    commercialPlan: last.commercialPlan,
+    commercialFact: last.commercialFact,
+  });
+
   const byKey: Record<MacroCategoryKey, { plan: number; fact: number }> = {
     apartments: { plan: last.apartmentsPlan, fact: last.apartmentsFact },
     parking: { plan: last.parkingPlan, fact: last.parkingFact },
@@ -323,10 +359,13 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   }));
 
   console.table(planFactChartRows);
+  console.log("planFactChartRows", planFactChartRows);
 
   const completionChartRows: InvestorsCompletionChartRow[] = planFactChartRows.map((r) =>
     buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
   );
+
+  console.log("completionChartRows", completionChartRows);
 
   const investorsMacroCharts = { planFactChartRows, completionChartRows };
   console.log("[Investors CSV] investorsMacroCharts", investorsMacroCharts);
