@@ -39,10 +39,10 @@ export type ParseSalesUnitsExecutionCsvFail = {
 export type ParseSalesUnitsExecutionCsvResult = ParseSalesUnitsExecutionCsvOk | ParseSalesUnitsExecutionCsvFail;
 
 const SEGMENT_ORDER: readonly { key: UnitsExecutionSegmentRow["key"]; label: string; aliases: readonly string[] }[] = [
-  { key: "apartments", label: "Квартиры", aliases: ["квартиры"] },
-  { key: "parking", label: "Парковки", aliases: ["парковки", "паркинг"] },
-  { key: "storage", label: "Кладовые", aliases: ["кладовые", "кладов"] },
-  { key: "commercial", label: "Коммерческие помещения", aliases: ["коммерческие помещения", "коммерция", "нжп"] },
+  { key: "apartments", label: "Квартиры", aliases: ["квартиры", "квартира", "жилые помещения", "жилой фонд"] },
+  { key: "parking", label: "Парковки", aliases: ["парковки", "паркинг", "машино-места", "машиноместа", "м/места"] },
+  { key: "storage", label: "Кладовые", aliases: ["кладовые", "кладов", "кладовки", "кладовая"] },
+  { key: "commercial", label: "Коммерческие помещения", aliases: ["коммерческие помещения", "коммерция", "нжп", "нежилые помещения"] },
 ];
 
 function stripBomStart(raw: string): string {
@@ -60,6 +60,25 @@ function splitLines(raw: string): string[] {
 
 function normCell(s: string): string {
   return preprocessCell(s)
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Имя сегмента из ячейки «Наименование» (Excel): trim, lower, ё→е, без кавычек/NBSP/zero-width/переносов.
+ * Для сопоставления с apartments / parking / storage / commercial.
+ */
+export function normalizeSegmentName(raw: string): string {
+  let s = preprocessCell(String(raw ?? ""))
+    .replace(/[\u200b-\u200d\ufeff]/g, "")
+    .replace(/\r\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a]/g, " ");
+  s = s.replace(/^[\s"'«»\u201c\u201d\u201e\u201f]+|[\s"'«»\u201c\u201d\u201e\u201f]+$/g, "");
+  return s
     .toLowerCase()
     .replace(/ё/g, "е")
     .replace(/\s+/g, " ")
@@ -207,21 +226,29 @@ function buildColumnIndices(headers: string[]): {
   return { nameCol, planCumulative, factCumulative, deviation, completionPct, shareVol };
 }
 
-function shouldSkipName(nameNorm: string): boolean {
-  if (!nameNorm) return true;
-  if (nameNorm.includes("итого")) return true;
-  if (nameNorm.includes("1-ком") || nameNorm.includes("1 ком")) return true;
-  if (nameNorm.includes("2-ком") || nameNorm.includes("2 ком")) return true;
-  if (nameNorm.includes("3-ком") || nameNorm.includes("3 ком")) return true;
-  if (nameNorm.includes("вложен")) return true;
-  if (nameNorm.includes("комнат") && !nameNorm.includes("коммерч")) return true;
+function shouldSkipName(segmentNorm: string): boolean {
+  if (!segmentNorm) return true;
+  if (segmentNorm.includes("итого")) return true;
+  if (segmentNorm.includes("1-ком") || segmentNorm.includes("1 ком")) return true;
+  if (segmentNorm.includes("2-ком") || segmentNorm.includes("2 ком")) return true;
+  if (segmentNorm.includes("3-ком") || segmentNorm.includes("3 ком")) return true;
+  if (segmentNorm.includes("вложен")) return true;
+  if (segmentNorm.includes("комнат") && !segmentNorm.includes("коммерч")) return true;
   return false;
 }
 
-function matchSegment(nameNorm: string): UnitsExecutionSegmentRow["key"] | null {
+/** Совпадение с алиасом: полное имя или префикс до пробела/запятой/скобки и т.п. (не только `alias `). */
+function matchSegment(segmentNorm: string): UnitsExecutionSegmentRow["key"] | null {
+  const n = segmentNorm;
+  if (!n) return null;
   for (const { key, aliases } of SEGMENT_ORDER) {
-    for (const a of aliases) {
-      if (nameNorm === a || nameNorm.startsWith(a + " ") || nameNorm.startsWith(a + ",")) return key;
+    const sorted = [...aliases].sort((a, b) => b.length - a.length);
+    for (const a of sorted) {
+      if (n === a) return key;
+      if (n.startsWith(a)) {
+        const rest = n.slice(a.length);
+        if (rest === "" || /^[\s,;:.\-([{«]/u.test(rest)) return key;
+      }
     }
   }
   return null;
@@ -308,17 +335,18 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
   console.log("UNITS CSV colMap", colMap);
 
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
-  const parsedRows: { segment: string; plan: number; fact: number; completion: number }[] = [];
+  const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
 
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
     const nameRaw = preprocessCell(row[nameCol] ?? "");
-    const nameNorm = normCell(nameRaw);
-    if (!nameNorm) continue;
-    if (shouldSkipName(nameNorm)) continue;
+    const segmentNorm = normalizeSegmentName(nameRaw);
+    console.log("ROW NAME", nameRaw, "NORMALIZED", segmentNorm);
+    if (!segmentNorm) continue;
+    if (shouldSkipName(segmentNorm)) continue;
 
-    const segKey = matchSegment(nameNorm);
+    const segKey = matchSegment(segmentNorm);
     if (!segKey) continue;
 
     const planProject = 0;
@@ -332,11 +360,13 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     const label = SEGMENT_ORDER.find((s) => s.key === segKey)?.label ?? nameRaw;
 
     parsedRows.push({
+      key: segKey,
       segment: label,
       plan: planCumulative,
       fact: factCumulative,
       completion: completionPct,
     });
+    console.table(parsedRows);
     byKey.set(segKey, {
       key: segKey,
       segment: label,
@@ -348,8 +378,6 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
       shareOfVolumePct,
     });
   }
-
-  console.table(parsedRows);
 
   const segments: UnitsExecutionSegmentRow[] = [];
   for (const { key, label } of SEGMENT_ORDER) {

@@ -1,4 +1,5 @@
 import {
+  normalizeSegmentName,
   normalizeUnitCell,
   parseSalesUnitsExecutionCsv,
   type ParseSalesUnitsExecutionCsvResult,
@@ -6,7 +7,7 @@ import {
   type UnitsExecutionTotals,
 } from "@/lib/parseSalesUnitsExecutionCsv";
 
-export { normalizeUnitCell, parseSalesUnitsExecutionCsv };
+export { normalizeSegmentName, normalizeUnitCell, parseSalesUnitsExecutionCsv };
 export type { ParseSalesUnitsExecutionCsvResult, UnitsExecutionSegmentRow, UnitsExecutionTotals };
 
 /** Префикс ключа; полный ключ — {@link marketingUnitsExecutionCsvLocalStorageKey}. */
