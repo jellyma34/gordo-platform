@@ -331,24 +331,36 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
-  const last = parsedRows[parsedRows.length - 1]!;
+  const totals = parsedRows.reduce(
+    (acc, r) => ({
+      apartmentsPlan: acc.apartmentsPlan + (Number.isFinite(r.apartmentsPlan) ? r.apartmentsPlan : 0),
+      apartmentsFact: acc.apartmentsFact + (Number.isFinite(r.apartmentsFact) ? r.apartmentsFact : 0),
+      parkingPlan: acc.parkingPlan + (Number.isFinite(r.parkingPlan) ? r.parkingPlan : 0),
+      parkingFact: acc.parkingFact + (Number.isFinite(r.parkingFact) ? r.parkingFact : 0),
+      storagePlan: acc.storagePlan + (Number.isFinite(r.storagePlan) ? r.storagePlan : 0),
+      storageFact: acc.storageFact + (Number.isFinite(r.storageFact) ? r.storageFact : 0),
+      commercialPlan: acc.commercialPlan + (Number.isFinite(r.commercialPlan) ? r.commercialPlan : 0),
+      commercialFact: acc.commercialFact + (Number.isFinite(r.commercialFact) ? r.commercialFact : 0),
+    }),
+    {
+      apartmentsPlan: 0,
+      apartmentsFact: 0,
+      parkingPlan: 0,
+      parkingFact: 0,
+      storagePlan: 0,
+      storageFact: 0,
+      commercialPlan: 0,
+      commercialFact: 0,
+    },
+  );
 
-  console.log("mapped investors row", {
-    apartmentsPlan: last.apartmentsPlan,
-    apartmentsFact: last.apartmentsFact,
-    parkingPlan: last.parkingPlan,
-    parkingFact: last.parkingFact,
-    storagePlan: last.storagePlan,
-    storageFact: last.storageFact,
-    commercialPlan: last.commercialPlan,
-    commercialFact: last.commercialFact,
-  });
+  console.log("[aggregated totals]", totals);
 
   const byKey: Record<MacroCategoryKey, { plan: number; fact: number }> = {
-    apartments: { plan: last.apartmentsPlan, fact: last.apartmentsFact },
-    parking: { plan: last.parkingPlan, fact: last.parkingFact },
-    storage: { plan: last.storagePlan, fact: last.storageFact },
-    commercial: { plan: last.commercialPlan, fact: last.commercialFact },
+    apartments: { plan: totals.apartmentsPlan, fact: totals.apartmentsFact },
+    parking: { plan: totals.parkingPlan, fact: totals.parkingFact },
+    storage: { plan: totals.storagePlan, fact: totals.storageFact },
+    commercial: { plan: totals.commercialPlan, fact: totals.commercialFact },
   };
 
   const planFactChartRows: InvestorsPlanFactChartRow[] = MACRO_ORDER.map(({ key, name }) => ({
