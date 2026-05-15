@@ -79,3 +79,39 @@ export function mergePlanVsFactMonthly(
       factRub: factMap.has(periodKey) ? finiteNonNegRub(factMap.get(periodKey)) : null,
     }));
 }
+
+/**
+ * Диапазон месяцев по ряду плана из CSV исполнения (`YYYY-MM`), без опоры на текущую дату.
+ */
+export function getExecutionPlanMonthSpan(
+  plan: ReadonlyArray<{ periodKey: string; planRub: number }>,
+): { minPlanMonth: string; maxPlanMonth: string } | null {
+  const keys = [...new Set(plan.map((p) => p.periodKey.trim()))].filter(isPeriodKey).sort((a, b) => a.localeCompare(b));
+  if (keys.length === 0) return null;
+  return { minPlanMonth: keys[0]!, maxPlanMonth: keys[keys.length - 1]! };
+}
+
+/** Обрезка merged-ряда по окну плана: факт вне диапазона плана для этого блока не показывается. */
+export function clipPlanVsFactToPlanMonthWindow(
+  rows: readonly PlanVsFactMonthlyRubPoint[],
+  span: { minPlanMonth: string; maxPlanMonth: string },
+): PlanVsFactMonthlyRubPoint[] {
+  return rows.filter((r) => {
+    const pk = r.periodKey.trim();
+    return pk >= span.minPlanMonth && pk <= span.maxPlanMonth;
+  });
+}
+
+/**
+ * Merge план + факт, затем обрезка по [minPlanMonth, maxPlanMonth] из серии плана.
+ * Если плана нет — возвращает полный merge (только факт и т.д.).
+ */
+export function mergePlanVsFactMonthlyForExecutionChart(
+  plan: ReadonlyArray<{ periodKey: string; planRub: number }>,
+  fact: ReadonlyArray<{ periodKey: string; factRub: number }>,
+): PlanVsFactMonthlyRubPoint[] {
+  const merged = mergePlanVsFactMonthly(plan, fact);
+  const span = getExecutionPlanMonthSpan(plan);
+  if (span == null) return merged;
+  return clipPlanVsFactToPlanMonthWindow(merged, span);
+}

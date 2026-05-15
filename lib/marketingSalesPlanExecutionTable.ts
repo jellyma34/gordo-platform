@@ -52,6 +52,13 @@ export type SalesPlanExecutionMonthlyPoint = {
   factRub: number;
 };
 
+/** Помесячные план/факт из единого CSV plan_fact.csv (₽). */
+export type PlanFactCsvMonthlyRow = {
+  periodKey: string;
+  planRub: number;
+  factRub: number;
+};
+
 export type SalesPlanExecutionDataset = {
   /** YYYY-MM-DD — отчётная дата блока */
   reportDateYmd: string;
@@ -59,6 +66,8 @@ export type SalesPlanExecutionDataset = {
   rows: SalesPlanExecutionRow[];
   /** Ряд месяцев YYYY-MM; при отсутствии — блок графика не показывается */
   monthlyPlanFact?: SalesPlanExecutionMonthlyPoint[] | null;
+  /** Единый plan_fact.csv: график «План vs факт» строится только из этих месяцев (без payment CSV). */
+  planFactCsvMonthly?: PlanFactCsvMonthlyRow[] | null;
 };
 
 /** Пустой срез до загрузки CSV или при ошибке разбора. */
@@ -73,6 +82,7 @@ export function emptySalesPlanExecutionDataset(reportDateYmd: string): SalesPlan
     },
     rows: [],
     monthlyPlanFact: null,
+    planFactCsvMonthly: null,
   };
 }
 

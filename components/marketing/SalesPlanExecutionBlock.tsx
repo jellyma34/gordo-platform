@@ -62,7 +62,7 @@ type Props = {
   showDetailTable?: boolean;
   /** Данные из CSV/JSON API (без демо в коде) */
   dataset: SalesPlanExecutionDataset;
-  /** Помесячный график: план из CSV исполнения + факт из CSV поступлений (merge в панели). */
+  /** Помесячный график «План vs факт» из plan_fact.csv (план и факт в одном наборе точек). */
   monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
 };
 
@@ -227,10 +227,10 @@ export function SalesPlanExecutionBlock({
           </div>
 
           <p className={`mt-4 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
-            График «План vs факт»: план — из CSV исполнения ниже; факт поступлений — из отдельного CSV факта (блок
-            «Динамика поступлений»). Источник таблицы: CSV →{" "}
+            График «План vs факт»: единый файл plan_fact.csv (колонки «План продаж ЗМП» и «Сумма поступлений факт»).
+            Источник: CSV →{" "}
             <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
-              lib/salesPlanExecutionCsv.ts
+              lib/parsePlanFactCsv.ts
             </code>{" "}
             · API{" "}
             <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>

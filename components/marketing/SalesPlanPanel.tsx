@@ -38,11 +38,7 @@ import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlan
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
 import { SalesPlanExecutionBlock } from "@/components/marketing/SalesPlanExecutionBlock";
-import {
-  getExecutionPlanSeries,
-  getFactSalesSeries,
-  mergePlanVsFactMonthly,
-} from "@/lib/planExecutionPlanVsFactChart";
+import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
@@ -1101,10 +1097,15 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       marketingDealsFiltered,
     ],
   );
-  const monthlyPlanVsFactChart = useMemo(
-    () => mergePlanVsFactMonthly(getExecutionPlanSeries(executionDataset), getFactSalesSeries(paymentFactByPeriodKey)),
-    [executionDataset, paymentFactByPeriodKey],
-  );
+  const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => {
+    const u = executionDataset.planFactCsvMonthly;
+    if (!u?.length) return [];
+    return u.map((p) => ({
+      periodKey: p.periodKey,
+      planRub: p.planRub,
+      factRub: p.factRub,
+    }));
+  }, [executionDataset.planFactCsvMonthly]);
   const cashflowPlanScale = hasPlanMonths ? 1 : revenuePlanScale;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasAnyPaymentCsv

@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import type { LabelProps } from "recharts";
 
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
-import {
-  CashflowDynamicsSvgLabels,
-  CashflowTooltip,
-} from "@/components/marketing/SalesPlanCashflowDynamicsChart";
+import { CashflowTooltip } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import {
   CartesianGrid,
+  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -17,16 +16,41 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import { periodKeyToRuChartLabel, type CashflowChartRow } from "@/lib/buildCashflowSeries";
-import { cashflowInflowFactLineProps, cashflowInflowPlanLineProps } from "@/lib/cashflowInflowChartSeries";
+import { cashflowInflowFactLineProps, cashflowInflowPlanLineProps, cashflowInflowDotRingStroke, CASHFLOW_INFLOW_FACT, CASHFLOW_INFLOW_PLAN } from "@/lib/cashflowInflowChartSeries";
 import {
   createMarketingDealsStyleMonthTickRenderer,
   MARKETING_DEALS_STYLE_MONTH_X_AXIS,
 } from "@/components/marketing/marketingDealsStyleMonthXAxis";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
-import { cashflowYAxisScale, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
+import { formatCashflowMillionsLabel, cashflowYAxisScale, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
 
-/** Согласовано с `SalesPlanCashflowDynamicsChart` (помесячный режим + подписи). */
+function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
+  return function LineDot(props: { cx?: number; cy?: number }) {
+    const { cx, cy } = props;
+    if (cx == null || cy == null || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+    return <circle cx={cx} cy={cy} r={r} fill={fill} stroke={strokeRing} strokeWidth={1} />;
+  };
+}
+
+const FACT_LABEL_OFFSET_PX = 10;
+const PLAN_LABEL_OFFSET_PX = 14;
+
+/** Если соседние точки близки по ₽, слегаем по Y, чтобы подписи не слипались. */
+function buildLabelStaggerPx(values: (number | null)[], domainHiRub: number): number[] {
+  const n = values.length;
+  const out = new Array<number>(n).fill(0);
+  const eps = Math.max(domainHiRub * 0.07, 1);
+  for (let i = 1; i < n; i++) {
+    const a = values[i - 1];
+    const b = values[i];
+    if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b)) continue;
+    if (Math.abs(b - a) < eps) {
+      out[i] = Math.min(18, out[i - 1]! + 6);
+    }
+  }
+  return out;
+}
 const CHART_MARGIN_TOP_LIGHT = 40;
 const CHART_MARGIN_TOP_DARK = 30;
 const CHART_MARGIN_BOTTOM = 82;
@@ -34,12 +58,19 @@ const CHART_MARGIN_LEFT = 10;
 const CHART_Y_AXIS_WIDTH = 88;
 
 type Props = {
-  /** План из CSV исполнения + факт из CSV поступлений; merge в панели. */
+  /** Помесячный график «План vs факт» из plan_fact.csv (единый набор точек). */
   monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
 };
+
+function rubFromLabelValue(v: LabelProps["value"]): number | null {
+  if (v == null || typeof v === "boolean") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function finiteSeriesRub(n: number | null | undefined): number | null {
   if (n == null) return null;
@@ -91,6 +122,15 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
     return cashflowYAxisScale(vals);
   }, [chartData]);
 
+  const factStaggerPx = useMemo(
+    () => buildLabelStaggerPx(chartData.map((r) => r.fact), domainMax),
+    [chartData, domainMax],
+  );
+  const planStaggerPx = useMemo(
+    () => buildLabelStaggerPx(chartData.map((r) => r.plan), domainMax),
+    [chartData, domainMax],
+  );
+
   const monthXTick = useMemo(
     () =>
       createMarketingDealsStyleMonthTickRenderer({
@@ -98,6 +138,29 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
         tickCount: Math.max(1, chartData.length),
       }),
     [presDark, chartData.length],
+  );
+
+  const factLabelFill = presDark ? "#93c5fd" : "#1d4ed8";
+  const planLabelFill = presDark ? "#fdba74" : "#c2410c";
+
+  const ringStroke = cashflowInflowDotRingStroke(presDark);
+  const factLinePropsNoDot = useMemo(() => {
+    const p = cashflowInflowFactLineProps(presDark);
+    const { dot: _dot, ...rest } = p;
+    return rest;
+  }, [presDark]);
+  const planLinePropsNoDot = useMemo(() => {
+    const p = cashflowInflowPlanLineProps(presDark);
+    const { dot: _dot, ...rest } = p;
+    return rest;
+  }, [presDark]);
+  const factDot = useMemo(
+    () => lineDotAlwaysVisible(CASHFLOW_INFLOW_FACT.stroke, ringStroke, CASHFLOW_INFLOW_FACT.dotR),
+    [ringStroke],
+  );
+  const planDot = useMemo(
+    () => lineDotAlwaysVisible(CASHFLOW_INFLOW_PLAN.stroke, ringStroke, CASHFLOW_INFLOW_PLAN.dotR),
+    [ringStroke],
   );
 
   if (chartData.length === 0) return null;
@@ -126,7 +189,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
           <p
             className={`text-[11px] leading-snug ${presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"}`}
           >
-            План — CSV исполнения плана (Верба); факт — CSV факта поступлений. Линии как в «Динамика поступлений».
+            План и факт из одного файла plan_fact.csv (колонки «План продаж ЗМП» и «Сумма поступлений факт»). Линии как в «Динамика поступлений».
           </p>
           <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
         </div>
@@ -169,20 +232,66 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
               />
               <Tooltip
                 content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
-                cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
+                cursor={false}
               />
-              {/*
-                При совпадении план/факт по Y синяя линия перекрывает оранжевую, если нарисовать план первым.
-                Сначала факт, затем план.
-              */}
-              <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
-              <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
-              <CashflowDynamicsSvgLabels
-                chartData={chartData}
-                presDark={presDark}
-                mode="monthly"
-                presentation={presentation}
-              />
+              <Line type="monotone" dataKey="fact" name="Факт" {...factLinePropsNoDot} dot={factDot}>
+                <LabelList
+                  dataKey="fact"
+                  content={(props: LabelProps) => {
+                    const idx = props.index ?? 0;
+                    const cx = Number(props.x);
+                    const cy = Number(props.y);
+                    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+                    const num = rubFromLabelValue(props.value);
+                    if (num == null) return null;
+                    const st = factStaggerPx[idx] ?? 0;
+                    return (
+                      <text
+                        key={`fact-lbl-${idx}`}
+                        x={cx}
+                        y={cy - FACT_LABEL_OFFSET_PX - st}
+                        textAnchor="middle"
+                        dominantBaseline="alphabetic"
+                        fill={factLabelFill}
+                        fontSize={10}
+                        fontWeight={600}
+                        className="tabular-nums pointer-events-none"
+                      >
+                        {formatCashflowMillionsLabel(num, false)}
+                      </text>
+                    );
+                  }}
+                />
+              </Line>
+              <Line type="monotone" dataKey="plan" name="План" {...planLinePropsNoDot} dot={planDot}>
+                <LabelList
+                  dataKey="plan"
+                  content={(props: LabelProps) => {
+                    const idx = props.index ?? 0;
+                    const cx = Number(props.x);
+                    const cy = Number(props.y);
+                    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+                    const num = rubFromLabelValue(props.value);
+                    if (num == null) return null;
+                    const st = planStaggerPx[idx] ?? 0;
+                    return (
+                      <text
+                        key={`plan-lbl-${idx}`}
+                        x={cx}
+                        y={cy + PLAN_LABEL_OFFSET_PX + st}
+                        textAnchor="middle"
+                        dominantBaseline="hanging"
+                        fill={planLabelFill}
+                        fontSize={10}
+                        fontWeight={600}
+                        className="tabular-nums pointer-events-none"
+                      >
+                        {formatCashflowMillionsLabel(num, false)}
+                      </text>
+                    );
+                  }}
+                />
+              </Line>
             </LineChart>
           </ResponsiveContainer>
         </div>

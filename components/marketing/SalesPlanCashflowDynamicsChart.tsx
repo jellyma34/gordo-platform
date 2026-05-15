@@ -313,7 +313,7 @@ function buildPeakBefore(peakAt: boolean[]): boolean[] {
   return out;
 }
 
-function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
+function buildFactLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub?: number }): LabelCandidate[] {
   const n = chartData.length;
   if (n === 0) return [];
   const facts = chartData.map((d) => d.fact);
@@ -323,10 +323,11 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate
   const peakBefore = buildPeakBefore(peakAt);
   const out: LabelCandidate[] = [];
   const seen = new Set<string>();
+  const minRub = opts?.minRub ?? CHART_LABEL_MIN_RUB;
 
   for (let i = 0; i < n; i++) {
     const v = facts[i];
-    if (v == null || !Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
+    if (v == null || !Number.isFinite(v) || v < minRub) continue;
 
     const peak = peakAt[i]!;
     const valley = isLocalValleySparse(facts, i);
@@ -351,7 +352,7 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate
   return out;
 }
 
-function buildPlanLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate[] {
+function buildPlanLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub?: number; relaxBand?: boolean }): LabelCandidate[] {
   const n = chartData.length;
   if (n === 0) return [];
   const plans = chartData.map((d) => d.plan);
@@ -359,14 +360,15 @@ function buildPlanLabelCandidates(chartData: CashflowChartRow[]): LabelCandidate
   const peakAt = plans.map((_, i) => isLocalPeakSparse(plans, i));
   const out: LabelCandidate[] = [];
   const seen = new Set<string>();
+  const minRub = opts?.minRub ?? CHART_LABEL_MIN_RUB;
 
   for (let i = 0; i < n; i++) {
     const v = plans[i];
-    if (v == null || !Number.isFinite(v) || v < CHART_LABEL_MIN_RUB) continue;
+    if (v == null || !Number.isFinite(v) || v < minRub) continue;
 
     const peak = peakAt[i]!;
     const endpoint = i === 0 || i === last;
-    const meetsBand = v >= CHART_PLAN_BAND_THRESHOLD_RUB;
+    const meetsBand = opts?.relaxBand ? true : v >= CHART_PLAN_BAND_THRESHOLD_RUB;
     if (!(meetsBand || peak || endpoint)) continue;
 
     const key = `p-${i}`;
@@ -485,11 +487,14 @@ export function CashflowDynamicsSvgLabels({
   presDark,
   mode,
   presentation,
+  planFactExecutionLabels = false,
 }: {
   chartData: CashflowChartRow[];
   presDark: boolean;
   mode: CashflowChartMode;
   presentation: boolean;
+  /** План vs факт (plan_fact.csv): подпись факта над точкой, плана под точкой. */
+  planFactExecutionLabels?: boolean;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
@@ -505,8 +510,14 @@ export function CashflowDynamicsSvgLabels({
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
   const factPillText = "#1d4ed8";
 
-  const factCandidates = useMemo(() => buildFactLabelCandidates(chartData), [chartData]);
-  const planCandidates = useMemo(() => buildPlanLabelCandidates(chartData), [chartData]);
+  const factCandidates = useMemo(
+    () => buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined),
+    [chartData, planFactExecutionLabels],
+  );
+  const planCandidates = useMemo(
+    () => buildPlanLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0, relaxBand: true } : undefined),
+    [chartData, planFactExecutionLabels],
+  );
 
   type Pill = {
     key: string;
@@ -703,13 +714,17 @@ export function CashflowDynamicsSvgLabels({
         const fitsAbove = baseAbove - halfH >= safeTop + halfH - 0.5;
 
         let preferBelow = fitsBelow;
-        if (fitsBelow && fitsAbove) {
-          const roomBelow = maxPlanCenterY - baseBelow;
-          const roomAbove = baseAbove - (safeTop + halfH);
-          preferBelow = roomBelow >= roomAbove - 6;
-        } else if (!fitsBelow && fitsAbove) {
-          preferBelow = false;
-        } else if (!fitsBelow && !fitsAbove) {
+        if (!planFactExecutionLabels) {
+          if (fitsBelow && fitsAbove) {
+            const roomBelow = maxPlanCenterY - baseBelow;
+            const roomAbove = baseAbove - (safeTop + halfH);
+            preferBelow = roomBelow >= roomAbove - 6;
+          } else if (!fitsBelow && fitsAbove) {
+            preferBelow = false;
+          } else if (!fitsBelow && !fitsAbove) {
+            preferBelow = true;
+          }
+        } else {
           preferBelow = true;
         }
 
@@ -741,8 +756,8 @@ export function CashflowDynamicsSvgLabels({
           return null;
         };
 
-        let ok = tryPlace(preferBelow);
-        if (!ok) ok = tryPlace(!preferBelow);
+        let ok = tryPlace(planFactExecutionLabels ? true : preferBelow);
+        if (!ok && !planFactExecutionLabels) ok = tryPlace(!preferBelow);
         if (!ok) continue;
 
         keptBoxes.push(ok.box);
@@ -761,7 +776,7 @@ export function CashflowDynamicsSvgLabels({
     }
 
     return { factPills, planPills: planPillsOut };
-  }, [chartData, factCandidates, planCandidates, xScale, yScale, chartW, chartH, plot, presDark, mode, presentation]);
+  }, [chartData, factCandidates, planCandidates, xScale, yScale, chartW, chartH, plot, presDark, mode, presentation, planFactExecutionLabels]);
 
   if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
     return null;

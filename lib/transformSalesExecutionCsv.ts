@@ -74,7 +74,7 @@ function ruMonthNameToMm(monthRaw: string): string | null {
   return null;
 }
 
-function periodKeyFromYearMonth(yearStr: string, monthRaw: string): string | null {
+export function periodKeyFromYearMonth(yearStr: string, monthRaw: string): string | null {
   const y = Number(preprocessCell(yearStr));
   if (!Number.isFinite(y) || y < 1990 || y > 2100) return null;
   const mm = ruMonthNameToMm(monthRaw);
@@ -92,6 +92,18 @@ export function lastYmdOfPeriodKey(periodKey: string): string {
   return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+export function periodKeyFromYearMonthWithNumericMonth(yearStr: string, monthRaw: string): string | null {
+  const moRaw = preprocessCell(monthRaw);
+  if (/^\d{1,2}$/.test(moRaw)) {
+    const n = Number(moRaw);
+    if (!Number.isFinite(n) || n < 1 || n > 12) return null;
+    const y = Number(preprocessCell(yearStr));
+    if (!Number.isFinite(y) || y < 1990 || y > 2100) return null;
+    return `${y}-${String(n).padStart(2, "0")}`;
+  }
+  return periodKeyFromYearMonth(yearStr, monthRaw);
+}
+
 function chartMonthLabelRu(periodKey: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(periodKey.trim());
   if (!m) return periodKey;
@@ -102,33 +114,8 @@ function chartMonthLabelRu(periodKey: string): string {
   return `${short}. ${yy}`;
 }
 
-/** Окно отображения «План vs факт» для выгрузки Верба (включительно). */
-const CHART_PERIOD_FROM = "2025-09";
-const CHART_PERIOD_TO = "2026-05";
-
 function periodKeyCompare(a: string, b: string): number {
   return a.localeCompare(b);
-}
-
-function periodKeysInclusive(from: string, to: string): string[] {
-  const fm = /^(\d{4})-(\d{2})$/.exec(from.trim());
-  const tm = /^(\d{4})-(\d{2})$/.exec(to.trim());
-  if (!fm || !tm) return [];
-  let y = Number(fm[1]);
-  let mo = Number(fm[2]);
-  const yEnd = Number(tm[1]);
-  const moEnd = Number(tm[2]);
-  if (![y, mo, yEnd, moEnd].every((n) => Number.isFinite(n))) return [];
-  const out: string[] = [];
-  while (y < yEnd || (y === yEnd && mo <= moEnd)) {
-    out.push(`${y}-${String(mo).padStart(2, "0")}`);
-    mo += 1;
-    if (mo > 12) {
-      mo = 1;
-      y += 1;
-    }
-  }
-  return out;
 }
 
 /** Фиксированные индексы для выгрузки «план сделок Верба» (разделитель `;`). */
@@ -255,13 +242,15 @@ export function transformSalesExecutionCsv(text: string): {
 
   if (byPeriod.size === 0) return null;
 
-  const timeline = periodKeysInclusive(CHART_PERIOD_FROM, CHART_PERIOD_TO);
-  if (timeline.length === 0) return null;
+  /** Только месяцы, реально присутствующие в CSV (без дозаполнения нулями до фиксированной даты). */
+  const sortedPeriodKeys = [...byPeriod.keys()]
+    .filter((k) => /^\d{4}-\d{2}$/.test(k.trim()))
+    .sort((a, b) => a.localeCompare(b));
 
   const outRub: SalesPlanExecutionMonthlyPoint[] = [];
   const chartRows: SalesExecutionCsvMonthRow[] = [];
 
-  for (const periodKey of timeline) {
+  for (const periodKey of sortedPeriodKeys) {
     const planRubSafe = Number.isFinite(byPeriod.get(periodKey)) ? (byPeriod.get(periodKey) ?? 0) : 0;
 
     outRub.push({

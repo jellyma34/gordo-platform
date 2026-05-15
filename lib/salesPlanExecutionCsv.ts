@@ -8,7 +8,7 @@ import {
   type SalesPlanExecutionRowId,
   type SalesPlanExecutionSummary,
 } from "@/lib/marketingSalesPlanExecutionTable";
-import { lastYmdOfPeriodKey, transformSalesExecutionCsv } from "@/lib/transformSalesExecutionCsv";
+import { tryParsePlanFactCsvExecution } from "@/lib/parsePlanFactCsv";
 
 /** Сырые строки CSV после нормализации заголовков (legacy path). */
 
@@ -2201,57 +2201,11 @@ export function parseSalesPlanExecutionCsv(
     return { ok: false, error: UNRECOGNIZED, warnings };
   }
 
-  const wideExec = transformSalesExecutionCsv(stripped);
+  const planFact = tryParsePlanFactCsvExecution(stripped, reportFallbackYmd);
 
-  if (wideExec?.monthlyRub.length) {
-    warnings.push(...wideExec.warnings);
-    const lastPk = wideExec.monthlyRub[wideExec.monthlyRub.length - 1]!.periodKey;
-    const ds = emptySalesPlanExecutionDataset(lastYmdOfPeriodKey(lastPk));
-    ds.rows = [
-      {
-        id: "total",
-        name: "Итого с расторжениями",
-        planProjectRub: 0,
-        planReportMonthRub: 0,
-        factReportMonthRub: undefined,
-        planCumulativeRub: 0,
-        factCumulativeRub: 0,
-        deviationRub: 0,
-        completionPct: null,
-        shareOfVolumePct: 100,
-        deviationComment: null,
-        isTotal: true,
-      },
-    ];
-    ds.monthlyPlanFact = wideExec.monthlyRub;
-    return { ok: true, dataset: ds, warnings };
+  if (planFact) {
+    return { ok: true, dataset: planFact.dataset, warnings: planFact.warnings };
   }
 
-  const gridDataset = tryParseWithGrid(stripped, reportFallbackYmd, warnings);
-
-  const legacy =
-    gridDataset && gridDataset.rows.length > 0
-      ? null
-      : tryParseLegacyHeaderMode(stripped, reportFallbackYmd, warnings);
-
-  let dataset: SalesPlanExecutionDataset | null =
-    gridDataset && gridDataset.rows.length > 0 ? gridDataset : legacy && legacy.rows.length > 0 ? legacy : null;
-
-  if (!dataset) {
-    return { ok: false, error: UNRECOGNIZED, warnings };
-  }
-
-  const verbaMonthly = tryBuildVerbaPrimaryRevenueMonthlyPlanFact(
-    stripped,
-    reportFallbackYmd,
-    warnings,
-  );
-
-  if (verbaMonthly != null && verbaMonthly.length > 0) {
-    const cur = dataset.monthlyPlanFact?.length ?? 0;
-
-    if (cur <= 1) dataset.monthlyPlanFact = verbaMonthly;
-  }
-
-  return { ok: true, dataset, warnings };
+  return { ok: false, error: UNRECOGNIZED, warnings };
 }
