@@ -58,6 +58,39 @@ function splitLines(raw: string): string[] {
     .split("\n");
 }
 
+/** Число неэкранированных `"` в строке (`""` в CSV — экранирование кавычки). */
+function countUnescapedDoubleQuotes(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '"') {
+      if (s[i + 1] === '"') {
+        i++;
+        continue;
+      }
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Excel иногда вставляет перевод строки внутри `"..."`; тогда одна логическая строка CSV разбивается на несколько.
+ * Склеиваем физические строки, пока число `"` нечётное.
+ */
+function mergePhysicalLinesForQuotedNewlines(lines: string[]): string[] {
+  const out: string[] = [];
+  let acc = "";
+  for (const line of lines) {
+    acc = acc === "" ? line : `${acc}\n${line}`;
+    if (countUnescapedDoubleQuotes(acc) % 2 === 0) {
+      out.push(acc);
+      acc = "";
+    }
+  }
+  if (acc !== "") out.push(acc);
+  return out;
+}
+
 function normCell(s: string): string {
   return preprocessCell(s)
     .toLowerCase()
@@ -90,7 +123,7 @@ export function normalizeSegmentName(raw: string): string {
  * Используется для поиска строки заголовков и сопоставления колонок.
  */
 function normalizeHeader(s: string): string {
-  return preprocessCell(String(s ?? ""))
+  let x = preprocessCell(String(s ?? ""))
     .replace(/\r\n/g, " ")
     .replace(/\r/g, " ")
     .replace(/\n/g, " ")
@@ -101,6 +134,8 @@ function normalizeHeader(s: string): string {
     .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a\u200b\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  x = x.replace(/^["'\u201c\u201d\u201e\u201f\u00ab\u00bb]+|["'\u201c\u201d\u201e\u201f\u00ab\u00bb]+$/g, "").trim();
+  return x.replace(/\s+/g, " ").trim();
 }
 
 /** Разделитель: приоритет как в Excel-экспорте — `;`, иначе таб, иначе запятая. */
@@ -126,10 +161,30 @@ export function normalizeUnitCell(value: unknown): number {
 }
 
 function splitRow(line: string, delim: ";" | "\t" | ","): string[] {
-  return line.split(delim).map((c) => preprocessCell(c));
+  return line.split(delim).map((c) => unwrapCsvCell(c));
 }
 
-function findHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
+/** Ячейка CSV из Excel: trim, переносы → пробел, снять оборачивающие `"` и экранирование `""`. */
+function unwrapCsvCell(raw: string | undefined | null): string {
+  let s = preprocessCell(String(raw ?? ""));
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    s = s.slice(1, -1).replace(/""/g, '"');
+  }
+  return s
+    .replace(/\r\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Групповой заголовок «Количество, штук» — не смешивать с подписями второй строки (данные идут по sub-columns). */
+function isQuantityPiecesGroupHeader(cell: string): boolean {
+  const n = normalizeHeader(cell);
+  return n.includes("количество") && n.includes("штук");
+}
+
+function findPrimaryHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
   for (let i = 0; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     for (const cell of row) {
@@ -138,6 +193,50 @@ function findHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
     }
   }
   return -1;
+}
+
+/** Вторая строка заголовка: есть «План», «Факт» или «%» в подписях колонок. */
+function findSecondaryHeaderRowIndex(lines: string[], primaryIdx: number, delim: ";" | "\t" | ","): number {
+  for (let i = primaryIdx + 1; i < lines.length; i++) {
+    const row = splitRow(lines[i] ?? "", delim);
+    if (row.every((c) => preprocessCell(c) === "")) continue;
+    for (const cell of row) {
+      const h = normalizeHeader(cell);
+      if (h.includes("план") || h.includes("факт") || h.includes("%")) return i;
+    }
+  }
+  return -1;
+}
+
+/** Подпись группы из первой строки заголовка: пустые ячейки наследуют последнюю непустую слева. */
+function forwardFillPrimaryGroupLabels(primary: string[], targetLen: number): string[] {
+  const p = [...primary];
+  while (p.length < targetLen) p.push("");
+  let last = "";
+  const out: string[] = [];
+  for (let i = 0; i < targetLen; i++) {
+    const cell = preprocessCell(p[i] ?? "");
+    if (cell) last = cell;
+    out.push(last);
+  }
+  return out;
+}
+
+/** Слияние: группа (первая строка) + вторая строка → одна нормализованная подпись на колонку для colMap. */
+function buildMergedHeaderLabels(primary: string[], secondary: string[]): string[] {
+  const n = Math.max(primary.length, secondary.length);
+  const primFilled = forwardFillPrimaryGroupLabels(primary, n);
+  const sec = [...secondary];
+  while (sec.length < n) sec.push("");
+  const merged: string[] = [];
+  for (let i = 0; i < n; i++) {
+    let p = preprocessCell(primFilled[i] ?? "");
+    if (isQuantityPiecesGroupHeader(p)) p = "";
+    const s = preprocessCell(sec[i] ?? "");
+    const combined = [p, s].filter((x) => x !== "").join(" ");
+    merged.push(normalizeHeader(combined));
+  }
+  return merged;
 }
 
 function pickCol(headers: string[], predicate: (n: string) => boolean): number | null {
@@ -291,24 +390,33 @@ function extractReportDateYmd(lines: string[], delim: ";" | "\t" | ","): string 
 export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecutionCsvResult {
   const warnings: string[] = [];
   const delim = detectDelimiter(text);
-  const lines = splitLines(text).filter((l) => preprocessCell(l) !== "");
+  const physicalMerged = mergePhysicalLinesForQuotedNewlines(splitLines(text));
+  const lines = physicalMerged.filter((l) => preprocessCell(l) !== "");
   if (lines.length < 2) {
     return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
   }
 
   const reportDateYmd = extractReportDateYmd(lines, delim);
 
-  const headerIdx = findHeaderRowIndex(lines, delim);
-  if (headerIdx < 0) {
+  const primaryIdx = findPrimaryHeaderRowIndex(lines, delim);
+  if (primaryIdx < 0) {
     return { ok: false, error: "Не найдена строка заголовков (нужна колонка «Наименование»).", warnings };
   }
 
-  const headerRow = splitRow(lines[headerIdx] ?? "", delim);
-  const normalizedHeaderRow = headerRow.map(normalizeHeader);
-  console.log("RAW HEADER ROW", headerRow);
-  console.log("NORMALIZED HEADER", normalizedHeaderRow);
+  const secondaryIdx = findSecondaryHeaderRowIndex(lines, primaryIdx, delim);
+  if (secondaryIdx < 0) {
+    return {
+      ok: false,
+      error: "Не найдена вторая строка заголовков (ожидаются подписи План / Факт / %).",
+      warnings,
+    };
+  }
 
-  const col = buildColumnIndices(headerRow);
+  const primaryHeader = splitRow(lines[primaryIdx] ?? "", delim).map((c) => preprocessCell(c));
+  const secondaryHeader = splitRow(lines[secondaryIdx] ?? "", delim).map((c) => preprocessCell(c));
+  const mergedHeaders = buildMergedHeaderLabels(primaryHeader, secondaryHeader);
+
+  const col = buildColumnIndices(mergedHeaders);
   if (!col) {
     return {
       ok: false,
@@ -332,17 +440,16 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     deviation: col.deviation,
     share: col.shareVol,
   };
-  console.log("UNITS CSV colMap", colMap);
+  console.table({ primaryHeader, secondaryHeader, mergedHeaders, colMap });
 
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
   const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
 
-  for (let i = headerIdx + 1; i < lines.length; i++) {
+  for (let i = secondaryIdx + 1; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
     const nameRaw = preprocessCell(row[nameCol] ?? "");
     const segmentNorm = normalizeSegmentName(nameRaw);
-    console.log("ROW NAME", nameRaw, "NORMALIZED", segmentNorm);
     if (!segmentNorm) continue;
     if (shouldSkipName(segmentNorm)) continue;
 
@@ -366,7 +473,6 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
       fact: factCumulative,
       completion: completionPct,
     });
-    console.table(parsedRows);
     byKey.set(segKey, {
       key: segKey,
       segment: label,
