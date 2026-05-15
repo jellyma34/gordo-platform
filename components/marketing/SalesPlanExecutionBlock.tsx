@@ -238,7 +238,7 @@ export function SalesPlanExecutionBlock({
   );
 }
 
-type InvestorsMacroPlanFactRow = { key: string; name: string; plan: number; fact: number };
+type InvestorsMacroPlanFactRow = { key: string; name: string; segment: string; plan: number; fact: number };
 
 /** Два верхних bar chart: только `investorsMacroCharts`, без executionDataset / Verba CSV. */
 function ExecutionMacroChartsBlock({
@@ -261,12 +261,16 @@ function ExecutionMacroChartsBlock({
     if (investorsMacroCharts === undefined || investorsMacroCharts === null) return [];
     const src = investorsMacroCharts.planFactChartRows;
     if (!Array.isArray(src)) return [];
-    return src.map((r) => ({
-      key: String(r.key ?? ""),
-      name: String(r.name ?? ""),
-      plan: toNumber(r.plan as unknown),
-      fact: toNumber(r.fact as unknown),
-    }));
+    return src.map((r) => {
+      const name = String(r.name ?? "");
+      return {
+        key: String(r.key ?? ""),
+        name,
+        segment: String((r as { segment?: string }).segment ?? name),
+        plan: toNumber(r.plan as unknown),
+        fact: toNumber(r.fact as unknown),
+      };
+    });
   }, [investorsMacroCharts]);
 
   const completionChartRows = useMemo((): InvestorsCompletionChartRow[] => {
@@ -284,10 +288,6 @@ function ExecutionMacroChartsBlock({
     if (m <= 0 || !Number.isFinite(m)) return [0, 1];
     return [0, m * 1.08];
   }, [planFactChartRows]);
-
-  console.log("[ExecutionMacroChartsBlock render]", { planFactChartRows, completionChartRows });
-  console.table(planFactChartRows);
-  console.table(completionChartRows);
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
@@ -319,6 +319,10 @@ function ExecutionMacroChartsBlock({
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
+  console.log("[ExecutionMacroChartsBlock render]", { planFactChartRows, completionChartRows });
+  console.table(planFactChartRows);
+  console.table(completionChartRows);
+
   return (
     <div
       className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4"
@@ -341,7 +345,7 @@ function ExecutionMacroChartsBlock({
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
                 <XAxis
-                  dataKey="name"
+                  dataKey="segment"
                   tick={{ fill: chartAxis, fontSize: 10 }}
                   axisLine={{ stroke: chartGrid }}
                   tickLine={false}
@@ -365,7 +369,7 @@ function ExecutionMacroChartsBlock({
                     const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
                     return tooltipFrame(
                       <>
-                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
+                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
                         <div className={`mt-1.5 space-y-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
                           <div>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>План: </span>
@@ -424,6 +428,14 @@ function ExecutionMacroChartsBlock({
                 barCategoryGap={14}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+                <YAxis
+                  type="category"
+                  dataKey="segment"
+                  width={78}
+                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <XAxis
                   type="number"
                   domain={[0, 108]}
@@ -431,14 +443,6 @@ function ExecutionMacroChartsBlock({
                   axisLine={{ stroke: chartGrid }}
                   tickLine={false}
                   tickFormatter={(v) => `${v}%`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={78}
-                  tick={{ fill: chartAxis, fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
                 />
                 <Tooltip
                   cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
@@ -448,7 +452,7 @@ function ExecutionMacroChartsBlock({
                     if (!row) return null;
                     return tooltipFrame(
                       <>
-                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.name}</div>
+                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
                         <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
                           {`${dec1Fmt.format(row.pct)}%`}
                         </div>
@@ -456,7 +460,7 @@ function ExecutionMacroChartsBlock({
                     );
                   }}
                 />
-                <Bar dataKey="barLen" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
+                <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
                   {completionChartRows.map((entry) => (
                     <Cell key={entry.key} fill={entry.fill} />
                   ))}

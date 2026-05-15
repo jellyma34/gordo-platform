@@ -17,14 +17,16 @@ export function marketingInvestorsCsvLocalStorageKey(projectId: string): string 
 
 export type MacroCategoryKey = "apartments" | "parking" | "storage" | "commercial";
 
-export type InvestorsPlanFactChartRow = { key: string; name: string; plan: number; fact: number };
+export type InvestorsPlanFactChartRow = { key: string; name: string; segment: string; plan: number; fact: number };
 
 export type InvestorsCompletionChartRow = {
   key: string;
   name: string;
-  /** 0…∞; при плане 0 — 0 (не null). */
+  segment: string;
+  /** 0…108 — длина горизонтального бара (процент, обрезанный под ось 0–108%). */
+  completion: number;
+  /** 0…∞ — сырое % выполнения (для подписи/tooltip). */
   pct: number;
-  barLen: number;
   label: string;
   fill: string;
 };
@@ -215,12 +217,13 @@ function buildCompletionRow(key: MacroCategoryKey, name: string, plan: number, f
   const factN = toNumber(fact);
   const rawPct = planN > 0 ? (factN / planN) * 100 : 0;
   const n = Number.isFinite(rawPct) ? Math.max(0, rawPct) : 0;
-  const barLen = Math.min(108, n);
+  const completion = Math.min(108, n);
   return {
     key,
     name,
+    segment: name,
     pct: n,
-    barLen,
+    completion,
     label: `${dec1Fmt.format(n)}%`,
     fill: completionChartFill(n),
   };
@@ -377,6 +380,7 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   const planFactChartRows: InvestorsPlanFactChartRow[] = MACRO_ORDER.map(({ key, name }) => ({
     key,
     name,
+    segment: name,
     plan: toNumber(byKey[key].plan as unknown),
     fact: toNumber(byKey[key].fact as unknown),
   }));
@@ -404,9 +408,11 @@ function normalizeStoredPlanFactRow(raw: unknown): InvestorsPlanFactChartRow {
     return { key: "", name: "", plan: 0, fact: 0 };
   }
   const row = raw as Record<string, unknown>;
+  const name = String(row.name ?? "");
   return {
     key: String(row.key ?? ""),
-    name: String(row.name ?? ""),
+    name,
+    segment: String(row.segment ?? name),
     plan: toNumber(row.plan),
     fact: toNumber(row.fact),
   };
