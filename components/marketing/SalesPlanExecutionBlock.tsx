@@ -28,7 +28,11 @@ import {
   type InvestorsPlanFactChartRow,
 } from "@/lib/marketingInvestorsCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
-import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
+import {
+  buildUnitsCompletionChartRows,
+  buildUnitsPlanFactChartRows,
+  SalesUnitsExecutionSection,
+} from "@/components/marketing/SalesUnitsExecutionSection";
 import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import { toNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
@@ -119,6 +123,15 @@ export function SalesPlanExecutionBlock({
   const investorsEmptyFile =
     !investorsHydrating && investorsCharts != null && !hasInvestorsMacroChartRows;
 
+  const unitsPlanFactChartRows = useMemo(
+    () => buildUnitsPlanFactChartRows(unitsExecutionCharts?.segments ?? []),
+    [unitsExecutionCharts],
+  );
+  const unitsCompletionChartRows = useMemo(
+    () => buildUnitsCompletionChartRows(unitsExecutionCharts?.segments ?? []),
+    [unitsExecutionCharts],
+  );
+
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -171,6 +184,8 @@ export function SalesPlanExecutionBlock({
           presDark={presDark}
           mplPremium={mplPremium}
           data={unitsExecutionCharts}
+          planFactChartRows={unitsPlanFactChartRows}
+          completionChartRows={unitsCompletionChartRows}
         />
       </div>
 

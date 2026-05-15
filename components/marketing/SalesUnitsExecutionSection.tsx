@@ -15,19 +15,18 @@ import {
 } from "@/components/charting/rechartsClient";
 import { MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import { formatReportDateRu } from "@/lib/marketingSalesPlanExecutionTable";
-import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
+import type { UnitsExecutionChartsPayload, UnitsExecutionSegmentRow } from "@/lib/marketingUnitsExecutionCsv";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 
-type Props = {
-  presentation: boolean;
-  presDark: boolean;
-  mplPremium: boolean;
-  /** `undefined` — гидратация; `null` — нет файла; объект — данные. */
-  data: UnitsExecutionChartsPayload | null | undefined;
+export type UnitsPlanFactChartRow = { key: string; segment: string; plan: number; fact: number };
+export type UnitsCompletionChartRow = {
+  key: string;
+  segment: string;
+  completion: number;
+  pct: number;
+  label: string;
+  fill: string;
 };
-
-type PlanFactUnitsRow = { key: string; segment: string; plan: number; fact: number };
-type CompletionUnitsRow = { key: string; segment: string; completion: number; pct: number; label: string; fill: string };
 
 function unitsCompletionFill(pct: number): string {
   if (!Number.isFinite(pct) || pct <= 0) return "#94a3b8";
@@ -36,53 +35,66 @@ function unitsCompletionFill(pct: number): string {
   return "#ef4444";
 }
 
+/** Строки графиков из `segments` CSV исполнения в штуках — вызывать в родителе, не деривать внутри секции. */
+export function buildUnitsPlanFactChartRows(segments: readonly UnitsExecutionSegmentRow[]): UnitsPlanFactChartRow[] {
+  if (!Array.isArray(segments) || segments.length === 0) return [];
+  return segments.map((s) => ({
+    key: s.key,
+    segment: s.segment,
+    plan: s.planCumulative,
+    fact: s.factCumulative,
+  }));
+}
+
+export function buildUnitsCompletionChartRows(segments: readonly UnitsExecutionSegmentRow[]): UnitsCompletionChartRow[] {
+  if (!Array.isArray(segments) || segments.length === 0) return [];
+  return segments.map((s) => {
+    const pct = Number.isFinite(s.completionPct) ? Math.max(0, s.completionPct) : 0;
+    const completion = Math.min(108, pct);
+    return {
+      key: s.key,
+      segment: s.segment,
+      completion,
+      pct,
+      label: `${dec1Fmt.format(pct)}%`,
+      fill: unitsCompletionFill(pct),
+    };
+  });
+}
+
+type Props = {
+  presentation: boolean;
+  presDark: boolean;
+  mplPremium: boolean;
+  /** `undefined` — гидратация; `null` — нет файла; объект — метаданные и KPI. */
+  data: UnitsExecutionChartsPayload | null | undefined;
+  planFactChartRows: UnitsPlanFactChartRow[];
+  completionChartRows: UnitsCompletionChartRow[];
+};
+
 function formatUnits(n: number): string {
   if (!Number.isFinite(n)) return "—";
   return Math.round(n).toLocaleString("ru-RU");
 }
 
-export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium, data }: Props) {
+export function SalesUnitsExecutionSection({
+  presentation,
+  presDark,
+  mplPremium,
+  data,
+  planFactChartRows,
+  completionChartRows,
+}: Props) {
   const hydrating = data === undefined;
 
   const reportLabel = data?.reportDateYmd ? formatReportDateRu(data.reportDateYmd) : "—";
 
-  const planFactChartRows = useMemo((): PlanFactUnitsRow[] => {
-    if (data == null) return [];
-    const segs = data.segments;
-    if (!Array.isArray(segs)) return [];
-    return segs.map((s) => ({
-      key: s.key,
-      segment: s.segment,
-      plan: s.planCumulative,
-      fact: s.factCumulative,
-    }));
-  }, [data]);
+  const hasData = planFactChartRows.length > 0 || completionChartRows.length > 0;
+  const showPlaceholder = !hydrating && !hasData;
 
-  const completionChartRows = useMemo((): CompletionUnitsRow[] => {
-    if (data == null) return [];
-    const segs = data.segments;
-    if (!Array.isArray(segs)) return [];
-    return segs.map((s) => {
-      const pct = Number.isFinite(s.completionPct) ? Math.max(0, s.completionPct) : 0;
-      const completion = Math.min(108, pct);
-      return {
-        key: s.key,
-        segment: s.segment,
-        completion,
-        pct,
-        label: `${dec1Fmt.format(pct)}%`,
-        fill: unitsCompletionFill(pct),
-      };
-    });
-  }, [data]);
-
-  const showCharts = planFactChartRows.length > 0 || completionChartRows.length > 0;
-  const showPlaceholder = !hydrating && !showCharts;
-
-  console.log("[SalesUnitsExecutionSection]", {
-    planFactLen: planFactChartRows.length,
-    completionLen: completionChartRows.length,
-    showPlaceholder,
+  console.log("[SalesUnitsExecutionSection props]", {
+    planFactChartRows,
+    completionChartRows,
   });
 
   const yDomain = useMemo((): [number, number] => {
@@ -181,7 +193,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
                       cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null;
-                        const row = payload[0]?.payload as PlanFactUnitsRow | undefined;
+                        const row = payload[0]?.payload as UnitsPlanFactChartRow | undefined;
                         if (!row) return null;
                         return tooltipFrame(
                           <>
@@ -252,7 +264,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
                       cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null;
-                        const row = payload[0]?.payload as CompletionUnitsRow | undefined;
+                        const row = payload[0]?.payload as UnitsCompletionChartRow | undefined;
                         if (!row) return null;
                         return tooltipFrame(
                           <>
@@ -288,6 +300,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
             </div>
           </div>
 
+          {data != null ? (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>План накопительно</div>
@@ -319,6 +332,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
               <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{dec1Fmt.format(data.totals.completionPct)}%</div>
             </div>
           </div>
+          ) : null}
         </>
       )}
     </div>
