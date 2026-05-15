@@ -23,7 +23,11 @@ import {
 } from "@/components/marketing/marketingDealsStyleMonthXAxis";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
-import { formatCashflowMillionsLabel, cashflowYAxisScale, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
+import {
+  formatCashflowMillionsLabelTidy,
+  cashflowYAxisScale,
+  formatCashflowYAxisMlnRub,
+} from "@/lib/salesPlanChartFormat";
 
 function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
   return function LineDot(props: { cx?: number; cy?: number }) {
@@ -33,8 +37,17 @@ function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
   };
 }
 
-const FACT_LABEL_OFFSET_PX = 10;
-const PLAN_LABEL_OFFSET_PX = 14;
+/** План: подпись над точкой (вверх по SVG). Факт: подпись под точкой. */
+const PLAN_LABEL_OFFSET_ABOVE_PX = 16;
+const FACT_LABEL_OFFSET_BELOW_PX = 18;
+
+/** Порог «план и факт близко» (млн ₽ по модулю разницы в рублях): доп. сдвиг подписей. */
+const CLOSE_PLAN_FACT_RUB = 8 * 1_000_000;
+const CLOSE_EXTRA_PLAN_ABOVE_PX = 10;
+const CLOSE_EXTRA_FACT_BELOW_PX = 10;
+
+const PLAN_LABEL_TEXT_FILL = "#F97316";
+const FACT_LABEL_TEXT_FILL = "#1D4ED8";
 
 /** Если соседние точки близки по ₽, слегаем по Y, чтобы подписи не слипались. */
 function buildLabelStaggerPx(values: (number | null)[], domainHiRub: number): number[] {
@@ -46,14 +59,14 @@ function buildLabelStaggerPx(values: (number | null)[], domainHiRub: number): nu
     const b = values[i];
     if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b)) continue;
     if (Math.abs(b - a) < eps) {
-      out[i] = Math.min(18, out[i - 1]! + 6);
+      out[i] = Math.min(28, out[i - 1]! + 8);
     }
   }
   return out;
 }
-const CHART_MARGIN_TOP_LIGHT = 40;
-const CHART_MARGIN_TOP_DARK = 30;
-const CHART_MARGIN_BOTTOM = 82;
+const CHART_MARGIN_TOP_LIGHT = 52;
+const CHART_MARGIN_TOP_DARK = 42;
+const CHART_MARGIN_BOTTOM = 92;
 const CHART_MARGIN_LEFT = 10;
 const CHART_Y_AXIS_WIDTH = 88;
 
@@ -131,6 +144,17 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
     [chartData, domainMax],
   );
 
+  const planFactCloseSepPx = useMemo(
+    () =>
+      chartData.map((r) => {
+        const p = r.plan;
+        const f = r.fact;
+        if (p == null || f == null || !Number.isFinite(p) || !Number.isFinite(f)) return 0;
+        return Math.abs(f - p) < CLOSE_PLAN_FACT_RUB ? 1 : 0;
+      }),
+    [chartData],
+  );
+
   const monthXTick = useMemo(
     () =>
       createMarketingDealsStyleMonthTickRenderer({
@@ -140,8 +164,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
     [presDark, chartData.length],
   );
 
-  const factLabelFill = presDark ? "#93c5fd" : "#1d4ed8";
-  const planLabelFill = presDark ? "#fdba74" : "#c2410c";
+  const labelHaloStroke = presDark ? "rgba(15,23,42,0.96)" : "#ffffff";
 
   const ringStroke = cashflowInflowDotRingStroke(presDark);
   const factLinePropsNoDot = useMemo(() => {
@@ -245,19 +268,26 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
                     const num = rubFromLabelValue(props.value);
                     if (num == null) return null;
                     const st = factStaggerPx[idx] ?? 0;
+                    const close = planFactCloseSepPx[idx] ?? 0;
+                    const yOff = FACT_LABEL_OFFSET_BELOW_PX + st + close * CLOSE_EXTRA_FACT_BELOW_PX;
                     return (
                       <text
                         key={`fact-lbl-${idx}`}
                         x={cx}
-                        y={cy - FACT_LABEL_OFFSET_PX - st}
+                        y={cy + yOff}
                         textAnchor="middle"
-                        dominantBaseline="alphabetic"
-                        fill={factLabelFill}
+                        dominantBaseline="hanging"
+                        fill={FACT_LABEL_TEXT_FILL}
+                        stroke={labelHaloStroke}
+                        strokeWidth={4}
+                        paintOrder="stroke fill"
                         fontSize={10}
                         fontWeight={600}
+                        style={{ lineHeight: 1 }}
+                        letterSpacing="-0.2px"
                         className="tabular-nums pointer-events-none"
                       >
-                        {formatCashflowMillionsLabel(num, false)}
+                        {formatCashflowMillionsLabelTidy(num, false)}
                       </text>
                     );
                   }}
@@ -274,19 +304,26 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
                     const num = rubFromLabelValue(props.value);
                     if (num == null) return null;
                     const st = planStaggerPx[idx] ?? 0;
+                    const close = planFactCloseSepPx[idx] ?? 0;
+                    const yOff = PLAN_LABEL_OFFSET_ABOVE_PX + st + close * CLOSE_EXTRA_PLAN_ABOVE_PX;
                     return (
                       <text
                         key={`plan-lbl-${idx}`}
                         x={cx}
-                        y={cy + PLAN_LABEL_OFFSET_PX + st}
+                        y={cy - yOff}
                         textAnchor="middle"
-                        dominantBaseline="hanging"
-                        fill={planLabelFill}
+                        dominantBaseline="alphabetic"
+                        fill={PLAN_LABEL_TEXT_FILL}
+                        stroke={labelHaloStroke}
+                        strokeWidth={4}
+                        paintOrder="stroke fill"
                         fontSize={10}
                         fontWeight={600}
+                        style={{ lineHeight: 1 }}
+                        letterSpacing="-0.2px"
                         className="tabular-nums pointer-events-none"
                       >
-                        {formatCashflowMillionsLabel(num, false)}
+                        {formatCashflowMillionsLabelTidy(num, false)}
                       </text>
                     );
                   }}

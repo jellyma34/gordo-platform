@@ -37,7 +37,15 @@ import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
-import { SalesPlanExecutionBlock } from "@/components/marketing/SalesPlanExecutionBlock";
+import { SalesPlanExecutionBlock, type InvestorsMacroChartsPayload } from "@/components/marketing/SalesPlanExecutionBlock";
+import {
+  clearMarketingInvestorsCsvLocalStorage,
+  parseMarketingInvestorsCsv,
+  readMarketingInvestorsCsvFromLocalStorage,
+  writeMarketingInvestorsCsvToLocalStorage,
+  type MarketingInvestorsCsvStoredV1,
+} from "@/lib/marketingInvestorsCsv";
+import { readInvestorsCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
@@ -691,6 +699,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const paymentPlanCsvInputRef = useRef<HTMLInputElement>(null);
   const paymentFactCsvInputRef = useRef<HTMLInputElement>(null);
   const salesPlanExecutionCsvInputRef = useRef<HTMLInputElement>(null);
+  const marketingInvestorsCsvInputRef = useRef<HTMLInputElement>(null);
   /** В презентации блок после «Выполнение плана…» свёрнут по умолчанию. */
   const [presAdvancedAnalyticsOpen, setPresAdvancedAnalyticsOpen] = useState(false);
   const [executionDataset, setExecutionDataset] = useState<SalesPlanExecutionDataset>(() => emptySalesPlanExecutionDataset(""));
@@ -699,6 +708,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executionHydrated, setExecutionHydrated] = useState(false);
   const [executionSource, setExecutionSource] = useState<"json" | "csv" | "empty" | null>(null);
+
+  const [investorsMacroCharts, setInvestorsMacroCharts] = useState<InvestorsMacroChartsPayload | null | undefined>(undefined);
+  const [investorsCsvError, setInvestorsCsvError] = useState<string | null>(null);
+  const [investorsCsvWarnings, setInvestorsCsvWarnings] = useState<string[]>([]);
+  const [investorsCsvMeta, setInvestorsCsvMeta] = useState<{ fileName: string; uploadedAt: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1001,6 +1015,22 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     };
   }, [paymentPlanProjectId, report.asOf]);
 
+  useEffect(() => {
+    const doc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
+    if (!doc) {
+      setInvestorsMacroCharts(null);
+      setInvestorsCsvMeta(null);
+      setInvestorsCsvWarnings([]);
+      return;
+    }
+    setInvestorsMacroCharts({
+      planFactChartRows: doc.planFactChartRows,
+      completionChartRows: doc.completionChartRows,
+    });
+    setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
+    setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+  }, [paymentPlanProjectId]);
+
   const onSalesPlanExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1066,6 +1096,49 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       setExecutionError("Не удалось сбросить исполнение плана.");
     }
     if (salesPlanExecutionCsvInputRef.current) salesPlanExecutionCsvInputRef.current.value = "";
+  };
+
+  const onMarketingInvestorsCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setInvestorsCsvError(null);
+    try {
+      const text = await readInvestorsCsvFileAsText(file);
+      const parsed = parseMarketingInvestorsCsv(text);
+      if (!parsed.ok) {
+        setInvestorsCsvError(parsed.error);
+        setInvestorsCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
+        return;
+      }
+      const doc: MarketingInvestorsCsvStoredV1 = {
+        v: 1,
+        updatedAt: new Date().toISOString(),
+        fileName: file.name?.trim() || "investors_verba_april_2026.csv",
+        planFactChartRows: parsed.planFactChartRows,
+        completionChartRows: parsed.completionChartRows,
+        warnings: parsed.warnings,
+      };
+      writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, doc);
+      setInvestorsMacroCharts({
+        planFactChartRows: doc.planFactChartRows,
+        completionChartRows: doc.completionChartRows,
+      });
+      setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
+      setInvestorsCsvWarnings(doc.warnings);
+    } catch {
+      setInvestorsCsvError("Не удалось прочитать инвесторский CSV.");
+    }
+    if (marketingInvestorsCsvInputRef.current) marketingInvestorsCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingInvestorsCsv = () => {
+    setInvestorsCsvError(null);
+    clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
+    setInvestorsMacroCharts(null);
+    setInvestorsCsvMeta(null);
+    setInvestorsCsvWarnings([]);
+    if (marketingInvestorsCsvInputRef.current) marketingInvestorsCsvInputRef.current.value = "";
   };
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
@@ -2521,6 +2594,59 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={marketingInvestorsCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingInvestorsCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/25"
+                    : "rounded-md border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-500/15"
+                }
+                onClick={() => marketingInvestorsCsvInputRef.current?.click()}
+              >
+                Загрузить инвесторский CSV
+              </button>
+              {investorsCsvMeta ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={clearMarketingInvestorsCsv}
+                >
+                  Сбросить инвесторский CSV
+                </button>
+              ) : null}
+            </div>
+            {investorsCsvError ? <p className="text-xs font-medium text-rose-600">{investorsCsvError}</p> : null}
+            {investorsCsvWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {investorsCsvWarnings.map((w, i) => (
+                  <li key={`inv-${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            {investorsCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Инвесторский CSV: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{investorsCsvMeta.fileName}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">{new Date(investorsCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> · ключ </span>
+                <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+                  marketingInvestorsCsv
+                </code>
+              </div>
+            ) : null}
             {executionError ? (
               <p className="text-xs font-medium text-rose-600">{executionError}</p>
             ) : null}
@@ -2647,6 +2773,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           showDetailTable={!presentation && mode === "view"}
           dataset={executionDataset}
           monthlyPlanVsFact={monthlyPlanVsFactChart}
+          investorsMacroCharts={investorsMacroCharts}
         />
       </>
 

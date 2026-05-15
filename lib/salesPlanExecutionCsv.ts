@@ -552,7 +552,7 @@ function pickCell(
   return "";
 }
 
-function resolveCategoryId(raw: string): SalesPlanExecutionRowId | null {
+export function resolveCategoryId(raw: string): SalesPlanExecutionRowId | null {
   const key = normalizeHeaderKey(raw).replace(/_/g, "");
 
   if (!key) return null;
@@ -1004,6 +1004,17 @@ function assignColumns(labels: string[]): ColumnMapping {
   }
 
   return mapping;
+}
+
+export type SalesPlanExecutionColumnMapping = Partial<Record<SalesPlanColumnSlot, number>>;
+
+/** Сопоставление подписей колонок Verba/Excel со слотами исполнения плана (investors CSV и др.). */
+export function buildSalesPlanExecutionColumnMapping(labels: string[]): SalesPlanExecutionColumnMapping {
+  return assignColumns(labels);
+}
+
+export function salesPlanExecutionColumnMappingQuality(m: SalesPlanExecutionColumnMapping): number {
+  return mappingQuality(m as ColumnMapping);
 }
 
 function mappingQuality(m: ColumnMapping): number {

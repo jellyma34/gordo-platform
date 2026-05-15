@@ -132,6 +132,16 @@ export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): s
   return `${sign}${mln.toLocaleString("ru-RU", opts)}${rub}`;
 }
 
+/**
+ * Как {@link formatCashflowMillionsLabel}, но без хвоста «,0» у дробной части (`50,0` → `50`).
+ */
+export function formatCashflowMillionsLabelTidy(n: number, withRubSuffix = false): string {
+  const s = formatCashflowMillionsLabel(n, withRubSuffix);
+  if (!withRubSuffix) return trimRuDecimalZeros(s);
+  const core = s.replace(/\s*₽\s*$/, "");
+  return `${trimRuDecimalZeros(core)} ₽`;
+}
+
 /** Подписи на графике «Динамика поступлений» (tooltip, отклонение): как {@link formatCashflowMillionsLabel} с « ₽». */
 export function formatCashflowDynamicsChartLabel(n: number): string {
   return formatCashflowMillionsLabel(n, true);
