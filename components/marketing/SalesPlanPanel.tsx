@@ -46,6 +46,14 @@ import {
   writeMarketingInvestorsCsvToLocalStorage,
   type MarketingInvestorsCsvStoredV1,
 } from "@/lib/marketingInvestorsCsv";
+import {
+  clearMarketingUnitsExecutionCsvLocalStorage,
+  parseSalesUnitsExecutionCsv,
+  readMarketingUnitsExecutionCsvFromLocalStorage,
+  writeMarketingUnitsExecutionCsvToLocalStorage,
+  type MarketingUnitsExecutionStoredV1,
+  type UnitsExecutionChartsPayload,
+} from "@/lib/marketingUnitsExecutionCsv";
 import { readInvestorsCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
@@ -717,6 +725,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     macroChartRowCount: number;
   } | null>(null);
 
+  const unitsCsvInputRef = useRef<HTMLInputElement>(null);
+  const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
+    undefined,
+  );
+  const [unitsCsvError, setUnitsCsvError] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const applyServerPlan = (plan: MarketingPaymentPlanFileV2 | null | undefined) => {
@@ -1055,6 +1069,19 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
   }, [paymentPlanProjectId]);
 
+  useEffect(() => {
+    const doc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
+    if (!doc) {
+      setUnitsExecutionCharts(null);
+      return;
+    }
+    setUnitsExecutionCharts({
+      reportDateYmd: doc.reportDateYmd,
+      segments: doc.segments,
+      totals: doc.totals,
+    });
+  }, [paymentPlanProjectId]);
+
   const onSalesPlanExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1165,6 +1192,46 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       setInvestorsCsvError("Не удалось прочитать инвесторский CSV.");
     }
     if (marketingInvestorsCsvInputRef.current) marketingInvestorsCsvInputRef.current.value = "";
+  };
+
+  const onMarketingUnitsExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUnitsCsvError(null);
+    try {
+      const text = await file.text();
+      const parsed = parseSalesUnitsExecutionCsv(text);
+      if (!parsed.ok) {
+        setUnitsCsvError(parsed.error);
+        return;
+      }
+      const doc: MarketingUnitsExecutionStoredV1 = {
+        v: 1,
+        updatedAt: new Date().toISOString(),
+        fileName: file.name?.trim() || "штуки_Продажи.csv",
+        reportDateYmd: parsed.reportDateYmd,
+        segments: parsed.segments,
+        totals: parsed.totals,
+        warnings: parsed.warnings,
+      };
+      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
+      setUnitsExecutionCharts({
+        reportDateYmd: doc.reportDateYmd,
+        segments: doc.segments,
+        totals: doc.totals,
+      });
+    } catch {
+      setUnitsCsvError("Не удалось прочитать CSV.");
+    }
+    if (unitsCsvInputRef.current) unitsCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingUnitsExecutionCsv = () => {
+    setUnitsCsvError(null);
+    clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
+    setUnitsExecutionCharts(null);
+    if (unitsCsvInputRef.current) unitsCsvInputRef.current.value = "";
   };
 
   const clearMarketingInvestorsCsv = () => {
@@ -2662,7 +2729,41 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={unitsCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingUnitsExecutionCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-500/25"
+                    : "rounded-md border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-500/15"
+                }
+                onClick={() => unitsCsvInputRef.current?.click()}
+              >
+                Загрузить исполнение в штуках (CSV)
+              </button>
+              {unitsExecutionCharts != null && unitsExecutionCharts.segments.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={clearMarketingUnitsExecutionCsv}
+                >
+                  Сбросить исполнение в штуках
+                </button>
+              ) : null}
+            </div>
             {investorsCsvError ? <p className="text-xs font-medium text-rose-600">{investorsCsvError}</p> : null}
+            {unitsCsvError ? <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p> : null}
             {investorsCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {investorsCsvWarnings.map((w, i) => (
@@ -2815,6 +2916,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           dataset={executionDataset}
           monthlyPlanVsFact={monthlyPlanVsFactChart}
           investorsMacroCharts={investorsMacroCharts}
+          unitsExecutionCharts={unitsExecutionCharts}
         />
       </>
 

@@ -27,6 +27,8 @@ import {
   type InvestorsCompletionChartRow,
   type InvestorsPlanFactChartRow,
 } from "@/lib/marketingInvestorsCsv";
+import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
+import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import { toNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
@@ -65,6 +67,8 @@ type Props = {
    * `undefined` — гидратация localStorage; `null` — файл не загружен; объект — данные (могут быть пустыми).
    */
   investorsMacroCharts?: InvestorsMacroChartsPayload | null;
+  /** Исполнение в штуках — отдельный CSV (localStorage), не Verba / investors / plan_fact. */
+  unitsExecutionCharts?: UnitsExecutionChartsPayload | null;
 };
 
 export function SalesPlanExecutionBlock({
@@ -75,6 +79,7 @@ export function SalesPlanExecutionBlock({
   dataset,
   monthlyPlanVsFact,
   investorsMacroCharts,
+  unitsExecutionCharts,
 }: Props) {
   const data = dataset;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
@@ -122,15 +127,6 @@ export function SalesPlanExecutionBlock({
     ? "min-w-0 overflow-x-auto rounded-xl border border-white/10 bg-slate-900/25"
     : "min-w-0 overflow-x-auto rounded-xl border border-slate-200/70 bg-white/50 shadow-inner shadow-slate-200/30";
 
-  console.log("[SalesPlanExecutionBlock props]", {
-    investorsMacroCharts,
-    hydrate: investorsMacroCharts === undefined ? "pending" : investorsMacroCharts === null ? "none" : "ready",
-    planLen: investorsMacroCharts?.planFactChartRows?.length,
-    completionLen: investorsMacroCharts?.completionChartRows?.length,
-  });
-  console.log("[planFactChartRows FINAL]", investorsMacroCharts?.planFactChartRows);
-  console.log("[completionChartRows FINAL]", investorsMacroCharts?.completionChartRows);
-
   return (
     <section className={shell} aria-labelledby="sales-plan-exec-heading">
       <div className="mb-2 flex flex-col gap-1 sm:mb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
@@ -169,6 +165,13 @@ export function SalesPlanExecutionBlock({
             mplPremium={mplPremium}
           />
         </div>
+
+        <SalesUnitsExecutionSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          data={unitsExecutionCharts}
+        />
       </div>
 
       {showDetailTable ? (
