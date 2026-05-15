@@ -22,7 +22,10 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
-import type { XAxisTickContentProps } from "recharts";
+import {
+  createMarketingDealsStyleMonthTickRenderer,
+  MARKETING_DEALS_STYLE_MONTH_X_AXIS,
+} from "@/components/marketing/marketingDealsStyleMonthXAxis";
 
 type SegmentCardSkin = {
   dark: string;
@@ -163,37 +166,15 @@ function SegmentMonthBarChart({
   const axisColor = presDark ? "#94a3b8" : "#a1a7b3";
   const categoryGap = infographicMode ? (n <= 6 ? "18%" : n <= 10 ? "22%" : "28%") : n <= 6 ? "16%" : n <= 10 ? "20%" : "26%";
   const lastI = n - 1;
-  /** Тик месяца: полный контроль SVG — Recharts 3 иначе может оборачивать tick в rotate(-90). */
-  const renderMonthTick = (props: XAxisTickContentProps) => {
-    const { x, y, payload, index } = props;
-    const row = rows[index];
-    const muted = row?.reportingTail === true;
-    const fill = muted
-      ? presDark
-        ? "rgba(148,163,184,0.4)"
-        : "rgba(148,163,184,0.42)"
-      : axisColor;
-    const fs = n > 14 ? 8.5 : 9.5;
-    const v = payload?.value;
-    const label = v == null ? "" : String(v);
-    const xf = typeof x === "number" ? x : Number(x);
-    const yf = typeof y === "number" ? y : Number(y);
-    return (
-      <g transform={`translate(${xf},${yf})`}>
-        <text
-          x={0}
-          y={0}
-          fill={fill}
-          fontSize={fs}
-          textAnchor="end"
-          dominantBaseline="central"
-          transform="rotate(-45)"
-        >
-          {label}
-        </text>
-      </g>
-    );
-  };
+  const renderMonthTick = useMemo(
+    () =>
+      createMarketingDealsStyleMonthTickRenderer({
+        presDark,
+        tickCount: n,
+        isTickMuted: (i) => rows[i]?.reportingTail === true,
+      }),
+    [presDark, n, rows],
+  );
 
   return (
     <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}>
@@ -211,17 +192,7 @@ function SegmentMonthBarChart({
             barGap={infographicMode ? 3 : 2}
           >
             <CartesianGrid strokeDasharray="4 10" stroke={gridStroke} vertical={false} />
-            <XAxis
-              dataKey="labelShort"
-              tick={renderMonthTick}
-              axisLine={false}
-              tickLine={false}
-              interval={0}
-              angle={0}
-              textAnchor="end"
-              tickMargin={10}
-              height={62}
-            />
+            <XAxis dataKey="labelShort" tick={renderMonthTick} {...MARKETING_DEALS_STYLE_MONTH_X_AXIS} />
             <YAxis
               domain={[0, yMax]}
               tick={{ fill: axisColor, fontSize: 10 }}

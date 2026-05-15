@@ -18,8 +18,12 @@ import {
 } from "@/components/charting/rechartsClient";
 import { periodKeyToRuChartLabel, type CashflowChartRow } from "@/lib/buildCashflowSeries";
 import { cashflowInflowFactLineProps, cashflowInflowPlanLineProps } from "@/lib/cashflowInflowChartSeries";
-import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
+import {
+  createMarketingDealsStyleMonthTickRenderer,
+  MARKETING_DEALS_STYLE_MONTH_X_AXIS,
+} from "@/components/marketing/marketingDealsStyleMonthXAxis";
 import type { SalesPlanExecutionMonthlyPoint } from "@/lib/marketingSalesPlanExecutionTable";
+import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { cashflowYAxisScale, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
 
 /** Согласовано с `SalesPlanCashflowDynamicsChart` (помесячный режим + подписи). */
@@ -59,6 +63,15 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
     return cashflowYAxisScale(vals);
   }, [chartData]);
 
+  const presentationMonthXTick = useMemo(
+    () =>
+      createMarketingDealsStyleMonthTickRenderer({
+        presDark,
+        tickCount: Math.max(1, chartData.length),
+      }),
+    [presDark, chartData.length],
+  );
+
   if (chartData.length === 0) return null;
 
   const shell =
@@ -91,13 +104,14 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
         </div>
       </div>
 
-      <div className="min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-3 pb-4">
-        <div className="h-[320px] min-h-[320px] w-full overflow-visible [&_svg]:overflow-visible">
+      <div className="min-h-[300px] min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-3 pb-4">
+        <div className="h-[320px] min-h-[300px] w-full min-w-0 overflow-visible [&_svg]:overflow-visible">
           <ResponsiveContainer
             width="100%"
             height="100%"
+            minHeight={300}
             className="!overflow-visible [&_svg]:overflow-visible"
-            style={{ overflow: "visible" }}
+            style={{ overflow: "visible", minHeight: 300 }}
           >
             <LineChart
               data={chartData}
@@ -112,14 +126,18 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
               <XAxis
                 dataKey="label"
                 type="category"
-                tick={{ fill: axisColor, fontSize: 10 }}
-                axisLine={{ stroke: gridStroke }}
-                tickLine={false}
-                angle={-90}
-                textAnchor="end"
-                tickMargin={12}
-                interval={0}
-                minTickGap={5}
+                {...(presentation
+                  ? { ...MARKETING_DEALS_STYLE_MONTH_X_AXIS, tick: presentationMonthXTick }
+                  : {
+                      tick: { fill: axisColor, fontSize: 10 },
+                      axisLine: { stroke: gridStroke },
+                      tickLine: false,
+                      angle: -90,
+                      textAnchor: "end" as const,
+                      tickMargin: 12,
+                      interval: 0,
+                      minTickGap: 5,
+                    })}
               />
               <YAxis
                 domain={[0, domainMax]}
