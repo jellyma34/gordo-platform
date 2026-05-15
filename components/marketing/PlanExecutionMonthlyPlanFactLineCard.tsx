@@ -208,12 +208,16 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
         >
           План vs факт
         </h3>
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <p
-            className={`text-[11px] leading-snug ${presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"}`}
-          >
-            План и факт из одного файла plan_fact.csv (колонки «План продаж ЗМП» и «Сумма поступлений факт»). Линии как в «Динамика поступлений».
-          </p>
+        <div
+          className={`flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3 ${presentation ? "sm:justify-end" : "sm:justify-between"}`}
+        >
+          {!presentation ? (
+            <p
+              className={`text-[11px] leading-snug ${presDark ? "text-slate-400" : "text-slate-500"}`}
+            >
+              План и факт из одного файла plan_fact.csv (колонки «План продаж ЗМП» и «Сумма поступлений факт»). Линии как в «Динамика поступлений».
+            </p>
+          ) : null}
           <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
         </div>
       </div>
