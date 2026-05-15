@@ -138,7 +138,7 @@ function normalizeHeader(s: string): string {
   return x.replace(/\s+/g, " ").trim();
 }
 
-/** Разделитель: приоритет как в Excel-экспорте — `;`, иначе таб, иначе запятая. */
+/** Разделитель: для Excel RU приоритет `;` (если в файле есть точка с запятой — всегда она, не `,`). */
 function detectDelimiter(raw: string): ";" | "\t" | "," {
   const s = stripBomStart(raw);
   if (s.includes(";")) return ";";
@@ -178,34 +178,45 @@ function unwrapCsvCell(raw: string | undefined | null): string {
     .trim();
 }
 
-/** Групповой заголовок «Количество, штук» — не смешивать с подписями второй строки (данные идут по sub-columns). */
-function isQuantityPiecesGroupHeader(cell: string): boolean {
-  const n = normalizeHeader(cell);
-  return n.includes("количество") && n.includes("штук");
+/** Строка первичного заголовка: в любой ячейке после нормализации есть «наименование». */
+function rowHasNameColumnHeader(row: string[]): boolean {
+  return row.some((cell) => {
+    const h = normalizeHeader(cell);
+    return h.includes("наимен") || h.includes("наименование");
+  });
+}
+
+/** Резерв: вся строка (с заменой разделителей на пробел) — если split дал сбой при неверном delim. */
+function lineLooksLikePrimaryHeader(line: string): boolean {
+  const h = normalizeHeader(line.replace(/[;\t]/g, " "));
+  return h.includes("наимен") || h.includes("наименование");
 }
 
 function findPrimaryHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
   for (let i = 0; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
-    for (const cell of row) {
-      const h = normalizeHeader(cell);
-      if (h.includes("наимен") || h.includes("наименование")) return i;
-    }
+    if (rowHasNameColumnHeader(row)) return i;
+    if (lineLooksLikePrimaryHeader(lines[i] ?? "")) return i;
   }
   return -1;
 }
 
-/** Вторая строка заголовка: есть «План», «Факт» или «%» в подписях колонок. */
+/**
+ * Вторая строка заголовка: предпочтительно строка с «План» / «Факт» / «%»;
+ * иначе первая непустая после первичной (двухуровневый Excel).
+ */
 function findSecondaryHeaderRowIndex(lines: string[], primaryIdx: number, delim: ";" | "\t" | ","): number {
+  let firstNonEmpty = -1;
   for (let i = primaryIdx + 1; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
+    if (firstNonEmpty < 0) firstNonEmpty = i;
     for (const cell of row) {
       const h = normalizeHeader(cell);
       if (h.includes("план") || h.includes("факт") || h.includes("%")) return i;
     }
   }
-  return -1;
+  return firstNonEmpty;
 }
 
 /** Подпись группы из первой строки заголовка: пустые ячейки наследуют последнюю непустую слева. */
@@ -223,8 +234,9 @@ function forwardFillPrimaryGroupLabels(primary: string[], targetLen: number): st
 }
 
 /**
- * Карта колонок: вторая строка заголовка — основная (План / Факт / %).
- * Первая строка — только для пустых sub-ячеек (напр. «Наименование»); «Количество, штук» не смешивается с метриками.
+ * Слияние двухуровневого заголовка Excel: для каждой колонки
+ * «группа (forward-fill из primary)» + «подпись secondary».
+ * Пример: «Количество, штук» + «План накопит. итогом» → одна метка для colMap.
  */
 function buildMergedHeaderLabels(primary: string[], secondary: string[]): string[] {
   const n = Math.max(primary.length, secondary.length);
@@ -233,14 +245,10 @@ function buildMergedHeaderLabels(primary: string[], secondary: string[]): string
   while (sec.length < n) sec.push("");
   const merged: string[] = [];
   for (let i = 0; i < n; i++) {
+    const p = preprocessCell(primFilled[i] ?? "");
     const s = preprocessCell(sec[i] ?? "");
-    if (s) {
-      merged.push(normalizeHeader(s));
-      continue;
-    }
-    let p = preprocessCell(primFilled[i] ?? "");
-    if (isQuantityPiecesGroupHeader(p)) p = "";
-    merged.push(normalizeHeader(p));
+    const combined = [p, s].filter((x) => x !== "").join(" ");
+    merged.push(normalizeHeader(combined));
   }
   return merged;
 }
@@ -452,7 +460,13 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     deviation: col.deviation,
     share: col.shareVol,
   };
-  console.table({ primaryHeader, secondaryHeader, mergedHeaders, colMap });
+  console.table({
+    headerRowIndex: primaryIdx,
+    primaryHeader,
+    secondaryHeader,
+    mergedHeaders,
+  });
+  console.log("UNITS CSV colMap", colMap);
 
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
   const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
