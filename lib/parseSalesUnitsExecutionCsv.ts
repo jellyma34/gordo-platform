@@ -68,6 +68,15 @@ function normCell(s: string): string {
     .trim();
 }
 
+/** Заголовок для сопоставления колонок: lower, без *, NBSP→пробел, схлопывание пробелов. */
+function normHeaderForUnitsMap(s: string): string {
+  return normCell(s)
+    .replace(/\*/g, "")
+    .replace(/[\u00a0\u202f\u2009]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** «88,2%», «1 234», «34» → число */
 export function normalizeUnitCell(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -97,7 +106,7 @@ function findHeaderRowIndex(lines: string[]): number {
 
 function pickCol(headers: string[], predicate: (n: string) => boolean): number | null {
   for (let i = 0; i < headers.length; i++) {
-    const n = normCell(headers[i] ?? "");
+    const n = normHeaderForUnitsMap(headers[i] ?? "");
     if (!n) continue;
     if (predicate(n)) return i;
   }
@@ -106,7 +115,6 @@ function pickCol(headers: string[], predicate: (n: string) => boolean): number |
 
 function buildColumnIndices(headers: string[]): {
   nameCol: number;
-  planProject: number | null;
   planCumulative: number | null;
   factCumulative: number | null;
   deviation: number | null;
@@ -116,31 +124,70 @@ function buildColumnIndices(headers: string[]): {
   const nameCol = pickCol(headers, (n) => n.includes("наименован"));
   if (nameCol == null) return null;
 
-  const planProject = pickCol(headers, (n) => n.includes("план") && n.includes("проект"));
-  const planCumulative = pickCol(
+  /** План в штуках: «план накопит…»; fallback — план+накопит без % / выполн / проект. */
+  let planCumulative = pickCol(
     headers,
-    (n) => n.includes("план") && (n.includes("накопит") || n.includes("накоп")) && (n.includes("итог") || n.includes("итогом")),
+    (n) =>
+      n.includes("план накопит") &&
+      !n.includes("%") &&
+      !n.includes("выполн") &&
+      !n.includes("проект"),
   );
+  if (planCumulative == null) {
+    planCumulative = pickCol(
+      headers,
+      (n) =>
+        n.includes("план") &&
+        (n.includes("накопит") || n.includes("накоп")) &&
+        !n.includes("%") &&
+        !n.includes("выполн") &&
+        !n.includes("проект"),
+    );
+  }
+
+  /** Факт в штуках: «Факт … накоп…» без %; предпочтительно ДДУ / заключённые. */
   const factCumulativeStrict = pickCol(
     headers,
     (n) =>
       n.includes("факт") &&
       (n.includes("накопит") || n.includes("накоп")) &&
-      (n.includes("дду") || n.includes("заключ") || n.includes("договор")),
+      (n.includes("дду") || n.includes("заключ")) &&
+      !n.includes("%"),
   );
   const factCumulative =
     factCumulativeStrict ??
-    pickCol(headers, (n) => n.includes("факт") && (n.includes("накопит") || n.includes("накоп")));
-  const deviation = pickCol(headers, (n) => (n.includes("откл") || n.includes("отклон")) && (n.includes("накопит") || n.includes("накоп")));
+    pickCol(
+      headers,
+      (n) => n.includes("факт") && (n.includes("накопит") || n.includes("накоп")) && !n.includes("%"),
+    );
+
+  /** «% выполнения накопительно», не «от общего объёма». */
   const completionPct = pickCol(
     headers,
-    (n) => n.includes("%") && n.includes("выполн") && (n.includes("накопит") || n.includes("накоп")),
+    (n) =>
+      n.includes("%") &&
+      n.includes("выполн") &&
+      (n.includes("накопит") || n.includes("накоп")) &&
+      !n.includes("общего") &&
+      !n.includes("объем") &&
+      !n.includes("объём"),
   );
-  const shareVol = pickCol(headers, (n) => n.includes("%") && (n.includes("общего") || n.includes("объем") || n.includes("объём")));
+
+  const deviation = pickCol(
+    headers,
+    (n) =>
+      (n.includes("откл") || n.includes("отклон")) &&
+      (n.includes("накопит") || n.includes("накоп")) &&
+      !n.includes("%"),
+  );
+  const shareVol = pickCol(
+    headers,
+    (n) => n.includes("%") && (n.includes("общего") || n.includes("объем") || n.includes("объём")),
+  );
 
   if (planCumulative == null || factCumulative == null) return null;
 
-  return { nameCol, planProject, planCumulative, factCumulative, deviation, completionPct, shareVol };
+  return { nameCol, planCumulative, factCumulative, deviation, completionPct, shareVol };
 }
 
 function shouldSkipName(nameNorm: string): boolean {
@@ -228,7 +275,18 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     return { ok: false, error: "Не найдены колонки план/факт (накопительно).", warnings };
   }
 
+  const colMap = {
+    name: nameCol,
+    plan: planCumIdx,
+    fact: factCumIdx,
+    completion: col.completionPct,
+    deviation: col.deviation,
+    share: col.shareVol,
+  };
+  console.log("UNITS CSV colMap", colMap);
+
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
+  const parsedRows: { segment: string; plan: number; fact: number; completion: number }[] = [];
 
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "");
@@ -241,7 +299,7 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     const segKey = matchSegment(nameNorm);
     if (!segKey) continue;
 
-    const planProject = col.planProject != null ? normalizeUnitCell(row[col.planProject]) : 0;
+    const planProject = 0;
     const planCumulative = normalizeUnitCell(row[planCumIdx] ?? "");
     const factCumulative = normalizeUnitCell(row[factCumIdx] ?? "");
     const deviationCumulative =
@@ -251,6 +309,12 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
 
     const label = SEGMENT_ORDER.find((s) => s.key === segKey)?.label ?? nameRaw;
 
+    parsedRows.push({
+      segment: label,
+      plan: planCumulative,
+      fact: factCumulative,
+      completion: completionPct,
+    });
     byKey.set(segKey, {
       key: segKey,
       segment: label,
@@ -262,6 +326,8 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
       shareOfVolumePct,
     });
   }
+
+  console.table(parsedRows);
 
   const segments: UnitsExecutionSegmentRow[] = [];
   for (const { key, label } of SEGMENT_ORDER) {
