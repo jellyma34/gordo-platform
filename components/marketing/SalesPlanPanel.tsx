@@ -54,7 +54,7 @@ import {
   type MarketingUnitsExecutionStoredV1,
   type UnitsExecutionChartsPayload,
 } from "@/lib/marketingUnitsExecutionCsv";
-import { readInvestorsCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
+import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
@@ -1200,7 +1200,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     if (!file) return;
     setUnitsCsvError(null);
     try {
-      const text = await file.text();
+      const text = await readMarketingCsvFileAsText(file);
+      const firstLine = text.split(/\r?\n/)[0] ?? "";
+      console.log("[units CSV] first line", firstLine);
       const parsed = parseSalesUnitsExecutionCsv(text);
       if (!parsed.ok) {
         setUnitsCsvError(parsed.error);

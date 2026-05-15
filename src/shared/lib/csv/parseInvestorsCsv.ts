@@ -1,37 +1,81 @@
 /**
- * Инвесторский CSV: декодирование (UTF-8 vs Windows-1251) и распознавание строки заголовка.
+ * CSV из Excel (RU): UTF-8 или Windows-1251 / cp1251 и распознавание строки заголовка (инвесторский и др. модули).
  */
-
-const REPLACEMENT_CHAR = "\uFFFD";
 
 function stripLeadingBom(s: string): string {
   if (s.charCodeAt(0) === 0xfeff) return s.slice(1);
   return s.replace(/^\uFEFF/, "");
 }
 
-/**
- * Декодирует бинарный CSV: сначала UTF-8; при большом числе символов замены — Windows-1251.
- */
-export function decodeInvestorsCsvArrayBuffer(buffer: ArrayBuffer): string {
-  try {
-    let raw = new TextDecoder("utf-8").decode(buffer);
-    raw = stripLeadingBom(raw);
-    const brokenCount = (raw.match(new RegExp(REPLACEMENT_CHAR, "g")) || []).length;
-    if (brokenCount > 10) {
-      raw = new TextDecoder("windows-1251").decode(buffer);
-      raw = stripLeadingBom(raw);
-    }
-    return raw;
-  } catch {
-    let raw = new TextDecoder("windows-1251").decode(buffer);
-    raw = stripLeadingBom(raw);
-    return raw;
+function firstNonEmptyLine(s: string): string {
+  for (const line of s.split(/\r?\n/)) {
+    if (line.replace(/\ufeff/g, "").trim()) return line;
   }
+  return "";
 }
+
+function cyrillicCharCount(s: string): number {
+  return (s.match(/[\u0400-\u04FF]/g) || []).length;
+}
+
+function csvHeaderLooksRussian(line: string): boolean {
+  const n = line.toLowerCase().replace(/ё/g, "е");
+  return (
+    n.includes("наимен") ||
+    n.includes("план") ||
+    n.includes("факт") ||
+    n.includes("количество") ||
+    (n.includes("год") && n.includes("месяц")) ||
+    n.includes("квартир")
+  );
+}
+
+/**
+ * Декодирует бинарный CSV: UTF-8 (в т.ч. с BOM); при невалидном UTF-8 или явном выигрыше cp1251 по кириллице — Windows-1251.
+ */
+export function decodeRuCsvArrayBuffer(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return stripLeadingBom(new TextDecoder("utf-8").decode(buffer));
+  }
+
+  let utf8: string;
+  try {
+    utf8 = stripLeadingBom(new TextDecoder("utf-8", { fatal: true }).decode(buffer));
+  } catch {
+    return stripLeadingBom(new TextDecoder("windows-1251").decode(buffer));
+  }
+
+  const from1251 = stripLeadingBom(new TextDecoder("windows-1251").decode(buffer));
+  const sampleLen = Math.min(utf8.length, 4096);
+  const headU = utf8.slice(0, sampleLen);
+  const headC = from1251.slice(0, sampleLen);
+  const cyU = cyrillicCharCount(headU);
+  const cyC = cyrillicCharCount(headC);
+  const lineU = firstNonEmptyLine(headU);
+  const lineC = firstNonEmptyLine(headC);
+  const nonAsciiU = (headU.match(/[^\x00-\x7F\s;,\t"]/g) || []).length;
+
+  const repl = (headU.match(/\uFFFD/g) || []).length;
+  if (repl > 0) return from1251;
+  if (csvHeaderLooksRussian(lineC) && !csvHeaderLooksRussian(lineU)) return from1251;
+  if (cyC >= 3 && cyU === 0 && nonAsciiU > 0) return from1251;
+  if (cyC >= cyU + 3) return from1251;
+
+  return utf8;
+}
+
+/** @deprecated то же, что {@link decodeRuCsvArrayBuffer}. */
+export const decodeInvestorsCsvArrayBuffer = decodeRuCsvArrayBuffer;
 
 export async function readInvestorsCsvFileAsText(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
-  return decodeInvestorsCsvArrayBuffer(buffer);
+  return decodeRuCsvArrayBuffer(buffer);
+}
+
+export async function readMarketingCsvFileAsText(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  return decodeRuCsvArrayBuffer(buffer);
 }
 
 /**
