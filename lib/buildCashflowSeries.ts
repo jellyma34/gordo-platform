@@ -172,10 +172,37 @@ export type CashflowRowsForChartOptions = {
   factThroughPeriodKey?: string | null;
 };
 
+function planOrFactNonZeroInSource(s: CashflowSeriesRow): boolean {
+  const p = s.planMonth;
+  if (Number.isFinite(p) && Math.abs(p) > 1e-9) return true;
+  const f = s.factMonth;
+  if (f != null && Number.isFinite(f) && Math.abs(f) > 1e-9) return true;
+  return false;
+}
+
+/**
+ * Убирает только **хвостовые** месяцы без плана и без факта в исходных рядах
+ * (нули и отсутствие факта внутри периода не трогаем).
+ */
+export function trimTrailingEmptyCashflowChartRows(
+  chartRows: CashflowChartRow[],
+  sourceRows: readonly CashflowSeriesRow[],
+): CashflowChartRow[] {
+  if (chartRows.length === 0) return chartRows;
+  if (chartRows.length !== sourceRows.length) return chartRows;
+  let last = -1;
+  for (let i = 0; i < sourceRows.length; i++) {
+    if (planOrFactNonZeroInSource(sourceRows[i]!)) last = i;
+  }
+  if (last < 0) return chartRows;
+  return chartRows.slice(0, last + 1);
+}
+
 /**
  * Помесячные точки для графика: `plan` / `fact` — только величины **за месяц**.
  * В режиме «Нарастающим итогом» кумулятив считается здесь **один раз** (сумма помесячных).
  * Факт — полный горизонт `rows`; план для `periodKey` строго после границы отображения — `null`.
+ * Хвостовые месяцы без плана и без факта в исходных рядах обрезаются (помесячный forward-fill факта не продлевает ось).
  */
 export function cashflowRowsForChart(
   rows: CashflowSeriesRow[],
@@ -192,7 +219,7 @@ export function cashflowRowsForChart(
 
   if (mode === "monthly") {
     let lastRawMonthly: number | null = null;
-    return scaled.map((r) => {
+    const monthly = scaled.map((r) => {
       const planFull = r.planMonthScaled;
       const afterPlanEnd = r.periodKey > planDisplayEnd;
       const raw = r.factMonth;
@@ -210,12 +237,13 @@ export function cashflowRowsForChart(
         deviation,
       };
     });
+    return trimTrailingEmptyCashflowChartRows(monthly, rows);
   }
 
   let accPlan = 0;
   let accFact = 0;
   let hadCsvFact = false;
-  return scaled.map((r) => {
+  const cumulative = scaled.map((r) => {
     accPlan += r.planMonthScaled;
     const raw = r.factMonth;
     if (raw != null) {
@@ -234,4 +262,5 @@ export function cashflowRowsForChart(
         afterPlanEnd || factDisplayed == null ? null : factDisplayed - accPlan,
     };
   });
+  return trimTrailingEmptyCashflowChartRows(cumulative, rows);
 }
