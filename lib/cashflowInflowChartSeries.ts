@@ -11,8 +11,8 @@ export const CASHFLOW_INFLOW_FACT = {
 } as const;
 
 export const CASHFLOW_INFLOW_PLAN = {
-  stroke: "#ea580c",
-  strokeWidth: 2,
+  stroke: "#F97316",
+  strokeWidth: 2.35,
   strokeDasharray: "6 4",
   dotR: 3.5,
   activeDotR: 4.5,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
 import {
@@ -22,7 +22,7 @@ import {
   createMarketingDealsStyleMonthTickRenderer,
   MARKETING_DEALS_STYLE_MONTH_X_AXIS,
 } from "@/components/marketing/marketingDealsStyleMonthXAxis";
-import type { SalesPlanExecutionMonthlyPoint } from "@/lib/marketingSalesPlanExecutionTable";
+import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { cashflowYAxisScale, formatCashflowYAxisMlnRub } from "@/lib/salesPlanChartFormat";
 
@@ -34,25 +34,53 @@ const CHART_MARGIN_LEFT = 10;
 const CHART_Y_AXIS_WIDTH = 88;
 
 type Props = {
-  monthlyPlanFact: readonly SalesPlanExecutionMonthlyPoint[] | null | undefined;
+  /** План из CSV исполнения + факт из CSV поступлений; merge в панели. */
+  monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
 };
 
-export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presentation, presDark, mplPremium }: Props) {
+function finiteSeriesRub(n: number | null | undefined): number | null {
+  if (n == null) return null;
+  const x = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(x) || x === Infinity || x === -Infinity) return null;
+  return x;
+}
+
+export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presentation, presDark, mplPremium }: Props) {
   const chartData = useMemo((): CashflowChartRow[] => {
-    const rows = monthlyPlanFact ?? [];
+    const rows = monthlyPlanVsFact ?? [];
     return [...rows]
       .sort((a, b) => a.periodKey.localeCompare(b.periodKey))
-      .map((row) => ({
-        periodKey: row.periodKey,
-        label: periodKeyToRuChartLabel(row.periodKey),
-        plan: row.planRub,
-        fact: row.factRub,
-        deviation: row.factRub - row.planRub,
+      .map((row) => {
+        const plan = finiteSeriesRub(row.planRub);
+        const fact = finiteSeriesRub(row.factRub);
+        const deviation =
+          plan != null && fact != null && Number.isFinite(plan) && Number.isFinite(fact) ? fact - plan : null;
+        return {
+          periodKey: row.periodKey,
+          label: periodKeyToRuChartLabel(row.periodKey),
+          plan,
+          fact,
+          deviation,
+        };
+      });
+  }, [monthlyPlanVsFact]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    const rows = monthlyPlanVsFact ?? [];
+    if (rows.length === 0) return;
+    const datasetMln = [...rows]
+      .sort((a, b) => a.periodKey.localeCompare(b.periodKey))
+      .map((r) => ({
+        month: periodKeyToRuChartLabel(r.periodKey),
+        plan: r.planRub == null ? null : Math.round((finiteSeriesRub(r.planRub)! / 1_000_000) * 1000) / 1000,
+        fact: r.factRub == null ? null : Math.round((finiteSeriesRub(r.factRub)! / 1_000_000) * 1000) / 1000,
       }));
-  }, [monthlyPlanFact]);
+    console.log("[PlanVsFact] merged dataset (млн ₽)", datasetMln, rows);
+  }, [monthlyPlanVsFact]);
 
   const { domainMax, ticks } = useMemo(() => {
     const vals: number[] = [];
@@ -63,7 +91,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
     return cashflowYAxisScale(vals);
   }, [chartData]);
 
-  const presentationMonthXTick = useMemo(
+  const monthXTick = useMemo(
     () =>
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
@@ -98,7 +126,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
           <p
             className={`text-[11px] leading-snug ${presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"}`}
           >
-            Помесячно · те же линии и подписи, что в блоке «Динамика поступлений»
+            План — CSV исполнения плана (Верба); факт — CSV факта поступлений. Линии как в «Динамика поступлений».
           </p>
           <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
         </div>
@@ -111,7 +139,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
             height="100%"
             minHeight={300}
             className="!overflow-visible [&_svg]:overflow-visible"
-            style={{ overflow: "visible", minHeight: 300 }}
+            style={{ overflow: "visible" }}
           >
             <LineChart
               data={chartData}
@@ -126,18 +154,8 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
               <XAxis
                 dataKey="label"
                 type="category"
-                {...(presentation
-                  ? { ...MARKETING_DEALS_STYLE_MONTH_X_AXIS, tick: presentationMonthXTick }
-                  : {
-                      tick: { fill: axisColor, fontSize: 10 },
-                      axisLine: { stroke: gridStroke },
-                      tickLine: false,
-                      angle: -90,
-                      textAnchor: "end" as const,
-                      tickMargin: 12,
-                      interval: 0,
-                      minTickGap: 5,
-                    })}
+                {...MARKETING_DEALS_STYLE_MONTH_X_AXIS}
+                tick={monthXTick}
               />
               <YAxis
                 domain={[0, domainMax]}
@@ -153,8 +171,12 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanFact, presenta
                 content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
                 cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
               />
-              <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
+              {/*
+                При совпадении план/факт по Y синяя линия перекрывает оранжевую, если нарисовать план первым.
+                Сначала факт, затем план.
+              */}
               <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
+              <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
               <CashflowDynamicsSvgLabels
                 chartData={chartData}
                 presDark={presDark}

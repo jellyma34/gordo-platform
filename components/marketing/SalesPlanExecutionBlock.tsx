@@ -16,6 +16,7 @@ import {
 } from "@/components/charting/rechartsClient";
 import { PlanExecutionMonthlyPlanFactLineCard } from "@/components/marketing/PlanExecutionMonthlyPlanFactLineCard";
 import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
+import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
   formatReportDateRu,
   type SalesPlanExecutionDataset,
@@ -61,6 +62,8 @@ type Props = {
   showDetailTable?: boolean;
   /** Данные из CSV/JSON API (без демо в коде) */
   dataset: SalesPlanExecutionDataset;
+  /** Помесячный график: план из CSV исполнения + факт из CSV поступлений (merge в панели). */
+  monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
 };
 
 export function SalesPlanExecutionBlock({
@@ -69,6 +72,7 @@ export function SalesPlanExecutionBlock({
   mplPremium,
   showDetailTable = true,
   dataset,
+  monthlyPlanVsFact,
 }: Props) {
   const data = dataset;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
@@ -167,7 +171,7 @@ export function SalesPlanExecutionBlock({
 
         <div className="min-w-0 w-full max-w-none">
           <PlanExecutionMonthlyPlanFactLineCard
-            monthlyPlanFact={data.monthlyPlanFact}
+            monthlyPlanVsFact={monthlyPlanVsFact}
             presentation={presentation}
             presDark={presDark}
             mplPremium={mplPremium}
@@ -223,7 +227,8 @@ export function SalesPlanExecutionBlock({
           </div>
 
           <p className={`mt-4 text-[10px] leading-snug sm:text-[11px] ${mutedCls}`}>
-            Источник: CSV →{" "}
+            График «План vs факт»: план — из CSV исполнения ниже; факт поступлений — из отдельного CSV факта (блок
+            «Динамика поступлений»). Источник таблицы: CSV →{" "}
             <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
               lib/salesPlanExecutionCsv.ts
             </code>{" "}

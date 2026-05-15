@@ -1,12 +1,14 @@
 import Papa from "papaparse";
 
-import type {
-  SalesPlanExecutionDataset,
-  SalesPlanExecutionMonthlyPoint,
-  SalesPlanExecutionRow,
-  SalesPlanExecutionRowId,
-  SalesPlanExecutionSummary,
+import {
+  emptySalesPlanExecutionDataset,
+  type SalesPlanExecutionDataset,
+  type SalesPlanExecutionMonthlyPoint,
+  type SalesPlanExecutionRow,
+  type SalesPlanExecutionRowId,
+  type SalesPlanExecutionSummary,
 } from "@/lib/marketingSalesPlanExecutionTable";
+import { lastYmdOfPeriodKey, transformSalesExecutionCsv } from "@/lib/transformSalesExecutionCsv";
 
 /** Сырые строки CSV после нормализации заголовков (legacy path). */
 
@@ -2199,45 +2201,57 @@ export function parseSalesPlanExecutionCsv(
     return { ok: false, error: UNRECOGNIZED, warnings };
   }
 
-  const gridDataset = tryParseWithGrid(stripped, reportFallbackYmd, warnings);
+  const wideExec = transformSalesExecutionCsv(stripped);
 
-  if (gridDataset && gridDataset.rows.length > 0) {
-    const verbaMonthly = tryBuildVerbaPrimaryRevenueMonthlyPlanFact(
-      stripped,
-      reportFallbackYmd,
-      warnings,
-    );
-
-    if (verbaMonthly != null && verbaMonthly.length > 0) {
-      const cur = gridDataset.monthlyPlanFact?.length ?? 0;
-
-      if (cur <= 1) gridDataset.monthlyPlanFact = verbaMonthly;
-    }
-
-    return { ok: true, dataset: gridDataset, warnings };
+  if (wideExec?.monthlyRub.length) {
+    warnings.push(...wideExec.warnings);
+    const lastPk = wideExec.monthlyRub[wideExec.monthlyRub.length - 1]!.periodKey;
+    const ds = emptySalesPlanExecutionDataset(lastYmdOfPeriodKey(lastPk));
+    ds.rows = [
+      {
+        id: "total",
+        name: "Итого с расторжениями",
+        planProjectRub: 0,
+        planReportMonthRub: 0,
+        factReportMonthRub: undefined,
+        planCumulativeRub: 0,
+        factCumulativeRub: 0,
+        deviationRub: 0,
+        completionPct: null,
+        shareOfVolumePct: 100,
+        deviationComment: null,
+        isTotal: true,
+      },
+    ];
+    ds.monthlyPlanFact = wideExec.monthlyRub;
+    return { ok: true, dataset: ds, warnings };
   }
 
-  const legacy = tryParseLegacyHeaderMode(
+  const gridDataset = tryParseWithGrid(stripped, reportFallbackYmd, warnings);
+
+  const legacy =
+    gridDataset && gridDataset.rows.length > 0
+      ? null
+      : tryParseLegacyHeaderMode(stripped, reportFallbackYmd, warnings);
+
+  let dataset: SalesPlanExecutionDataset | null =
+    gridDataset && gridDataset.rows.length > 0 ? gridDataset : legacy && legacy.rows.length > 0 ? legacy : null;
+
+  if (!dataset) {
+    return { ok: false, error: UNRECOGNIZED, warnings };
+  }
+
+  const verbaMonthly = tryBuildVerbaPrimaryRevenueMonthlyPlanFact(
     stripped,
     reportFallbackYmd,
     warnings,
   );
 
-  if (legacy && legacy.rows.length > 0) {
-    const verbaMonthly = tryBuildVerbaPrimaryRevenueMonthlyPlanFact(
-      stripped,
-      reportFallbackYmd,
-      warnings,
-    );
+  if (verbaMonthly != null && verbaMonthly.length > 0) {
+    const cur = dataset.monthlyPlanFact?.length ?? 0;
 
-    if (verbaMonthly != null && verbaMonthly.length > 0) {
-      const cur = legacy.monthlyPlanFact?.length ?? 0;
-
-      if (cur <= 1) legacy.monthlyPlanFact = verbaMonthly;
-    }
-
-    return { ok: true, dataset: legacy, warnings };
+    if (cur <= 1) dataset.monthlyPlanFact = verbaMonthly;
   }
 
-  return { ok: false, error: UNRECOGNIZED, warnings };
+  return { ok: true, dataset, warnings };
 }
