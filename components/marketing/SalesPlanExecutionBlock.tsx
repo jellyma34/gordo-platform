@@ -21,7 +21,6 @@ import {
   formatReportDateRu,
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
-  type SalesPlanExecutionRowId,
 } from "@/lib/marketingSalesPlanExecutionTable";
 import type { InvestorsCompletionChartRow, InvestorsPlanFactChartRow } from "@/lib/marketingInvestorsCsv";
 import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
@@ -45,10 +44,6 @@ function completionBarTone(pct: number | null): { track: string; fill: string } 
 function pctText(pct: number | null): string {
   if (pct == null || !Number.isFinite(pct)) return "—";
   return `${dec1Fmt.format(pct)}%`;
-}
-
-function executionRowsById(rows: SalesPlanExecutionRow[]): Map<SalesPlanExecutionRowId, SalesPlanExecutionRow> {
-  return new Map(rows.map((r) => [r.id, r]));
 }
 
 type Props = {
@@ -80,7 +75,9 @@ export function SalesPlanExecutionBlock({
   const data = dataset;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
-  const investorsHydrating = investorsMacroCharts === undefined;
+  /** Только investors CSV для двух верхних bar charts; не путать с `dataset` (execution API). */
+  const investorsCharts = investorsMacroCharts;
+  const investorsHydrating = investorsCharts === undefined;
 
   const shell = presDark
     ? "mb-7 rounded-2xl border border-slate-700/55 bg-[#1e293b] px-5 pb-5 pt-4 shadow-[0_8px_28px_rgba(0,0,0,0.2)] sm:px-6 sm:pb-6 sm:pt-4"
@@ -101,35 +98,20 @@ export function SalesPlanExecutionBlock({
     ? "border-t border-white/10 bg-slate-900/70 font-semibold text-slate-50"
     : "border-t border-slate-200 bg-slate-100/80 font-semibold text-slate-900";
 
-  const byRowId = useMemo(() => executionRowsById(data.rows), [data.rows]);
+  const investorsPlanFactChartData = useMemo((): { key: string; name: string; plan: number; fact: number }[] => {
+    if (investorsHydrating || investorsCharts == null) return [];
+    return investorsCharts.planFactChartRows.map((r) => ({
+      key: r.key,
+      name: r.name,
+      plan: parseRuNumber(r.plan as unknown),
+      fact: parseRuNumber(r.fact as unknown),
+    }));
+  }, [investorsHydrating, investorsCharts]);
 
-  const planFactChartRows = useMemo(() => {
-    if (investorsHydrating) return [];
-    if (investorsMacroCharts == null) return [];
-    return investorsMacroCharts.planFactChartRows;
-  }, [investorsHydrating, investorsMacroCharts]);
-
-  const completionChartRows = useMemo(() => {
-    if (investorsHydrating) return [];
-    if (investorsMacroCharts == null) return [];
-    return investorsMacroCharts.completionChartRows;
-  }, [investorsHydrating, investorsMacroCharts]);
-
-  /** Recharts ожидает числа; после JSON из localStorage поля могут прийти строками. */
-  const planFactChartData = useMemo(
-    () =>
-      planFactChartRows.map((r) => ({
-        key: r.key,
-        name: r.name,
-        plan: parseRuNumber(r.plan as unknown),
-        fact: parseRuNumber(r.fact as unknown),
-      })),
-    [planFactChartRows],
-  );
-
-  const completionChartData = useMemo(
-    () =>
-      completionChartRows.map((r) => {
+  const investorsCompletionChartData = useMemo(
+    () => {
+      if (investorsHydrating || investorsCharts == null) return [];
+      return investorsCharts.completionChartRows.map((r) => {
         const pctNum =
           r.pct == null || !Number.isFinite(Number(r.pct)) ? null : Math.max(0, Number(r.pct));
         const barLen = pctNum == null ? 0 : Math.min(108, pctNum);
@@ -137,33 +119,34 @@ export function SalesPlanExecutionBlock({
           ...r,
           pct: pctNum,
           barLen,
-          /** Длина столбца по шкале 0–108 (как %); для Recharts используем `barLen`. */
+          /** Длина столбца по шкале 0–108; `Bar` использует `completion` (= barLen). */
           completion: barLen,
         };
-      }),
-    [completionChartRows],
+      });
+    },
+    [investorsHydrating, investorsCharts],
   );
 
-  /** Источник истины — payload из investors CSV, не executionDataset. */
+  /** Пусто ли по investors CSV (не по executionDataset). */
   const hasInvestorsMacroChartRows = useMemo(() => {
-    if (investorsHydrating || investorsMacroCharts == null) return false;
-    const pf = investorsMacroCharts.planFactChartRows?.length ?? 0;
-    const cc = investorsMacroCharts.completionChartRows?.length ?? 0;
+    if (investorsHydrating || investorsCharts == null) return false;
+    const pf = investorsCharts.planFactChartRows?.length ?? 0;
+    const cc = investorsCharts.completionChartRows?.length ?? 0;
     return pf > 0 || cc > 0;
-  }, [investorsHydrating, investorsMacroCharts]);
+  }, [investorsHydrating, investorsCharts]);
 
-  const investorsMissing = !investorsHydrating && investorsMacroCharts == null;
+  const investorsMissing = !investorsHydrating && investorsCharts == null;
   const investorsEmptyFile =
-    !investorsHydrating && investorsMacroCharts != null && !hasInvestorsMacroChartRows;
+    !investorsHydrating && investorsCharts != null && !hasInvestorsMacroChartRows;
 
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
-    for (const row of planFactChartData) {
+    for (const row of investorsPlanFactChartData) {
       m = Math.max(m, row.plan, row.fact);
     }
     if (m <= 0) return [0, 1];
     return [0, m * 1.08];
-  }, [planFactChartData]);
+  }, [investorsPlanFactChartData]);
 
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -173,11 +156,9 @@ export function SalesPlanExecutionBlock({
     ? "min-w-0 overflow-x-auto rounded-xl border border-white/10 bg-slate-900/25"
     : "min-w-0 overflow-x-auto rounded-xl border border-slate-200/70 bg-white/50 shadow-inner shadow-slate-200/30";
 
+  console.log("investorsMacroCharts", investorsMacroCharts);
   console.log("planFactChartRows", investorsMacroCharts?.planFactChartRows);
   console.log("completionChartRows", investorsMacroCharts?.completionChartRows);
-  if (planFactChartData[0]) {
-    console.log("[SalesPlanExecutionBlock] typeof plan/fact", typeof planFactChartData[0].plan, typeof planFactChartData[0].fact);
-  }
 
   return (
     <section className={shell} aria-labelledby="sales-plan-exec-heading">
@@ -197,8 +178,8 @@ export function SalesPlanExecutionBlock({
           presentation={presentation}
           mplPremium={mplPremium}
           mutedCls={mutedCls}
-          planFactChartRows={planFactChartData}
-          completionChartRows={completionChartData}
+          investorsPlanFactRows={investorsPlanFactChartData}
+          investorsCompletionRows={investorsCompletionChartData}
           planFactYDomain={planFactYDomain}
           macroChartPlaceholder={
             investorsHydrating
@@ -292,8 +273,8 @@ function ExecutionMacroChartsBlock({
   presentation,
   mplPremium,
   mutedCls,
-  planFactChartRows,
-  completionChartRows,
+  investorsPlanFactRows,
+  investorsCompletionRows,
   planFactYDomain,
   macroChartPlaceholder,
 }: {
@@ -301,8 +282,10 @@ function ExecutionMacroChartsBlock({
   presentation: boolean;
   mplPremium: boolean;
   mutedCls: string;
-  planFactChartRows: { key: string; name: string; plan: number; fact: number }[];
-  completionChartRows: { key: string; name: string; pct: number | null; barLen: number; completion: number; label: string; fill: string }[];
+  /** Только из investors CSV (`investorsMacroCharts.planFactChartRows`). */
+  investorsPlanFactRows: { key: string; name: string; plan: number; fact: number }[];
+  /** Только из investors CSV (`investorsMacroCharts.completionChartRows`). */
+  investorsCompletionRows: { key: string; name: string; pct: number | null; barLen: number; completion: number; label: string; fill: string }[];
   planFactYDomain: [number, number];
   /** Если задано — оба графика показывают это сообщение вместо «Нет данных». */
   macroChartPlaceholder: string | null;
@@ -333,8 +316,9 @@ function ExecutionMacroChartsBlock({
 
   const showPlanFactChart =
     macroChartPlaceholder == null &&
-    planFactChartRows.length > 0;
-  const showCompletionChart = macroChartPlaceholder == null && completionChartRows.length > 0;
+    (investorsPlanFactRows?.length ?? 0) > 0;
+  const showCompletionChart =
+    macroChartPlaceholder == null && (investorsCompletionRows?.length ?? 0) > 0;
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
@@ -353,7 +337,7 @@ function ExecutionMacroChartsBlock({
           ) : (
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <BarChart
-                data={planFactChartRows}
+                data={investorsPlanFactRows}
                 margin={{ top: 10, right: 6, left: 0, bottom: 4 }}
                 barGap={6}
                 barCategoryGap="28%"
@@ -379,7 +363,7 @@ function ExecutionMacroChartsBlock({
                   cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload as (typeof planFactChartRows)[0] | undefined;
+                    const row = payload[0]?.payload as (typeof investorsPlanFactRows)[0] | undefined;
                     if (!row) return null;
                     const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
                     return tooltipFrame(
@@ -438,7 +422,7 @@ function ExecutionMacroChartsBlock({
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <BarChart
                 layout="vertical"
-                data={completionChartRows}
+                data={investorsCompletionRows}
                 margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
                 barCategoryGap={14}
               >
@@ -463,7 +447,7 @@ function ExecutionMacroChartsBlock({
                   cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload as (typeof completionChartRows)[0] | undefined;
+                    const row = payload[0]?.payload as (typeof investorsCompletionRows)[0] | undefined;
                     if (!row) return null;
                     return tooltipFrame(
                       <>
@@ -476,7 +460,7 @@ function ExecutionMacroChartsBlock({
                   }}
                 />
                 <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
-                  {completionChartRows.map((entry) => (
+                  {investorsCompletionRows.map((entry) => (
                     <Cell key={entry.key} fill={entry.fill} />
                   ))}
                   <LabelList
