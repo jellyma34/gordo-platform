@@ -170,10 +170,7 @@ export function SalesPlanExecutionBlock({
       {showDetailTable ? (
         data.rows.length === 0 ? (
           <p className={`mt-4 text-sm ${mutedCls}`}>
-            Нет строк <span className="font-medium">детализации исполнения</span> (CSV Верба / API исполнения). Графики
-            «План vs факт (накопительно)» и «Выполнение %» выше{" "}
-            <span className="font-medium">не зависят</span> от этого файла — они строятся только из{" "}
-            <span className="font-medium">инвесторского CSV</span> (кнопка «Загрузить инвесторский CSV»). Чтобы
+            Нет строк <span className="font-medium">детализации исполнения</span> (CSV Верба / API исполнения). Чтобы
             заполнить таблицу, загрузите CSV в режиме редактирования или положите файл в{" "}
             <code className={`rounded px-1 py-0.5 text-xs ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
               data/marketing-sales-plan-execution/
@@ -262,24 +259,26 @@ function ExecutionMacroChartsBlock({
   mplPremium: boolean;
   mutedCls: string;
   investorsMacroCharts: InvestorsMacroChartsPayload | null | undefined;
-  /** Если задано — оба графика показывают это сообщение вместо «Нет данных». */
+  /** Текст пустого состояния, если нет строк для соответствующего графика (загрузка / нет файла / пустой CSV). */
   macroChartPlaceholder: string | null;
 }) {
-  const investorsCharts = investorsMacroCharts;
-
   const planFactChartRows = useMemo((): InvestorsMacroPlanFactRow[] => {
-    if (investorsCharts == null) return [];
-    return investorsCharts.planFactChartRows.map((r) => ({
+    if (investorsMacroCharts === undefined || investorsMacroCharts === null) return [];
+    const src = investorsMacroCharts.planFactChartRows;
+    if (!Array.isArray(src)) return [];
+    return src.map((r) => ({
       key: r.key,
       name: r.name,
       plan: parseRuNumber(r.plan as unknown),
       fact: parseRuNumber(r.fact as unknown),
     }));
-  }, [investorsCharts]);
+  }, [investorsMacroCharts]);
 
   const completionChartRows = useMemo((): InvestorsMacroCompletionRow[] => {
-    if (investorsCharts == null) return [];
-    return investorsCharts.completionChartRows.map((r) => {
+    if (investorsMacroCharts === undefined || investorsMacroCharts === null) return [];
+    const src = investorsMacroCharts.completionChartRows;
+    if (!Array.isArray(src)) return [];
+    return src.map((r) => {
       const pctNum =
         r.pct == null || !Number.isFinite(Number(r.pct)) ? null : Math.max(0, Number(r.pct));
       const barLen = pctNum == null ? 0 : Math.min(108, pctNum);
@@ -290,7 +289,7 @@ function ExecutionMacroChartsBlock({
         completion: barLen,
       };
     });
-  }, [investorsCharts]);
+  }, [investorsMacroCharts]);
 
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
@@ -301,10 +300,7 @@ function ExecutionMacroChartsBlock({
     return [0, m * 1.08];
   }, [planFactChartRows]);
 
-  console.log("[ExecutionMacroChartsBlock] memo planFactChartRows", planFactChartRows);
-  console.log("[ExecutionMacroChartsBlock] memo completionChartRows", completionChartRows);
-  console.log("[planFactChartRows FINAL]", investorsMacroCharts?.planFactChartRows);
-  console.log("[completionChartRows FINAL]", investorsMacroCharts?.completionChartRows);
+  console.log("[ExecutionMacroChartsBlock render]", { planFactChartRows, completionChartRows });
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
@@ -330,10 +326,9 @@ function ExecutionMacroChartsBlock({
       <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-lg">{body}</div>
     );
 
-  const showPlanFactChart =
-    macroChartPlaceholder == null && (investorsMacroCharts?.planFactChartRows?.length ?? 0) > 0;
-  const showCompletionChart =
-    macroChartPlaceholder == null && (investorsMacroCharts?.completionChartRows?.length ?? 0) > 0;
+  /** Верхние bar charts: только длина данных из investors CSV; не executionDataset и не macroChartPlaceholder. */
+  const showPlanFactChart = planFactChartRows.length > 0;
+  const showCompletionChart = completionChartRows.length > 0;
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
@@ -345,9 +340,9 @@ function ExecutionMacroChartsBlock({
       <div className={chartCard}>
         <div className={chartTitle}>План vs факт (накопительно)</div>
         <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
-          {macroChartPlaceholder != null || !showPlanFactChart ? (
+          {!showPlanFactChart ? (
             <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
-              {macroChartPlaceholder != null ? macroChartPlaceholder : emptyOrPlaceholder}
+              {emptyOrPlaceholder}
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
@@ -429,9 +424,9 @@ function ExecutionMacroChartsBlock({
       <div className={chartCard}>
         <div className={chartTitle}>Выполнение %</div>
         <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
-          {macroChartPlaceholder != null || !showCompletionChart ? (
+          {!showCompletionChart ? (
             <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
-              {macroChartPlaceholder != null ? macroChartPlaceholder : emptyOrPlaceholder}
+              {emptyOrPlaceholder}
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
