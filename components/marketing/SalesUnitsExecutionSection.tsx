@@ -43,14 +43,14 @@ function formatUnits(n: number): string {
 
 export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium, data }: Props) {
   const hydrating = data === undefined;
-  const missing = data === null;
-  const hasData = data != null && data.segments.length > 0;
 
   const reportLabel = data?.reportDateYmd ? formatReportDateRu(data.reportDateYmd) : "—";
 
-  const planFactRows = useMemo((): PlanFactUnitsRow[] => {
-    if (!data?.segments.length) return [];
-    return data.segments.map((s) => ({
+  const planFactChartRows = useMemo((): PlanFactUnitsRow[] => {
+    if (data == null) return [];
+    const segs = data.segments;
+    if (!Array.isArray(segs)) return [];
+    return segs.map((s) => ({
       key: s.key,
       segment: s.segment,
       plan: s.planCumulative,
@@ -58,9 +58,11 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
     }));
   }, [data]);
 
-  const completionRows = useMemo((): CompletionUnitsRow[] => {
-    if (!data?.segments.length) return [];
-    return data.segments.map((s) => {
+  const completionChartRows = useMemo((): CompletionUnitsRow[] => {
+    if (data == null) return [];
+    const segs = data.segments;
+    if (!Array.isArray(segs)) return [];
+    return segs.map((s) => {
       const pct = Number.isFinite(s.completionPct) ? Math.max(0, s.completionPct) : 0;
       const completion = Math.min(108, pct);
       return {
@@ -74,14 +76,23 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
     });
   }, [data]);
 
+  const showCharts = planFactChartRows.length > 0 || completionChartRows.length > 0;
+  const showPlaceholder = !hydrating && !showCharts;
+
+  console.log("[SalesUnitsExecutionSection]", {
+    planFactLen: planFactChartRows.length,
+    completionLen: completionChartRows.length,
+    showPlaceholder,
+  });
+
   const yDomain = useMemo((): [number, number] => {
     let m = 0;
-    for (const r of planFactRows) {
+    for (const r of planFactChartRows) {
       m = Math.max(m, r.plan, r.fact);
     }
     if (m <= 0 || !Number.isFinite(m)) return [0, 1];
     return [0, Math.ceil(m * 1.08)];
-  }, [planFactRows]);
+  }, [planFactChartRows]);
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
@@ -119,8 +130,6 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
     <p className={`flex min-h-[200px] items-center justify-center px-3 text-center text-xs ${mutedCls}`}>{text}</p>
   );
 
-  const showCharts = hasData;
-
   return (
     <div
       className={`mt-6 w-full min-w-0 border-t pt-6 ${
@@ -136,7 +145,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
 
       {hydrating ? (
         placeholder("Загрузка…")
-      ) : missing || !showCharts ? (
+      ) : showPlaceholder ? (
         placeholder("Загрузите CSV исполнения в штуках, чтобы увидеть графики и показатели.")
       ) : (
         <>
@@ -146,7 +155,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
               <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
                 <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <BarChart
-                    data={planFactRows}
+                    data={planFactChartRows}
                     margin={{ top: 10, right: 6, left: 0, bottom: 4 }}
                     barGap={6}
                     barCategoryGap="28%"
@@ -218,7 +227,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
                 <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <BarChart
                     layout="vertical"
-                    data={completionRows}
+                    data={completionChartRows}
                     margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
                     barCategoryGap={14}
                   >
@@ -254,7 +263,7 @@ export function SalesUnitsExecutionSection({ presentation, presDark, mplPremium,
                       }}
                     />
                     <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
-                      {completionRows.map((entry) => (
+                      {completionChartRows.map((entry) => (
                         <Cell key={entry.key} fill={entry.fill} />
                       ))}
                       <LabelList dataKey="label" position="right" fill={chartAxis} fontSize={10} fontWeight={500} />
