@@ -222,7 +222,10 @@ function forwardFillPrimaryGroupLabels(primary: string[], targetLen: number): st
   return out;
 }
 
-/** Слияние: группа (первая строка) + вторая строка → одна нормализованная подпись на колонку для colMap. */
+/**
+ * Карта колонок: вторая строка заголовка — основная (План / Факт / %).
+ * Первая строка — только для пустых sub-ячеек (напр. «Наименование»); «Количество, штук» не смешивается с метриками.
+ */
 function buildMergedHeaderLabels(primary: string[], secondary: string[]): string[] {
   const n = Math.max(primary.length, secondary.length);
   const primFilled = forwardFillPrimaryGroupLabels(primary, n);
@@ -230,13 +233,22 @@ function buildMergedHeaderLabels(primary: string[], secondary: string[]): string
   while (sec.length < n) sec.push("");
   const merged: string[] = [];
   for (let i = 0; i < n; i++) {
+    const s = preprocessCell(sec[i] ?? "");
+    if (s) {
+      merged.push(normalizeHeader(s));
+      continue;
+    }
     let p = preprocessCell(primFilled[i] ?? "");
     if (isQuantityPiecesGroupHeader(p)) p = "";
-    const s = preprocessCell(sec[i] ?? "");
-    const combined = [p, s].filter((x) => x !== "").join(" ");
-    merged.push(normalizeHeader(combined));
+    merged.push(normalizeHeader(p));
   }
   return merged;
+}
+
+function isItogoRowName(segmentNorm: string): boolean {
+  if (!segmentNorm) return false;
+  if (segmentNorm === "итого") return true;
+  return segmentNorm.startsWith("итого ") || segmentNorm.startsWith("итого,");
 }
 
 function pickCol(headers: string[], predicate: (n: string) => boolean): number | null {
@@ -444,6 +456,7 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
 
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
   const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
+  let totalsFromItogo: UnitsExecutionTotals | null = null;
 
   for (let i = secondaryIdx + 1; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
@@ -451,6 +464,22 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     const nameRaw = preprocessCell(row[nameCol] ?? "");
     const segmentNorm = normalizeSegmentName(nameRaw);
     if (!segmentNorm) continue;
+
+    if (isItogoRowName(segmentNorm)) {
+      const planCumulative = normalizeUnitCell(row[planCumIdx] ?? "");
+      const factCumulative = normalizeUnitCell(row[factCumIdx] ?? "");
+      const deviationCumulative =
+        col.deviation != null ? normalizeUnitCell(row[col.deviation]) : factCumulative - planCumulative;
+      const completionPct = col.completionPct != null ? normalizeUnitCell(row[col.completionPct]) : 0;
+      totalsFromItogo = {
+        planCumulative,
+        factCumulative,
+        deviationCumulative,
+        completionPct,
+      };
+      continue;
+    }
+
     if (shouldSkipName(segmentNorm)) continue;
 
     const segKey = matchSegment(segmentNorm);
@@ -510,7 +539,7 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
   }
   const completionAgg = planSum > 0 ? (factSum / planSum) * 100 : 0;
 
-  const totals: UnitsExecutionTotals = {
+  const totals: UnitsExecutionTotals = totalsFromItogo ?? {
     planCumulative: planSum,
     factCumulative: factSum,
     deviationCumulative: devSum,
