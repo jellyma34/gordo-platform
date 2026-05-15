@@ -40,7 +40,6 @@ import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesD
 import { SalesPlanExecutionBlock, type InvestorsMacroChartsPayload } from "@/components/marketing/SalesPlanExecutionBlock";
 import {
   clearMarketingInvestorsCsvLocalStorage,
-  marketingInvestorsCsvLocalStorageKey,
   parseMarketingInvestorsCsv,
   readMarketingInvestorsCsvFromLocalStorage,
   writeMarketingInvestorsCsvToLocalStorage,
@@ -723,13 +722,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     fileName: string;
     uploadedAt: string;
     macroChartRowCount: number;
+    uploadedBy?: string;
   } | null>(null);
 
   const unitsCsvInputRef = useRef<HTMLInputElement>(null);
   const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
     undefined,
   );
+  const [unitsCsvMeta, setUnitsCsvMeta] = useState<{
+    fileName: string;
+    uploadedAt: string;
+    uploadedBy?: string;
+  } | null>(null);
   const [unitsCsvError, setUnitsCsvError] = useState<string | null>(null);
+  const [supplementalMarketingHydrated, setSupplementalMarketingHydrated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1033,53 +1039,85 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   }, [paymentPlanProjectId, report.asOf]);
 
   useEffect(() => {
-    const storageKey = marketingInvestorsCsvLocalStorageKey(paymentPlanProjectId);
-    const doc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
-    console.log("[loaded investors charts]", {
-      storageKey,
-      projectId: paymentPlanProjectId,
-      fromLocalStorage: doc
-        ? {
-            planFactLen: doc.planFactChartRows?.length,
-            completionLen: doc.completionChartRows?.length,
-            fileName: doc.fileName,
-          }
-        : null,
-    });
-    if (!doc) {
+    let cancelled = false;
+    setSupplementalMarketingHydrated(false);
+    const applyFromInvestorsDoc = (doc: MarketingInvestorsCsvStoredV1) => {
+      const next: InvestorsMacroChartsPayload = {
+        planFactChartRows: doc.planFactChartRows,
+        completionChartRows: doc.completionChartRows,
+      };
+      setInvestorsMacroCharts(next);
+      setInvestorsCsvMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        macroChartRowCount: doc.planFactChartRows?.length ?? 0,
+        uploadedBy: doc.uploadedBy,
+      });
+      setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+      writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const applyFromUnitsDoc = (doc: MarketingUnitsExecutionStoredV1) => {
+      setUnitsExecutionCharts({
+        reportDateYmd: doc.reportDateYmd,
+        segments: doc.segments,
+        totals: doc.totals,
+      });
+      setUnitsCsvMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        uploadedBy: doc.uploadedBy,
+      });
+      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const clearInvestorsState = () => {
+      clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
       setInvestorsMacroCharts(null);
       setInvestorsCsvMeta(null);
       setInvestorsCsvWarnings([]);
-      return;
-    }
-    const next: InvestorsMacroChartsPayload = {
-      planFactChartRows: doc.planFactChartRows,
-      completionChartRows: doc.completionChartRows,
     };
-    console.log("[loaded investors charts] → setState", {
-      planFactLen: next.planFactChartRows?.length,
-      completionLen: next.completionChartRows?.length,
-    });
-    setInvestorsMacroCharts(next);
-    setInvestorsCsvMeta({
-      fileName: doc.fileName,
-      uploadedAt: doc.updatedAt,
-      macroChartRowCount: doc.planFactChartRows?.length ?? 0,
-    });
-    setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
-  }, [paymentPlanProjectId]);
-
-  useEffect(() => {
-    const doc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
-    if (!doc) {
+    const clearUnitsState = () => {
+      clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
       setUnitsExecutionCharts(null);
-      return;
-    }
-    setUnitsExecutionCharts({
-      reportDateYmd: doc.reportDateYmd,
-      segments: doc.segments,
-      totals: doc.totals,
-    });
+      setUnitsCsvMeta(null);
+    };
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`,
+          { cache: "no-store" },
+        );
+        const j = (await res.json()) as {
+          ok?: boolean;
+          datasets?: {
+            investors: MarketingInvestorsCsvStoredV1 | null;
+            unitsExecution: MarketingUnitsExecutionStoredV1 | null;
+          };
+        };
+        if (cancelled) return;
+        if (!res.ok || !j?.ok || !j.datasets) {
+          throw new Error("marketing storage fetch failed");
+        }
+        const inv = j.datasets.investors;
+        if (inv) applyFromInvestorsDoc(inv);
+        else clearInvestorsState();
+        const u = j.datasets.unitsExecution;
+        if (u && Array.isArray(u.segments) && u.segments.length > 0) applyFromUnitsDoc(u);
+        else clearUnitsState();
+      } catch {
+        if (cancelled) return;
+        const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
+        if (invDoc) applyFromInvestorsDoc(invDoc);
+        else clearInvestorsState();
+        const unitsDoc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
+        if (unitsDoc && unitsDoc.segments.length > 0) applyFromUnitsDoc(unitsDoc);
+        else clearUnitsState();
+      } finally {
+        if (!cancelled) setSupplementalMarketingHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [paymentPlanProjectId]);
 
   const onSalesPlanExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1162,32 +1200,38 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         setInvestorsCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
         return;
       }
-      const doc: MarketingInvestorsCsvStoredV1 = {
-        v: 1,
-        updatedAt: new Date().toISOString(),
-        fileName: file.name?.trim() || "investors_verba_april_2026.csv",
-        planFactChartRows: parsed.planFactChartRows,
-        completionChartRows: parsed.completionChartRows,
-        warnings: parsed.warnings,
-      };
-      console.log("[saving investors charts] (upload handler pre-write)", {
-        storageKey: marketingInvestorsCsvLocalStorageKey(paymentPlanProjectId),
-        planLen: doc.planFactChartRows?.length,
-        completionLen: doc.completionChartRows?.length,
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "investors");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
       });
-      writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, doc);
-      const chartsState: InvestorsMacroChartsPayload = {
-        planFactChartRows: doc.planFactChartRows,
-        completionChartRows: doc.completionChartRows,
-      };
-      console.log("[saving investors charts] (upload handler post-write setState)", chartsState);
-      setInvestorsMacroCharts(chartsState);
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingInvestorsCsvStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        setInvestorsCsvError(typeof j?.error === "string" ? j.error : "Не удалось сохранить инвесторский CSV на сервере.");
+        setInvestorsCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, saved);
+      setInvestorsMacroCharts({
+        planFactChartRows: saved.planFactChartRows,
+        completionChartRows: saved.completionChartRows,
+      });
       setInvestorsCsvMeta({
-        fileName: doc.fileName,
-        uploadedAt: doc.updatedAt,
-        macroChartRowCount: doc.planFactChartRows?.length ?? 0,
+        fileName: saved.fileName,
+        uploadedAt: saved.updatedAt,
+        macroChartRowCount: saved.planFactChartRows?.length ?? 0,
+        uploadedBy: saved.uploadedBy,
       });
-      setInvestorsCsvWarnings(doc.warnings);
+      setInvestorsCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
     } catch {
       setInvestorsCsvError("Не удалось прочитать инвесторский CSV.");
     }
@@ -1208,20 +1252,35 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         setUnitsCsvError(parsed.error);
         return;
       }
-      const doc: MarketingUnitsExecutionStoredV1 = {
-        v: 1,
-        updatedAt: new Date().toISOString(),
-        fileName: file.name?.trim() || "штуки_Продажи.csv",
-        reportDateYmd: parsed.reportDateYmd,
-        segments: parsed.segments,
-        totals: parsed.totals,
-        warnings: parsed.warnings,
-      };
-      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "units_execution");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingUnitsExecutionStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        setUnitsCsvError(typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV на сервере.");
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, saved);
       setUnitsExecutionCharts({
-        reportDateYmd: doc.reportDateYmd,
-        segments: doc.segments,
-        totals: doc.totals,
+        reportDateYmd: saved.reportDateYmd,
+        segments: saved.segments,
+        totals: saved.totals,
+      });
+      setUnitsCsvMeta({
+        fileName: saved.fileName,
+        uploadedAt: saved.updatedAt,
+        uploadedBy: saved.uploadedBy,
       });
     } catch {
       setUnitsCsvError("Не удалось прочитать CSV.");
@@ -1229,15 +1288,42 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     if (unitsCsvInputRef.current) unitsCsvInputRef.current.value = "";
   };
 
-  const clearMarketingUnitsExecutionCsv = () => {
+  const clearMarketingUnitsExecutionCsv = async () => {
     setUnitsCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=units_execution`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setUnitsCsvError("Не удалось сбросить данные на сервере.");
+        return;
+      }
+    } catch {
+      setUnitsCsvError("Не удалось сбросить исполнение в штуках.");
+      return;
+    }
     clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
     setUnitsExecutionCharts(null);
+    setUnitsCsvMeta(null);
     if (unitsCsvInputRef.current) unitsCsvInputRef.current.value = "";
   };
 
-  const clearMarketingInvestorsCsv = () => {
+  const clearMarketingInvestorsCsv = async () => {
     setInvestorsCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=investors`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setInvestorsCsvError("Не удалось сбросить инвесторский CSV на сервере.");
+        return;
+      }
+    } catch {
+      setInvestorsCsvError("Не удалось сбросить инвесторский CSV.");
+      return;
+    }
     clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
     setInvestorsMacroCharts(null);
     setInvestorsCsvMeta(null);
@@ -1254,6 +1340,27 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const hasPlanCsv = schedulePlanMeta != null || hasPlanMonths;
   const hasFactCsv = scheduleFactMeta != null || hasFactMonths;
   const hasAnyPaymentCsv = hasPlanCsv || hasFactCsv;
+
+  useEffect(() => {
+    if (!paymentPlanHydrated || !executionHydrated || !supplementalMarketingHydrated) return;
+    console.log("[marketing hydrate]", {
+      projectId: paymentPlanProjectId,
+      hasPlan: hasPlanCsv,
+      hasFact: hasFactCsv,
+      hasInvestors: investorsCsvMeta != null,
+      hasUnitsExecution: unitsExecutionCharts != null && unitsExecutionCharts.segments.length > 0,
+    });
+  }, [
+    paymentPlanHydrated,
+    executionHydrated,
+    supplementalMarketingHydrated,
+    paymentPlanProjectId,
+    hasPlanCsv,
+    hasFactCsv,
+    investorsCsvMeta,
+    unitsExecutionCharts,
+  ]);
+
   const cashflowSeriesBase = useMemo(
     () =>
       buildCashflowSeries(
@@ -2725,7 +2832,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <button
                   type="button"
                   className="text-xs font-semibold text-rose-600 hover:text-rose-500"
-                  onClick={clearMarketingInvestorsCsv}
+                  onClick={() => void clearMarketingInvestorsCsv()}
                 >
                   Сбросить инвесторский CSV
                 </button>
@@ -2754,11 +2861,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               >
                 Загрузить исполнение в штуках (CSV)
               </button>
-              {unitsExecutionCharts != null && unitsExecutionCharts.segments.length > 0 ? (
+              {unitsCsvMeta || (unitsExecutionCharts != null && unitsExecutionCharts.segments.length > 0) ? (
                 <button
                   type="button"
                   className="text-xs font-semibold text-rose-600 hover:text-rose-500"
-                  onClick={clearMarketingUnitsExecutionCsv}
+                  onClick={() => void clearMarketingUnitsExecutionCsv()}
                 >
                   Сбросить исполнение в штуках
                 </button>
@@ -2779,10 +2886,28 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{investorsCsvMeta.fileName}</span>
                 <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
                 <span className="tabular-nums">{new Date(investorsCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
-                <span className={presDark ? "text-slate-500" : "text-slate-500"}> · ключ </span>
-                <code className={`rounded px-1 py-0.5 text-[10px] ${presDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
-                  marketingInvestorsCsv
-                </code>
+                {investorsCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{investorsCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> · сервер </span>
+              </div>
+            ) : null}
+            {unitsCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Штуки (CSV): </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{unitsCsvMeta.fileName}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">{new Date(unitsCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                {unitsCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{unitsCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> · сервер</span>
               </div>
             ) : null}
             {executionError ? (

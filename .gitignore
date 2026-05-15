@@ -18,6 +18,9 @@ data/gpr-import-*.json
 data/marketing-payment-plan/*.json
 data/marketing-payment-plan/*.raw.csv
 
+# Проектное хранилище маркетинговых CSV (`app/api/projects/.../marketing/storage`)
+data/projects/*/marketing/*
+
 # Python / backend
 __pycache__/
 *.py[cod]

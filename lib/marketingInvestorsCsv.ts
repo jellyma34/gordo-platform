@@ -35,6 +35,8 @@ export type MarketingInvestorsCsvStoredV1 = {
   v: 1;
   updatedAt: string;
   fileName: string;
+  /** Кто загрузил файл (серверное хранилище). */
+  uploadedBy?: string;
   planFactChartRows: InvestorsPlanFactChartRow[];
   completionChartRows: InvestorsCompletionChartRow[];
   warnings: string[];
@@ -433,6 +435,7 @@ export function parseStoredMarketingInvestorsCsv(raw: unknown): MarketingInvesto
     v: 1,
     updatedAt: o.updatedAt,
     fileName: o.fileName,
+    uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
     planFactChartRows,
     completionChartRows,
     warnings,

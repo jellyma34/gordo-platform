@@ -22,6 +22,8 @@ export type MarketingUnitsExecutionStoredV1 = {
   v: 1;
   updatedAt: string;
   fileName: string;
+  /** Кто загрузил файл (серверное хранилище). */
+  uploadedBy?: string;
   reportDateYmd: string;
   segments: UnitsExecutionSegmentRow[];
   totals: UnitsExecutionTotals;
@@ -90,6 +92,7 @@ export function parseStoredMarketingUnitsExecutionCsv(raw: unknown): MarketingUn
     v: 1,
     updatedAt: o.updatedAt,
     fileName: o.fileName,
+    uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
     reportDateYmd: o.reportDateYmd,
     segments,
     totals,
