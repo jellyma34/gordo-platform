@@ -40,6 +40,7 @@ import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesD
 import { SalesPlanExecutionBlock, type InvestorsMacroChartsPayload } from "@/components/marketing/SalesPlanExecutionBlock";
 import {
   clearMarketingInvestorsCsvLocalStorage,
+  marketingInvestorsCsvLocalStorageKey,
   parseMarketingInvestorsCsv,
   readMarketingInvestorsCsvFromLocalStorage,
   writeMarketingInvestorsCsvToLocalStorage,
@@ -1016,17 +1017,34 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   }, [paymentPlanProjectId, report.asOf]);
 
   useEffect(() => {
+    const storageKey = marketingInvestorsCsvLocalStorageKey(paymentPlanProjectId);
     const doc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
+    console.log("[loaded investors charts]", {
+      storageKey,
+      projectId: paymentPlanProjectId,
+      fromLocalStorage: doc
+        ? {
+            planFactLen: doc.planFactChartRows?.length,
+            completionLen: doc.completionChartRows?.length,
+            fileName: doc.fileName,
+          }
+        : null,
+    });
     if (!doc) {
       setInvestorsMacroCharts(null);
       setInvestorsCsvMeta(null);
       setInvestorsCsvWarnings([]);
       return;
     }
-    setInvestorsMacroCharts({
+    const next: InvestorsMacroChartsPayload = {
       planFactChartRows: doc.planFactChartRows,
       completionChartRows: doc.completionChartRows,
+    };
+    console.log("[loaded investors charts] → setState", {
+      planFactLen: next.planFactChartRows?.length,
+      completionLen: next.completionChartRows?.length,
     });
+    setInvestorsMacroCharts(next);
     setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
     setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
   }, [paymentPlanProjectId]);
@@ -1119,11 +1137,18 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         completionChartRows: parsed.completionChartRows,
         warnings: parsed.warnings,
       };
+      console.log("[saving investors charts] (upload handler pre-write)", {
+        storageKey: marketingInvestorsCsvLocalStorageKey(paymentPlanProjectId),
+        planLen: doc.planFactChartRows?.length,
+        completionLen: doc.completionChartRows?.length,
+      });
       writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, doc);
-      setInvestorsMacroCharts({
+      const chartsState: InvestorsMacroChartsPayload = {
         planFactChartRows: doc.planFactChartRows,
         completionChartRows: doc.completionChartRows,
-      });
+      };
+      console.log("[saving investors charts] (upload handler post-write setState)", chartsState);
+      setInvestorsMacroCharts(chartsState);
       setInvestorsCsvMeta({ fileName: doc.fileName, uploadedAt: doc.updatedAt });
       setInvestorsCsvWarnings(doc.warnings);
     } catch {

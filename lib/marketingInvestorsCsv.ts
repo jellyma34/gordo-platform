@@ -359,16 +359,17 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   }));
 
   console.table(planFactChartRows);
-  console.log("planFactChartRows", planFactChartRows);
 
   const completionChartRows: InvestorsCompletionChartRow[] = planFactChartRows.map((r) =>
     buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
   );
 
-  console.log("completionChartRows", completionChartRows);
-
-  const investorsMacroCharts = { planFactChartRows, completionChartRows };
-  console.log("[Investors CSV] investorsMacroCharts", investorsMacroCharts);
+  const investorsMacroChartsPayload = { planFactChartRows, completionChartRows };
+  console.log("[parsed investors charts]", {
+    ...investorsMacroChartsPayload,
+    planLen: planFactChartRows.length,
+    completionLen: completionChartRows.length,
+  });
 
   return { ok: true, planFactChartRows, completionChartRows, warnings };
 }
@@ -385,10 +386,24 @@ export function parseStoredMarketingInvestorsCsv(raw: unknown): MarketingInvesto
 export function readMarketingInvestorsCsvFromLocalStorage(projectId: string): MarketingInvestorsCsvStoredV1 | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(marketingInvestorsCsvLocalStorageKey(projectId));
-    if (!raw) return null;
-    return parseStoredMarketingInvestorsCsv(JSON.parse(raw));
-  } catch {
+    const storageKey = marketingInvestorsCsvLocalStorageKey(projectId);
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      console.log("[loaded investors charts from localStorage]", { storageKey, doc: null, reason: "no_item" });
+      return null;
+    }
+    const parsedJson = JSON.parse(raw) as unknown;
+    const doc = parseStoredMarketingInvestorsCsv(parsedJson);
+    console.log("[loaded investors charts from localStorage]", {
+      storageKey,
+      parseOk: !!doc,
+      planLen: doc?.planFactChartRows?.length,
+      completionLen: doc?.completionChartRows?.length,
+      fileName: doc?.fileName,
+    });
+    return doc;
+  } catch (e) {
+    console.log("[loaded investors charts from localStorage]", { error: String(e) });
     return null;
   }
 }
@@ -396,7 +411,18 @@ export function readMarketingInvestorsCsvFromLocalStorage(projectId: string): Ma
 export function writeMarketingInvestorsCsvToLocalStorage(projectId: string, doc: MarketingInvestorsCsvStoredV1): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(marketingInvestorsCsvLocalStorageKey(projectId), JSON.stringify(doc));
+    const storageKey = marketingInvestorsCsvLocalStorageKey(projectId);
+    console.log("[saving investors charts]", {
+      storageKey,
+      payload: {
+        planFactChartRows: doc.planFactChartRows,
+        completionChartRows: doc.completionChartRows,
+        planLen: doc.planFactChartRows?.length,
+        completionLen: doc.completionChartRows?.length,
+        fileName: doc.fileName,
+      },
+    });
+    window.localStorage.setItem(storageKey, JSON.stringify(doc));
   } catch (e) {
     console.warn("[Investors CSV] localStorage save failed", e);
   }

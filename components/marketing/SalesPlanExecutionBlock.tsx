@@ -118,9 +118,14 @@ export function SalesPlanExecutionBlock({
     ? "min-w-0 overflow-x-auto rounded-xl border border-white/10 bg-slate-900/25"
     : "min-w-0 overflow-x-auto rounded-xl border border-slate-200/70 bg-white/50 shadow-inner shadow-slate-200/30";
 
-  console.log("investorsMacroCharts", investorsMacroCharts);
-  console.log("planFactChartRows", investorsMacroCharts?.planFactChartRows);
-  console.log("completionChartRows", investorsMacroCharts?.completionChartRows);
+  console.log("[SalesPlanExecutionBlock props]", {
+    investorsMacroCharts,
+    hydrate: investorsMacroCharts === undefined ? "pending" : investorsMacroCharts === null ? "none" : "ready",
+    planLen: investorsMacroCharts?.planFactChartRows?.length,
+    completionLen: investorsMacroCharts?.completionChartRows?.length,
+  });
+  console.log("[planFactChartRows FINAL]", investorsMacroCharts?.planFactChartRows);
+  console.log("[completionChartRows FINAL]", investorsMacroCharts?.completionChartRows);
 
   return (
     <section className={shell} aria-labelledby="sales-plan-exec-heading">
@@ -295,6 +300,11 @@ function ExecutionMacroChartsBlock({
     if (m <= 0) return [0, 1];
     return [0, m * 1.08];
   }, [planFactChartRows]);
+
+  console.log("[ExecutionMacroChartsBlock] memo planFactChartRows", planFactChartRows);
+  console.log("[ExecutionMacroChartsBlock] memo completionChartRows", completionChartRows);
+  console.log("[planFactChartRows FINAL]", investorsMacroCharts?.planFactChartRows);
+  console.log("[completionChartRows FINAL]", investorsMacroCharts?.completionChartRows);
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
