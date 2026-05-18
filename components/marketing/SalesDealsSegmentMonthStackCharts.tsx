@@ -165,7 +165,7 @@ function createSegmentMiniBarTopLabel(
         textAnchor="middle"
         dominantBaseline="auto"
         fill={color}
-        fontSize={10}
+        fontSize={8}
         fontWeight={600}
         style={{ lineHeight: 1, whiteSpace: "nowrap" }}
         className="tabular-nums pointer-events-none"
