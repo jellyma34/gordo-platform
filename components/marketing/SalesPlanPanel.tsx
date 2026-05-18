@@ -84,6 +84,16 @@ import {
   type MarketingParkingCsvMetaV1,
   type MarketingParkingCsvStoredV1,
 } from "@/lib/marketingParkingCsv";
+import {
+  clearMarketingStoragesCsvLocalStorage,
+  metaFromStoragesDoc,
+  parseStoragesCsv,
+  readMarketingStoragesCsvFromLocalStorage,
+  storagesCsvHasData,
+  writeMarketingStoragesCsvToLocalStorage,
+  type MarketingStoragesCsvMetaV1,
+  type MarketingStoragesCsvStoredV1,
+} from "@/lib/marketingStoragesCsv";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
@@ -775,6 +785,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const unitsCsvInputRef = useRef<HTMLInputElement>(null);
   const apartmentsCsvInputRef = useRef<HTMLInputElement>(null);
   const parkingCsvInputRef = useRef<HTMLInputElement>(null);
+  const storagesCsvInputRef = useRef<HTMLInputElement>(null);
   const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
     undefined,
   );
@@ -792,6 +803,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [parkingCsvDoc, setParkingCsvDoc] = useState<MarketingParkingCsvStoredV1 | null>(null);
   const [parkingCsvError, setParkingCsvError] = useState<string | null>(null);
   const [parkingCsvWarnings, setParkingCsvWarnings] = useState<string[]>([]);
+  const [storagesCsvMeta, setStoragesCsvMeta] = useState<MarketingStoragesCsvMetaV1 | null>(null);
+  const [storagesCsvDoc, setStoragesCsvDoc] = useState<MarketingStoragesCsvStoredV1 | null>(null);
+  const [storagesCsvError, setStoragesCsvError] = useState<string | null>(null);
+  const [storagesCsvWarnings, setStoragesCsvWarnings] = useState<string[]>([]);
 
   const unitsHasChartRows = useMemo(
     () => unitsExecutionChartsHaveRows(unitsExecutionCharts),
@@ -1192,6 +1207,20 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setParkingCsvError(null);
       setParkingCsvWarnings([]);
     };
+    const applyFromStoragesDoc = (doc: MarketingStoragesCsvStoredV1) => {
+      setStoragesCsvError(null);
+      setStoragesCsvDoc(doc);
+      setStoragesCsvMeta(metaFromStoragesDoc(doc));
+      setStoragesCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+      writeMarketingStoragesCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const clearStoragesState = () => {
+      clearMarketingStoragesCsvLocalStorage(paymentPlanProjectId);
+      setStoragesCsvDoc(null);
+      setStoragesCsvMeta(null);
+      setStoragesCsvError(null);
+      setStoragesCsvWarnings([]);
+    };
     (async () => {
       try {
         const res = await fetch(
@@ -1206,6 +1235,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             unitsExecution: MarketingUnitsExecutionStoredV1 | null;
             apartments: MarketingApartmentsCsvStoredV1 | null;
             parking: MarketingParkingCsvStoredV1 | null;
+            storages: MarketingStoragesCsvStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1227,6 +1257,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const park = j.datasets.parking;
         if (park && parkingCsvHasData(park)) applyFromParkingDoc(park);
         else clearParkingState();
+        const stor = j.datasets.storages;
+        if (stor && storagesCsvHasData(stor)) applyFromStoragesDoc(stor);
+        else clearStoragesState();
       } catch {
         if (cancelled) return;
         const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
@@ -1244,6 +1277,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const parkDoc = readMarketingParkingCsvFromLocalStorage(paymentPlanProjectId);
         if (parkDoc && parkingCsvHasData(parkDoc)) applyFromParkingDoc(parkDoc);
         else clearParkingState();
+        const storDoc = readMarketingStoragesCsvFromLocalStorage(paymentPlanProjectId);
+        if (storDoc && storagesCsvHasData(storDoc)) applyFromStoragesDoc(storDoc);
+        else clearStoragesState();
       } finally {
         if (!cancelled) setSupplementalMarketingHydrated(true);
       }
@@ -1648,6 +1684,97 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     setParkingCsvMeta(null);
     setParkingCsvWarnings([]);
     if (parkingCsvInputRef.current) parkingCsvInputRef.current.value = "";
+  };
+
+  const onMarketingStoragesCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setStoragesCsvError(null);
+    try {
+      const text = await readMarketingCsvFileAsText(file);
+      const parsed = parseStoragesCsv(text, file.name);
+      if (!parsed.ok) {
+        setStoragesCsvError(parsed.error);
+        setStoragesCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "storages");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingStoragesCsvStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV кладовых на сервере.";
+        const localDoc: MarketingStoragesCsvStoredV1 = {
+          v: 1,
+          updatedAt: parsed.uploadedAt,
+          fileName: parsed.filename,
+          uploadedBy: paymentUploadedByLabel,
+          headers: parsed.headers,
+          rows: parsed.rows,
+          warnings: [
+            ...parsed.warnings,
+            `Сервер: ${serverMsg} (данные сохранены локально).`,
+          ],
+        };
+        writeMarketingStoragesCsvToLocalStorage(paymentPlanProjectId, localDoc);
+        setStoragesCsvDoc(localDoc);
+        setStoragesCsvMeta({
+          v: 1,
+          fileName: parsed.filename,
+          uploadedAt: parsed.uploadedAt,
+          uploadedBy: paymentUploadedByLabel,
+        });
+        setStoragesCsvWarnings([
+          ...parsed.warnings,
+          `Сервер: ${serverMsg} (данные сохранены локально).`,
+        ]);
+        setStoragesCsvError(null);
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingStoragesCsvToLocalStorage(paymentPlanProjectId, saved);
+      setStoragesCsvDoc(saved);
+      setStoragesCsvMeta(metaFromStoragesDoc(saved));
+      setStoragesCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
+      setStoragesCsvError(null);
+    } catch {
+      setStoragesCsvError("Не удалось прочитать CSV кладовых.");
+    }
+    if (storagesCsvInputRef.current) storagesCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingStoragesCsv = async () => {
+    setStoragesCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=storages`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setStoragesCsvError("Не удалось сбросить CSV кладовых на сервере.");
+        return;
+      }
+    } catch {
+      setStoragesCsvError("Не удалось сбросить CSV кладовых.");
+      return;
+    }
+    clearMarketingStoragesCsvLocalStorage(paymentPlanProjectId);
+    setStoragesCsvDoc(null);
+    setStoragesCsvMeta(null);
+    setStoragesCsvWarnings([]);
+    if (storagesCsvInputRef.current) storagesCsvInputRef.current.value = "";
   };
 
   const clearMarketingInvestorsCsv = async () => {
@@ -3166,6 +3293,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         dealsFeed={dealsFeed}
         apartmentsCsv={apartmentsCsvDoc}
         parkingCsv={parkingCsvDoc}
+        storagesCsv={storagesCsvDoc}
         showApartmentsShareWarning={!presentation}
       />
 
@@ -3437,6 +3565,39 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={storagesCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingStoragesCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-amber-400/45 bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/25"
+                    : "rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-500/15"
+                }
+                onClick={() => storagesCsvInputRef.current?.click()}
+              >
+                Загрузить CSV кладовых
+              </button>
+              {storagesCsvMeta ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={() => void clearMarketingStoragesCsv()}
+                >
+                  Сбросить CSV кладовых
+                </button>
+              ) : null}
+            </div>
             {segmentExecutionCsvError && !segmentExecutionHasChartRows ? (
               <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
             ) : null}
@@ -3446,6 +3607,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             ) : null}
             {apartmentsCsvError ? <p className="text-xs font-medium text-rose-600">{apartmentsCsvError}</p> : null}
             {parkingCsvError ? <p className="text-xs font-medium text-rose-600">{parkingCsvError}</p> : null}
+            {storagesCsvError ? <p className="text-xs font-medium text-rose-600">{storagesCsvError}</p> : null}
             {segmentExecutionCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {segmentExecutionCsvWarnings.map((w, i) => (
@@ -3471,6 +3633,13 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {parkingCsvWarnings.map((w, i) => (
                   <li key={`park-${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            {storagesCsvWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {storagesCsvWarnings.map((w, i) => (
+                  <li key={`stor-${i}-${w.slice(0, 64)}`}>{w}</li>
                 ))}
               </ul>
             ) : null}
@@ -3551,6 +3720,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                   <>
                     <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
                     <span>{parkingCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — сервер</span>
+              </div>
+            ) : null}
+            {storagesCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Кладовые CSV: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{storagesCsvMeta.fileName}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">{new Date(storagesCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                {storagesCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{storagesCsvMeta.uploadedBy}</span>
                   </>
                 ) : null}
                 <span className={presDark ? "text-slate-500" : "text-slate-500"}> — сервер</span>

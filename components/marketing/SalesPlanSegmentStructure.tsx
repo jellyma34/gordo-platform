@@ -16,10 +16,15 @@ import {
   sumApartmentsCsvTotalRevenue,
 } from "@/lib/apartmentsCsvMetrics";
 import type { MarketingParkingCsvStoredV1 } from "@/lib/marketingParkingCsv";
+import type { MarketingStoragesCsvStoredV1 } from "@/lib/marketingStoragesCsv";
 import {
   parkingRevenueShareFromCsvPool,
   sumParkingCsvTotalRevenue,
 } from "@/lib/parkingCsvMetrics";
+import {
+  storageRevenueShareFromCsvPool,
+  sumStoragesCsvTotalRevenue,
+} from "@/lib/storagesCsvMetrics";
 import type { MarketingApartmentsCsvStoredV1 } from "@/lib/marketingApartmentsCsv";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
@@ -241,6 +246,8 @@ type Props = {
   apartmentsCsv?: MarketingApartmentsCsvStoredV1 | null;
   /** База машино-мест из CSV — для доли выручки в карточке «Машино-места». */
   parkingCsv?: MarketingParkingCsvStoredV1 | null;
+  /** База кладовых из CSV — для доли выручки в карточке «Кладовые». */
+  storagesCsv?: MarketingStoragesCsvStoredV1 | null;
   /** Предупреждение об отсутствии колонки стоимости — только режим редактирования. */
   showApartmentsShareWarning?: boolean;
 };
@@ -251,6 +258,7 @@ export function SalesPlanSegmentStructure({
   dealsFeed,
   apartmentsCsv = null,
   parkingCsv = null,
+  storagesCsv = null,
   showApartmentsShareWarning = false,
 }: Props) {
   const mplPremium = useMarketingPresentationLight();
@@ -274,6 +282,11 @@ export function SalesPlanSegmentStructure({
     if (!parkingCsv?.headers?.length || !parkingCsv.rows?.length) return null;
     return sumParkingCsvTotalRevenue(parkingCsv.headers, parkingCsv.rows);
   }, [parkingCsv]);
+
+  const storagesRevenuePool = useMemo(() => {
+    if (!storagesCsv?.headers?.length || !storagesCsv.rows?.length) return null;
+    return sumStoragesCsvTotalRevenue(storagesCsv.headers, storagesCsv.rows);
+  }, [storagesCsv]);
 
   const apartmentsShareWarning = useMemo(() => {
     if (!showApartmentsShareWarning || !apartmentsCsv) return null;
@@ -310,6 +323,10 @@ export function SalesPlanSegmentStructure({
         const fromCsvPool = parkingRevenueShareFromCsvPool(sum, parkingRevenuePool, { soldCount: count });
         if (fromCsvPool != null) share = fromCsvPool;
       }
+      if (key === "storage") {
+        const fromCsvPool = storageRevenueShareFromCsvPool(sum, storagesRevenuePool);
+        if (fromCsvPool != null) share = fromCsvPool;
+      }
       out.push({
         key,
         count,
@@ -320,7 +337,7 @@ export function SalesPlanSegmentStructure({
       });
     }
     return out;
-  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool]);
+  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool]);
 
   if (loadingDeals) {
     return (
@@ -409,7 +426,10 @@ export function SalesPlanSegmentStructure({
                     apartmentsRevenuePool.totalCount > 0) ||
                   (c.key === "parking" &&
                     parkingRevenuePool != null &&
-                    parkingRevenuePool.totalCount > 0) ? (
+                    parkingRevenuePool.totalCount > 0) ||
+                  (c.key === "storage" &&
+                    storagesRevenuePool != null &&
+                    storagesRevenuePool.totalCount > 0) ? (
                     <div className="mt-1 min-w-0">
                       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                         <span
@@ -426,7 +446,9 @@ export function SalesPlanSegmentStructure({
                           {numFmt.format(
                             c.key === "apartment"
                               ? apartmentsRevenuePool!.totalCount
-                              : parkingRevenuePool!.totalCount,
+                              : c.key === "parking"
+                                ? parkingRevenuePool!.totalCount
+                                : storagesRevenuePool!.totalCount,
                           )}{" "}
                           шт
                         </span>
