@@ -1,4 +1,5 @@
 import {
+  buildSegmentExecutionCompletionRows,
   parseSegmentExecutionCsv,
   type ParseSegmentExecutionCsvResult,
   type SegmentExecutionCompletionRow,
@@ -37,14 +38,27 @@ export type SegmentExecutionChartsPayload = {
   hasSegmentPlan?: boolean;
 };
 
-/** Показывать ли план и % выполнения (не общий «План продаж» без сегментов). */
+/** Показывать ли план и % выполнения (в т.ч. план из SUM «План продаж»). */
 export function segmentExecutionHasSegmentPlan(
   payload: SegmentExecutionChartsPayload | null | undefined,
 ): boolean {
   if (!payload) return false;
   if (payload.hasSegmentPlan === true) return true;
-  if (payload.hasSegmentPlan === false) return false;
-  return (payload.planFactRows ?? []).some((r) => Math.abs(r.plan) > 1e-9);
+  const pf = payload.planFactRows ?? [];
+  if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return true;
+  return (payload.completionRows ?? []).some((r) => Number.isFinite(r.pct) && r.pct > 0);
+}
+
+/** completionRows для графика % — из storage или пересчёт из plan/fact. */
+export function resolveSegmentExecutionCompletionRows(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+): SegmentExecutionCompletionRow[] {
+  if (!payload) return [];
+  const stored = payload.completionRows ?? [];
+  const pf = payload.planFactRows ?? [];
+  if (stored.length > 0 && stored.some((r) => Number.isFinite(r.pct))) return stored;
+  if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return buildSegmentExecutionCompletionRows(pf);
+  return stored;
 }
 
 /** Есть ли распознанные строки сегментов (для графиков и сброса stale error). */
@@ -111,14 +125,20 @@ export function parseStoredMarketingSegmentExecutionCsv(raw: unknown): Marketing
   if (typeof o.updatedAt !== "string" || typeof o.fileName !== "string") return null;
   if (!Array.isArray(o.planFactRows) || !Array.isArray(o.completionRows)) return null;
   const warnings = Array.isArray(o.warnings) ? (o.warnings.filter((w) => typeof w === "string") as string[]) : [];
+  const planFactRows = o.planFactRows.map((row: unknown) => normalizePlanFactRow(row));
+  const hasPlan = planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+  let completionRows = (o.completionRows as unknown[]).map((row: unknown) => normalizeCompletionRow(row));
+  if (!completionRows.some((r) => Number.isFinite(r.pct) && r.pct > 0) && hasPlan) {
+    completionRows = buildSegmentExecutionCompletionRows(planFactRows);
+  }
   return {
     v: 1,
     updatedAt: o.updatedAt,
     fileName: o.fileName,
     uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
-    planFactRows: o.planFactRows.map((row: unknown) => normalizePlanFactRow(row)),
-    completionRows: o.completionRows.map((row: unknown) => normalizeCompletionRow(row)),
-    hasSegmentPlan: o.hasSegmentPlan === true,
+    planFactRows,
+    completionRows,
+    hasSegmentPlan: o.hasSegmentPlan === true || hasPlan,
     warnings,
   };
 }

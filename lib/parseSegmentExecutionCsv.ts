@@ -368,6 +368,13 @@ function completionChartFill(pct: number): string {
   return "#ef4444";
 }
 
+/** Ряды «Выполнение %» из plan/fact (fact/plan×100, цвета >95 / 85–95 / <85). */
+export function buildSegmentExecutionCompletionRows(
+  planFactRows: readonly SegmentExecutionPlanFactRow[],
+): SegmentExecutionCompletionRow[] {
+  return planFactRows.map((r) => buildCompletionRow(r.key, r.segment, r.plan, r.fact, null));
+}
+
 function buildCompletionRow(
   key: SegmentExecutionSegmentKey,
   segment: string,
@@ -431,24 +438,20 @@ function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExe
     fact: r.fact,
   }));
 
-  const hasSegmentPlan = parsed.hasSegmentPlan;
-  const completionRows: SegmentExecutionCompletionRow[] = hasSegmentPlan
-    ? parsed.completionChartRows.map((r) => ({
-        key: toSegmentKey(r.key),
-        segment: r.segment || r.name,
-        pct: r.pct,
-        completion: r.completion,
-        label: r.label,
-        fill: r.fill,
-      }))
-    : [];
+  const hasSegmentPlan =
+    parsed.hasSegmentPlan || planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+  const completionRows = buildSegmentExecutionCompletionRows(planFactRows);
 
   const warnings = [
     ...(parsed.warnings ?? []),
     "Формат CSV: помесячный (год, месяц, квартиры…) — агрегировано по сегментам для графиков.",
   ];
 
-  console.log("[segment execution csv] format", "investors-year-month", { hasSegmentPlan });
+  console.log("[segment execution csv] format", "investors-year-month", {
+    hasSegmentPlan,
+    planFactRows,
+    completionRows,
+  });
   console.table(planFactRows);
   console.table(completionRows);
 
@@ -553,6 +556,7 @@ export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsv
   const hasSegmentPlan = planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
   const completionOut = hasSegmentPlan ? completionRows : [];
 
+  console.log("[segment execution csv] table format", { planFactRows, completionRows: completionOut });
   console.table(planFactRows);
   console.table(completionOut);
 

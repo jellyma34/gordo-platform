@@ -23,6 +23,7 @@ import {
   type SalesPlanExecutionRow,
 } from "@/lib/marketingSalesPlanExecutionTable";
 import {
+  resolveSegmentExecutionCompletionRows,
   segmentExecutionChartsHaveRows,
   segmentExecutionHasSegmentPlan,
   type SegmentExecutionChartsPayload,
@@ -145,9 +146,9 @@ export function SalesPlanExecutionBlock({
     console.log("[segment execution state]", {
       store: "marketingSegmentExecutionCsv",
       error: segmentExecutionCsvError,
-      planFactLen: segmentExecutionCharts?.planFactRows?.length ?? 0,
-      completionLen: segmentExecutionCharts?.completionRows?.length ?? 0,
-      hasData: hasSegmentExecutionChartRows,
+      planFactRows: segmentExecutionCharts?.planFactRows,
+      completionRows: resolveSegmentExecutionCompletionRows(segmentExecutionCharts),
+      hasSegmentPlan: segmentExecutionHasSegmentPlan(segmentExecutionCharts),
     });
   }, [
     segmentExecutionCsvError,
@@ -303,12 +304,12 @@ function ExecutionMacroChartsBlock({
     return segmentExecutionCharts.planFactRows ?? [];
   }, [segmentExecutionCharts]);
 
-  const completionRows = useMemo((): SegmentExecutionCompletionRow[] => {
-    if (segmentExecutionCharts === undefined || segmentExecutionCharts === null) return [];
-    return segmentExecutionCharts.completionRows ?? [];
-  }, [segmentExecutionCharts]);
-
   const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts);
+
+  const completionRows = useMemo(
+    (): SegmentExecutionCompletionRow[] => resolveSegmentExecutionCompletionRows(segmentExecutionCharts),
+    [segmentExecutionCharts],
+  );
 
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
@@ -345,7 +346,8 @@ function ExecutionMacroChartsBlock({
     );
 
   const showPlanFactChart = planFactRows.length > 0;
-  const showCompletionChart = hasSegmentPlan && completionRows.length > 0;
+  const showCompletionChart =
+    hasSegmentPlan && completionRows.length > 0 && planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
@@ -363,7 +365,8 @@ function ExecutionMacroChartsBlock({
 
     console.log("[COMPLETION SOURCE]", {
       dataSource: "segment-execution-csv",
-      sameSourceAsPlanVsFact: true,
+      completionRows,
+      planFactRows,
     });
     console.table(completionRows);
     for (const row of completionRows) {
