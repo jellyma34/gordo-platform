@@ -17,11 +17,19 @@ export const MARKETING_DEALS_STYLE_MONTH_X_AXIS = {
   axisLine: false,
 } as const;
 
+/** Подпись месяца с данными (мини-графики «Сделки», светлая тема). */
+export const MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT = "#1f2937";
+/** Подпись месяца без данных (мини-графики «Сделки», светлая тема). */
+export const MARKETING_DEALS_MONTH_TICK_MUTED_LIGHT = "#cbd5e1";
+
 export type MarketingDealsStyleMonthTickOptions = {
   presDark: boolean;
   /** Число меток (для размера шрифта — как в «Сделках»). */
   tickCount: number;
-  /** См. reportingTail в сделках: приглушить отдельные месяцы. */
+  /**
+   * Приглушить подпись месяца (нет сделок/выручки в этом месяце для текущего графика).
+   * Если не задано — единый цвет оси для всех меток (кэшфлоу и др.).
+   */
   isTickMuted?: (index: number) => boolean;
 };
 
@@ -33,15 +41,20 @@ export function createMarketingDealsStyleMonthTickRenderer(
   opts: MarketingDealsStyleMonthTickOptions,
 ): (props: XAxisTickContentProps) => JSX.Element {
   const axisColor = opts.presDark ? "#94a3b8" : "#a1a7b3";
+  const highlightByData = opts.isTickMuted != null;
   const n = opts.tickCount;
 
   return function MarketingDealsStyleMonthTick(props: XAxisTickContentProps) {
     const { x, y, payload, index } = props;
     const muted = opts.isTickMuted?.(index ?? 0) === true;
-    const fill = muted
-      ? opts.presDark
-        ? "rgba(148,163,184,0.4)"
-        : "rgba(148,163,184,0.42)"
+    const fill = highlightByData
+      ? muted
+        ? opts.presDark
+          ? "rgba(148,163,184,0.4)"
+          : MARKETING_DEALS_MONTH_TICK_MUTED_LIGHT
+        : opts.presDark
+          ? "#e2e8f0"
+          : MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT
       : axisColor;
     const fs = n > 14 ? 8.5 : 9.5;
     const v = payload?.value;
