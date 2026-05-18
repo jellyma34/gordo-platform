@@ -11,12 +11,19 @@ import {
   type DealsSegmentCardModel,
 } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
-import { compactRub, formatAvgPricePerM2Rub, formatSegmentMiniRevenueChartNumber, numFmt } from "@/lib/salesPlanChartFormat";
+import {
+  compactRub,
+  formatAvgPricePerM2Rub,
+  formatCashflowMillionsLabelTidy,
+  formatSegmentMiniRevenueChartNumber,
+  numFmt,
+} from "@/lib/salesPlanChartFormat";
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -114,6 +121,61 @@ function trendPillClass(trend: string, presDark: boolean): string {
     : "border border-slate-200/90 bg-slate-50/90 text-slate-700";
 }
 
+const MINI_BAR_LABEL_OFFSET_PX = 4;
+
+function formatDealsMiniBarTopLabel(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return numFmt.format(Math.round(n));
+}
+
+function formatRevenueMiniBarTopLabel(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return formatCashflowMillionsLabelTidy(n, false);
+}
+
+type MiniBarLabelProps = {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  value?: number | string;
+  index?: number;
+};
+
+function createSegmentMiniBarTopLabel(
+  fill: string,
+  peakFill: string,
+  peakIndex: number | null,
+  formatValue: (v: unknown) => string,
+) {
+  return function SegmentMiniBarTopLabel(props: MiniBarLabelProps) {
+    const x = typeof props.x === "number" ? props.x : Number(props.x);
+    const y = typeof props.y === "number" ? props.y : Number(props.y);
+    const width = typeof props.width === "number" ? props.width : Number(props.width);
+    const i = props.index ?? 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width)) return null;
+    const text = formatValue(props.value);
+    if (!text) return null;
+    const color = peakIndex != null && i === peakIndex ? peakFill : fill;
+    return (
+      <text
+        x={x + width / 2}
+        y={y - MINI_BAR_LABEL_OFFSET_PX}
+        textAnchor="middle"
+        dominantBaseline="auto"
+        fill={color}
+        fontSize={10}
+        fontWeight={600}
+        style={{ lineHeight: 1, whiteSpace: "nowrap" }}
+        className="tabular-nums pointer-events-none"
+      >
+        {text}
+      </text>
+    );
+  };
+}
+
 /** Вторичные мини-графики: лёгкая сетка, спокойные оси. */
 function chartWellClass(presDark: boolean, presentation: boolean): string {
   if (presDark) return "rounded-xl border border-white/[0.08] bg-black/12";
@@ -181,6 +243,17 @@ function SegmentMonthBarChart({
     [presDark, n, rows, dataKey],
   );
 
+  const barTopLabel = useMemo(
+    () =>
+      createSegmentMiniBarTopLabel(
+        fill,
+        peakFill,
+        peakIndex,
+        dataKey === "deals" ? formatDealsMiniBarTopLabel : formatRevenueMiniBarTopLabel,
+      ),
+    [fill, peakFill, peakIndex, dataKey],
+  );
+
   return (
     <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}>
       <div
@@ -192,7 +265,7 @@ function SegmentMonthBarChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: infographicMode ? 10 : 8, right: 4, left: 2, bottom: 30 }}
+            margin={{ top: infographicMode ? 18 : 16, right: 4, left: 2, bottom: 30 }}
             barCategoryGap={categoryGap}
             barGap={infographicMode ? 3 : 2}
           >
@@ -237,6 +310,7 @@ function SegmentMonthBarChart({
                   />
                 );
               })}
+              <LabelList dataKey={dataKey} content={barTopLabel} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
