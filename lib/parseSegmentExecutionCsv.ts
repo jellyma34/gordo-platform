@@ -3,9 +3,11 @@
  * «План vs факт (накопительно)» и «Выполнение %» в блоке «Исполнение плана продаж».
  */
 
+import { parseMarketingInvestorsCsv } from "@/lib/marketingInvestorsCsv";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 import { normalizeSegmentName, normalizeUnitCell } from "@/lib/parseSalesUnitsExecutionCsv";
 import { preprocessCell, stripBom } from "@/lib/salesPlanExecutionCsv";
+import { isInvestorsCsvHeaderLine } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 export type SegmentExecutionSegmentKey = "apartments" | "parking" | "storage" | "commercial";
 
@@ -422,6 +424,53 @@ export type ParseSegmentExecutionCsvFail = {
 
 export type ParseSegmentExecutionCsvResult = ParseSegmentExecutionCsvOk | ParseSegmentExecutionCsvFail;
 
+function toSegmentKey(key: string): SegmentExecutionSegmentKey {
+  if (key === "parking" || key === "storage" || key === "commercial") return key;
+  return "apartments";
+}
+
+/** Помесячный CSV (год / месяц / квартиры…) → bar charts по сегментам. */
+function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExecutionCsvResult {
+  const parsed = parseMarketingInvestorsCsv(text);
+  if (!parsed.ok) {
+    return { ok: false, error: parsed.error, warnings: parsed.warnings };
+  }
+
+  const planFactRows: SegmentExecutionPlanFactRow[] = parsed.planFactChartRows.map((r) => ({
+    key: toSegmentKey(r.key),
+    segment: r.segment || r.name,
+    plan: r.plan,
+    fact: r.fact,
+  }));
+
+  const completionRows: SegmentExecutionCompletionRow[] = parsed.completionChartRows.map((r) => ({
+    key: toSegmentKey(r.key),
+    segment: r.segment || r.name,
+    pct: r.pct,
+    completion: r.completion,
+    label: r.label,
+    fill: r.fill,
+  }));
+
+  const warnings = [
+    ...(parsed.warnings ?? []),
+    "Формат CSV: помесячный (год, месяц, квартиры…) — агрегировано по сегментам для графиков.",
+  ];
+
+  console.log("[segment execution csv] format", "investors-year-month");
+  console.table(planFactRows);
+  console.table(completionRows);
+
+  return { ok: true, planFactRows, completionRows, warnings };
+}
+
+function detectInvestorsMacroHeader(lines: string[]): boolean {
+  for (const line of lines) {
+    if (isInvestorsCsvHeaderLine(line)) return true;
+  }
+  return false;
+}
+
 export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsvResult {
   const warnings: string[] = [];
   const delim = detectDelimiter(text);
@@ -431,15 +480,23 @@ export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsv
     return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
   }
 
+  if (detectInvestorsMacroHeader(lines)) {
+    return parseSegmentExecutionFromInvestorsFormat(text);
+  }
+
   const resolved = resolveHeaderMap(lines, delim);
   if (!resolved) {
+    const investorsFallback = parseSegmentExecutionFromInvestorsFormat(text);
+    if (investorsFallback.ok) return investorsFallback;
     return {
       ok: false,
       error:
-        "Не найдена строка заголовков: нужны колонки «Наименование», «План» (накопительно) и «Факт» (накопительно).",
+        "Не найдена строка заголовков. Ожидается таблица по сегментам (колонка «Наименование», план/факт накопительно) или помесячный формат (год, месяц, квартиры…).",
       warnings,
     };
   }
+
+  console.log("[segment execution csv] format", "segment-table");
 
   const { headerIdx, col, mergedHeaders, rawHeaders } = resolved;
 

@@ -138,6 +138,7 @@ export function SalesPlanExecutionBlock({
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     console.log("[segment execution state]", {
+      store: "marketingSegmentExecutionCsv",
       error: segmentExecutionCsvError,
       planFactLen: segmentExecutionCharts?.planFactRows?.length ?? 0,
       completionLen: segmentExecutionCharts?.completionRows?.length ?? 0,
