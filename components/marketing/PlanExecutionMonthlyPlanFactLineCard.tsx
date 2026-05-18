@@ -66,7 +66,11 @@ function buildLabelStaggerPx(values: (number | null)[], domainHiRub: number): nu
 }
 const CHART_MARGIN_TOP_LIGHT = 52;
 const CHART_MARGIN_TOP_DARK = 42;
-const CHART_MARGIN_BOTTOM = 92;
+const CHART_MARGIN_BOTTOM = 102;
+/** Доп. отступ подписей месяцев относительно мини-графиков «Сделки». */
+const PLAN_VS_FACT_MONTH_TICK_MARGIN = 22;
+const PLAN_VS_FACT_MONTH_AXIS_HEIGHT = 74;
+const PLAN_VS_FACT_MONTH_TICK_TRANSLATE_Y_PX = 10;
 const CHART_MARGIN_LEFT = 10;
 const CHART_Y_AXIS_WIDTH = 88;
 
@@ -160,6 +164,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
         tickCount: Math.max(1, chartData.length),
+        translateYPx: PLAN_VS_FACT_MONTH_TICK_TRANSLATE_Y_PX,
       }),
     [presDark, chartData.length],
   );
@@ -245,6 +250,8 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
                 dataKey="label"
                 type="category"
                 {...MARKETING_DEALS_STYLE_MONTH_X_AXIS}
+                tickMargin={PLAN_VS_FACT_MONTH_TICK_MARGIN}
+                height={PLAN_VS_FACT_MONTH_AXIS_HEIGHT}
                 tick={monthXTick}
               />
               <YAxis

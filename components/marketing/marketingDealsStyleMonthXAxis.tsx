@@ -31,6 +31,8 @@ export type MarketingDealsStyleMonthTickOptions = {
    * Если не задано — единый цвет оси для всех меток (кэшфлоу и др.).
    */
   isTickMuted?: (index: number) => boolean;
+  /** Доп. сдвиг подписи вниз по SVG (px), для отдельных графиков. */
+  translateYPx?: number;
 };
 
 /**
@@ -61,8 +63,9 @@ export function createMarketingDealsStyleMonthTickRenderer(
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
     const yf = typeof y === "number" ? y : Number(y);
+    const dy = opts.translateYPx ?? 0;
     return (
-      <g transform={`translate(${xf},${yf})`}>
+      <g transform={`translate(${xf},${yf + dy})`}>
         <text
           x={0}
           y={0}
