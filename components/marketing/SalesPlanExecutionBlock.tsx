@@ -44,6 +44,44 @@ import {
   formatCompactMoneyAxis,
   formatCumulativePlanFactBarLabel,
 } from "@/lib/salesPlanChartFormat";
+const CUMULATIVE_BAR_LABEL_OFFSET_PX = 7;
+
+type CumulativeBarLabelProps = {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  value?: number | string;
+};
+
+function createCumulativePlanFactBarLabel(fill: string) {
+  return function CumulativePlanFactBarLabel(props: CumulativeBarLabelProps) {
+    const x = typeof props.x === "number" ? props.x : Number(props.x);
+    const y = typeof props.y === "number" ? props.y : Number(props.y);
+    const width = typeof props.width === "number" ? props.width : Number(props.width);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width)) return null;
+    const text = formatCumulativePlanFactBarLabel(props.value);
+    if (!text) return null;
+    return (
+      <text
+        x={x + width / 2}
+        y={y - CUMULATIVE_BAR_LABEL_OFFSET_PX}
+        textAnchor="middle"
+        dominantBaseline="auto"
+        fill={fill}
+        fontSize={12}
+        fontWeight={600}
+        style={{ lineHeight: 1, whiteSpace: "nowrap" }}
+        className="tabular-nums pointer-events-none"
+      >
+        {text}
+      </text>
+    );
+  };
+}
+
+const cumulativePlanFactFactBarLabel = createCumulativePlanFactBarLabel("#2563EB");
+const cumulativePlanFactPlanBarLabel = createCumulativePlanFactBarLabel("#F97316");
+
 function completionBarTone(pct: number | null): { track: string; fill: string } {
   if (pct == null || !Number.isFinite(pct)) {
     return { track: "bg-slate-200/80", fill: "bg-slate-400" };
@@ -477,29 +515,11 @@ function ExecutionMacroChartsBlock({
                   }}
                 />
                 <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
-                  <LabelList
-                    dataKey="fact"
-                    position="top"
-                    offset={6}
-                    fill="#2563EB"
-                    fontSize={12}
-                    fontWeight={600}
-                    className="tabular-nums"
-                    formatter={formatCumulativePlanFactBarLabel}
-                  />
+                  <LabelList dataKey="fact" content={cumulativePlanFactFactBarLabel} />
                 </Bar>
                 {hasSegmentPlan ? (
                   <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
-                    <LabelList
-                      dataKey="plan"
-                      position="top"
-                      offset={6}
-                      fill="#F97316"
-                      fontSize={12}
-                      fontWeight={600}
-                      className="tabular-nums"
-                      formatter={formatCumulativePlanFactBarLabel}
-                    />
+                    <LabelList dataKey="plan" content={cumulativePlanFactPlanBarLabel} />
                   </Bar>
                 ) : null}
               </BarChart>
