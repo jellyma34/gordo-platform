@@ -64,6 +64,16 @@ import {
   type MarketingUnitsExecutionStoredV1,
   type UnitsExecutionChartsPayload,
 } from "@/lib/marketingUnitsExecutionCsv";
+import {
+  apartmentsCsvHasData,
+  clearMarketingApartmentsCsvLocalStorage,
+  metaFromApartmentsDoc,
+  parseApartmentsCsv,
+  readMarketingApartmentsCsvFromLocalStorage,
+  writeMarketingApartmentsCsvToLocalStorage,
+  type MarketingApartmentsCsvMetaV1,
+  type MarketingApartmentsCsvStoredV1,
+} from "@/lib/marketingApartmentsCsv";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
@@ -753,6 +763,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   } | null>(null);
 
   const unitsCsvInputRef = useRef<HTMLInputElement>(null);
+  const apartmentsCsvInputRef = useRef<HTMLInputElement>(null);
   const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
     undefined,
   );
@@ -762,6 +773,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     uploadedBy?: string;
   } | null>(null);
   const [unitsCsvError, setUnitsCsvError] = useState<string | null>(null);
+  const [apartmentsCsvMeta, setApartmentsCsvMeta] = useState<MarketingApartmentsCsvMetaV1 | null>(null);
+  const [apartmentsCsvError, setApartmentsCsvError] = useState<string | null>(null);
+  const [apartmentsCsvWarnings, setApartmentsCsvWarnings] = useState<string[]>([]);
 
   const unitsHasChartRows = useMemo(
     () => unitsExecutionChartsHaveRows(unitsExecutionCharts),
@@ -1134,6 +1148,18 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setUnitsCsvMeta(null);
       setUnitsCsvError(null);
     };
+    const applyFromApartmentsDoc = (doc: MarketingApartmentsCsvStoredV1) => {
+      setApartmentsCsvError(null);
+      setApartmentsCsvMeta(metaFromApartmentsDoc(doc));
+      setApartmentsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+      writeMarketingApartmentsCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const clearApartmentsState = () => {
+      clearMarketingApartmentsCsvLocalStorage(paymentPlanProjectId);
+      setApartmentsCsvMeta(null);
+      setApartmentsCsvError(null);
+      setApartmentsCsvWarnings([]);
+    };
     (async () => {
       try {
         const res = await fetch(
@@ -1146,6 +1172,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             investors: MarketingInvestorsCsvStoredV1 | null;
             segmentExecution: MarketingSegmentExecutionStoredV1 | null;
             unitsExecution: MarketingUnitsExecutionStoredV1 | null;
+            apartments: MarketingApartmentsCsvStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1161,6 +1188,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const u = j.datasets.unitsExecution;
         if (u && Array.isArray(u.segments) && u.segments.length > 0) applyFromUnitsDoc(u);
         else clearUnitsState();
+        const apt = j.datasets.apartments;
+        if (apt && apartmentsCsvHasData(apt)) applyFromApartmentsDoc(apt);
+        else clearApartmentsState();
       } catch {
         if (cancelled) return;
         const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
@@ -1172,6 +1202,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const unitsDoc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
         if (unitsDoc && unitsDoc.segments.length > 0) applyFromUnitsDoc(unitsDoc);
         else clearUnitsState();
+        const aptDoc = readMarketingApartmentsCsvFromLocalStorage(paymentPlanProjectId);
+        if (aptDoc && apartmentsCsvHasData(aptDoc)) applyFromApartmentsDoc(aptDoc);
+        else clearApartmentsState();
       } finally {
         if (!cancelled) setSupplementalMarketingHydrated(true);
       }
@@ -1394,6 +1427,93 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     setUnitsExecutionCharts(null);
     setUnitsCsvMeta(null);
     if (unitsCsvInputRef.current) unitsCsvInputRef.current.value = "";
+  };
+
+  const onMarketingApartmentsCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setApartmentsCsvError(null);
+    try {
+      const text = await readMarketingCsvFileAsText(file);
+      const parsed = parseApartmentsCsv(text, file.name);
+      if (!parsed.ok) {
+        setApartmentsCsvError(parsed.error);
+        setApartmentsCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "apartments");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingApartmentsCsvStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV квартир на сервере.";
+        writeMarketingApartmentsCsvToLocalStorage(paymentPlanProjectId, {
+          v: 1,
+          updatedAt: parsed.uploadedAt,
+          fileName: parsed.filename,
+          uploadedBy: paymentUploadedByLabel,
+          headers: parsed.headers,
+          rows: parsed.rows,
+          warnings: [
+            ...parsed.warnings,
+            `Сервер: ${serverMsg} (данные сохранены локально).`,
+          ],
+        });
+        setApartmentsCsvMeta({
+          v: 1,
+          fileName: parsed.filename,
+          uploadedAt: parsed.uploadedAt,
+          uploadedBy: paymentUploadedByLabel,
+        });
+        setApartmentsCsvWarnings([
+          ...parsed.warnings,
+          `Сервер: ${serverMsg} (данные сохранены локально).`,
+        ]);
+        setApartmentsCsvError(null);
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingApartmentsCsvToLocalStorage(paymentPlanProjectId, saved);
+      setApartmentsCsvMeta(metaFromApartmentsDoc(saved));
+      setApartmentsCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
+      setApartmentsCsvError(null);
+    } catch {
+      setApartmentsCsvError("Не удалось прочитать CSV квартир.");
+    }
+    if (apartmentsCsvInputRef.current) apartmentsCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingApartmentsCsv = async () => {
+    setApartmentsCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=apartments`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setApartmentsCsvError("Не удалось сбросить CSV квартир на сервере.");
+        return;
+      }
+    } catch {
+      setApartmentsCsvError("Не удалось сбросить CSV квартир.");
+      return;
+    }
+    clearMarketingApartmentsCsvLocalStorage(paymentPlanProjectId);
+    setApartmentsCsvMeta(null);
+    setApartmentsCsvWarnings([]);
+    if (apartmentsCsvInputRef.current) apartmentsCsvInputRef.current.value = "";
   };
 
   const clearMarketingInvestorsCsv = async () => {
@@ -3110,6 +3230,39 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={apartmentsCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingApartmentsCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-teal-400/40 bg-teal-500/15 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-teal-500/25"
+                    : "rounded-md border border-teal-500/50 bg-teal-500/10 px-2.5 py-1.5 text-xs font-semibold text-teal-800 hover:bg-teal-500/15"
+                }
+                onClick={() => apartmentsCsvInputRef.current?.click()}
+              >
+                Загрузить CSV квартир
+              </button>
+              {apartmentsCsvMeta ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={() => void clearMarketingApartmentsCsv()}
+                >
+                  Сбросить CSV квартир
+                </button>
+              ) : null}
+            </div>
             {segmentExecutionCsvError && !segmentExecutionHasChartRows ? (
               <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
             ) : null}
@@ -3117,6 +3270,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             {unitsCsvError && !unitsHasChartRows ? (
               <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p>
             ) : null}
+            {apartmentsCsvError ? <p className="text-xs font-medium text-rose-600">{apartmentsCsvError}</p> : null}
             {segmentExecutionCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {segmentExecutionCsvWarnings.map((w, i) => (
@@ -3128,6 +3282,13 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {investorsCsvWarnings.map((w, i) => (
                   <li key={`inv-${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            {apartmentsCsvWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {apartmentsCsvWarnings.map((w, i) => (
+                  <li key={`apt-${i}-${w.slice(0, 64)}`}>{w}</li>
                 ))}
               </ul>
             ) : null}
@@ -3181,6 +3342,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                   </>
                 ) : null}
                 <span className={presDark ? "text-slate-500" : "text-slate-500"}> · сервер</span>
+              </div>
+            ) : null}
+            {apartmentsCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Квартиры CSV: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{apartmentsCsvMeta.fileName}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">{new Date(apartmentsCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                {apartmentsCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{apartmentsCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — сервер</span>
               </div>
             ) : null}
             {executionError ? (

@@ -13,10 +13,16 @@ import {
   parseStoredMarketingSegmentExecutionCsv,
 } from "@/lib/marketingSegmentExecutionCsv";
 import {
+  parseApartmentsCsv,
+  parseStoredMarketingApartmentsCsv,
+} from "@/lib/marketingApartmentsCsv";
+import {
   parseSalesUnitsExecutionCsv,
   parseStoredMarketingUnitsExecutionCsv,
 } from "@/lib/marketingUnitsExecutionCsv";
 import {
+  marketingProjectApartmentsJsonPath,
+  marketingProjectApartmentsRawCsvPath,
   marketingProjectInvestorsJsonPath,
   marketingProjectInvestorsRawCsvPath,
   marketingProjectMarketingDir,
@@ -42,6 +48,7 @@ type MarketingStoragePresence = {
   hasInvestors: boolean;
   hasSegmentExecution: boolean;
   hasUnitsExecution: boolean;
+  hasApartments: boolean;
   hasExecutionPlan: boolean;
 };
 
@@ -62,6 +69,17 @@ async function readJsonUnitsDoc(
   try {
     const raw = await readFile(marketingProjectUnitsExecutionJsonPath(projectId), "utf-8");
     return parseStoredMarketingUnitsExecutionCsv(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonApartmentsDoc(
+  projectId: string,
+): Promise<ReturnType<typeof parseStoredMarketingApartmentsCsv>> {
+  try {
+    const raw = await readFile(marketingProjectApartmentsJsonPath(projectId), "utf-8");
+    return parseStoredMarketingApartmentsCsv(JSON.parse(raw) as unknown);
   } catch {
     return null;
   }
@@ -111,6 +129,7 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
   const inv = await readJsonInvestorsDoc(safeProjectId);
   const seg = await readJsonSegmentExecutionDoc(safeProjectId);
   const u = await readJsonUnitsDoc(safeProjectId);
+  const apt = await readJsonApartmentsDoc(safeProjectId);
 
   return {
     hasPlan,
@@ -118,6 +137,7 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
     hasInvestors: inv != null,
     hasSegmentExecution: seg != null && seg.planFactRows.length > 0,
     hasUnitsExecution: u != null && u.segments.length > 0,
+    hasApartments: apt != null && (apt.rows.length > 0 || apt.headers.length > 0),
     hasExecutionPlan,
   };
 }
@@ -126,10 +146,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const { projectId: raw } = await ctx.params;
   const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
   const presence = await computePresence(safeProjectId);
-  const [investors, segmentExecution, unitsExecution] = await Promise.all([
+  const [investors, segmentExecution, unitsExecution, apartments] = await Promise.all([
     readJsonInvestorsDoc(safeProjectId),
     readJsonSegmentExecutionDoc(safeProjectId),
     readJsonUnitsDoc(safeProjectId),
+    readJsonApartmentsDoc(safeProjectId),
   ]);
   return NextResponse.json(
     {
@@ -140,6 +161,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         investors,
         segmentExecution,
         unitsExecution,
+        apartments,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -259,8 +281,38 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       });
     }
 
+    if (kind === "apartments" || kind === "apartments_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = parseApartmentsCsv(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json({ ok: false, error: parsed.error, warnings: parsed.warnings ?? [] }, { status: 400 });
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName: parsed.filename,
+        headers: parsed.headers,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+      };
+      await writeFile(marketingProjectApartmentsJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
+      await writeFile(marketingProjectApartmentsRawCsvPath(safeProjectId), text, "utf-8");
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({
+        ok: true,
+        projectId: safeProjectId,
+        kind: "apartments",
+        doc,
+        presence,
+      });
+    }
+
     return NextResponse.json(
-      { ok: false, error: "Укажите kind=investors, kind=segment_execution или kind=units_execution." },
+      {
+        ok: false,
+        error: "Укажите kind=investors, kind=segment_execution, kind=units_execution или kind=apartments.",
+      },
       { status: 400 },
     );
   } catch (e) {
@@ -282,12 +334,15 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       kind !== "execution_segments" &&
       kind !== "units_execution" &&
       kind !== "units-execution" &&
-      kind !== "units"
+      kind !== "units" &&
+      kind !== "apartments" &&
+      kind !== "apartments_csv"
     ) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Ожидался query kind=investors, kind=segment_execution или kind=units_execution.",
+          error:
+            "Ожидался query kind=investors, kind=segment_execution, kind=units_execution или kind=apartments.",
         },
         { status: 400 },
       );
@@ -308,6 +363,17 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       for (const p of [
         marketingProjectSegmentExecutionJsonPath(safeProjectId),
         marketingProjectSegmentExecutionRawCsvPath(safeProjectId),
+      ]) {
+        try {
+          await unlink(p);
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (kind === "apartments" || kind === "apartments_csv") {
+      for (const p of [
+        marketingProjectApartmentsJsonPath(safeProjectId),
+        marketingProjectApartmentsRawCsvPath(safeProjectId),
       ]) {
         try {
           await unlink(p);
