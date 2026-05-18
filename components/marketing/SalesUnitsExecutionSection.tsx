@@ -78,6 +78,50 @@ function formatUnits(n: number): string {
   return Math.round(n).toLocaleString("ru-RU");
 }
 
+const UNITS_BAR_LABEL_OFFSET_PX = 6;
+
+function formatUnitsBarTopLabel(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return Math.round(n).toLocaleString("ru-RU");
+}
+
+type UnitsBarLabelProps = {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  value?: number | string;
+};
+
+function createUnitsBarTopLabel(fill: string) {
+  return function UnitsBarTopLabel(props: UnitsBarLabelProps) {
+    const x = typeof props.x === "number" ? props.x : Number(props.x);
+    const y = typeof props.y === "number" ? props.y : Number(props.y);
+    const width = typeof props.width === "number" ? props.width : Number(props.width);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width)) return null;
+    const text = formatUnitsBarTopLabel(props.value);
+    if (!text) return null;
+    return (
+      <text
+        x={x + width / 2}
+        y={y - UNITS_BAR_LABEL_OFFSET_PX}
+        textAnchor="middle"
+        dominantBaseline="auto"
+        fill={fill}
+        fontSize={10}
+        fontWeight={600}
+        style={{ lineHeight: 1, whiteSpace: "nowrap" }}
+        className="tabular-nums pointer-events-none"
+      >
+        {text}
+      </text>
+    );
+  };
+}
+
+const unitsPlanFactFactBarLabel = createUnitsBarTopLabel("#2563EB");
+const unitsPlanFactPlanBarLabel = createUnitsBarTopLabel("#F97316");
+
 export function SalesUnitsExecutionSection({
   presentation,
   presDark,
@@ -174,7 +218,7 @@ export function SalesUnitsExecutionSection({
                 <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <BarChart
                     data={planFactChartRows}
-                    margin={{ top: 10, right: 6, left: 0, bottom: 4 }}
+                    margin={{ top: 22, right: 6, left: 0, bottom: 4 }}
                     barGap={6}
                     barCategoryGap="28%"
                   >
@@ -222,8 +266,12 @@ export function SalesUnitsExecutionSection({
                         );
                       }}
                     />
-                    <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
-                    <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                    <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
+                      <LabelList dataKey="fact" content={unitsPlanFactFactBarLabel} />
+                    </Bar>
+                    <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
+                      <LabelList dataKey="plan" content={unitsPlanFactPlanBarLabel} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
