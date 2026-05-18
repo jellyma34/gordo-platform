@@ -50,6 +50,7 @@ import {
   MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
   parseSegmentExecutionCsv,
   readMarketingSegmentExecutionCsvFromLocalStorage,
+  segmentExecutionChartsHaveRows,
   writeMarketingSegmentExecutionCsvToLocalStorage,
   type MarketingSegmentExecutionStoredV1,
   type SegmentExecutionChartsPayload,
@@ -737,6 +738,11 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     storageKey: string;
   } | null>(null);
 
+  const segmentExecutionHasChartRows = useMemo(
+    () => segmentExecutionChartsHaveRows(segmentExecutionCharts),
+    [segmentExecutionCharts],
+  );
+
   const [investorsCsvError, setInvestorsCsvError] = useState<string | null>(null);
   const [investorsCsvWarnings, setInvestorsCsvWarnings] = useState<string[]>([]);
   const [investorsCsvMeta, setInvestorsCsvMeta] = useState<{
@@ -1077,6 +1083,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         planFactRows: doc.planFactRows,
         completionRows: doc.completionRows,
       });
+      setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta({
         fileName: doc.fileName,
         uploadedAt: doc.updatedAt,
@@ -1109,6 +1116,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       setSegmentExecutionCharts(null);
       setSegmentExecutionCsvMeta(null);
       setSegmentExecutionCsvWarnings([]);
+      setSegmentExecutionCsvError(null);
     };
     const clearUnitsState = () => {
       clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
@@ -1377,10 +1385,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       const text = await readMarketingCsvFileAsText(file);
       const parsed = parseSegmentExecutionCsv(text);
       if (!parsed.ok) {
+        setSegmentExecutionCharts(null);
         setSegmentExecutionCsvError(parsed.error);
         setSegmentExecutionCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
         return;
       }
+      const clientCharts: SegmentExecutionChartsPayload = {
+        planFactRows: parsed.planFactRows,
+        completionRows: parsed.completionRows,
+      };
+      setSegmentExecutionCharts(clientCharts);
+      setSegmentExecutionCsvError(null);
       const fd = new FormData();
       fd.append("file", file);
       fd.append("kind", "segment_execution");
@@ -1396,10 +1411,36 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         warnings?: string[];
       } | null;
       if (!res.ok || !j?.ok || !j.doc) {
-        setSegmentExecutionCsvError(
-          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана на сервере.",
-        );
-        setSegmentExecutionCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана на сервере.";
+        if (segmentExecutionChartsHaveRows(clientCharts)) {
+          writeMarketingSegmentExecutionCsvToLocalStorage(paymentPlanProjectId, {
+            v: 1,
+            updatedAt: new Date().toISOString(),
+            fileName: file.name,
+            uploadedBy: paymentUploadedByLabel,
+            planFactRows: parsed.planFactRows,
+            completionRows: parsed.completionRows,
+            warnings: [
+              ...(parsed.warnings ?? []),
+              `Сервер: ${serverMsg} (данные на графике из локального разбора).`,
+            ],
+          });
+          setSegmentExecutionCsvMeta({
+            fileName: file.name,
+            updatedAt: new Date().toISOString(),
+            uploadedBy: paymentUploadedByLabel,
+            storageKey: MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
+          });
+          setSegmentExecutionCsvWarnings((prev) => [
+            ...prev,
+            `Сервер: ${serverMsg} (графики построены из локального разбора).`,
+          ]);
+          setSegmentExecutionCsvError(null);
+        } else {
+          setSegmentExecutionCsvError(serverMsg);
+          setSegmentExecutionCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        }
         return;
       }
       const saved = j.doc;
@@ -1408,6 +1449,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         planFactRows: saved.planFactRows,
         completionRows: saved.completionRows,
       });
+      setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta({
         fileName: saved.fileName,
         uploadedAt: saved.updatedAt,
@@ -3016,7 +3058,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </button>
               ) : null}
             </div>
-            {segmentExecutionCsvError ? (
+            {segmentExecutionCsvError && !segmentExecutionHasChartRows ? (
               <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
             ) : null}
             {investorsCsvError ? <p className="text-xs font-medium text-rose-600">{investorsCsvError}</p> : null}
@@ -3220,6 +3262,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           dataset={executionDataset}
           monthlyPlanVsFact={monthlyPlanVsFactChart}
           segmentExecutionCharts={segmentExecutionCharts}
+          segmentExecutionCsvError={segmentExecutionCsvError}
           unitsExecutionCharts={unitsExecutionCharts}
         />
       </>

@@ -22,7 +22,10 @@ import {
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
 } from "@/lib/marketingSalesPlanExecutionTable";
-import type { SegmentExecutionChartsPayload } from "@/lib/marketingSegmentExecutionCsv";
+import {
+  segmentExecutionChartsHaveRows,
+  type SegmentExecutionChartsPayload,
+} from "@/lib/marketingSegmentExecutionCsv";
 import type {
   SegmentExecutionCompletionRow,
   SegmentExecutionPlanFactRow,
@@ -63,6 +66,8 @@ type Props = {
    * `undefined` — гидратация; `null` — файл не загружен.
    */
   segmentExecutionCharts?: SegmentExecutionChartsPayload | null;
+  /** Ошибка загрузки CSV сегментов (показывается только без данных на графиках). */
+  segmentExecutionCsvError?: string | null;
   /** Исполнение в штуках — отдельный CSV (localStorage), не Verba / investors / plan_fact. */
   unitsExecutionCharts?: UnitsExecutionChartsPayload | null;
 };
@@ -75,6 +80,7 @@ export function SalesPlanExecutionBlock({
   dataset,
   monthlyPlanVsFact,
   segmentExecutionCharts,
+  segmentExecutionCsvError = null,
   unitsExecutionCharts,
 }: Props) {
   const data = dataset;
@@ -101,14 +107,44 @@ export function SalesPlanExecutionBlock({
     ? "border-t border-white/10 bg-slate-900/70 font-semibold text-slate-50"
     : "border-t border-slate-200 bg-slate-100/80 font-semibold text-slate-900";
 
-  const hasSegmentExecutionChartRows = useMemo(() => {
-    if (segmentChartsHydrating || segmentExecutionCharts == null) return false;
-    return (segmentExecutionCharts.planFactRows?.length ?? 0) > 0;
-  }, [segmentChartsHydrating, segmentExecutionCharts]);
+  const hasSegmentExecutionChartRows = useMemo(
+    () => !segmentChartsHydrating && segmentExecutionChartsHaveRows(segmentExecutionCharts),
+    [segmentChartsHydrating, segmentExecutionCharts],
+  );
 
   const segmentExecutionMissing = !segmentChartsHydrating && segmentExecutionCharts == null;
   const segmentExecutionEmptyFile =
     !segmentChartsHydrating && segmentExecutionCharts != null && !hasSegmentExecutionChartRows;
+
+  const macroChartPlaceholderResolved = useMemo(() => {
+    if (segmentChartsHydrating) return "Загрузка…";
+    if (hasSegmentExecutionChartRows) return null;
+    const err = segmentExecutionCsvError?.trim();
+    if (err) return err;
+    if (segmentExecutionMissing) {
+      return "Загрузите CSV исполнения плана продаж для графиков «План vs факт (накопительно)» и «Выполнение %»";
+    }
+    return "В CSV исполнения плана нет распознанных строк по сегментам.";
+  }, [
+    segmentChartsHydrating,
+    hasSegmentExecutionChartRows,
+    segmentExecutionCsvError,
+    segmentExecutionMissing,
+  ]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    console.log("[segment execution state]", {
+      error: segmentExecutionCsvError,
+      planFactLen: segmentExecutionCharts?.planFactRows?.length ?? 0,
+      completionLen: segmentExecutionCharts?.completionRows?.length ?? 0,
+      hasData: hasSegmentExecutionChartRows,
+    });
+  }, [
+    segmentExecutionCsvError,
+    segmentExecutionCharts,
+    hasSegmentExecutionChartRows,
+  ]);
 
   const unitsPlanFactChartRows = useMemo(
     () => buildUnitsPlanFactChartRows(unitsExecutionCharts?.segments ?? []),
@@ -146,15 +182,7 @@ export function SalesPlanExecutionBlock({
           mplPremium={mplPremium}
           mutedCls={mutedCls}
           segmentExecutionCharts={segmentExecutionCharts}
-          macroChartPlaceholder={
-            segmentChartsHydrating
-              ? "Загрузка…"
-              : segmentExecutionMissing
-                ? "Загрузите CSV исполнения плана продаж для графиков «План vs факт (накопительно)» и «Выполнение %»"
-                : segmentExecutionEmptyFile
-                  ? "В CSV исполнения плана нет распознанных строк по сегментам."
-                  : null
-          }
+          macroChartPlaceholder={macroChartPlaceholderResolved}
         />
 
         <div className="min-w-0 w-full max-w-none">

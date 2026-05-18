@@ -34,6 +34,27 @@ export type SegmentExecutionChartsPayload = {
   completionRows: SegmentExecutionCompletionRow[];
 };
 
+/** Есть ли распознанные строки сегментов (для графиков и сброса stale error). */
+export function segmentExecutionChartsHaveRows(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+): boolean {
+  if (!payload) return false;
+  return (payload.planFactRows?.length ?? 0) > 0 || (payload.completionRows?.length ?? 0) > 0;
+}
+
+/** Есть ли в payload ненулевые plan/fact или % (не только пустые строки сегментов). */
+export function segmentExecutionChartsHaveData(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+): boolean {
+  if (!payload) return false;
+  const pf = payload.planFactRows ?? [];
+  const cr = payload.completionRows ?? [];
+  return (
+    pf.some((r) => Math.abs(r.plan) > 1e-9 || Math.abs(r.fact) > 1e-9) ||
+    cr.some((r) => Number.isFinite(r.pct) && r.pct > 0)
+  );
+}
+
 function normalizePlanFactRow(raw: unknown): SegmentExecutionPlanFactRow {
   if (!raw || typeof raw !== "object") {
     return { key: "apartments", segment: "Квартиры", plan: 0, fact: 0 };
