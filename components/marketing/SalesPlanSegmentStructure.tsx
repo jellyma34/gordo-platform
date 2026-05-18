@@ -307,7 +307,7 @@ export function SalesPlanSegmentStructure({
         if (fromCsvPool != null) share = fromCsvPool;
       }
       if (key === "parking") {
-        const fromCsvPool = parkingRevenueShareFromCsvPool(sum, parkingRevenuePool);
+        const fromCsvPool = parkingRevenueShareFromCsvPool(sum, parkingRevenuePool, { soldCount: count });
         if (fromCsvPool != null) share = fromCsvPool;
       }
       out.push({

@@ -19,30 +19,48 @@ function normCell(s: string): string {
   return normalizeCsvHeaderLabel(s);
 }
 
+function compactHeaderKey(h: string): string {
+  return h.replace(/\s+/g, "").replace(/[,?₽руб.]/g, "");
+}
+
 function isPricePerM2Column(h: string): boolean {
   if (!h) return false;
-  if (h.includes("м2") || h.includes("квм") || h.includes("квм2")) return true;
-  if (h.includes("ценазакв") || (h.includes("цен") && h.includes("м2"))) return true;
-  if (h.includes("pricem2") || h.includes("price_m2")) return true;
+  const compact = compactHeaderKey(h);
+  if (compact.includes("м2") || compact.includes("квм") || compact.includes("квм2")) return true;
+  if (h.includes("кв.м") || h.includes("кв м") || h.includes("за кв") || h.includes("закв") || h.includes("ценазакв")) {
+    return true;
+  }
+  if (compact.includes("pricem2") || compact.includes("price_m2") || compact.includes("estatepricem2")) return true;
+  if ((h.includes("цен") || h.includes("цена")) && (compact.includes("м2") || h.includes("кв.м"))) return true;
   return false;
 }
 
 /** Колонка полной стоимости машино-места (не цена за м²). */
 export function findParkingRegistryPriceColumnIndex(headers: string[]): number {
   const normalized = headers.map((h) => normCell(h));
+  const compact = normalized.map((h) => compactHeaderKey(h));
+
   for (let i = 0; i < normalized.length; i++) {
     const h = normalized[i]!;
+    const c = compact[i]!;
     if (!h || isPricePerM2Column(h)) continue;
-    if (REGISTRY_PARKING_PRICE_COLUMN_KEYS.has(h)) return i;
+    if (REGISTRY_PARKING_PRICE_COLUMN_KEYS.has(c) || REGISTRY_PARKING_PRICE_COLUMN_KEYS.has(h.replace(/\s/g, ""))) {
+      return i;
+    }
   }
   for (let i = 0; i < normalized.length; i++) {
     const h = normalized[i]!;
     if (!h || isPricePerM2Column(h)) continue;
-    if (h.includes("fullprice") || h.includes("totalprice")) return i;
     if (h.includes("стоим") && (h.includes("мест") || h.includes("машин") || h.includes("паркинг"))) return i;
+    if (h === "estatepriceincome" || h.includes("priceincome")) return i;
+    if (compact[i]!.includes("fullprice") || compact[i]!.includes("totalprice")) return i;
+  }
+  for (let i = 0; i < normalized.length; i++) {
+    const h = normalized[i]!;
+    if (!h || isPricePerM2Column(h)) continue;
     if (h.includes("стоим") && !h.includes("площад")) return i;
-    if ((h.includes("цена") || h === "price") && !h.includes("спец")) return i;
     if (h.includes("сумма") && !h.includes("итог")) return i;
+    if ((h.includes("цена") || h === "price") && !h.includes("спец")) return i;
   }
   return -1;
 }
@@ -58,54 +76,8 @@ export function isSkippableParkingMetricsRow(row: string[]): boolean {
   return false;
 }
 
-function findParkingRegistryIdentityColumns(headers: string[]): {
-  idCol: number;
-  externalUuidCol: number | null;
-  flatNumCol: number | null;
-} {
-  let idCol = 0;
-  let externalUuidCol: number | null = null;
-  let flatNumCol: number | null = null;
-  const normalized = headers.map((h) => normCell(h));
-  for (let i = 0; i < normalized.length; i++) {
-    const h = normalized[i]!;
-    if (h === "id") idCol = i;
-    if (h.includes("externaluuid") || h === "estateexternaluuid") externalUuidCol = i;
-    if (h.includes("flatnum") || h.includes("машиномест") || h === "№машиноместа") flatNumCol = i;
-  }
-  return { idCol, externalUuidCol, flatNumCol };
-}
-
-function rowHasRegistryIdentity(
-  row: string[],
-  idCol: number,
-  externalUuidCol: number | null,
-  flatNumCol: number | null,
-): boolean {
-  const idRaw = preprocessCell(row[idCol] ?? "").trim();
-  if (idRaw && idRaw.toLowerCase() !== "id" && /^\d+$/.test(idRaw.replace(/\s/g, ""))) {
-    return true;
-  }
-  if (externalUuidCol != null) {
-    const uuid = preprocessCell(row[externalUuidCol] ?? "").trim();
-    if (uuid.length >= 6 && uuid.toLowerCase() !== "id") return true;
-  }
-  if (flatNumCol != null) {
-    const num = preprocessCell(row[flatNumCol] ?? "").trim();
-    if (num && num.toLowerCase() !== "id" && /^\d+$/.test(num.replace(/\s/g, ""))) return true;
-  }
-  return false;
-}
-
-function isRegistryParkingRow(
-  row: string[],
-  priceCol: number,
-  idCol: number,
-  externalUuidCol: number | null,
-  flatNumCol: number | null,
-): boolean {
+function isRegistryParkingRow(row: string[], priceCol: number): boolean {
   if (isSkippableParkingMetricsRow(row)) return false;
-  if (!rowHasRegistryIdentity(row, idCol, externalUuidCol, flatNumCol)) return false;
   const priceLabel = normCell(row[priceCol] ?? "");
   if (priceLabel.includes("стоим") && (priceLabel.includes("мест") || priceLabel.includes("машин"))) return false;
   const n = parseRuNumber(row[priceCol]);
@@ -134,14 +106,20 @@ export function sumParkingCsvTotalRevenue(headers: string[], rows: string[][]): 
     };
   }
 
-  const { idCol, externalUuidCol, flatNumCol } = findParkingRegistryIdentityColumns(headers);
   let totalRevenue = 0;
   let totalCount = 0;
   for (const row of rows) {
-    if (!isRegistryParkingRow(row, priceCol, idCol, externalUuidCol, flatNumCol)) continue;
+    if (!isRegistryParkingRow(row, priceCol)) continue;
     totalCount++;
     totalRevenue += parseRuNumber(row[priceCol]);
   }
+
+  console.log("[parking csv pool]", {
+    priceColumnIndex: priceCol,
+    priceColumnLabel: headers[priceCol]?.trim(),
+    totalCount,
+    totalRevenue,
+  });
 
   return {
     totalRevenue,
@@ -156,8 +134,17 @@ export function sumParkingCsvTotalRevenue(headers: string[], rows: string[][]): 
 export function parkingRevenueShareFromCsvPool(
   soldRevenueRub: number,
   pool: ParkingCsvRevenuePool | null | undefined,
+  opts?: { soldCount?: number },
 ): number | null {
   if (!pool || pool.priceColumnIndex == null || pool.totalRevenue <= 0) return null;
   if (!Number.isFinite(soldRevenueRub) || soldRevenueRub < 0) return 0;
-  return soldRevenueRub / pool.totalRevenue;
+  const share = soldRevenueRub / pool.totalRevenue;
+  console.log("[PARKING SHARE]", {
+    soldRevenue: soldRevenueRub,
+    totalParkingRevenue: pool.totalRevenue,
+    share,
+    soldCount: opts?.soldCount ?? null,
+    totalCount: pool.totalCount,
+  });
+  return share;
 }
