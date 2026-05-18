@@ -306,7 +306,7 @@ export function SalesUnitsExecutionSection({
             </div>
           </div>
 
-          {data != null ? (
+          {!presentation && data != null ? (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>План накопительно</div>
