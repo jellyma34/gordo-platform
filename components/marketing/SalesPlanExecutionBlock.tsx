@@ -110,10 +110,14 @@ export function SalesPlanExecutionBlock({
     ? "border-t border-white/10 bg-slate-900/70 font-semibold text-slate-50"
     : "border-t border-slate-200 bg-slate-100/80 font-semibold text-slate-900";
 
-  const hasSegmentExecutionChartRows = useMemo(
-    () => !segmentChartsHydrating && segmentExecutionChartsHaveRows(segmentExecutionCharts),
-    [segmentChartsHydrating, segmentExecutionCharts],
-  );
+  const hasSegmentExecutionChartRows = useMemo(() => {
+    if (segmentChartsHydrating || !segmentExecutionCharts) return false;
+    const pf = segmentExecutionCharts.planFactRows ?? [];
+    return (
+      pf.length > 0 &&
+      pf.some((r) => Math.abs(r.fact) > 1e-9 || Math.abs(r.plan) > 1e-9)
+    );
+  }, [segmentChartsHydrating, segmentExecutionCharts]);
 
   const segmentExecutionMissing = !segmentChartsHydrating && segmentExecutionCharts == null;
   const segmentExecutionEmptyFile =

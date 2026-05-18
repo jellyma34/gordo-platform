@@ -7,6 +7,21 @@ import {
   toNumber,
 } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
+/** BOM, NBSP, кавычки, лишние пробелы — для поиска «План продаж» и др. */
+export function normalizeCsvHeaderLabel(s: string): string {
+  return stripBom(preprocessCell(String(s ?? "")))
+    .replace(/\uFEFF/g, "")
+    .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a\u200b]/g, " ")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[()[\]{}«»]/g, " ")
+    .replace(/:/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["'\u201c\u201d\u201e\u201f]+|["'\u201c\u201d\u201e\u201f]+$/g, "")
+    .trim();
+}
+
 /** Ключ хранилища (префикс); полный ключ — {@link marketingInvestorsCsvLocalStorageKey}. */
 export const MARKETING_INVESTORS_CSV_STORAGE_KEY = "marketingInvestorsCsv";
 
@@ -63,11 +78,7 @@ function splitRawLines(raw: string): string[] {
 }
 
 function normHeaderCell(s: string): string {
-  return stripBom(preprocessCell(s))
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeCsvHeaderLabel(s);
 }
 
 /** Пустая строка или блок итого / расторжений (не строка «год в col0»). */
@@ -123,19 +134,50 @@ function pickWideSumColumn(headers: string[], categoryMatch: (n: string) => bool
 
 /** Колонка «План продаж» (общий план проекта, не «квартиры сумма»). */
 function pickSalesPlanColumn(headers: string[]): number | null {
+  const normalized = headers.map((h) => normHeaderCell(h ?? ""));
+
+  const directIdx = normalized.findIndex(
+    (n) =>
+      n.includes("план продаж") ||
+      n.replace(/\s/g, "").includes("планпродаж") ||
+      (n.includes("план") && n.includes("продаж") && !n.includes("квартир") && !n.includes("паркинг") && !n.includes("кладов")),
+  );
+  if (directIdx >= 0) return directIdx;
+
   let best: { i: number; s: number } | null = null;
   for (let i = 0; i < headers.length; i++) {
-    const n = normHeaderCell(headers[i] ?? "");
+    const n = normalized[i] ?? "";
     if (n.includes("расторж") || n.includes("итого")) continue;
-    if (!n.includes("план")) continue;
-    if (!n.includes("продаж")) continue;
+    if (!n.includes("план") || !n.includes("продаж")) continue;
     if (n.includes("факт") || n.includes("фактич")) continue;
-    let s = 90;
+    let s = 70;
     if (n.includes("змп")) s += 5;
-    if (n === "план продаж" || n.startsWith("план продаж ")) s += 15;
     if (!best || s > best.s) best = { i, s };
   }
   return best?.i ?? null;
+}
+
+/** Сумма числовых значений колонки по всем строкам данных (месяцы + итоги). */
+function sumNumericColumnAfterHeader(lines: string[], headerLineIdx: number, colIdx: number | null): number {
+  if (colIdx == null || colIdx < 0) return 0;
+  let sum = 0;
+  for (let lineIdx = headerLineIdx + 1; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx] ?? "";
+    if (!line.trim()) continue;
+    const row = line.split(DELIM).map((c) => preprocessCell(c));
+    if (!row.some((c) => c !== "")) continue;
+    const v = parseRuNumber(row[colIdx] ?? "");
+    if (Number.isFinite(v)) sum += v;
+  }
+  return sum;
+}
+
+function pickRowWithMaxFactTotals(rows: readonly InvestorsParsedMonthRow[]): InvestorsParsedMonthRow {
+  return rows.reduce((best, r) => {
+    const t = r.apartmentsFact + r.parkingFact + r.storageFact + r.commercialFact;
+    const bt = best.apartmentsFact + best.parkingFact + best.storageFact + best.commercialFact;
+    return t >= bt ? r : best;
+  });
 }
 
 /** План по сегменту, если в CSV есть отдельные колонки (не «… сумма»). */
@@ -329,6 +371,12 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
 
   console.log("[Investors CSV] header row", headerLineIdx + 1, headerRow);
   console.log("[Investors CSV] column map", colMap, { segmentPlanCols, hasPerSegmentPlanCols });
+  console.log("[Investors CSV] plan sales column", {
+    planCol: colMap.salesPlan,
+    header: colMap.salesPlan != null ? headerRow[colMap.salesPlan] : null,
+    normalized:
+      colMap.salesPlan != null ? normalizeCsvHeaderLabel(headerRow[colMap.salesPlan] ?? "") : null,
+  });
   if (colMap.salesPlan == null && !hasPerSegmentPlanCols) {
     warnings.push(
       "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или план по сегментам.",
@@ -374,16 +422,16 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
-  /** Накопительные «… сумма» — последняя строка месяца; «План продаж» — сумма помесячного плана. */
-  const lastRow = parsedRows[parsedRows.length - 1]!;
+  /** Накопительные «… сумма» — строка с макс. фактом; «План продаж» — SUM по всем строкам файла. */
+  const factRow = pickRowWithMaxFactTotals(parsedRows);
   const factsAtReport: Record<MacroCategoryKey, number> = {
-    apartments: toNumber(lastRow.apartmentsFact as unknown),
-    parking: toNumber(lastRow.parkingFact as unknown),
-    storage: toNumber(lastRow.storageFact as unknown),
-    commercial: toNumber(lastRow.commercialFact as unknown),
+    apartments: toNumber(factRow.apartmentsFact as unknown),
+    parking: toNumber(factRow.parkingFact as unknown),
+    storage: toNumber(factRow.storageFact as unknown),
+    commercial: toNumber(factRow.commercialFact as unknown),
   };
 
-  const totalSalesPlan = parsedRows.reduce((s, r) => s + toNumber(r.salesPlan as unknown), 0);
+  const totalSalesPlan = sumNumericColumnAfterHeader(lines, headerLineIdx, colMap.salesPlan);
 
   let plansBySegment: Record<MacroCategoryKey, number>;
 
@@ -416,11 +464,27 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     }
   }
 
+  const hasAnyFact = Object.values(factsAtReport).some((v) => Math.abs(v) > 1e-9);
+  if (!hasAnyFact) {
+    return {
+      ok: false,
+      error:
+        "Не найдены фактические суммы по сегментам (колонки «квартиры сумма», «паркинг сумма» и т.д.).",
+      warnings,
+    };
+  }
+
+  if (totalSalesPlan <= 0 && !hasPerSegmentPlanCols) {
+    warnings.push(
+      "Колонка «План продаж» не распознана или пуста — на графике отображается только факт; выполнение % может быть 0.",
+    );
+  }
+
   console.log("[aggregated segment execution]", {
     factsAtReport,
     totalSalesPlan,
     plansBySegment,
-    lastMonth: lastRow.monthKey,
+    factMonth: factRow.monthKey,
   });
 
   const byKey: Record<MacroCategoryKey, { plan: number; fact: number }> = {

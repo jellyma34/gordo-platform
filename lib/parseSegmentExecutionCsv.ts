@@ -3,7 +3,7 @@
  * «План vs факт (накопительно)» и «Выполнение %» в блоке «Исполнение плана продаж».
  */
 
-import { parseMarketingInvestorsCsv } from "@/lib/marketingInvestorsCsv";
+import { normalizeCsvHeaderLabel, parseMarketingInvestorsCsv } from "@/lib/marketingInvestorsCsv";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 import { normalizeSegmentName, normalizeUnitCell } from "@/lib/parseSalesUnitsExecutionCsv";
 import { preprocessCell, stripBom } from "@/lib/salesPlanExecutionCsv";
@@ -84,23 +84,9 @@ function mergePhysicalLinesForQuotedNewlines(lines: string[]): string[] {
   return out;
 }
 
-/** Нормализация заголовка: lower, ё→е, без %/₽/скобок/NBSP/BOM, схлопнуть пробелы. */
+/** Нормализация заголовка CSV (BOM, NBSP, пробелы) — для поиска «План продаж» и др. */
 export function normalizeSegmentExecutionHeader(s: string): string {
-  let x = preprocessCell(String(s ?? ""))
-    .replace(/\r\n/g, " ")
-    .replace(/\r/g, " ")
-    .replace(/\n/g, " ")
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[₽%]/g, " ")
-    .replace(/[()[\]{}«»]/g, " ")
-    .replace(/:/g, " ")
-    .replace(/\*/g, " ")
-    .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a\u200b\ufeff]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  x = x.replace(/^["'\u201c\u201d\u201e\u201f]+|["'\u201c\u201d\u201e\u201f]+$/g, "").trim();
-  return x.replace(/\s+/g, " ").trim();
+  return normalizeCsvHeaderLabel(s);
 }
 
 function detectDelimiter(raw: string): ";" | "\t" | "," {
@@ -550,11 +536,11 @@ export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsv
     return buildCompletionRow(s.key, pf.segment, pf.plan, pf.fact, cell?.completionPct ?? null);
   });
 
-  const hasAny = planFactRows.some((r) => r.plan !== 0 || r.fact !== 0);
-  if (!hasAny) {
+  const hasAnyFact = planFactRows.some((r) => Math.abs(r.fact) > 1e-9);
+  if (!hasAnyFact) {
     return {
       ok: false,
-      error: "Не найдено строк по сегментам (Квартиры, Парковки, Кладовые, Коммерческие помещения).",
+      error: "Не найдены фактические суммы по сегментам (Квартиры, Парковки, Кладовые, Коммерческие помещения).",
       warnings,
     };
   }
