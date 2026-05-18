@@ -387,29 +387,42 @@ export function SalesPlanSegmentStructure({
                     labelTone={labelTone}
                     className="mb-1"
                   />
-                  <div className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
-                    {c.key === "apartment" &&
-                    apartmentsRevenuePool != null &&
-                    apartmentsRevenuePool.totalCount > 0 ? (
-                      <>
-                        <span className="tabular-nums">{numFmt.format(c.count)}</span>
-                        <span className="opacity-50"> из </span>
-                        <span className="tabular-nums opacity-90">
-                          {numFmt.format(apartmentsRevenuePool.totalCount)}
+                  {c.key === "apartment" &&
+                  apartmentsRevenuePool != null &&
+                  apartmentsRevenuePool.totalCount > 0 ? (
+                    <div className="mt-1 min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span
+                          className={`text-[30px] font-bold leading-none tabular-nums tracking-tight sm:text-[34px] ${vs.value}`}
+                        >
+                          {numFmt.format(c.count)}
                         </span>
-                        <span className="opacity-70"> шт</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="tabular-nums">{numFmt.format(c.count)}</span>
-                        <span className="opacity-70"> шт</span>
-                      </>
-                    )}
-                    <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>
-                      {" · "}
-                    </span>
-                    <span className="tabular-nums">{compactRub(c.sum)}</span>
-                  </div>
+                        <span
+                          className={`shrink-0 text-[12px] font-normal leading-none tabular-nums sm:text-[13px] ${
+                            presDark ? "text-slate-500" : "text-slate-400"
+                          } opacity-50`}
+                        >
+                          из {numFmt.format(apartmentsRevenuePool.totalCount)} шт
+                        </span>
+                      </div>
+                      <div
+                        className={`mt-1.5 text-xl font-semibold leading-none tabular-nums sm:text-2xl ${vs.value}`}
+                      >
+                        {compactRub(c.sum)}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}
+                    >
+                      <span className="tabular-nums">{numFmt.format(c.count)}</span>
+                      <span className="opacity-70"> шт</span>
+                      <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>
+                        {" · "}
+                      </span>
+                      <span className="tabular-nums">{compactRub(c.sum)}</span>
+                    </div>
+                  )}
                   <div className="mt-1.5 tabular-nums leading-snug">
                     <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
                     <div
