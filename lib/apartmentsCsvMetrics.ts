@@ -57,8 +57,46 @@ export function isSkippableApartmentsRow(row: string[]): boolean {
   return false;
 }
 
-function isRegistryApartmentRow(row: string[], priceCol: number): boolean {
+function findApartmentRegistryIdentityColumns(headers: string[]): {
+  idCol: number;
+  externalUuidCol: number | null;
+} {
+  let idCol = 0;
+  let externalUuidCol: number | null = null;
+  const normalized = headers.map((h) => normCell(h));
+  for (let i = 0; i < normalized.length; i++) {
+    const h = normalized[i]!;
+    if (h === "id") idCol = i;
+    if (h.includes("externaluuid") || h === "estateexternaluuid") externalUuidCol = i;
+  }
+  return { idCol, externalUuidCol };
+}
+
+function rowHasRegistryIdentity(
+  row: string[],
+  idCol: number,
+  externalUuidCol: number | null,
+): boolean {
+  const idRaw = preprocessCell(row[idCol] ?? "").trim();
+  if (idRaw && idRaw.toLowerCase() !== "id" && /^\d+$/.test(idRaw.replace(/\s/g, ""))) {
+    return true;
+  }
+  if (externalUuidCol != null) {
+    const uuid = preprocessCell(row[externalUuidCol] ?? "").trim();
+    if (uuid.length >= 6 && uuid.toLowerCase() !== "id") return true;
+  }
+  return false;
+}
+
+function isRegistryApartmentRow(
+  row: string[],
+  headers: string[],
+  priceCol: number,
+  idCol: number,
+  externalUuidCol: number | null,
+): boolean {
   if (isSkippableApartmentsRow(row)) return false;
+  if (!rowHasRegistryIdentity(row, idCol, externalUuidCol)) return false;
   const priceLabel = normCell(row[priceCol] ?? "");
   if (priceLabel.includes("стоим") && priceLabel.includes("квартир")) return false;
   const n = parseRuNumber(row[priceCol]);
@@ -67,6 +105,8 @@ function isRegistryApartmentRow(row: string[], priceCol: number): boolean {
 
 export type ApartmentsCsvRevenuePool = {
   totalRevenue: number;
+  /** Валидные квартиры в реестре CSV (с id/uuid и стоимостью > 0). */
+  totalCount: number;
   priceColumnIndex: number | null;
   priceColumnLabel: string | null;
   format: "registry" | null;
@@ -79,23 +119,33 @@ export function sumApartmentsCsvTotalRevenue(headers: string[], rows: string[][]
   const priceCol = findApartmentRegistryPriceColumnIndex(headers);
   if (priceCol < 0) {
     console.log("[apartments rows parsed]", 0);
+    console.log("[apartments total count]", 0);
     console.log("[apartments total revenue]", 0);
-    return { totalRevenue: 0, priceColumnIndex: null, priceColumnLabel: null, format: null };
+    return {
+      totalRevenue: 0,
+      totalCount: 0,
+      priceColumnIndex: null,
+      priceColumnLabel: null,
+      format: null,
+    };
   }
 
+  const { idCol, externalUuidCol } = findApartmentRegistryIdentityColumns(headers);
   let totalRevenue = 0;
-  let validCount = 0;
+  let totalCount = 0;
   for (const row of rows) {
-    if (!isRegistryApartmentRow(row, priceCol)) continue;
-    validCount++;
+    if (!isRegistryApartmentRow(row, headers, priceCol, idCol, externalUuidCol)) continue;
+    totalCount++;
     totalRevenue += parseRuNumber(row[priceCol]);
   }
 
-  console.log("[apartments rows parsed]", validCount);
+  console.log("[apartments rows parsed]", totalCount);
+  console.log("[apartments total count]", totalCount);
   console.log("[apartments total revenue]", totalRevenue);
 
   return {
     totalRevenue,
+    totalCount,
     priceColumnIndex: priceCol,
     priceColumnLabel: headers[priceCol]?.trim() || "Стоимость квартир, ₽",
     format: "registry",

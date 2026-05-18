@@ -388,8 +388,23 @@ export function SalesPlanSegmentStructure({
                     className="mb-1"
                   />
                   <div className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}>
-                    <span className="tabular-nums">{numFmt.format(c.count)}</span>
-                    <span className="opacity-70"> шт</span>
+                    {c.key === "apartment" &&
+                    apartmentsRevenuePool != null &&
+                    apartmentsRevenuePool.totalCount > 0 ? (
+                      <>
+                        <span className="tabular-nums">{numFmt.format(c.count)}</span>
+                        <span className="opacity-50"> из </span>
+                        <span className="tabular-nums opacity-90">
+                          {numFmt.format(apartmentsRevenuePool.totalCount)}
+                        </span>
+                        <span className="opacity-70"> шт</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="tabular-nums">{numFmt.format(c.count)}</span>
+                        <span className="opacity-70"> шт</span>
+                      </>
+                    )}
                     <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>
                       {" · "}
                     </span>
