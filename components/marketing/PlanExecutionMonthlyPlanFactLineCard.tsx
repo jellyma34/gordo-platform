@@ -37,9 +37,9 @@ function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
   };
 }
 
-/** План: подпись над точкой (вверх по SVG). Факт: подпись под точкой. */
+/** План: подпись над точкой (вверх по SVG). Факт: чуть ниже точки, но выше подписей месяцев. */
 const PLAN_LABEL_OFFSET_ABOVE_PX = 16;
-const FACT_LABEL_OFFSET_BELOW_PX = 18;
+const FACT_LABEL_OFFSET_BELOW_PX = 6;
 
 /** Порог «план и факт близко» (млн ₽ по модулю разницы в рублях): доп. сдвиг подписей. */
 const CLOSE_PLAN_FACT_RUB = 8 * 1_000_000;
