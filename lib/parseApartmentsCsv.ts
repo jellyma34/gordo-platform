@@ -1,3 +1,6 @@
+import { isSkippableApartmentsRow } from "@/lib/apartmentsCsvMetrics";
+import { isInvestorsCsvHeaderLine } from "@/src/shared/lib/csv/parseInvestorsCsv";
+
 /** Разбор CSV квартир (Excel RU): `;` или `,`, UTF-8 / cp1251 на стороне загрузки. */
 
 export type ParseApartmentsCsvOk = {
@@ -81,8 +84,23 @@ export function parseApartmentsCsv(text: string, filename = "upload.csv"): Parse
 
   const delimiter = sniffDelimiter(normalized);
   const table = nonEmpty.map((line) => splitCsvLine(line, delimiter));
-  const headers = (table[0] ?? []).map((h) => h.trim());
-  const rows = table.slice(1);
+
+  let headerLineIdx = 0;
+  for (let i = 0; i < table.length; i++) {
+    const line = nonEmpty[i] ?? "";
+    if (isInvestorsCsvHeaderLine(line)) {
+      headerLineIdx = i;
+      break;
+    }
+  }
+
+  const headers = (table[headerLineIdx] ?? []).map((h) => h.trim());
+  const rows = table.slice(headerLineIdx + 1).filter((row) => {
+    if (isSkippableApartmentsRow(row)) return false;
+    const c0 = (row[0] ?? "").trim().toLowerCase();
+    if (c0 === "id" || c0 === "год" || c0 === "year") return false;
+    return true;
+  });
 
   const warnings: string[] = [];
   if (headers.every((h) => !h)) {

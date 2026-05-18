@@ -1,9 +1,6 @@
 import { normalizeCsvHeaderLabel } from "@/lib/marketingInvestorsCsv";
 import { preprocessCell } from "@/lib/salesPlanExecutionCsv";
-import {
-  parseRuNumber,
-  shouldSilentlySkipInvestorsCsvMonthLabel,
-} from "@/src/shared/lib/csv/parseInvestorsCsv";
+import { parseRuNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 export const APARTMENTS_PRICE_COLUMN_WARNING =
   "Не найдена колонка стоимости квартир для расчёта доли выручки.";
@@ -11,11 +8,40 @@ export const APARTMENTS_PRICE_COLUMN_WARNING =
 /** Явные имена агрегированной колонки выручки по квартирам. */
 const AGGREGATED_APARTMENTS_SUM_KEYS = new Set(["квартирысумма", "apartmentssum"]);
 
+const RU_MONTH_NAMES = new Set([
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+]);
+
 function normCell(s: string): string {
   return normalizeCsvHeaderLabel(s);
 }
 
-function findYearMonthColumns(headers: string[]): { year: number; month: number } | null {
+/** Русское название месяца во 2-й колонке (октябрь, октябрь …). */
+export function isRussianMonthLabel(raw: string): boolean {
+  const m = preprocessCell(raw)
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!m) return false;
+  if (m.includes("итого") || m.includes("расторж")) return false;
+  if (RU_MONTH_NAMES.has(m)) return true;
+  const first = m.split(" ")[0] ?? "";
+  return RU_MONTH_NAMES.has(first);
+}
+
+function findYearMonthColumnsInHeaders(headers: string[]): { year: number; month: number } | null {
   let year = -1;
   let month = -1;
   for (let i = 0; i < headers.length; i++) {
@@ -31,10 +57,32 @@ function findYearMonthColumns(headers: string[]): { year: number; month: number 
   return { year, month };
 }
 
+/** Строка данных: col0 = 2025, col1 = сентябрь / октябрь … */
+export function isAggregatedMonthlyDataRow(row: string[], yearCol = 0, monthCol = 1): boolean {
+  if (isSkippableApartmentsRow(row)) return false;
+  const yearRaw = preprocessCell(row[yearCol] ?? "").trim();
+  if (!/^\d{4}$/.test(yearRaw)) return false;
+  return isRussianMonthLabel(row[monthCol] ?? "");
+}
+
+/** Год и месяц: из заголовков или по умолчанию 0 / 1 для wide-table. */
+export function resolveAggregatedYearMonthColumns(
+  headers: string[],
+  rows: string[][],
+): { year: number; month: number } {
+  const fromHeaders = findYearMonthColumnsInHeaders(headers);
+  if (fromHeaders) return fromHeaders;
+  if (rows.some((r) => isAggregatedMonthlyDataRow(r, 0, 1))) {
+    return { year: 0, month: 1 };
+  }
+  return { year: 0, month: 1 };
+}
+
 /** Агрегированный wide-table CSV (год / месяц / «квартиры сумма»). */
-export function isAggregatedApartmentsCsv(headers: string[]): boolean {
+export function isAggregatedApartmentsCsv(headers: string[], rows: string[][] = []): boolean {
   if (findAggregatedApartmentsSumColumnIndex(headers) < 0) return false;
-  return findYearMonthColumns(headers) != null;
+  if (findYearMonthColumnsInHeaders(headers) != null) return true;
+  return rows.some((r) => isAggregatedMonthlyDataRow(r, 0, 1));
 }
 
 /**
@@ -60,7 +108,7 @@ export function findAggregatedApartmentsSumColumnIndex(headers: string[]): numbe
   return -1;
 }
 
-/** Построчный реестр квартир: «Стоимость квартир» / estate_price_income (только если нет «квартиры сумма»). */
+/** Построчный реестр квартир: «Стоимость квартир» / estate_price_income. */
 function findPerUnitApartmentPriceColumnIndex(headers: string[]): number {
   const normalized = headers.map((h) => normCell(h));
   const exact = new Set([
@@ -89,26 +137,16 @@ export function findApartmentsPriceColumnIndex(headers: string[]): number {
   return findPerUnitApartmentPriceColumnIndex(headers);
 }
 
-function isSkippableApartmentsRow(row: string[]): boolean {
+export function isSkippableApartmentsRow(row: string[]): boolean {
   if (row.length === 0) return true;
   if (row.every((c) => preprocessCell(c) === "")) return true;
   const c0 = normCell(row[0] ?? "");
-  if (/^\d{4}$/.test(preprocessCell(row[0] ?? "").trim())) return false;
+  const c1 = normCell(row[1] ?? "");
   const rowText = row.map((c) => normCell(c)).join(" ");
-  if (c0.includes("итого") || rowText.includes("итого")) return true;
-  if (c0.includes("расторж") || rowText.includes("расторж")) return true;
-  if (c0 === "id" || c0 === "№квартиры") return true;
+  if (c0.includes("итого") || c1.includes("итого") || rowText.includes("итого")) return true;
+  if (c0.includes("расторж") || c1.includes("расторж") || rowText.includes("расторж")) return true;
+  if (c0 === "id" || c0 === "№квартиры" || c0 === "год" || c0 === "year") return true;
   return false;
-}
-
-function isMonthlyDataRow(row: string[], yearCol: number, monthCol: number): boolean {
-  if (isSkippableApartmentsRow(row)) return false;
-  const yearRaw = preprocessCell(row[yearCol] ?? "").trim();
-  if (!/^\d{4}$/.test(yearRaw)) return false;
-  const monthRaw = preprocessCell(row[monthCol] ?? "").trim();
-  if (!monthRaw) return false;
-  if (shouldSilentlySkipInvestorsCsvMonthLabel(monthRaw)) return false;
-  return true;
 }
 
 function isPerUnitDataRow(row: string[]): boolean {
@@ -123,22 +161,26 @@ export type ApartmentsCsvRevenuePool = {
   totalRevenue: number;
   priceColumnIndex: number | null;
   priceColumnLabel: string | null;
-  /** Агрегированный помесячный CSV vs построчный реестр. */
   format: "aggregated" | "per_unit" | null;
 };
 
 /** Сумма выручки по квартирам из CSV (знаменатель доли в карточке «Квартиры»). */
 export function sumApartmentsCsvTotalRevenue(headers: string[], rows: string[][]): ApartmentsCsvRevenuePool {
   const aggregatedCol = findAggregatedApartmentsSumColumnIndex(headers);
-  const yearMonth = findYearMonthColumns(headers);
+  const useAggregatedMonthly = aggregatedCol >= 0 && isAggregatedApartmentsCsv(headers, rows);
 
-  if (aggregatedCol >= 0 && yearMonth) {
+  if (useAggregatedMonthly) {
+    const { year: yearCol, month: monthCol } = resolveAggregatedYearMonthColumns(headers, rows);
+    const validRows: string[][] = [];
     let totalRevenue = 0;
     for (const row of rows) {
-      if (!isMonthlyDataRow(row, yearMonth.year, yearMonth.month)) continue;
+      if (!isAggregatedMonthlyDataRow(row, yearCol, monthCol)) continue;
+      validRows.push(row);
       const n = parseRuNumber(row[aggregatedCol]);
       if (Number.isFinite(n) && n > 0) totalRevenue += n;
     }
+    console.log("[apartments csv rows]", validRows.length);
+    console.log("[apartments revenue total]", totalRevenue);
     return {
       totalRevenue,
       priceColumnIndex: aggregatedCol,
@@ -149,11 +191,15 @@ export function sumApartmentsCsvTotalRevenue(headers: string[], rows: string[][]
 
   if (aggregatedCol >= 0) {
     let totalRevenue = 0;
+    const validRows: string[][] = [];
     for (const row of rows) {
       if (isSkippableApartmentsRow(row)) continue;
+      validRows.push(row);
       const n = parseRuNumber(row[aggregatedCol]);
       if (Number.isFinite(n) && n > 0) totalRevenue += n;
     }
+    console.log("[apartments csv rows]", validRows.length);
+    console.log("[apartments revenue total]", totalRevenue);
     return {
       totalRevenue,
       priceColumnIndex: aggregatedCol,
@@ -164,14 +210,20 @@ export function sumApartmentsCsvTotalRevenue(headers: string[], rows: string[][]
 
   const unitCol = findPerUnitApartmentPriceColumnIndex(headers);
   if (unitCol < 0) {
+    console.log("[apartments csv rows]", 0);
+    console.log("[apartments revenue total]", 0);
     return { totalRevenue: 0, priceColumnIndex: null, priceColumnLabel: null, format: null };
   }
   let totalRevenue = 0;
+  let validCount = 0;
   for (const row of rows) {
     if (!isPerUnitDataRow(row)) continue;
+    validCount++;
     const n = parseRuNumber(row[unitCol]);
     if (Number.isFinite(n) && n > 0) totalRevenue += n;
   }
+  console.log("[apartments csv rows]", validCount);
+  console.log("[apartments revenue total]", totalRevenue);
   return {
     totalRevenue,
     priceColumnIndex: unitCol,
