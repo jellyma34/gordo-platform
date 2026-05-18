@@ -18,7 +18,7 @@ import {
 } from "@/lib/filterDealsForSegmentChartPeriod";
 import { isStagnantDealMonthNoNewSales } from "@/lib/marketingDealMonthCumulative";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
-import { formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
+import { formatCashflowMillionsLabelTidy, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import {
   MPL_PREMIUM_CHART_SHELL,
   MPL_PREMIUM_FILTER_SELECT_10,
@@ -96,11 +96,11 @@ function SegmentBarTooltip({
   );
 }
 
-/** Подписи над столбцами — те же правила, что ось Y (`formatCompactMoneyAxis`). */
+/** Подписи над столбцами: только число в млн (напр. «261,1»); ось/tooltip — `formatCompactMoneyAxis`. */
 function formatBarTopLabel(v: unknown): string {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n === 0) return "";
-  return formatCompactMoneyAxis(n);
+  return formatCashflowMillionsLabelTidy(n, false);
 }
 
 function monthKeyLabelRu(monthKey: string): string {
@@ -459,8 +459,8 @@ export function SalesPlanSegmentPlanFactBarChart({
                 dataKey="fact"
                 position="top"
                 fill={showEmptyOverlay ? "transparent" : "#2563EB"}
-                fontSize={11}
-                fontWeight={500}
+                fontSize={12}
+                fontWeight={600}
                 className="tabular-nums"
                 formatter={formatBarTopLabel}
               />
@@ -477,8 +477,8 @@ export function SalesPlanSegmentPlanFactBarChart({
                 dataKey="plan"
                 position="top"
                 fill={showEmptyOverlay ? "transparent" : "#F97316"}
-                fontSize={11}
-                fontWeight={500}
+                fontSize={12}
+                fontWeight={600}
                 className="tabular-nums"
                 formatter={formatBarTopLabel}
               />
