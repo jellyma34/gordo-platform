@@ -408,6 +408,9 @@ export type ParseSegmentExecutionCsvOk = {
   completionRows: SegmentExecutionCompletionRow[];
   /** Отдельный план по каждому сегменту (не общий «План продаж»). */
   hasSegmentPlan: boolean;
+  /** SUM(«План продаж») по месяцам — для пересчёта при загрузке из storage. */
+  planTotal?: number;
+  totalFact?: number;
   warnings: string[];
 };
 
@@ -455,7 +458,15 @@ function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExe
   console.table(planFactRows);
   console.table(completionRows);
 
-  return { ok: true, planFactRows, completionRows, hasSegmentPlan, warnings };
+  return {
+    ok: true,
+    planFactRows,
+    completionRows,
+    hasSegmentPlan,
+    planTotal: parsed.planTotal,
+    totalFact: parsed.totalFact,
+    warnings,
+  };
 }
 
 function detectInvestorsMacroHeader(lines: string[]): boolean {

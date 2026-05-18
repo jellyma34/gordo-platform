@@ -1,3 +1,4 @@
+import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
   buildSegmentExecutionCompletionRows,
   parseSegmentExecutionCsv,
@@ -29,6 +30,8 @@ export type MarketingSegmentExecutionStoredV1 = {
   completionRows: SegmentExecutionCompletionRow[];
   /** true — в CSV есть план по каждому сегменту. */
   hasSegmentPlan?: boolean;
+  planTotal?: number;
+  totalFact?: number;
   warnings: string[];
 };
 
@@ -36,29 +39,79 @@ export type SegmentExecutionChartsPayload = {
   planFactRows: SegmentExecutionPlanFactRow[];
   completionRows: SegmentExecutionCompletionRow[];
   hasSegmentPlan?: boolean;
+  planTotal?: number;
+  totalFact?: number;
 };
 
-/** Показывать ли план и % выполнения (в т.ч. план из SUM «План продаж»). */
+/** Сумма плана (₽) из plan_fact.csv — fallback, если в CSV сегментов нет «План продаж». */
+export function sumPlanTotalFromMonthlyPlanVsFact(
+  monthly: readonly PlanVsFactMonthlyRubPoint[] | null | undefined,
+): number {
+  if (!monthly?.length) return 0;
+  let sum = 0;
+  for (const p of monthly) {
+    const v = p.planRub;
+    if (typeof v === "number" && Number.isFinite(v)) sum += v;
+  }
+  return sum;
+}
+
+/** Распределить общий план по долям факта сегментов. */
+export function distributeSegmentPlanByFactShare(
+  planTotal: number,
+  planFactRows: readonly SegmentExecutionPlanFactRow[],
+): SegmentExecutionPlanFactRow[] {
+  const totalFact = planFactRows.reduce((s, r) => s + Math.max(0, r.fact), 0);
+  if (planTotal <= 0 || totalFact <= 0) return planFactRows.map((r) => ({ ...r }));
+  return planFactRows.map((r) => ({
+    ...r,
+    plan: (planTotal * Math.max(0, r.fact)) / totalFact,
+  }));
+}
+
+/** plan/fact с распределённым планом, если в storage plan=0, но есть planTotal. */
+export function resolveSegmentExecutionPlanFactRows(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+  planTotalFallback = 0,
+): SegmentExecutionPlanFactRow[] {
+  if (!payload) return [];
+  const pf = payload.planFactRows ?? [];
+  if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return pf;
+  const planTotal =
+    (typeof payload.planTotal === "number" && payload.planTotal > 0 ? payload.planTotal : 0) ||
+    (planTotalFallback > 0 ? planTotalFallback : 0);
+  if (planTotal > 0 && pf.some((r) => Math.abs(r.fact) > 1e-9)) {
+    return distributeSegmentPlanByFactShare(planTotal, pf);
+  }
+  return pf;
+}
+
+/** Показывать ли план и % выполнения (в т.ч. план из SUM «План продаж» / plan_fact). */
 export function segmentExecutionHasSegmentPlan(
   payload: SegmentExecutionChartsPayload | null | undefined,
+  planTotalFallback = 0,
 ): boolean {
   if (!payload) return false;
   if (payload.hasSegmentPlan === true) return true;
-  const pf = payload.planFactRows ?? [];
-  if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return true;
-  return (payload.completionRows ?? []).some((r) => Number.isFinite(r.pct) && r.pct > 0);
+  const pf = resolveSegmentExecutionPlanFactRows(payload, planTotalFallback);
+  return pf.some((r) => Math.abs(r.plan) > 1e-9);
 }
 
-/** completionRows для графика % — из storage или пересчёт из plan/fact. */
+/** completionRows для графика % — пересчёт из plan/fact (fact/plan×100). */
 export function resolveSegmentExecutionCompletionRows(
   payload: SegmentExecutionChartsPayload | null | undefined,
+  planFactRows?: readonly SegmentExecutionPlanFactRow[],
+  planTotalFallback = 0,
 ): SegmentExecutionCompletionRow[] {
-  if (!payload) return [];
-  const stored = payload.completionRows ?? [];
-  const pf = payload.planFactRows ?? [];
-  if (stored.length > 0 && stored.some((r) => Number.isFinite(r.pct))) return stored;
+  if (!payload && (!planFactRows || planFactRows.length === 0)) return [];
+  const pf =
+    planFactRows ??
+    resolveSegmentExecutionPlanFactRows(payload ?? null, planTotalFallback);
+  if (!pf.length) return [];
   if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return buildSegmentExecutionCompletionRows(pf);
-  return stored;
+  const stored = payload?.completionRows ?? [];
+  if (stored.some((r) => Number.isFinite(r.pct) && r.pct > 0)) return stored;
+  return buildSegmentExecutionCompletionRows(pf);
 }
 
 /** Есть ли распознанные строки сегментов (для графиков и сброса stale error). */
@@ -126,19 +179,30 @@ export function parseStoredMarketingSegmentExecutionCsv(raw: unknown): Marketing
   if (!Array.isArray(o.planFactRows) || !Array.isArray(o.completionRows)) return null;
   const warnings = Array.isArray(o.warnings) ? (o.warnings.filter((w) => typeof w === "string") as string[]) : [];
   const planFactRows = o.planFactRows.map((row: unknown) => normalizePlanFactRow(row));
-  const hasPlan = planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+  const planTotal =
+    typeof o.planTotal === "number" && Number.isFinite(o.planTotal) ? Math.max(0, o.planTotal) : undefined;
+  const totalFact =
+    typeof o.totalFact === "number" && Number.isFinite(o.totalFact) ? Math.max(0, o.totalFact) : undefined;
+  let enriched = planFactRows;
+  const hasPlanInRows = planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+  if (!hasPlanInRows && planTotal != null && planTotal > 0) {
+    enriched = distributeSegmentPlanByFactShare(planTotal, planFactRows);
+  }
+  const hasPlan = enriched.some((r) => Math.abs(r.plan) > 1e-9);
   let completionRows = (o.completionRows as unknown[]).map((row: unknown) => normalizeCompletionRow(row));
   if (!completionRows.some((r) => Number.isFinite(r.pct) && r.pct > 0) && hasPlan) {
-    completionRows = buildSegmentExecutionCompletionRows(planFactRows);
+    completionRows = buildSegmentExecutionCompletionRows(enriched);
   }
   return {
     v: 1,
     updatedAt: o.updatedAt,
     fileName: o.fileName,
     uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
-    planFactRows,
+    planFactRows: enriched,
     completionRows,
     hasSegmentPlan: o.hasSegmentPlan === true || hasPlan,
+    planTotal,
+    totalFact,
     warnings,
   };
 }

@@ -139,7 +139,9 @@ function pickSalesPlanColumn(headers: string[]): number | null {
   const directIdx = normalized.findIndex(
     (n) =>
       n.includes("план продаж") ||
+      n.includes("план продаж змп") ||
       n.replace(/\s/g, "").includes("планпродаж") ||
+      n.replace(/\s/g, "").includes("планпродажзмп") ||
       (n.includes("план") && n.includes("продаж") && !n.includes("квартир") && !n.includes("паркинг") && !n.includes("кладов")),
   );
   if (directIdx >= 0) return directIdx;
@@ -219,8 +221,15 @@ function findYearMonthColumns(headers: string[]): { year: number; month: number 
   let month = 1;
   for (let i = 0; i < headers.length; i++) {
     const n = normHeaderCell(headers[i] ?? "");
-    if (n === "год" || (n.includes("год") && !n.includes("месяц"))) year = i;
-    if (n.includes("месяц")) month = i;
+    if (n === "год" || n === "year") year = i;
+    else if (n.includes("год") && !n.includes("месяц") && year === 0) year = i;
+  }
+  for (let i = 0; i < headers.length; i++) {
+    const n = normHeaderCell(headers[i] ?? "");
+    if (n === "месяц" || n === "month") {
+      month = i;
+      return { year, month };
+    }
   }
   return { year, month };
 }
@@ -313,6 +322,8 @@ export type ParseMarketingInvestorsCsvResult =
       completionChartRows: InvestorsCompletionChartRow[];
       /** План по сегментам: отдельные колонки или распределён из SUM(«План продаж»). */
       hasSegmentPlan: boolean;
+      planTotal: number;
+      totalFact: number;
       warnings: string[];
     }
   | { ok: false; error: string; warnings?: string[] };
@@ -515,20 +526,34 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
 
   console.table(planFactChartRows);
 
-  const completionChartRows: InvestorsCompletionChartRow[] = hasSegmentPlan
-    ? planFactChartRows.map((r) => buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact))
-    : [];
+  const completionChartRows: InvestorsCompletionChartRow[] = planFactChartRows.map((r) =>
+    buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
+  );
 
   console.table(completionChartRows);
 
-  const investorsMacroChartsPayload = { planFactChartRows, completionChartRows, hasSegmentPlan };
+  const investorsMacroChartsPayload = {
+    planFactChartRows,
+    completionChartRows,
+    hasSegmentPlan,
+    planTotal,
+    totalFact,
+  };
   console.log("[parsed investors charts]", {
     ...investorsMacroChartsPayload,
     planLen: planFactChartRows.length,
     completionLen: completionChartRows.length,
   });
 
-  return { ok: true, planFactChartRows, completionChartRows, hasSegmentPlan, warnings };
+  return {
+    ok: true,
+    planFactChartRows,
+    completionChartRows,
+    hasSegmentPlan,
+    planTotal,
+    totalFact,
+    warnings,
+  };
 }
 
 function normalizeStoredPlanFactRow(raw: unknown): InvestorsPlanFactChartRow {

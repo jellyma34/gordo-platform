@@ -1090,6 +1090,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         planFactRows: doc.planFactRows,
         completionRows: doc.completionRows,
         hasSegmentPlan: doc.hasSegmentPlan,
+        planTotal: doc.planTotal,
+        totalFact: doc.totalFact,
       });
       setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta({
@@ -1434,6 +1436,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         planFactRows: parsed.planFactRows,
         completionRows: parsed.completionRows,
         hasSegmentPlan: parsed.hasSegmentPlan,
+        planTotal: parsed.planTotal,
+        totalFact: parsed.totalFact,
       };
       setSegmentExecutionCharts(clientCharts);
       setSegmentExecutionCsvError(null);
@@ -1463,6 +1467,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
             planFactRows: parsed.planFactRows,
             completionRows: parsed.completionRows,
             hasSegmentPlan: parsed.hasSegmentPlan,
+            planTotal: parsed.planTotal,
+            totalFact: parsed.totalFact,
             warnings: [
               ...(parsed.warnings ?? []),
               `Сервер: ${serverMsg} (данные на графике из локального разбора).`,
@@ -1491,6 +1497,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         planFactRows: saved.planFactRows,
         completionRows: saved.completionRows,
         hasSegmentPlan: saved.hasSegmentPlan,
+        planTotal: saved.planTotal,
+        totalFact: saved.totalFact,
       });
       setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta({

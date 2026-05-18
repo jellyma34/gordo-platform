@@ -215,6 +215,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         planFactRows: parsed.planFactRows,
         completionRows: parsed.completionRows,
         hasSegmentPlan: parsed.hasSegmentPlan,
+        planTotal: parsed.planTotal,
+        totalFact: parsed.totalFact,
         warnings: parsed.warnings,
       };
       await writeFile(marketingProjectSegmentExecutionJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");

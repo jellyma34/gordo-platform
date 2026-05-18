@@ -24,8 +24,9 @@ import {
 } from "@/lib/marketingSalesPlanExecutionTable";
 import {
   resolveSegmentExecutionCompletionRows,
-  segmentExecutionChartsHaveRows,
+  resolveSegmentExecutionPlanFactRows,
   segmentExecutionHasSegmentPlan,
+  sumPlanTotalFromMonthlyPlanVsFact,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
 import type {
@@ -143,18 +144,19 @@ export function SalesPlanExecutionBlock({
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
+    const planTotalFb = sumPlanTotalFromMonthlyPlanVsFact(monthlyPlanVsFact);
+    const pf = resolveSegmentExecutionPlanFactRows(segmentExecutionCharts, planTotalFb);
     console.log("[segment execution state]", {
       store: "marketingSegmentExecutionCsv",
       error: segmentExecutionCsvError,
-      planFactRows: segmentExecutionCharts?.planFactRows,
-      completionRows: resolveSegmentExecutionCompletionRows(segmentExecutionCharts),
-      hasSegmentPlan: segmentExecutionHasSegmentPlan(segmentExecutionCharts),
+      planFactRows: pf,
+      completionRows: resolveSegmentExecutionCompletionRows(segmentExecutionCharts, pf, planTotalFb),
+      planTotal: segmentExecutionCharts?.planTotal ?? planTotalFb,
+      totalFact:
+        segmentExecutionCharts?.totalFact ?? pf.reduce((s, r) => s + Math.max(0, r.fact), 0),
+      hasSegmentPlan: segmentExecutionHasSegmentPlan(segmentExecutionCharts, planTotalFb),
     });
-  }, [
-    segmentExecutionCsvError,
-    segmentExecutionCharts,
-    hasSegmentExecutionChartRows,
-  ]);
+  }, [segmentExecutionCsvError, segmentExecutionCharts, hasSegmentExecutionChartRows, monthlyPlanVsFact]);
 
   const unitsPlanFactChartRows = useMemo(
     () => buildUnitsPlanFactChartRows(unitsExecutionCharts?.segments ?? []),
@@ -192,6 +194,7 @@ export function SalesPlanExecutionBlock({
           mplPremium={mplPremium}
           mutedCls={mutedCls}
           segmentExecutionCharts={segmentExecutionCharts}
+          monthlyPlanVsFact={monthlyPlanVsFact}
           macroChartPlaceholder={macroChartPlaceholderResolved}
         />
 
@@ -289,6 +292,7 @@ function ExecutionMacroChartsBlock({
   mplPremium,
   mutedCls,
   segmentExecutionCharts,
+  monthlyPlanVsFact,
   macroChartPlaceholder,
 }: {
   presDark: boolean;
@@ -296,19 +300,27 @@ function ExecutionMacroChartsBlock({
   mplPremium: boolean;
   mutedCls: string;
   segmentExecutionCharts: SegmentExecutionChartsPayload | null | undefined;
+  monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
   /** Текст пустого состояния, если нет строк для соответствующего графика (загрузка / нет файла / пустой CSV). */
   macroChartPlaceholder: string | null;
 }) {
-  const planFactRows = useMemo((): SegmentExecutionPlanFactRow[] => {
-    if (segmentExecutionCharts === undefined || segmentExecutionCharts === null) return [];
-    return segmentExecutionCharts.planFactRows ?? [];
-  }, [segmentExecutionCharts]);
+  const planTotalFallback = useMemo(
+    () => sumPlanTotalFromMonthlyPlanVsFact(monthlyPlanVsFact),
+    [monthlyPlanVsFact],
+  );
 
-  const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts);
+  const planFactRows = useMemo(
+    (): SegmentExecutionPlanFactRow[] =>
+      resolveSegmentExecutionPlanFactRows(segmentExecutionCharts, planTotalFallback),
+    [segmentExecutionCharts, planTotalFallback],
+  );
+
+  const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts, planTotalFallback);
 
   const completionRows = useMemo(
-    (): SegmentExecutionCompletionRow[] => resolveSegmentExecutionCompletionRows(segmentExecutionCharts),
-    [segmentExecutionCharts],
+    (): SegmentExecutionCompletionRow[] =>
+      resolveSegmentExecutionCompletionRows(segmentExecutionCharts, planFactRows, planTotalFallback),
+    [segmentExecutionCharts, planFactRows, planTotalFallback],
   );
 
   const planFactYDomain = useMemo((): [number, number] => {
@@ -346,8 +358,9 @@ function ExecutionMacroChartsBlock({
     );
 
   const showPlanFactChart = planFactRows.length > 0;
+  const showCompletionColumn = showPlanFactChart;
   const showCompletionChart =
-    hasSegmentPlan && completionRows.length > 0 && planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+    showCompletionColumn && hasSegmentPlan && completionRows.length > 0;
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
@@ -355,18 +368,26 @@ function ExecutionMacroChartsBlock({
     if (process.env.NODE_ENV !== "development") return;
     if (planFactRows.length === 0) return;
 
+    const planTotal =
+      segmentExecutionCharts?.planTotal ?? planTotalFallback;
+    const totalFact =
+      segmentExecutionCharts?.totalFact ??
+      planFactRows.reduce((s, r) => s + Math.max(0, r.fact), 0);
+
     console.log("[PLAN VS FACT SOURCE]", {
       dataSource: "segment-execution-csv",
       storageKey: "marketingSegmentExecutionCsv",
       parser: "lib/parseSegmentExecutionCsv.ts",
     });
-    console.log("[PLAN VS FACT SOURCE]", planFactRows);
+    console.log("[PLAN VS FACT SOURCE]", { planFactRows, planTotal, totalFact });
     console.table(planFactRows);
 
     console.log("[COMPLETION SOURCE]", {
       dataSource: "segment-execution-csv",
-      completionRows,
       planFactRows,
+      completionRows,
+      planTotal,
+      totalFact,
     });
     console.table(completionRows);
     for (const row of completionRows) {
@@ -379,11 +400,11 @@ function ExecutionMacroChartsBlock({
         pct: row.pct,
       });
     }
-  }, [planFactRows, completionRows]);
+  }, [planFactRows, completionRows, planTotalFallback, segmentExecutionCharts]);
 
   return (
     <div
-      className={`grid min-w-0 grid-cols-1 gap-3 ${showCompletionChart ? "sm:grid-cols-2 sm:gap-4" : ""}`}
+      className={`grid min-w-0 grid-cols-1 gap-3 sm:gap-4 ${showCompletionColumn ? "sm:grid-cols-2" : ""}`}
       aria-label="Визуальная аналитика исполнения плана"
     >
       <div className={chartCard}>
@@ -485,80 +506,88 @@ function ExecutionMacroChartsBlock({
         ) : null}
       </div>
 
-      {showCompletionChart ? (
-      <div className={chartCard}>
-        <div className={chartTitle}>Выполнение %</div>
-        <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
-            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-              <BarChart
-                layout="vertical"
-                data={completionRows}
-                margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
-                barCategoryGap={14}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
-                <YAxis
-                  type="category"
-                  dataKey="segment"
-                  width={78}
-                  tick={{ fill: chartAxis, fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <XAxis
-                  type="number"
-                  domain={[0, 108]}
-                  tick={{ fill: chartAxis, fontSize: 10 }}
-                  axisLine={{ stroke: chartGrid }}
-                  tickLine={false}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload as SegmentExecutionCompletionRow | undefined;
-                    if (!row) return null;
-                    return tooltipFrame(
-                      <>
-                        <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
-                        <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
-                          {`${dec1Fmt.format(row.pct)}%`}
-                        </div>
-                      </>,
-                    );
-                  }}
-                />
-                <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
-                  {completionRows.map((entry) => (
-                    <Cell key={entry.key} fill={entry.fill} />
-                  ))}
-                  <LabelList
-                    dataKey="label"
-                    position="right"
-                    fill={chartAxis}
-                    fontSize={10}
-                    fontWeight={500}
+      {showCompletionColumn ? (
+        <div className={chartCard}>
+          <div className={chartTitle}>Выполнение %</div>
+          <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
+            {!showCompletionChart ? (
+              <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
+                Добавьте колонку «План продаж» в CSV сегментов или загрузите plan_fact.csv для расчёта %
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                <BarChart
+                  layout="vertical"
+                  data={completionRows}
+                  margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
+                  barCategoryGap={14}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="segment"
+                    width={78}
+                    tick={{ fill: chartAxis, fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                  <XAxis
+                    type="number"
+                    domain={[0, 108]}
+                    tick={{ fill: chartAxis, fontSize: 10 }}
+                    axisLine={{ stroke: chartGrid }}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const row = payload[0]?.payload as SegmentExecutionCompletionRow | undefined;
+                      if (!row) return null;
+                      return tooltipFrame(
+                        <>
+                          <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
+                          <div className={`mt-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                            {`${dec1Fmt.format(row.pct)}%`}
+                          </div>
+                        </>,
+                      );
+                    }}
+                  />
+                  <Bar dataKey="completion" radius={[0, 6, 6, 0]} maxBarSize={14} isAnimationActive={false}>
+                    {completionRows.map((entry) => (
+                      <Cell key={entry.key} fill={entry.fill} />
+                    ))}
+                    <LabelList
+                      dataKey="label"
+                      position="right"
+                      fill={chartAxis}
+                      fontSize={10}
+                      fontWeight={500}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          {showCompletionChart ? (
+            <div className={`${legendCls} gap-x-4 gap-y-1`}>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-2 w-3.5 rounded-sm bg-emerald-500" />
+                выше 95%
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-2 w-3.5 rounded-sm bg-orange-500" />
+                85–95%
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
+                ниже 85%
+              </span>
+            </div>
+          ) : null}
         </div>
-        <div className={`${legendCls} gap-x-4 gap-y-1`}>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2 w-3.5 rounded-sm bg-emerald-500" />
-            выше 95%
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2 w-3.5 rounded-sm bg-orange-500" />
-            85–95%
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
-            ниже 85%
-          </span>
-        </div>
-      </div>
       ) : null}
     </div>
   );
