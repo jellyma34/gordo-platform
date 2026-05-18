@@ -399,6 +399,8 @@ export type ParseSegmentExecutionCsvOk = {
   ok: true;
   planFactRows: SegmentExecutionPlanFactRow[];
   completionRows: SegmentExecutionCompletionRow[];
+  /** Отдельный план по каждому сегменту (не общий «План продаж»). */
+  hasSegmentPlan: boolean;
   warnings: string[];
 };
 
@@ -429,25 +431,28 @@ function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExe
     fact: r.fact,
   }));
 
-  const completionRows: SegmentExecutionCompletionRow[] = parsed.completionChartRows.map((r) => ({
-    key: toSegmentKey(r.key),
-    segment: r.segment || r.name,
-    pct: r.pct,
-    completion: r.completion,
-    label: r.label,
-    fill: r.fill,
-  }));
+  const hasSegmentPlan = parsed.hasSegmentPlan;
+  const completionRows: SegmentExecutionCompletionRow[] = hasSegmentPlan
+    ? parsed.completionChartRows.map((r) => ({
+        key: toSegmentKey(r.key),
+        segment: r.segment || r.name,
+        pct: r.pct,
+        completion: r.completion,
+        label: r.label,
+        fill: r.fill,
+      }))
+    : [];
 
   const warnings = [
     ...(parsed.warnings ?? []),
     "Формат CSV: помесячный (год, месяц, квартиры…) — агрегировано по сегментам для графиков.",
   ];
 
-  console.log("[segment execution csv] format", "investors-year-month");
+  console.log("[segment execution csv] format", "investors-year-month", { hasSegmentPlan });
   console.table(planFactRows);
   console.table(completionRows);
 
-  return { ok: true, planFactRows, completionRows, warnings };
+  return { ok: true, planFactRows, completionRows, hasSegmentPlan, warnings };
 }
 
 function detectInvestorsMacroHeader(lines: string[]): boolean {
@@ -545,8 +550,11 @@ export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsv
     };
   }
 
-  console.table(planFactRows);
-  console.table(completionRows);
+  const hasSegmentPlan = planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+  const completionOut = hasSegmentPlan ? completionRows : [];
 
-  return { ok: true, planFactRows, completionRows, warnings };
+  console.table(planFactRows);
+  console.table(completionOut);
+
+  return { ok: true, planFactRows, completionRows: completionOut, hasSegmentPlan, warnings };
 }

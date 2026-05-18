@@ -258,22 +258,6 @@ function numAtFact(row: string[], factSumIdx: number | null): number {
   return factSumIdx != null ? numAt(row, factSumIdx) : 0;
 }
 
-function distributeSalesPlanByFactShare(
-  totalSalesPlan: number,
-  facts: Record<MacroCategoryKey, number>,
-): Record<MacroCategoryKey, number> {
-  const totalFact = MACRO_ORDER.reduce((s, { key }) => s + Math.max(0, facts[key]), 0);
-  if (totalSalesPlan <= 0 || totalFact <= 0) {
-    return { apartments: 0, parking: 0, storage: 0, commercial: 0 };
-  }
-  return {
-    apartments: (totalSalesPlan * facts.apartments) / totalFact,
-    parking: (totalSalesPlan * facts.parking) / totalFact,
-    storage: (totalSalesPlan * facts.storage) / totalFact,
-    commercial: (totalSalesPlan * facts.commercial) / totalFact,
-  };
-}
-
 function completionChartFill(pct: number): string {
   if (!Number.isFinite(pct) || pct <= 0) return "#94a3b8";
   if (pct > 95) return "#10b981";
@@ -310,6 +294,8 @@ export type ParseMarketingInvestorsCsvResult =
       ok: true;
       planFactChartRows: InvestorsPlanFactChartRow[];
       completionChartRows: InvestorsCompletionChartRow[];
+      /** Есть отдельные колонки плана по сегментам (не только общий «План продаж»). */
+      hasSegmentPlan: boolean;
       warnings: string[];
     }
   | { ok: false; error: string; warnings?: string[] };
@@ -456,12 +442,10 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
     warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
   } else {
-    plansBySegment = distributeSalesPlanByFactShare(totalSalesPlan, factsAtReport);
-    if (colMap.salesPlan != null && totalSalesPlan > 0) {
-      warnings.push(
-        "План на графике: из колонки «План продаж» (сумма по месяцам), распределён по сегментам пропорционально факту.",
-      );
-    }
+    plansBySegment = { apartments: 0, parking: 0, storage: 0, commercial: 0 };
+    warnings.push(
+      "В CSV нет плана по сегментам (только общий «План продаж»). На графике показан факт; для сравнения план/факт и % добавьте колонки плана по сегментам.",
+    );
   }
 
   const hasAnyFact = Object.values(factsAtReport).some((v) => Math.abs(v) > 1e-9);
@@ -474,11 +458,6 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
-  if (totalSalesPlan <= 0 && !hasPerSegmentPlanCols) {
-    warnings.push(
-      "Колонка «План продаж» не распознана или пуста — на графике отображается только факт; выполнение % может быть 0.",
-    );
-  }
 
   console.log("[aggregated segment execution]", {
     factsAtReport,
@@ -504,20 +483,20 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
 
   console.table(planFactChartRows);
 
-  const completionChartRows: InvestorsCompletionChartRow[] = planFactChartRows.map((r) =>
-    buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact),
-  );
+  const completionChartRows: InvestorsCompletionChartRow[] = hasPerSegmentPlanCols
+    ? planFactChartRows.map((r) => buildCompletionRow(r.key as MacroCategoryKey, r.name, r.plan, r.fact))
+    : [];
 
   console.table(completionChartRows);
 
-  const investorsMacroChartsPayload = { planFactChartRows, completionChartRows };
+  const investorsMacroChartsPayload = { planFactChartRows, completionChartRows, hasSegmentPlan: hasPerSegmentPlanCols };
   console.log("[parsed investors charts]", {
     ...investorsMacroChartsPayload,
     planLen: planFactChartRows.length,
     completionLen: completionChartRows.length,
   });
 
-  return { ok: true, planFactChartRows, completionChartRows, warnings };
+  return { ok: true, planFactChartRows, completionChartRows, hasSegmentPlan: hasPerSegmentPlanCols, warnings };
 }
 
 function normalizeStoredPlanFactRow(raw: unknown): InvestorsPlanFactChartRow {

@@ -26,13 +26,26 @@ export type MarketingSegmentExecutionStoredV1 = {
   uploadedBy?: string;
   planFactRows: SegmentExecutionPlanFactRow[];
   completionRows: SegmentExecutionCompletionRow[];
+  /** true — в CSV есть план по каждому сегменту. */
+  hasSegmentPlan?: boolean;
   warnings: string[];
 };
 
 export type SegmentExecutionChartsPayload = {
   planFactRows: SegmentExecutionPlanFactRow[];
   completionRows: SegmentExecutionCompletionRow[];
+  hasSegmentPlan?: boolean;
 };
+
+/** Показывать ли план и % выполнения (не общий «План продаж» без сегментов). */
+export function segmentExecutionHasSegmentPlan(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+): boolean {
+  if (!payload) return false;
+  if (payload.hasSegmentPlan === true) return true;
+  if (payload.hasSegmentPlan === false) return false;
+  return (payload.planFactRows ?? []).some((r) => Math.abs(r.plan) > 1e-9);
+}
 
 /** Есть ли распознанные строки сегментов (для графиков и сброса stale error). */
 export function segmentExecutionChartsHaveRows(
@@ -105,6 +118,7 @@ export function parseStoredMarketingSegmentExecutionCsv(raw: unknown): Marketing
     uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
     planFactRows: o.planFactRows.map((row: unknown) => normalizePlanFactRow(row)),
     completionRows: o.completionRows.map((row: unknown) => normalizeCompletionRow(row)),
+    hasSegmentPlan: o.hasSegmentPlan === true,
     warnings,
   };
 }

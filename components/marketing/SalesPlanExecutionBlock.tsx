@@ -24,6 +24,7 @@ import {
 } from "@/lib/marketingSalesPlanExecutionTable";
 import {
   segmentExecutionChartsHaveRows,
+  segmentExecutionHasSegmentPlan,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
 import type {
@@ -307,15 +308,17 @@ function ExecutionMacroChartsBlock({
     return segmentExecutionCharts.completionRows ?? [];
   }, [segmentExecutionCharts]);
 
+  const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts);
+
   const planFactYDomain = useMemo((): [number, number] => {
     let m = 0;
     for (const row of planFactRows) {
-      if (Number.isFinite(row.plan)) m = Math.max(m, row.plan);
+      if (hasSegmentPlan && Number.isFinite(row.plan)) m = Math.max(m, row.plan);
       if (Number.isFinite(row.fact)) m = Math.max(m, row.fact);
     }
     if (m <= 0 || !Number.isFinite(m)) return [0, 1];
     return [0, m * 1.08];
-  }, [planFactRows]);
+  }, [planFactRows, hasSegmentPlan]);
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
   const chartAxis = presDark ? "#94a3b8" : "#64748b";
@@ -342,7 +345,7 @@ function ExecutionMacroChartsBlock({
     );
 
   const showPlanFactChart = planFactRows.length > 0;
-  const showCompletionChart = completionRows.length > 0;
+  const showCompletionChart = hasSegmentPlan && completionRows.length > 0;
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
@@ -377,11 +380,13 @@ function ExecutionMacroChartsBlock({
 
   return (
     <div
-      className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4"
+      className={`grid min-w-0 grid-cols-1 gap-3 ${showCompletionChart ? "sm:grid-cols-2 sm:gap-4" : ""}`}
       aria-label="Визуальная аналитика исполнения плана"
     >
       <div className={chartCard}>
-        <div className={chartTitle}>План vs факт (накопительно)</div>
+        <div className={chartTitle}>
+          {hasSegmentPlan ? "План vs факт (накопительно)" : "Факт (накопительно)"}
+        </div>
         <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
           {!showPlanFactChart ? (
             <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
@@ -418,34 +423,40 @@ function ExecutionMacroChartsBlock({
                     if (!active || !payload?.length) return null;
                     const row = payload[0]?.payload as SegmentExecutionPlanFactRow | undefined;
                     if (!row) return null;
-                    const pct = row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
+                    const pct = hasSegmentPlan && row.plan > 0 ? ((row.fact / row.plan) * 100).toFixed(1) : "—";
                     return tooltipFrame(
                       <>
                         <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
                         <div className={`mt-1.5 space-y-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                          {hasSegmentPlan ? (
                           <div>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>План: </span>
                             <span style={{ color: "#F97316" }} className="font-medium">
                               {formatCompactMoneyAxis(row.plan)}
                             </span>
                           </div>
+                          ) : null}
                           <div>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>Факт: </span>
                             <span style={{ color: "#2563EB" }} className="font-medium">
                               {formatCompactMoneyAxis(row.fact)}
                             </span>
                           </div>
+                          {hasSegmentPlan ? (
                           <div className={`border-t pt-1.5 ${presDark ? "border-slate-600/50" : "border-slate-200"}`}>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>Выполнение: </span>
                             <span className="font-semibold">{pct === "—" ? pct : `${pct}%`}</span>
                           </div>
+                          ) : null}
                         </div>
                       </>,
                     );
                   }}
                 />
                 <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
-                <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                {hasSegmentPlan ? (
+                  <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                ) : null}
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -456,22 +467,25 @@ function ExecutionMacroChartsBlock({
               <span className="inline-block h-2 w-3.5 rounded-sm bg-[#2563EB]" />
               Факт
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-2 w-3.5 rounded-sm bg-[#F97316]" />
-              План
-            </span>
+            {hasSegmentPlan ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-2 w-3.5 rounded-sm bg-[#F97316]" />
+                План
+              </span>
+            ) : null}
           </div>
+        ) : null}
+        {showPlanFactChart && !hasSegmentPlan ? (
+          <p className={`mt-2 text-[10px] leading-snug ${mutedCls}`}>
+            В CSV нет плана по сегментам — показан только факт.
+          </p>
         ) : null}
       </div>
 
+      {showCompletionChart ? (
       <div className={chartCard}>
         <div className={chartTitle}>Выполнение %</div>
         <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
-          {!showCompletionChart ? (
-            <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
-              {emptyOrPlaceholder}
-            </p>
-          ) : (
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <BarChart
                 layout="vertical"
@@ -526,7 +540,6 @@ function ExecutionMacroChartsBlock({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          )}
         </div>
         <div className={`${legendCls} gap-x-4 gap-y-1`}>
           <span className="inline-flex items-center gap-1.5">
@@ -543,6 +556,7 @@ function ExecutionMacroChartsBlock({
           </span>
         </div>
       </div>
+      ) : null}
     </div>
   );
 }
