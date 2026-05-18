@@ -3165,6 +3165,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         objectId={objectId}
         dealsFeed={dealsFeed}
         apartmentsCsv={apartmentsCsvDoc}
+        parkingCsv={parkingCsvDoc}
         showApartmentsShareWarning={!presentation}
       />
 

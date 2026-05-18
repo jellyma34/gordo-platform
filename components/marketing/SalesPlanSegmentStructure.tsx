@@ -15,6 +15,11 @@ import {
   apartmentRevenueShareFromCsvPool,
   sumApartmentsCsvTotalRevenue,
 } from "@/lib/apartmentsCsvMetrics";
+import type { MarketingParkingCsvStoredV1 } from "@/lib/marketingParkingCsv";
+import {
+  parkingRevenueShareFromCsvPool,
+  sumParkingCsvTotalRevenue,
+} from "@/lib/parkingCsvMetrics";
 import type { MarketingApartmentsCsvStoredV1 } from "@/lib/marketingApartmentsCsv";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
@@ -234,6 +239,8 @@ type Props = {
   dealsFeed: MarketingDealsJsonFeed;
   /** База квартир из CSV (все лоты) — для доли выручки в карточке «Квартиры». */
   apartmentsCsv?: MarketingApartmentsCsvStoredV1 | null;
+  /** База машино-мест из CSV — для доли выручки в карточке «Машино-места». */
+  parkingCsv?: MarketingParkingCsvStoredV1 | null;
   /** Предупреждение об отсутствии колонки стоимости — только режим редактирования. */
   showApartmentsShareWarning?: boolean;
 };
@@ -243,6 +250,7 @@ export function SalesPlanSegmentStructure({
   objectId,
   dealsFeed,
   apartmentsCsv = null,
+  parkingCsv = null,
   showApartmentsShareWarning = false,
 }: Props) {
   const mplPremium = useMarketingPresentationLight();
@@ -261,6 +269,11 @@ export function SalesPlanSegmentStructure({
     if (!apartmentsCsv?.headers?.length || !apartmentsCsv.rows?.length) return null;
     return sumApartmentsCsvTotalRevenue(apartmentsCsv.headers, apartmentsCsv.rows);
   }, [apartmentsCsv]);
+
+  const parkingRevenuePool = useMemo(() => {
+    if (!parkingCsv?.headers?.length || !parkingCsv.rows?.length) return null;
+    return sumParkingCsvTotalRevenue(parkingCsv.headers, parkingCsv.rows);
+  }, [parkingCsv]);
 
   const apartmentsShareWarning = useMemo(() => {
     if (!showApartmentsShareWarning || !apartmentsCsv) return null;
@@ -293,6 +306,10 @@ export function SalesPlanSegmentStructure({
         const fromCsvPool = apartmentRevenueShareFromCsvPool(sum, apartmentsRevenuePool);
         if (fromCsvPool != null) share = fromCsvPool;
       }
+      if (key === "parking") {
+        const fromCsvPool = parkingRevenueShareFromCsvPool(sum, parkingRevenuePool);
+        if (fromCsvPool != null) share = fromCsvPool;
+      }
       out.push({
         key,
         count,
@@ -303,7 +320,7 @@ export function SalesPlanSegmentStructure({
       });
     }
     return out;
-  }, [filteredRows, apartmentsRevenuePool]);
+  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool]);
 
   if (loadingDeals) {
     return (
@@ -387,9 +404,12 @@ export function SalesPlanSegmentStructure({
                     labelTone={labelTone}
                     className="mb-1"
                   />
-                  {c.key === "apartment" &&
-                  apartmentsRevenuePool != null &&
-                  apartmentsRevenuePool.totalCount > 0 ? (
+                  {(c.key === "apartment" &&
+                    apartmentsRevenuePool != null &&
+                    apartmentsRevenuePool.totalCount > 0) ||
+                  (c.key === "parking" &&
+                    parkingRevenuePool != null &&
+                    parkingRevenuePool.totalCount > 0) ? (
                     <div className="mt-1 min-w-0">
                       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                         <span
@@ -402,7 +422,13 @@ export function SalesPlanSegmentStructure({
                             presDark ? "text-slate-500" : "text-slate-400"
                           } opacity-50`}
                         >
-                          из {numFmt.format(apartmentsRevenuePool.totalCount)} шт
+                          из{" "}
+                          {numFmt.format(
+                            c.key === "apartment"
+                              ? apartmentsRevenuePool!.totalCount
+                              : parkingRevenuePool!.totalCount,
+                          )}{" "}
+                          шт
                         </span>
                       </div>
                       <div
