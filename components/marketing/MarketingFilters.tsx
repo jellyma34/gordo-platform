@@ -1,6 +1,6 @@
 "use client";
 
-import type { MarketingDealTypeOption, MarketingObjectOption } from "@/lib/marketingMockData";
+import type { MarketingObjectOption } from "@/lib/marketingMockData";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
 import { MPL_PREMIUM_FILTER_SELECT_10 } from "@/lib/marketingPremiumUi";
 
@@ -12,10 +12,7 @@ type Props = {
   onPeriodChange: (p: MarketingPeriodGranularity) => void;
   objectId: string;
   onObjectIdChange: (id: string) => void;
-  dealTypeId: string;
-  onDealTypeIdChange: (id: string) => void;
   objects: MarketingObjectOption[];
-  dealTypes: MarketingDealTypeOption[];
   /** Если false — блок «Период» скрыт. */
   showPeriod?: boolean;
 };
@@ -38,10 +35,7 @@ export function MarketingFilters({
   onPeriodChange,
   objectId,
   onObjectIdChange,
-  dealTypeId,
-  onDealTypeIdChange,
   objects,
-  dealTypes,
   showPeriod = true,
 }: Props) {
   const mplLight = useMarketingPresentationLight();
@@ -67,16 +61,6 @@ export function MarketingFilters({
           {objects.map((o) => (
             <option key={o.id} value={o.id}>
               {o.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex min-w-[10rem] flex-col gap-1">
-        <span className={labelCls(presentation, mplLight)}>Тип сделки</span>
-        <select value={dealTypeId} onChange={(e) => onDealTypeIdChange(e.target.value)} className={sel}>
-          {dealTypes.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
             </option>
           ))}
         </select>

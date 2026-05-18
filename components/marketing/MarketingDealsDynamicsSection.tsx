@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
-import { filterByObjectAndDealType, marketingMockData } from "@/lib/marketingMockData";
+import { filterByObject, marketingMockData } from "@/lib/marketingMockData";
 import { numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 import {
   buildDealsDynamicsSeries,
@@ -33,7 +33,6 @@ type Props = {
   presentation: boolean;
   period: MarketingPeriodGranularity;
   objectId: string;
-  dealTypeId: string;
 };
 
 type DrillTab = "types" | "objects" | "managers" | "sources";
@@ -340,7 +339,7 @@ function DealsAnalyticsCard({
   );
 }
 
-export function MarketingDealsDynamicsSection({ presentation, period, objectId, dealTypeId }: Props) {
+export function MarketingDealsDynamicsSection({ presentation, period, objectId }: Props) {
   const blockRef = useRef<HTMLDivElement>(null);
   const [selectedPeriodKey, setSelectedPeriodKey] = useState<string | null>(null);
   const [hoveredPeriodKey, setHoveredPeriodKey] = useState<string | null>(null);
@@ -375,10 +374,10 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId, 
   const chartData = useMemo(() => {
     const factSrc = period === "month" ? marketingMockData.salesFact.month : marketingMockData.salesFact.quarter;
     const revSrc = period === "month" ? marketingMockData.salesRevenue.month : marketingMockData.salesRevenue.quarter;
-    const factRows = filterByObjectAndDealType(factSrc, objectId, dealTypeId);
-    const revenueRows = filterByObjectAndDealType(revSrc, objectId, dealTypeId);
+    const factRows = filterByObject(factSrc, objectId);
+    const revenueRows = filterByObject(revSrc, objectId);
     return buildDealsDynamicsSeries(factRows, revenueRows);
-  }, [period, objectId, dealTypeId]);
+  }, [period, objectId]);
 
   const enrichedChartData = useMemo(() => {
     const funnelSrc =

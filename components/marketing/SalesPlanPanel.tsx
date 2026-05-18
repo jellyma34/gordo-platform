@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import {
-  filterByObjectAndDealType,
+  filterByObject,
   mergeSalesPlanFact,
   marketingMockData,
   type FunnelStageRow,
@@ -668,12 +668,11 @@ type Props = {
   presentation: boolean;
   period: MarketingPeriodGranularity;
   objectId: string;
-  dealTypeId: string;
   /** Начальный сценарий слайда (из query при переходе из пояснения). */
   initialPlanScenario?: PlanScenario;
 };
 
-export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, initialPlanScenario }: Props) {
+export function SalesPlanPanel({ presentation, period, objectId, initialPlanScenario }: Props) {
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
@@ -1823,10 +1822,10 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const dealControlData = useMemo(() => {
     const planRows = period === "month" ? marketingMockData.salesPlan.month : marketingMockData.salesPlan.quarter;
     const factRows = period === "month" ? marketingMockData.salesFact.month : marketingMockData.salesFact.quarter;
-    const planFiltered = filterByObjectAndDealType(planRows, objectId, dealTypeId);
-    const factFiltered = filterByObjectAndDealType(factRows, objectId, dealTypeId);
+    const planFiltered = filterByObject(planRows, objectId);
+    const factFiltered = filterByObject(factRows, objectId);
     return buildDealControlData(mergeSalesPlanFact(planFiltered, factFiltered));
-  }, [period, objectId, dealTypeId]);
+  }, [period, objectId]);
 
   const todayPeriodKey = useMemo(() => periodKeyToday(period), [period]);
   const currentIdx = Math.max(
@@ -1873,8 +1872,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         .sort((a, b) => b.lostDeals - a.lostDeals)[0]
     : null;
   const monthlyPlanExecutionData = useMemo((): MonthlyPlanExecutionRow[] => {
-    const planFiltered = filterByObjectAndDealType(marketingMockData.salesPlan.month, objectId, dealTypeId);
-    const factFiltered = filterByObjectAndDealType(marketingMockData.salesFact.month, objectId, dealTypeId);
+    const planFiltered = filterByObject(marketingMockData.salesPlan.month, objectId);
+    const factFiltered = filterByObject(marketingMockData.salesFact.month, objectId);
     return mergeSalesPlanFact(planFiltered, factFiltered).map((row) => ({
       periodKey: row.periodKey,
       label: row.label,
@@ -1882,7 +1881,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       fact: row.factDeals,
       deviation: row.factDeals - row.planDeals,
     }));
-  }, [objectId, dealTypeId]);
+  }, [objectId]);
   const monthlyExecutionInsights = useMemo(() => {
     const todayMonthKey = periodKeyToday("month");
     return buildMonthlyExecutionInsights(monthlyPlanExecutionData, todayMonthKey);
@@ -4048,7 +4047,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           </div>
         </div>
 
-        <MarketingDealsDynamicsSection presentation={presentation} period={period} objectId={objectId} dealTypeId={dealTypeId} />
+        <MarketingDealsDynamicsSection presentation={presentation} period={period} objectId={objectId} />
 
         <div
           className={

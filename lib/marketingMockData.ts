@@ -477,16 +477,21 @@ export const marketingMockData: MarketingMockBundle = {
   },
 };
 
+export function filterByObject<T extends { objectId?: string }>(rows: T[], objectId: string): T[] {
+  return rows.filter((r) => {
+    return !objectId || objectId === "all" || !r.objectId || r.objectId === objectId;
+  });
+}
+
+/** @deprecated Используйте {@link filterByObject}; тип сделки больше не фильтруется в UI. */
 export function filterByObjectAndDealType<T extends { objectId?: string; dealTypeId?: string }>(
   rows: T[],
   objectId: string,
   dealTypeId: string,
 ): T[] {
-  return rows.filter((r) => {
-    const o = !objectId || objectId === "all" || !r.objectId || r.objectId === objectId;
-    const d = !dealTypeId || dealTypeId === "all" || !r.dealTypeId || r.dealTypeId === dealTypeId;
-    return o && d;
-  });
+  const byObject = filterByObject(rows, objectId);
+  if (!dealTypeId || dealTypeId === "all") return byObject;
+  return byObject.filter((r) => !r.dealTypeId || r.dealTypeId === dealTypeId);
 }
 
 /** Слияние план/факт по periodKey для диаграмм. */

@@ -32,7 +32,6 @@ type Props = {
   presentation: boolean;
   period: MarketingPeriodGranularity;
   objectId: string;
-  dealTypeId: string;
 };
 
 type UploadsMeta = {
@@ -49,11 +48,9 @@ function formatRuDateShort(iso: string): string {
 
 function DealsMarketingEditPanel({
   objectId,
-  dealTypeId,
   feed,
 }: {
   objectId: string;
-  dealTypeId: string;
   feed: MarketingDealsJsonFeed;
 }) {
   const { loading, error, reload, rows } = feed;
@@ -86,8 +83,8 @@ function DealsMarketingEditPanel({
   }, [loadMeta]);
 
   const filteredPreview = useMemo(
-    () => filterNormalizedDealsForEditPreview(rows, objectId, dealTypeId),
-    [rows, objectId, dealTypeId],
+    () => filterNormalizedDealsForEditPreview(rows, objectId),
+    [rows, objectId],
   );
 
   const previewSlice = useMemo(() => filteredPreview.slice(0, 500), [filteredPreview]);
@@ -277,8 +274,8 @@ function DealsMarketingEditPanel({
       <div className={CARD_EDIT}>
         <h3 className="text-sm font-semibold text-slate-900">Предпросмотр (первые {previewSlice.length} строк)</h3>
         <p className="mt-1 text-[11px] text-slate-600">
-          Колонки: дата, тип объекта (категория для аналитики), количество (1 строка — 1 сделка), сумма. Учитываются фильтры
-          «Объект» и «Тип сделки» выше.
+          Колонки: дата, тип объекта (категория для аналитики), количество (1 строка — 1 сделка), сумма. Учитывается фильтр
+          «Объект / ЖК» выше.
         </p>
         <div className="mt-3 max-h-[440px] w-full overflow-auto rounded-lg border border-slate-200">
           <table className="min-w-[520px] w-full border-collapse text-left text-xs">
@@ -371,11 +368,11 @@ function DealsMarketingEditPanel({
   );
 }
 
-export function SalesDealsSection({ presentation, period, objectId, dealTypeId }: Props) {
+export function SalesDealsSection({ presentation, period, objectId }: Props) {
   const dealsFeed = useMarketingDealsFeed();
 
   if (!presentation) {
-    return <DealsMarketingEditPanel objectId={objectId} dealTypeId={dealTypeId} feed={dealsFeed} />;
+    return <DealsMarketingEditPanel objectId={objectId} feed={dealsFeed} />;
   }
 
   const { loading, error, reload, rows } = dealsFeed;

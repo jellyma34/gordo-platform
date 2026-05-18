@@ -26,7 +26,6 @@ type Props = {
   /** Синхронизация с URL при открытии из пояснения. */
   initialPeriod?: MarketingPeriodGranularity;
   initialObjectId?: string;
-  initialDealTypeId?: string;
   initialPlanScenario?: PlanScenario;
 };
 
@@ -37,7 +36,6 @@ export function MarketingWorkspace({
   presentationActiveTab,
   initialPeriod,
   initialObjectId,
-  initialDealTypeId,
   initialPlanScenario,
 }: Props) {
   const router = useRouter();
@@ -49,7 +47,6 @@ export function MarketingWorkspace({
 
   const [period, setPeriod] = useState<MarketingPeriodGranularity>(initialPeriod ?? "month");
   const [objectId, setObjectId] = useState(initialObjectId ?? "all");
-  const [dealTypeId, setDealTypeId] = useState(initialDealTypeId ?? "all");
 
   const activeTab = presentation
     ? (presentationActiveTab ?? "sales")
@@ -66,12 +63,12 @@ export function MarketingWorkspace({
     const next = new URLSearchParams(searchParams.toString());
     next.set("period", period);
     next.set("objectId", objectId);
-    next.set("dealTypeId", dealTypeId);
+    next.delete("dealTypeId");
     const newQs = next.toString();
     if (newQs !== searchParams.toString()) {
       router.replace(newQs ? `${pathname}?${newQs}` : pathname, { scroll: false });
     }
-  }, [presentation, period, objectId, dealTypeId, pathname, router, searchParams]);
+  }, [presentation, period, objectId, pathname, router, searchParams]);
 
   const outer = "mx-auto w-full min-w-0 max-w-[1400px]";
 
@@ -95,10 +92,7 @@ export function MarketingWorkspace({
             onPeriodChange={setPeriod}
             objectId={objectId}
             onObjectIdChange={setObjectId}
-            dealTypeId={dealTypeId}
-            onDealTypeIdChange={setDealTypeId}
             objects={marketingMockData.objects}
-            dealTypes={marketingMockData.dealTypes}
             showPeriod={presentation || activeTab !== "deals"}
           />
 
@@ -108,11 +102,10 @@ export function MarketingWorkspace({
                 presentation={presentation}
                 period={period}
                 objectId={objectId}
-                dealTypeId={dealTypeId}
                 initialPlanScenario={initialPlanScenario}
               />
             ) : activeTab === "deals" ? (
-              <SalesDealsSection presentation={presentation} period={period} objectId={objectId} dealTypeId={dealTypeId} />
+              <SalesDealsSection presentation={presentation} period={period} objectId={objectId} />
             ) : (
               <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />
             )}

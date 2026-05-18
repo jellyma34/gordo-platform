@@ -82,7 +82,7 @@ export function MarketingDealsObjectParamsPanel({ rows, loading }: Props) {
         <h3 className="text-sm font-semibold text-slate-900">Параметры объектов</h3>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
           Стоимость и площадь из выгрузки. Колонка ₽/м² — только для квартир в срезе. Средняя цена за м² считается по квартирам с
-          площадью и суммой. Учитываются те же фильтры «Объект» и «Тип сделки», что и у предпросмотра.
+          площадью и суммой. Учитывается тот же фильтр «Объект / ЖК», что и у предпросмотра.
         </p>
       </div>
 

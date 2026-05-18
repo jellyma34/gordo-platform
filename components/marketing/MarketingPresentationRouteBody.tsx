@@ -33,7 +33,6 @@ export function MarketingPresentationRouteBody({ presentationActiveTab }: Props)
   }, [setMode]);
 
   const objectId = pick(sp.get("objectId"), "all");
-  const dealTypeId = pick(sp.get("dealTypeId"), "all");
   const period = parsePeriod(sp.get("period"));
   const scenario = parsePresentationScenarioQuery(sp.get("scenario"));
   const returnTo = sp.get("return");
@@ -54,7 +53,6 @@ export function MarketingPresentationRouteBody({ presentationActiveTab }: Props)
       onBackToBlocks={onBackToBlocks}
       initialPeriod={period}
       initialObjectId={objectId}
-      initialDealTypeId={dealTypeId}
       initialPlanScenario={scenario}
     />
   );

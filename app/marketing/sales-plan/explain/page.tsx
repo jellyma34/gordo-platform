@@ -45,7 +45,6 @@ function SalesPlanPresentationExplainPageInner() {
   const sp = useSearchParams();
   const source = sp.get("source") === "work" ? "work" : "dashboard";
   const objectId = pick(sp.get("objectId"), "all");
-  const dealTypeId = pick(sp.get("dealTypeId"), "all");
   const from = sp.get("from");
   const backHref =
     source === "work" && (from === "work" || from === "plan_edit")
@@ -62,10 +61,10 @@ function SalesPlanPresentationExplainPageInner() {
   const explainKpiItems = useMemo(
     () =>
       buildDynamicsKpiItems(
-        buildDynamicsKpiInputFromReport(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
+        buildDynamicsKpiInputFromReport(marketingSalesReportMock, objectId, kpiGranularity),
         true,
       ),
-    [objectId, dealTypeId, kpiGranularity],
+    [objectId, kpiGranularity],
   );
   const dashboardPresentationHref = useMemo(() => {
     const scen = parsePresentationScenarioQuery(scenarioParam);
@@ -73,24 +72,23 @@ function SalesPlanPresentationExplainPageInner() {
       from: "explain",
       source: "dashboard",
       objectId,
-      dealTypeId,
       scenario: scen,
       period: parsePeriodForPresentation(periodParam),
     });
     return `${SALES_PLAN_SPA.presentation}?${q.toString()}`;
-  }, [objectId, dealTypeId, periodParam, scenarioParam]);
+  }, [objectId, periodParam, scenarioParam]);
 
   const dashboardExplainContext = useMemo(
-    () => computeSalesPlanDashboardExplainContext(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
-    [objectId, dealTypeId, kpiGranularity],
+    () => computeSalesPlanDashboardExplainContext(marketingSalesReportMock, objectId, "all", kpiGranularity),
+    [objectId, kpiGranularity],
   );
   const dashboardChartExplainBundle = useMemo(
     () => buildSalesPlanChartExplainBundle(dashboardExplainContext),
     [dashboardExplainContext],
   );
   const dashboardBlocks = useMemo(
-    () => buildSalesPlanPresentationExplainBlocks(marketingSalesReportMock, objectId, dealTypeId, kpiGranularity),
-    [objectId, dealTypeId, kpiGranularity],
+    () => buildSalesPlanPresentationExplainBlocks(marketingSalesReportMock, objectId, "all", kpiGranularity),
+    [objectId, kpiGranularity],
   );
 
   const [workReady, setWorkReady] = useState<{
@@ -166,8 +164,8 @@ function SalesPlanPresentationExplainPageInner() {
     <SalesPlanPresentationExplainView
       backHref={backHref}
       blocks={dashboardBlocks}
-      introLead="Те же данные, что и в дашборде презентации: отчёт по продажам и помесячный план/факт сделок с учётом выбранных фильтров объекта и типа сделки."
-      metaLine={`Объект: ${objectId} · Тип сделки: ${dealTypeId}`}
+      introLead="Те же данные, что и в дашборде презентации: отчёт по продажам и помесячный план/факт сделок с учётом фильтра объекта."
+      metaLine={`Объект: ${objectId}`}
       presentationHref={dashboardPresentationHref}
       kpiItems={explainKpiItems}
       dashboardExplainContext={dashboardExplainContext}

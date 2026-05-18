@@ -2,7 +2,7 @@
  * Единый расчёт 4 KPI дашборда плана продаж (как в SalesPlanPanel при базовом сценарии realistic ×1).
  */
 
-import { filterByObjectAndDealType, mergeSalesPlanFact, marketingMockData } from "@/lib/marketingMockData";
+import { filterByObject, mergeSalesPlanFact, marketingMockData } from "@/lib/marketingMockData";
 import type { SalesCategoryId, SalesReportPayload, SalesSeriesPoint } from "@/lib/marketingSalesReportData";
 import { compactRub, numFmt } from "@/lib/salesPlanChartFormat";
 
@@ -167,7 +167,6 @@ function periodKeyTodayForGranularity(period: SalesPlanKpiPeriod): string {
 export function buildDynamicsKpiInputFromReport(
   report: SalesReportPayload,
   objectId: string,
-  dealTypeId: string,
   period: SalesPlanKpiPeriod = "month",
 ): DynamicsKpiInput {
   const baseRev = report.salesData.revenue;
@@ -201,8 +200,8 @@ export function buildDynamicsKpiInputFromReport(
 
   const planRows = period === "month" ? marketingMockData.salesPlan.month : marketingMockData.salesPlan.quarter;
   const factRows = period === "month" ? marketingMockData.salesFact.month : marketingMockData.salesFact.quarter;
-  const planFiltered = filterByObjectAndDealType(planRows, objectId, dealTypeId);
-  const factFiltered = filterByObjectAndDealType(factRows, objectId, dealTypeId);
+  const planFiltered = filterByObject(planRows, objectId);
+  const factFiltered = filterByObject(factRows, objectId);
   const monthlyPlanExecutionData: MonthlyPlanExecutionRow[] = mergeSalesPlanFact(planFiltered, factFiltered).map((row) => ({
     periodKey: row.periodKey,
     label: row.label,
