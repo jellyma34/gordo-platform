@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 
 import {
@@ -337,9 +337,45 @@ function ExecutionMacroChartsBlock({
 
   const emptyOrPlaceholder = macroChartPlaceholder ?? "Нет данных для графика";
 
-  console.log("[ExecutionMacroChartsBlock render]", { planFactChartRows, completionChartRows });
-  console.table(planFactChartRows);
-  console.table(completionChartRows);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (planFactChartRows.length === 0) return;
+
+    console.log("[PLAN VS FACT SOURCE]", {
+      dataSource: "investors-csv",
+      notUsed: [
+        "execution-verba-csv",
+        "plan_fact.csv",
+        "segment-deals-json",
+        "units-execution-csv",
+      ],
+      parser: "lib/marketingInvestorsCsv.ts → parseMarketingInvestorsCsv",
+      storage: "marketing/storage API + localStorage (investors)",
+      fields: { plan: "apartmentsPlan|parkingPlan|… (wide «сумма» cols)", fact: "apartmentsFact|… or =plan if no fact col" },
+      aggregation: "sum all month rows per segment → planFactChartRows",
+    });
+    console.log("[PLAN VS FACT SOURCE]", planFactChartRows);
+    console.table(planFactChartRows);
+
+    console.log("[COMPLETION SOURCE]", {
+      dataSource: "derived-from-planFactChartRows",
+      sameSourceAsPlanVsFact: true,
+      formula: "pct = fact / plan * 100; bar completion = min(108, pct)",
+      storedCompletionRowsIgnored: true,
+      buildFn: "buildInvestorsCompletionChartRowsFromPlanFact",
+    });
+    console.table(completionChartRows);
+    for (const row of completionChartRows) {
+      const pf = planFactChartRows.find((r) => r.key === row.key);
+      console.log("[COMPLETION SOURCE]", {
+        segment: row.segment,
+        plan: pf?.plan,
+        fact: pf?.fact,
+        pct: row.pct,
+        completion: row.completion,
+      });
+    }
+  }, [planFactChartRows, completionChartRows]);
 
   return (
     <div
