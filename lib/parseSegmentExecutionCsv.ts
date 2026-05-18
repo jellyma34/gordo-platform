@@ -54,13 +54,51 @@ function splitLines(raw: string): string[] {
     .split("\n");
 }
 
-function normHeader(s: string): string {
-  return preprocessCell(s)
+function countUnescapedDoubleQuotes(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '"') {
+      if (s[i + 1] === '"') {
+        i++;
+        continue;
+      }
+      n++;
+    }
+  }
+  return n;
+}
+
+function mergePhysicalLinesForQuotedNewlines(lines: string[]): string[] {
+  const out: string[] = [];
+  let acc = "";
+  for (const line of lines) {
+    acc = acc === "" ? line : `${acc}\n${line}`;
+    if (countUnescapedDoubleQuotes(acc) % 2 === 0) {
+      out.push(acc);
+      acc = "";
+    }
+  }
+  if (acc !== "") out.push(acc);
+  return out;
+}
+
+/** Нормализация заголовка: lower, ё→е, без %/₽/скобок/NBSP/BOM, схлопнуть пробелы. */
+export function normalizeSegmentExecutionHeader(s: string): string {
+  let x = preprocessCell(String(s ?? ""))
+    .replace(/\r\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
     .toLowerCase()
     .replace(/ё/g, "е")
-    .replace(/:/g, "")
+    .replace(/[₽%]/g, " ")
+    .replace(/[()[\]{}«»]/g, " ")
+    .replace(/:/g, " ")
+    .replace(/\*/g, " ")
+    .replace(/[\u00a0\u202f\u2009\u2007\u2008\u200a\u200b\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  x = x.replace(/^["'\u201c\u201d\u201e\u201f]+|["'\u201c\u201d\u201e\u201f]+$/g, "").trim();
+  return x.replace(/\s+/g, " ").trim();
 }
 
 function detectDelimiter(raw: string): ";" | "\t" | "," {
@@ -70,8 +108,21 @@ function detectDelimiter(raw: string): ";" | "\t" | "," {
   return ",";
 }
 
+function unwrapCsvCell(raw: string | undefined | null): string {
+  let s = preprocessCell(String(raw ?? ""));
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    s = s.slice(1, -1).replace(/""/g, '"');
+  }
+  return s
+    .replace(/\r\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function splitRow(line: string, delim: ";" | "\t" | ","): string[] {
-  if (delim === "\t") return line.split("\t").map((c) => preprocessCell(c));
+  if (delim === "\t") return line.split("\t").map((c) => unwrapCsvCell(c));
   const out: string[] = [];
   let cur = "";
   let inQ = false;
@@ -87,14 +138,220 @@ function splitRow(line: string, delim: ";" | "\t" | ","): string[] {
       continue;
     }
     if (!inQ && ch === delim) {
-      out.push(preprocessCell(cur));
+      out.push(unwrapCsvCell(cur));
       cur = "";
       continue;
     }
     cur += ch;
   }
-  out.push(preprocessCell(cur));
+  out.push(unwrapCsvCell(cur));
   return out;
+}
+
+function rowHasNameColumnHeader(row: string[]): boolean {
+  return row.some((cell) => {
+    const h = normalizeSegmentExecutionHeader(cell);
+    return h.includes("наимен") || h.includes("сегмент") || h === "категория";
+  });
+}
+
+function lineLooksLikePrimaryHeader(line: string): boolean {
+  const h = normalizeSegmentExecutionHeader(line.replace(/[;\t]/g, " "));
+  return h.includes("наимен") || h.includes("сегмент");
+}
+
+function findPrimaryHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): number {
+  for (let i = 0; i < lines.length; i++) {
+    const row = splitRow(lines[i] ?? "", delim);
+    if (rowHasNameColumnHeader(row)) return i;
+    if (lineLooksLikePrimaryHeader(lines[i] ?? "")) return i;
+  }
+  return -1;
+}
+
+function findSecondaryHeaderRowIndex(lines: string[], primaryIdx: number, delim: ";" | "\t" | ","): number {
+  for (let i = primaryIdx + 1; i < Math.min(lines.length, primaryIdx + 6); i++) {
+    const row = splitRow(lines[i] ?? "", delim);
+    if (row.every((c) => preprocessCell(c) === "")) continue;
+    for (const cell of row) {
+      const h = normalizeSegmentExecutionHeader(cell);
+      if (h.includes("план") || h.includes("факт") || h.includes("%") || h.includes("completion")) return i;
+    }
+  }
+  return -1;
+}
+
+function mergeHeaderRows(primaryCells: string[], secondaryCells: string[]): {
+  raw: string[];
+  normalized: string[];
+} {
+  const n = Math.max(primaryCells.length, secondaryCells.length);
+  const primFilled = forwardFillPrimaryGroupLabels(primaryCells, n);
+  const sec = [...secondaryCells];
+  while (sec.length < n) sec.push("");
+  const raw: string[] = [];
+  const normalized: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const combined = [preprocessCell(primFilled[i] ?? ""), preprocessCell(sec[i] ?? "")]
+      .filter((x) => x !== "")
+      .join(" ");
+    raw.push(combined);
+    normalized.push(normalizeSegmentExecutionHeader(combined));
+  }
+  return { raw, normalized };
+}
+
+function forwardFillPrimaryGroupLabels(primary: string[], targetLen: number): string[] {
+  const p = [...primary];
+  while (p.length < targetLen) p.push("");
+  let last = "";
+  const out: string[] = [];
+  for (let i = 0; i < targetLen; i++) {
+    const cell = preprocessCell(p[i] ?? "");
+    if (cell) last = cell;
+    out.push(last);
+  }
+  return out;
+}
+
+function scorePlanHeader(n: string): number {
+  if (!n) return -1;
+  if (!n.includes("план")) return -1;
+  if (n.includes("выполн") || n.includes("completion")) return -1;
+  if (n.includes("%") && !n.includes("план")) return -1;
+  if (n.includes("месяц") && !n.includes("накоп")) return -1;
+  let s = 10;
+  if (n.includes("накопит") || n.includes("накоп")) s += 40;
+  if (n.includes("факт") && n.includes("план")) s += 35;
+  if (n.includes("млн") || n.includes("руб") || n.includes("тыс")) s += 8;
+  if (n === "план" || n.endsWith(" план")) s += 25;
+  if (n.includes("проект") && !n.includes("накоп")) s += 5;
+  if (n.includes("отчет")) s -= 10;
+  return s;
+}
+
+function scoreFactHeader(n: string): number {
+  if (!n) return -1;
+  if (!n.includes("факт") && !n.includes("фактич")) return -1;
+  if (n.includes("план") && !n.includes("факт")) return -1;
+  if (n.includes("выполн") && !n.includes("факт")) return -1;
+  let s = 10;
+  if (n.includes("накопит") || n.includes("накоп")) s += 40;
+  if (n.includes("дду") || n.includes("заключ")) s += 15;
+  if (n.includes("млн") || n.includes("руб") || n.includes("тыс")) s += 8;
+  if (n === "факт" || n.endsWith(" факт") || n.startsWith("факт ")) s += 25;
+  if (n.includes("месяц") && !n.includes("накоп")) return -1;
+  if (n.includes("%")) s -= 5;
+  return s;
+}
+
+function scoreCompletionHeader(n: string): number {
+  if (!n) return -1;
+  if (n.includes("completion")) return 50;
+  if (n.includes("выполн") && (n.includes("%") || n.includes("процент"))) return 45;
+  if (n.includes("%") && n.includes("выполн")) return 45;
+  if (n === "%" || n.includes("процент выполн")) return 30;
+  if (n.includes("%") && !n.includes("общего") && !n.includes("объем") && !n.includes("объём")) return 20;
+  return -1;
+}
+
+function pickBestColumn(headers: string[], scoreFn: (n: string) => number, exclude: Set<number>): number | null {
+  let bestI: number | null = null;
+  let bestS = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (exclude.has(i)) continue;
+    const n = headers[i] ?? "";
+    const s = scoreFn(n);
+    if (s > bestS) {
+      bestS = s;
+      bestI = i;
+    }
+  }
+  return bestS >= 0 ? bestI : null;
+}
+
+type ColMap = {
+  name: number;
+  plan: number;
+  fact: number;
+  completion: number | null;
+};
+
+function buildColMapFromNormalizedHeaders(headers: string[]): ColMap | null {
+  let name = pickBestColumn(headers, (n) => {
+    if (n.includes("наимен") || n.includes("сегмент") || n === "категория") return 50;
+    return -1;
+  }, new Set());
+  if (name == null) name = 0;
+
+  const used = new Set<number>([name]);
+  const plan = pickBestColumn(headers, scorePlanHeader, used);
+  if (plan == null) return null;
+  used.add(plan);
+
+  const fact = pickBestColumn(headers, scoreFactHeader, used);
+  if (fact == null) return null;
+  used.add(fact);
+
+  const completion = pickBestColumn(headers, scoreCompletionHeader, used);
+
+  return { name, plan, fact, completion };
+}
+
+function resolveHeaderMap(
+  lines: string[],
+  delim: ";" | "\t" | ",",
+): { headerIdx: number; col: ColMap; mergedHeaders: string[]; rawHeaders: string[] } | null {
+  const primaryIdx = findPrimaryHeaderRowIndex(lines, delim);
+  if (primaryIdx < 0) return null;
+
+  const primaryRow = splitRow(lines[primaryIdx] ?? "", delim);
+  const primCells = primaryRow.map((c) => preprocessCell(c));
+
+  const attempts: { headerIdx: number; raw: string[]; normalized: string[] }[] = [];
+
+  const singleNorm = primCells.map((c) => normalizeSegmentExecutionHeader(c));
+  attempts.push({
+    headerIdx: primaryIdx,
+    raw: primCells,
+    normalized: singleNorm,
+  });
+
+  if (primaryIdx > 0) {
+    const groupRow = splitRow(lines[primaryIdx - 1] ?? "", delim).map((c) => preprocessCell(c));
+    if (groupRow.some((c) => c !== "")) {
+      const merged = mergeHeaderRows(groupRow, primCells);
+      attempts.push({ headerIdx: primaryIdx, ...merged });
+    }
+  }
+
+  const secondaryIdx = findSecondaryHeaderRowIndex(lines, primaryIdx, delim);
+  if (secondaryIdx >= 0 && secondaryIdx !== primaryIdx) {
+    const secondaryRow = splitRow(lines[secondaryIdx] ?? "", delim).map((c) => preprocessCell(c));
+    const merged = mergeHeaderRows(primCells, secondaryRow);
+    attempts.push({ headerIdx: secondaryIdx, ...merged });
+    if (primaryIdx > 0) {
+      const groupRow = splitRow(lines[primaryIdx - 1] ?? "", delim).map((c) => preprocessCell(c));
+      if (groupRow.some((c) => c !== "")) {
+        const mergedGroup = mergeHeaderRows(groupRow, secondaryRow);
+        attempts.push({ headerIdx: secondaryIdx, ...mergedGroup });
+      }
+    }
+  }
+
+  for (const attempt of attempts) {
+    const col = buildColMapFromNormalizedHeaders(attempt.normalized);
+    if (col) {
+      return {
+        headerIdx: attempt.headerIdx,
+        col,
+        mergedHeaders: attempt.normalized,
+        rawHeaders: attempt.raw,
+      };
+    }
+  }
+
+  return null;
 }
 
 function matchSegmentKey(segmentNorm: string): SegmentExecutionSegmentKey | null {
@@ -114,48 +371,6 @@ function matchSegmentKey(segmentNorm: string): SegmentExecutionSegmentKey | null
 
 function isItogoName(n: string): boolean {
   return n.includes("итого") || n === "всего" || n.includes("total");
-}
-
-type ColMap = {
-  name: number;
-  plan: number;
-  fact: number;
-  completion: number | null;
-};
-
-function buildColMap(headers: string[]): ColMap | null {
-  let name = -1;
-  let plan: number | null = null;
-  let fact: number | null = null;
-  let completion: number | null = null;
-
-  for (let i = 0; i < headers.length; i++) {
-    const h = normHeader(headers[i] ?? "");
-    if (!h) continue;
-    if (name < 0 && (h.includes("наимен") || h.includes("сегмент") || h === "категория")) {
-      name = i;
-    }
-    if (h.includes("план") && !h.includes("месяц") && plan == null) {
-      if (h.includes("накоп") || h.includes("проект") || h.includes("итого") || !h.includes("отчет")) {
-        plan = i;
-      }
-    }
-    if ((h.includes("факт") || h.includes("фактич")) && fact == null) {
-      if (h.includes("накоп") || h.includes("дду") || !h.includes("месяц")) {
-        fact = i;
-      }
-    }
-    if (
-      completion == null &&
-      (h.includes("выполн") || h.includes("%") || h.includes("процент") || h.includes("pct"))
-    ) {
-      completion = i;
-    }
-  }
-
-  if (name < 0) name = 0;
-  if (plan == null || fact == null) return null;
-  return { name, plan, fact, completion };
 }
 
 function completionChartFill(pct: number): string {
@@ -210,24 +425,14 @@ export type ParseSegmentExecutionCsvResult = ParseSegmentExecutionCsvOk | ParseS
 export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsvResult {
   const warnings: string[] = [];
   const delim = detectDelimiter(text);
-  const lines = splitLines(text).filter((l) => preprocessCell(l) !== "");
+  const physicalMerged = mergePhysicalLinesForQuotedNewlines(splitLines(text));
+  const lines = physicalMerged.filter((l) => preprocessCell(l) !== "");
   if (lines.length < 2) {
     return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
   }
 
-  let headerIdx = -1;
-  let col: ColMap | null = null;
-  for (let i = 0; i < Math.min(lines.length, 30); i++) {
-    const cells = splitRow(lines[i] ?? "", delim);
-    const map = buildColMap(cells);
-    if (map) {
-      headerIdx = i;
-      col = map;
-      break;
-    }
-  }
-
-  if (headerIdx < 0 || !col) {
+  const resolved = resolveHeaderMap(lines, delim);
+  if (!resolved) {
     return {
       ok: false,
       error:
@@ -235,6 +440,16 @@ export function parseSegmentExecutionCsv(text: string): ParseSegmentExecutionCsv
       warnings,
     };
   }
+
+  const { headerIdx, col, mergedHeaders, rawHeaders } = resolved;
+
+  const headerTable = rawHeaders.map((raw, i) => ({
+    col: i,
+    raw,
+    normalized: mergedHeaders[i] ?? "",
+  }));
+  console.table(headerTable);
+  console.log("[segment execution csv headers]", mergedHeaders);
 
   const byKey = new Map<
     SegmentExecutionSegmentKey,
