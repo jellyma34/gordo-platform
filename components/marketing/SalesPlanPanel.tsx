@@ -2131,6 +2131,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     return { rows, maxDelta, axisMaxPp, scaleTicks, maxAbsRub };
   }, [salesStructureBalanceRows]);
   const chartMode: SalesPlanChartMode = presentation ? (presDark ? "presentation" : "presentationLight") : "work";
+  /** KPI, темп продаж и прочая аналитика ниже «Исполнение (штуки)» — только view, не edit. */
+  const showLowerAnalyticsSections = !presentation && mode !== "edit";
   const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
@@ -3321,7 +3323,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         />
       </>
 
-      {!presentation ? (
+      {showLowerAnalyticsSections ? (
         <div className="flex flex-col gap-4">
       {/* KPI summary */}
       <KpiDashboard mode="work" items={dynamicsKpiItems} className="mb-7 w-full min-w-0" />
