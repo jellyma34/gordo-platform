@@ -24,6 +24,7 @@ export type MarketingParkingCsvStoredV1 = {
   updatedAt: string;
   fileName: string;
   uploadedBy?: string;
+  rawText?: string;
   headers: string[];
   rows: string[][];
   warnings: string[];

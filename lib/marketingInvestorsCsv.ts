@@ -52,6 +52,8 @@ export type MarketingInvestorsCsvStoredV1 = {
   fileName: string;
   /** Кто загрузил файл (серверное хранилище). */
   uploadedBy?: string;
+  /** Исходный текст CSV (для повторного разбора и офлайн-кэша). */
+  rawText?: string;
   planFactChartRows: InvestorsPlanFactChartRow[];
   completionChartRows: InvestorsCompletionChartRow[];
   warnings: string[];

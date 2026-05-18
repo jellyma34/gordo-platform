@@ -24,6 +24,7 @@ export type MarketingUnitsExecutionStoredV1 = {
   fileName: string;
   /** Кто загрузил файл (серверное хранилище). */
   uploadedBy?: string;
+  rawText?: string;
   reportDateYmd: string;
   segments: UnitsExecutionSegmentRow[];
   totals: UnitsExecutionTotals;

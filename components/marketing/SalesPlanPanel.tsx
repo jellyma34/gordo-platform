@@ -28,6 +28,22 @@ import {
 } from "@/lib/salesPlanDynamicsKpi";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
+import {
+  clearMarketingSalesPlanExecutionLocalStorage,
+  mergeMarketingDataset,
+  readMarketingPaymentPlanFromLocalStorage,
+  readMarketingSalesPlanExecutionFromLocalStorage,
+  writeMarketingPaymentPlanToLocalStorage,
+  writeMarketingSalesPlanExecutionToLocalStorage,
+} from "@/lib/marketingCsvBrowserStorage";
+import {
+  apartmentsCsvDocIsValid,
+  investorsCsvDocIsValid,
+  parkingCsvDocIsValid,
+  segmentExecutionCsvDocIsValid,
+  storagesCsvDocIsValid,
+  unitsExecutionCsvDocIsValid,
+} from "@/lib/marketingCsvHydrateHelpers";
 import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanFileV2, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
 import type { SalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutionTable";
@@ -65,7 +81,6 @@ import {
   type UnitsExecutionChartsPayload,
 } from "@/lib/marketingUnitsExecutionCsv";
 import {
-  apartmentsCsvHasData,
   clearMarketingApartmentsCsvLocalStorage,
   metaFromApartmentsDoc,
   parseApartmentsCsv,
@@ -77,7 +92,6 @@ import {
 import {
   clearMarketingParkingCsvLocalStorage,
   metaFromParkingDoc,
-  parkingCsvHasData,
   parseParkingCsv,
   readMarketingParkingCsvFromLocalStorage,
   writeMarketingParkingCsvToLocalStorage,
@@ -89,7 +103,6 @@ import {
   metaFromStoragesDoc,
   parseStoragesCsv,
   readMarketingStoragesCsvFromLocalStorage,
-  storagesCsvHasData,
   writeMarketingStoragesCsvToLocalStorage,
   type MarketingStoragesCsvMetaV1,
   type MarketingStoragesCsvStoredV1,
@@ -154,6 +167,51 @@ const SCENARIO_FACTOR: Record<PlanScenario, number> = {
   realistic: 1,
   pessimistic: 0.92,
 };
+
+function marketingStorageProjectId(): string {
+  return marketingPaymentPlanProjectIdFromEnv();
+}
+
+function readInitialSegmentExecutionCharts(): SegmentExecutionChartsPayload | null | undefined {
+  if (typeof window === "undefined") return undefined;
+  const doc = readMarketingSegmentExecutionCsvFromLocalStorage(marketingStorageProjectId());
+  if (!doc || !segmentExecutionCsvDocIsValid(doc)) return undefined;
+  return {
+    planFactRows: doc.planFactRows,
+    completionRows: doc.completionRows,
+    hasSegmentPlan: doc.hasSegmentPlan,
+    planTotal: doc.planTotal,
+    totalFact: doc.totalFact,
+  };
+}
+
+function readInitialUnitsExecutionCharts(): UnitsExecutionChartsPayload | null | undefined {
+  if (typeof window === "undefined") return undefined;
+  const doc = readMarketingUnitsExecutionCsvFromLocalStorage(marketingStorageProjectId());
+  if (!doc || !unitsExecutionCsvDocIsValid(doc)) return undefined;
+  return {
+    reportDateYmd: doc.reportDateYmd,
+    segments: doc.segments,
+    totals: doc.totals,
+  };
+}
+
+function readInitialInvestorsCsvMeta(): {
+  fileName: string;
+  uploadedAt: string;
+  macroChartRowCount: number;
+  uploadedBy?: string;
+} | null {
+  if (typeof window === "undefined") return null;
+  const doc = readMarketingInvestorsCsvFromLocalStorage(marketingStorageProjectId());
+  if (!doc || !investorsCsvDocIsValid(doc)) return null;
+  return {
+    fileName: doc.fileName,
+    uploadedAt: doc.updatedAt,
+    macroChartRowCount: doc.planFactChartRows?.length ?? 0,
+    uploadedBy: doc.uploadedBy,
+  };
+}
 
 type TrafficStatus = "green" | "yellow" | "red";
 
@@ -758,7 +816,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
 
   const [segmentExecutionCharts, setSegmentExecutionCharts] = useState<
     SegmentExecutionChartsPayload | null | undefined
-  >(undefined);
+  >(readInitialSegmentExecutionCharts);
   const [segmentExecutionCsvError, setSegmentExecutionCsvError] = useState<string | null>(null);
   const [segmentExecutionCsvWarnings, setSegmentExecutionCsvWarnings] = useState<string[]>([]);
   const [segmentExecutionCsvMeta, setSegmentExecutionCsvMeta] = useState<{
@@ -780,14 +838,14 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     uploadedAt: string;
     macroChartRowCount: number;
     uploadedBy?: string;
-  } | null>(null);
+  } | null>(readInitialInvestorsCsvMeta);
 
   const unitsCsvInputRef = useRef<HTMLInputElement>(null);
   const apartmentsCsvInputRef = useRef<HTMLInputElement>(null);
   const parkingCsvInputRef = useRef<HTMLInputElement>(null);
   const storagesCsvInputRef = useRef<HTMLInputElement>(null);
   const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
-    undefined,
+    readInitialUnitsExecutionCharts,
   );
   const [unitsCsvMeta, setUnitsCsvMeta] = useState<{
     fileName: string;
@@ -795,16 +853,34 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     uploadedBy?: string;
   } | null>(null);
   const [unitsCsvError, setUnitsCsvError] = useState<string | null>(null);
-  const [apartmentsCsvMeta, setApartmentsCsvMeta] = useState<MarketingApartmentsCsvMetaV1 | null>(null);
-  const [apartmentsCsvDoc, setApartmentsCsvDoc] = useState<MarketingApartmentsCsvStoredV1 | null>(null);
+  const [apartmentsCsvMeta, setApartmentsCsvMeta] = useState<MarketingApartmentsCsvMetaV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingApartmentsCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && apartmentsCsvDocIsValid(doc) ? metaFromApartmentsDoc(doc) : null;
+  });
+  const [apartmentsCsvDoc, setApartmentsCsvDoc] = useState<MarketingApartmentsCsvStoredV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingApartmentsCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && apartmentsCsvDocIsValid(doc) ? doc : null;
+  });
   const [apartmentsCsvError, setApartmentsCsvError] = useState<string | null>(null);
   const [apartmentsCsvWarnings, setApartmentsCsvWarnings] = useState<string[]>([]);
-  const [parkingCsvMeta, setParkingCsvMeta] = useState<MarketingParkingCsvMetaV1 | null>(null);
-  const [parkingCsvDoc, setParkingCsvDoc] = useState<MarketingParkingCsvStoredV1 | null>(null);
+  const [parkingCsvMeta, setParkingCsvMeta] = useState<MarketingParkingCsvMetaV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingParkingCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && parkingCsvDocIsValid(doc) ? metaFromParkingDoc(doc) : null;
+  });
+  const [parkingCsvDoc, setParkingCsvDoc] = useState<MarketingParkingCsvStoredV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingParkingCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && parkingCsvDocIsValid(doc) ? doc : null;
+  });
   const [parkingCsvError, setParkingCsvError] = useState<string | null>(null);
   const [parkingCsvWarnings, setParkingCsvWarnings] = useState<string[]>([]);
-  const [storagesCsvMeta, setStoragesCsvMeta] = useState<MarketingStoragesCsvMetaV1 | null>(null);
-  const [storagesCsvDoc, setStoragesCsvDoc] = useState<MarketingStoragesCsvStoredV1 | null>(null);
+  const [storagesCsvMeta, setStoragesCsvMeta] = useState<MarketingStoragesCsvMetaV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingStoragesCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && storagesCsvDocIsValid(doc) ? metaFromStoragesDoc(doc) : null;
+  });
+  const [storagesCsvDoc, setStoragesCsvDoc] = useState<MarketingStoragesCsvStoredV1 | null>(() => {
+    const doc = typeof window !== "undefined" ? readMarketingStoragesCsvFromLocalStorage(marketingStorageProjectId()) : null;
+    return doc && storagesCsvDocIsValid(doc) ? doc : null;
+  });
   const [storagesCsvError, setStoragesCsvError] = useState<string | null>(null);
   const [storagesCsvWarnings, setStoragesCsvWarnings] = useState<string[]>([]);
 
@@ -852,6 +928,13 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         if (cancelled) return;
         if (j?.plan?.v === 2) {
           applyServerPlan(j.plan);
+          writeMarketingPaymentPlanToLocalStorage(paymentPlanProjectId, j.plan);
+          setPaymentPlanHydrated(true);
+          return;
+        }
+        const localPlan = readMarketingPaymentPlanFromLocalStorage(paymentPlanProjectId);
+        if (localPlan?.v === 2) {
+          applyServerPlan(localPlan);
           setPaymentPlanHydrated(true);
           return;
         }
@@ -889,6 +972,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           localStorage.removeItem(LEGACY_PAYMENT_SCHEDULE_STORAGE_KEY);
           if (mj?.plan?.v === 2) {
             applyServerPlan(mj.plan);
+            writeMarketingPaymentPlanToLocalStorage(paymentPlanProjectId, mj.plan);
           }
         } catch {
           /* ignore migration */
@@ -915,6 +999,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     setSchedulePlanMeta(doc.planMeta ?? null);
     setScheduleFactMeta(doc.factMeta ?? null);
     setPaymentZaydetMonthVerify(Array.isArray(doc.zaydetMonthVerify) ? doc.zaydetMonthVerify : []);
+    writeMarketingPaymentPlanToLocalStorage(paymentPlanProjectId, doc);
   };
 
   const onPaymentPlanCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1092,20 +1177,55 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         if (cancelled) return;
         setExecutionSource(j?.source ?? null);
         if (j?.dataset && typeof j.dataset === "object") {
-          setExecutionDataset({
+          const ds = {
             ...j.dataset,
             reportDateYmd: j.dataset.reportDateYmd?.trim() || report.asOf,
-          });
+          };
+          setExecutionDataset(ds);
+          setExecutionMeta(j?.meta ?? null);
+          setExecutionWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+          if (j.meta) {
+            writeMarketingSalesPlanExecutionToLocalStorage(paymentPlanProjectId, {
+              v: 1,
+              projectId: paymentPlanProjectId,
+              updatedAt: j.meta.uploadedAt,
+              meta: j.meta,
+              dataset: ds,
+              parseWarnings: Array.isArray(j.warnings) ? j.warnings : undefined,
+            });
+          }
         } else {
-          setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+          const localExec = readMarketingSalesPlanExecutionFromLocalStorage(paymentPlanProjectId);
+          if (localExec?.dataset) {
+            setExecutionDataset({
+              ...localExec.dataset,
+              reportDateYmd: localExec.dataset.reportDateYmd?.trim() || report.asOf,
+            });
+            setExecutionMeta(localExec.meta);
+            setExecutionSource("json");
+            setExecutionWarnings(localExec.parseWarnings ?? []);
+          } else {
+            setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+            setExecutionMeta(null);
+            setExecutionWarnings([]);
+          }
         }
-        setExecutionMeta(j?.meta ?? null);
-        setExecutionWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
         if (typeof j?.error === "string") setExecutionError(j.error);
       } catch {
         if (!cancelled) {
-          setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
-          setExecutionError("Не удалось загрузить исполнение плана продаж.");
+          const localExec = readMarketingSalesPlanExecutionFromLocalStorage(paymentPlanProjectId);
+          if (localExec?.dataset) {
+            setExecutionDataset({
+              ...localExec.dataset,
+              reportDateYmd: localExec.dataset.reportDateYmd?.trim() || report.asOf,
+            });
+            setExecutionMeta(localExec.meta);
+            setExecutionSource("json");
+            setExecutionWarnings(localExec.parseWarnings ?? []);
+          } else {
+            setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+            setExecutionError("Не удалось загрузить исполнение плана продаж.");
+          }
         }
       } finally {
         if (!cancelled) setExecutionHydrated(true);
@@ -1118,7 +1238,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
 
   useEffect(() => {
     let cancelled = false;
-    setSupplementalMarketingHydrated(false);
     const applyFromInvestorsDoc = (doc: MarketingInvestorsCsvStoredV1) => {
       setInvestorsCsvMeta({
         fileName: doc.fileName,
@@ -1161,20 +1280,17 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       });
       writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
     };
-    const clearInvestorsState = () => {
-      clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
+    const resetInvestorsUi = () => {
       setInvestorsCsvMeta(null);
       setInvestorsCsvWarnings([]);
     };
-    const clearSegmentExecutionState = () => {
-      clearMarketingSegmentExecutionCsvLocalStorage(paymentPlanProjectId);
+    const resetSegmentExecutionUi = () => {
       setSegmentExecutionCharts(null);
       setSegmentExecutionCsvMeta(null);
       setSegmentExecutionCsvWarnings([]);
       setSegmentExecutionCsvError(null);
     };
-    const clearUnitsState = () => {
-      clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
+    const resetUnitsUi = () => {
       setUnitsExecutionCharts(null);
       setUnitsCsvMeta(null);
       setUnitsCsvError(null);
@@ -1186,8 +1302,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setApartmentsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
       writeMarketingApartmentsCsvToLocalStorage(paymentPlanProjectId, doc);
     };
-    const clearApartmentsState = () => {
-      clearMarketingApartmentsCsvLocalStorage(paymentPlanProjectId);
+    const resetApartmentsUi = () => {
       setApartmentsCsvDoc(null);
       setApartmentsCsvMeta(null);
       setApartmentsCsvError(null);
@@ -1200,8 +1315,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setParkingCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
       writeMarketingParkingCsvToLocalStorage(paymentPlanProjectId, doc);
     };
-    const clearParkingState = () => {
-      clearMarketingParkingCsvLocalStorage(paymentPlanProjectId);
+    const resetParkingUi = () => {
       setParkingCsvDoc(null);
       setParkingCsvMeta(null);
       setParkingCsvError(null);
@@ -1214,14 +1328,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setStoragesCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
       writeMarketingStoragesCsvToLocalStorage(paymentPlanProjectId, doc);
     };
-    const clearStoragesState = () => {
-      clearMarketingStoragesCsvLocalStorage(paymentPlanProjectId);
+    const resetStoragesUi = () => {
       setStoragesCsvDoc(null);
       setStoragesCsvMeta(null);
       setStoragesCsvError(null);
       setStoragesCsvWarnings([]);
     };
     (async () => {
+      let serverDatasets: {
+        investors: MarketingInvestorsCsvStoredV1 | null;
+        segmentExecution: MarketingSegmentExecutionStoredV1 | null;
+        unitsExecution: MarketingUnitsExecutionStoredV1 | null;
+        apartments: MarketingApartmentsCsvStoredV1 | null;
+        parking: MarketingParkingCsvStoredV1 | null;
+        storages: MarketingStoragesCsvStoredV1 | null;
+      } | null = null;
       try {
         const res = await fetch(
           `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`,
@@ -1239,51 +1360,68 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           };
         };
         if (cancelled) return;
-        if (!res.ok || !j?.ok || !j.datasets) {
-          throw new Error("marketing storage fetch failed");
+        if (res.ok && j?.ok && j.datasets) {
+          serverDatasets = j.datasets;
         }
-        const inv = j.datasets.investors;
-        if (inv) applyFromInvestorsDoc(inv);
-        else clearInvestorsState();
-        const seg = j.datasets.segmentExecution;
-        if (seg && seg.planFactRows.length > 0) applyFromSegmentExecutionDoc(seg);
-        else clearSegmentExecutionState();
-        const u = j.datasets.unitsExecution;
-        if (u && Array.isArray(u.segments) && u.segments.length > 0) applyFromUnitsDoc(u);
-        else clearUnitsState();
-        const apt = j.datasets.apartments;
-        if (apt && apartmentsCsvHasData(apt)) applyFromApartmentsDoc(apt);
-        else clearApartmentsState();
-        const park = j.datasets.parking;
-        if (park && parkingCsvHasData(park)) applyFromParkingDoc(park);
-        else clearParkingState();
-        const stor = j.datasets.storages;
-        if (stor && storagesCsvHasData(stor)) applyFromStoragesDoc(stor);
-        else clearStoragesState();
       } catch {
-        if (cancelled) return;
-        const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
-        if (invDoc) applyFromInvestorsDoc(invDoc);
-        else clearInvestorsState();
-        const segDoc = readMarketingSegmentExecutionCsvFromLocalStorage(paymentPlanProjectId);
-        if (segDoc && segDoc.planFactRows.length > 0) applyFromSegmentExecutionDoc(segDoc);
-        else clearSegmentExecutionState();
-        const unitsDoc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
-        if (unitsDoc && unitsDoc.segments.length > 0) applyFromUnitsDoc(unitsDoc);
-        else clearUnitsState();
-        const aptDoc = readMarketingApartmentsCsvFromLocalStorage(paymentPlanProjectId);
-        if (aptDoc && apartmentsCsvHasData(aptDoc)) applyFromApartmentsDoc(aptDoc);
-        else clearApartmentsState();
-        const parkDoc = readMarketingParkingCsvFromLocalStorage(paymentPlanProjectId);
-        if (parkDoc && parkingCsvHasData(parkDoc)) applyFromParkingDoc(parkDoc);
-        else clearParkingState();
-        const storDoc = readMarketingStoragesCsvFromLocalStorage(paymentPlanProjectId);
-        if (storDoc && storagesCsvHasData(storDoc)) applyFromStoragesDoc(storDoc);
-        else clearStoragesState();
-      } finally {
-        if (!cancelled) setSupplementalMarketingHydrated(true);
+        /* localStorage fallback below */
       }
-    })();
+      if (cancelled) return;
+
+      const inv = mergeMarketingDataset(
+        serverDatasets?.investors,
+        readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId),
+        investorsCsvDocIsValid,
+      );
+      if (inv) applyFromInvestorsDoc(inv);
+      else resetInvestorsUi();
+
+      const seg = mergeMarketingDataset(
+        serverDatasets?.segmentExecution,
+        readMarketingSegmentExecutionCsvFromLocalStorage(paymentPlanProjectId),
+        segmentExecutionCsvDocIsValid,
+      );
+      if (seg) applyFromSegmentExecutionDoc(seg);
+      else resetSegmentExecutionUi();
+
+      const u = mergeMarketingDataset(
+        serverDatasets?.unitsExecution,
+        readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId),
+        unitsExecutionCsvDocIsValid,
+      );
+      if (u) applyFromUnitsDoc(u);
+      else resetUnitsUi();
+
+      const apt = mergeMarketingDataset(
+        serverDatasets?.apartments,
+        readMarketingApartmentsCsvFromLocalStorage(paymentPlanProjectId),
+        apartmentsCsvDocIsValid,
+      );
+      if (apt) applyFromApartmentsDoc(apt);
+      else resetApartmentsUi();
+
+      const park = mergeMarketingDataset(
+        serverDatasets?.parking,
+        readMarketingParkingCsvFromLocalStorage(paymentPlanProjectId),
+        parkingCsvDocIsValid,
+      );
+      if (park) applyFromParkingDoc(park);
+      else resetParkingUi();
+
+      const stor = mergeMarketingDataset(
+        serverDatasets?.storages,
+        readMarketingStoragesCsvFromLocalStorage(paymentPlanProjectId),
+        storagesCsvDocIsValid,
+      );
+      if (stor) applyFromStoragesDoc(stor);
+      else resetStoragesUi();
+    })()
+      .catch(() => {
+        /* handled in merge path */
+      })
+      .finally(() => {
+        if (!cancelled) setSupplementalMarketingHydrated(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -1321,10 +1459,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         return;
       }
       if (j.dataset) {
-        setExecutionDataset({
+        const ds = {
           ...j.dataset,
           reportDateYmd: j.dataset.reportDateYmd?.trim() || report.asOf,
-        });
+        };
+        setExecutionDataset(ds);
+        if (j.meta) {
+          writeMarketingSalesPlanExecutionToLocalStorage(paymentPlanProjectId, {
+            v: 1,
+            projectId: paymentPlanProjectId,
+            updatedAt: j.meta.uploadedAt,
+            meta: j.meta,
+            dataset: ds,
+            parseWarnings: Array.isArray(j.warnings) ? j.warnings : undefined,
+          });
+        }
       }
       setExecutionMeta(j.meta ?? null);
       setExecutionSource("json");
@@ -1350,6 +1499,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setExecutionMeta(null);
       setExecutionSource("empty");
       setExecutionWarnings([]);
+      clearMarketingSalesPlanExecutionLocalStorage(paymentPlanProjectId);
     } catch {
       setExecutionError("Не удалось сбросить исполнение плана.");
     }
@@ -1384,11 +1534,30 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         warnings?: string[];
       } | null;
       if (!res.ok || !j?.ok || !j.doc) {
-        setInvestorsCsvError(typeof j?.error === "string" ? j.error : "Не удалось сохранить инвесторский CSV на сервере.");
-        setInvestorsCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить инвесторский CSV на сервере.";
+        const localDoc: MarketingInvestorsCsvStoredV1 = {
+          v: 1,
+          updatedAt: new Date().toISOString(),
+          fileName: file.name,
+          uploadedBy: paymentUploadedByLabel,
+          rawText: text,
+          planFactChartRows: parsed.planFactChartRows,
+          completionChartRows: parsed.completionChartRows,
+          warnings: [...(parsed.warnings ?? []), `Сервер: ${serverMsg} (данные сохранены локально).`],
+        };
+        writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, localDoc);
+        setInvestorsCsvMeta({
+          fileName: localDoc.fileName,
+          uploadedAt: localDoc.updatedAt,
+          macroChartRowCount: localDoc.planFactChartRows?.length ?? 0,
+          uploadedBy: localDoc.uploadedBy,
+        });
+        setInvestorsCsvWarnings(localDoc.warnings);
+        setInvestorsCsvError(null);
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, saved);
       setInvestorsCsvMeta({
         fileName: saved.fileName,
@@ -1448,6 +1617,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             updatedAt: new Date().toISOString(),
             fileName: file.name,
             uploadedBy: paymentUploadedByLabel,
+            rawText: text,
             reportDateYmd: parsed.reportDateYmd,
             segments: parsed.segments,
             totals: parsed.totals,
@@ -1464,7 +1634,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         }
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, saved);
       setUnitsExecutionCharts({
         reportDateYmd: saved.reportDateYmd,
@@ -1539,6 +1709,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           updatedAt: parsed.uploadedAt,
           fileName: parsed.filename,
           uploadedBy: paymentUploadedByLabel,
+          rawText: text,
           headers: parsed.headers,
           rows: parsed.rows,
           warnings: [
@@ -1561,7 +1732,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         setApartmentsCsvError(null);
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingApartmentsCsvToLocalStorage(paymentPlanProjectId, saved);
       setApartmentsCsvDoc(saved);
       setApartmentsCsvMeta(metaFromApartmentsDoc(saved));
@@ -1630,6 +1801,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           updatedAt: parsed.uploadedAt,
           fileName: parsed.filename,
           uploadedBy: paymentUploadedByLabel,
+          rawText: text,
           headers: parsed.headers,
           rows: parsed.rows,
           warnings: [
@@ -1652,7 +1824,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         setParkingCsvError(null);
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingParkingCsvToLocalStorage(paymentPlanProjectId, saved);
       setParkingCsvDoc(saved);
       setParkingCsvMeta(metaFromParkingDoc(saved));
@@ -1721,6 +1893,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           updatedAt: parsed.uploadedAt,
           fileName: parsed.filename,
           uploadedBy: paymentUploadedByLabel,
+          rawText: text,
           headers: parsed.headers,
           rows: parsed.rows,
           warnings: [
@@ -1743,7 +1916,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         setStoragesCsvError(null);
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingStoragesCsvToLocalStorage(paymentPlanProjectId, saved);
       setStoragesCsvDoc(saved);
       setStoragesCsvMeta(metaFromStoragesDoc(saved));
@@ -1844,6 +2017,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             updatedAt: new Date().toISOString(),
             fileName: file.name,
             uploadedBy: paymentUploadedByLabel,
+            rawText: text,
             planFactRows: parsed.planFactRows,
             completionRows: parsed.completionRows,
             hasSegmentPlan: parsed.hasSegmentPlan,
@@ -1856,7 +2030,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           });
           setSegmentExecutionCsvMeta({
             fileName: file.name,
-            updatedAt: new Date().toISOString(),
+            uploadedAt: new Date().toISOString(),
             uploadedBy: paymentUploadedByLabel,
             storageKey: MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
           });
@@ -1871,7 +2045,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         }
         return;
       }
-      const saved = j.doc;
+      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
       writeMarketingSegmentExecutionCsvToLocalStorage(paymentPlanProjectId, saved);
       setSegmentExecutionCharts({
         planFactRows: saved.planFactRows,

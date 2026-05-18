@@ -26,6 +26,7 @@ export type MarketingSegmentExecutionStoredV1 = {
   updatedAt: string;
   fileName: string;
   uploadedBy?: string;
+  rawText?: string;
   planFactRows: SegmentExecutionPlanFactRow[];
   completionRows: SegmentExecutionCompletionRow[];
   /** true — в CSV есть план по каждому сегменту. */
