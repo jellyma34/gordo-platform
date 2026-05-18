@@ -82,6 +82,34 @@ function isAnalyticsSegment(d: DealSegmentKey): d is DealsAnalyticsSegmentKey {
   return d !== "other";
 }
 
+/** Срез факта сегмента из JSON сделок (как в карточках «Сделки» / мини-графиках). */
+export type SegmentAnalyticsFactSlice = {
+  dealCount: number;
+  factRevenue: number;
+};
+
+/**
+ * Агрегация факта по 4 сегментам недвижимости из `/api/deals` (sumRub по сделкам).
+ * Не использует investors / plan_fact / units execution.
+ */
+export function aggregateSegmentAnalyticsFromDeals(
+  rows: NormalizedDealRow[],
+): Record<DealsAnalyticsSegmentKey, SegmentAnalyticsFactSlice> {
+  const out: Record<DealsAnalyticsSegmentKey, SegmentAnalyticsFactSlice> = {
+    apartment: { dealCount: 0, factRevenue: 0 },
+    parking: { dealCount: 0, factRevenue: 0 },
+    storage: { dealCount: 0, factRevenue: 0 },
+    commercial: { dealCount: 0, factRevenue: 0 },
+  };
+  for (const r of rows) {
+    if (!isAnalyticsSegment(r.dealType)) continue;
+    const seg = r.dealType;
+    out[seg].dealCount += 1;
+    out[seg].factRevenue += Number.isFinite(r.sumRub) ? r.sumRub : 0;
+  }
+  return out;
+}
+
 type MonthCell = { c: number; s: number };
 
 const emptyMonthSlots = (): Record<DealsAnalyticsSegmentKey, MonthCell> => ({

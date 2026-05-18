@@ -10,6 +10,7 @@ import {
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { aggregateSegmentAnalyticsFromDeals } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
 import {
   filterDealsForSegmentChartPeriod,
@@ -227,6 +228,7 @@ export function SalesPlanSegmentPlanFactBarChart({
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
     });
+    const segmentSource = aggregateSegmentAnalyticsFromDeals(byPeriod);
     const stagnantMonth =
       periodMode === "month" && monthKeyForFilter != null
         ? isStagnantDealMonthNoNewSales(dealsRows, monthKeyForFilter)
@@ -234,22 +236,26 @@ export function SalesPlanSegmentPlanFactBarChart({
     const showZeroSalesSegments =
       (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
       (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
-    const built = buildSegmentPlanFactBarDataFromDeals(byPeriod, showZeroSalesSegments ? null : fallbackTotalPlanRub, {
-      showZeroSalesSegments,
-    });
+    const segmentExecutionRows = buildSegmentPlanFactBarDataFromDeals(
+      byPeriod,
+      showZeroSalesSegments ? null : fallbackTotalPlanRub,
+      { showZeroSalesSegments },
+    );
     if (process.env.NODE_ENV === "development") {
-      console.debug("[segment-plan-chart]", {
+      console.table(segmentExecutionRows);
+      console.log("[segment source]", {
+        dataSource: "deals-json",
         periodMode,
         selectedMonthKey: periodMode === "month" ? monthKeyForFilter : null,
         selectedQuarterId: periodMode === "quarter" ? quarterIdForFilter : null,
         filteredDealsCount: byPeriod.length,
-        stagnantMonth,
-        showZeroSalesSegments,
-        groupedSegmentTotals: built.map((r) => ({ name: r.name, fact: r.fact, plan: r.plan })),
-        finalChartDatasetRowCount: built.length,
+        apartments: segmentSource.apartment,
+        parking: segmentSource.parking,
+        storage: segmentSource.storage,
+        commercial: segmentSource.commercial,
       });
     }
-    return built;
+    return segmentExecutionRows;
   }, [dealsRows, fallbackTotalPlanRub, periodMode, planReportAsOfYmd, monthKeyForFilter, quarterIdForFilter]);
 
   useEffect(() => {
