@@ -37,7 +37,7 @@ import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
 import { SalesPlanCashflowDynamicsChart } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import { SalesPlanSegmentPlanFactBarChart } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import { SalesDealsSegmentMonthStackCharts } from "@/components/marketing/SalesDealsSegmentMonthStackCharts";
-import { SalesPlanExecutionBlock, type InvestorsMacroChartsPayload } from "@/components/marketing/SalesPlanExecutionBlock";
+import { SalesPlanExecutionBlock } from "@/components/marketing/SalesPlanExecutionBlock";
 import {
   clearMarketingInvestorsCsvLocalStorage,
   parseMarketingInvestorsCsv,
@@ -45,6 +45,15 @@ import {
   writeMarketingInvestorsCsvToLocalStorage,
   type MarketingInvestorsCsvStoredV1,
 } from "@/lib/marketingInvestorsCsv";
+import {
+  clearMarketingSegmentExecutionCsvLocalStorage,
+  MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
+  parseSegmentExecutionCsv,
+  readMarketingSegmentExecutionCsvFromLocalStorage,
+  writeMarketingSegmentExecutionCsvToLocalStorage,
+  type MarketingSegmentExecutionStoredV1,
+  type SegmentExecutionChartsPayload,
+} from "@/lib/marketingSegmentExecutionCsv";
 import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
@@ -708,6 +717,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const paymentFactCsvInputRef = useRef<HTMLInputElement>(null);
   const salesPlanExecutionCsvInputRef = useRef<HTMLInputElement>(null);
   const marketingInvestorsCsvInputRef = useRef<HTMLInputElement>(null);
+  const segmentExecutionCsvInputRef = useRef<HTMLInputElement>(null);
   const [executionDataset, setExecutionDataset] = useState<SalesPlanExecutionDataset>(() => emptySalesPlanExecutionDataset(""));
   const [executionMeta, setExecutionMeta] = useState<{ fileName: string; uploadedAt: string; uploadedBy: string } | null>(null);
   const [executionWarnings, setExecutionWarnings] = useState<string[]>([]);
@@ -715,7 +725,18 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
   const [executionHydrated, setExecutionHydrated] = useState(false);
   const [executionSource, setExecutionSource] = useState<"json" | "csv" | "empty" | null>(null);
 
-  const [investorsMacroCharts, setInvestorsMacroCharts] = useState<InvestorsMacroChartsPayload | null | undefined>(undefined);
+  const [segmentExecutionCharts, setSegmentExecutionCharts] = useState<
+    SegmentExecutionChartsPayload | null | undefined
+  >(undefined);
+  const [segmentExecutionCsvError, setSegmentExecutionCsvError] = useState<string | null>(null);
+  const [segmentExecutionCsvWarnings, setSegmentExecutionCsvWarnings] = useState<string[]>([]);
+  const [segmentExecutionCsvMeta, setSegmentExecutionCsvMeta] = useState<{
+    fileName: string;
+    uploadedAt: string;
+    uploadedBy?: string;
+    storageKey: string;
+  } | null>(null);
+
   const [investorsCsvError, setInvestorsCsvError] = useState<string | null>(null);
   const [investorsCsvWarnings, setInvestorsCsvWarnings] = useState<string[]>([]);
   const [investorsCsvMeta, setInvestorsCsvMeta] = useState<{
@@ -1042,11 +1063,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     let cancelled = false;
     setSupplementalMarketingHydrated(false);
     const applyFromInvestorsDoc = (doc: MarketingInvestorsCsvStoredV1) => {
-      const next: InvestorsMacroChartsPayload = {
-        planFactChartRows: doc.planFactChartRows,
-        completionChartRows: doc.completionChartRows,
-      };
-      setInvestorsMacroCharts(next);
       setInvestorsCsvMeta({
         fileName: doc.fileName,
         uploadedAt: doc.updatedAt,
@@ -1055,6 +1071,20 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       });
       setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
       writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const applyFromSegmentExecutionDoc = (doc: MarketingSegmentExecutionStoredV1) => {
+      setSegmentExecutionCharts({
+        planFactRows: doc.planFactRows,
+        completionRows: doc.completionRows,
+      });
+      setSegmentExecutionCsvMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        uploadedBy: doc.uploadedBy,
+        storageKey: MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
+      });
+      setSegmentExecutionCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+      writeMarketingSegmentExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
     };
     const applyFromUnitsDoc = (doc: MarketingUnitsExecutionStoredV1) => {
       setUnitsExecutionCharts({
@@ -1071,9 +1101,14 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     };
     const clearInvestorsState = () => {
       clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
-      setInvestorsMacroCharts(null);
       setInvestorsCsvMeta(null);
       setInvestorsCsvWarnings([]);
+    };
+    const clearSegmentExecutionState = () => {
+      clearMarketingSegmentExecutionCsvLocalStorage(paymentPlanProjectId);
+      setSegmentExecutionCharts(null);
+      setSegmentExecutionCsvMeta(null);
+      setSegmentExecutionCsvWarnings([]);
     };
     const clearUnitsState = () => {
       clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
@@ -1090,6 +1125,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           ok?: boolean;
           datasets?: {
             investors: MarketingInvestorsCsvStoredV1 | null;
+            segmentExecution: MarketingSegmentExecutionStoredV1 | null;
             unitsExecution: MarketingUnitsExecutionStoredV1 | null;
           };
         };
@@ -1100,6 +1136,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         const inv = j.datasets.investors;
         if (inv) applyFromInvestorsDoc(inv);
         else clearInvestorsState();
+        const seg = j.datasets.segmentExecution;
+        if (seg && seg.planFactRows.length > 0) applyFromSegmentExecutionDoc(seg);
+        else clearSegmentExecutionState();
         const u = j.datasets.unitsExecution;
         if (u && Array.isArray(u.segments) && u.segments.length > 0) applyFromUnitsDoc(u);
         else clearUnitsState();
@@ -1108,6 +1147,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
         if (invDoc) applyFromInvestorsDoc(invDoc);
         else clearInvestorsState();
+        const segDoc = readMarketingSegmentExecutionCsvFromLocalStorage(paymentPlanProjectId);
+        if (segDoc && segDoc.planFactRows.length > 0) applyFromSegmentExecutionDoc(segDoc);
+        else clearSegmentExecutionState();
         const unitsDoc = readMarketingUnitsExecutionCsvFromLocalStorage(paymentPlanProjectId);
         if (unitsDoc && unitsDoc.segments.length > 0) applyFromUnitsDoc(unitsDoc);
         else clearUnitsState();
@@ -1221,10 +1263,6 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       }
       const saved = j.doc;
       writeMarketingInvestorsCsvToLocalStorage(paymentPlanProjectId, saved);
-      setInvestorsMacroCharts({
-        planFactChartRows: saved.planFactChartRows,
-        completionChartRows: saved.completionChartRows,
-      });
       setInvestorsCsvMeta({
         fileName: saved.fileName,
         uploadedAt: saved.updatedAt,
@@ -1325,10 +1363,84 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       return;
     }
     clearMarketingInvestorsCsvLocalStorage(paymentPlanProjectId);
-    setInvestorsMacroCharts(null);
     setInvestorsCsvMeta(null);
     setInvestorsCsvWarnings([]);
     if (marketingInvestorsCsvInputRef.current) marketingInvestorsCsvInputRef.current.value = "";
+  };
+
+  const onMarketingSegmentExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setSegmentExecutionCsvError(null);
+    try {
+      const text = await readMarketingCsvFileAsText(file);
+      const parsed = parseSegmentExecutionCsv(text);
+      if (!parsed.ok) {
+        setSegmentExecutionCsvError(parsed.error);
+        setSegmentExecutionCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "segment_execution");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingSegmentExecutionStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        setSegmentExecutionCsvError(
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана на сервере.",
+        );
+        setSegmentExecutionCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingSegmentExecutionCsvToLocalStorage(paymentPlanProjectId, saved);
+      setSegmentExecutionCharts({
+        planFactRows: saved.planFactRows,
+        completionRows: saved.completionRows,
+      });
+      setSegmentExecutionCsvMeta({
+        fileName: saved.fileName,
+        uploadedAt: saved.updatedAt,
+        uploadedBy: saved.uploadedBy,
+        storageKey: MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
+      });
+      setSegmentExecutionCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
+    } catch {
+      setSegmentExecutionCsvError("Не удалось прочитать CSV исполнения плана продаж.");
+    }
+    if (segmentExecutionCsvInputRef.current) segmentExecutionCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingSegmentExecutionCsv = async () => {
+    setSegmentExecutionCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=segment_execution`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setSegmentExecutionCsvError("Не удалось сбросить CSV на сервере.");
+        return;
+      }
+    } catch {
+      setSegmentExecutionCsvError("Не удалось сбросить CSV исполнения плана продаж.");
+      return;
+    }
+    clearMarketingSegmentExecutionCsvLocalStorage(paymentPlanProjectId);
+    setSegmentExecutionCharts(null);
+    setSegmentExecutionCsvMeta(null);
+    setSegmentExecutionCsvWarnings([]);
+    if (segmentExecutionCsvInputRef.current) segmentExecutionCsvInputRef.current.value = "";
   };
 
   const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
@@ -2811,6 +2923,39 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               }`}
             >
               <input
+                ref={segmentExecutionCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingSegmentExecutionCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-indigo-400/45 bg-indigo-500/15 px-2.5 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/25"
+                    : "rounded-md border border-indigo-500/50 bg-indigo-500/10 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-500/15"
+                }
+                onClick={() => segmentExecutionCsvInputRef.current?.click()}
+              >
+                Загрузить исполнение плана продаж (CSV)
+              </button>
+              {segmentExecutionCsvMeta ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={() => void clearMarketingSegmentExecutionCsv()}
+                >
+                  Сбросить исполнение плана продаж CSV
+                </button>
+              ) : null}
+            </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
                 ref={marketingInvestorsCsvInputRef}
                 type="file"
                 accept=".csv,text/csv"
@@ -2871,14 +3016,46 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                 </button>
               ) : null}
             </div>
+            {segmentExecutionCsvError ? (
+              <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
+            ) : null}
             {investorsCsvError ? <p className="text-xs font-medium text-rose-600">{investorsCsvError}</p> : null}
             {unitsCsvError ? <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p> : null}
+            {segmentExecutionCsvWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {segmentExecutionCsvWarnings.map((w, i) => (
+                  <li key={`seg-exec-${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
             {investorsCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {investorsCsvWarnings.map((w, i) => (
                   <li key={`inv-${i}-${w.slice(0, 64)}`}>{w}</li>
                 ))}
               </ul>
+            ) : null}
+            {segmentExecutionCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Исполнение плана продаж CSV: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>
+                  {segmentExecutionCsvMeta.fileName}
+                </span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">
+                  {new Date(segmentExecutionCsvMeta.uploadedAt).toLocaleString("ru-RU")}
+                </span>
+                {segmentExecutionCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{segmentExecutionCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>
+                  {" "}
+                  · {segmentExecutionCsvMeta.storageKey}
+                </span>
+              </div>
             ) : null}
             {investorsCsvMeta ? (
               <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
@@ -2928,8 +3105,8 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
                     (executionSource === "csv"
                       ? "default.raw.csv (репозиторий)"
                       : executionSource === "empty"
-                        ? investorsCsvMeta
-                          ? `инвесторский CSV загружен · ${investorsCsvMeta.macroChartRowCount} катег. графика`
+                        ? segmentExecutionCsvMeta
+                          ? `CSV графиков исполнения · ${segmentExecutionCsvMeta.fileName}`
                           : "нет данных"
                         : "—")}
                 </span>
@@ -3042,7 +3219,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           showDetailTable={!presentation && mode === "view"}
           dataset={executionDataset}
           monthlyPlanVsFact={monthlyPlanVsFactChart}
-          investorsMacroCharts={investorsMacroCharts}
+          segmentExecutionCharts={segmentExecutionCharts}
           unitsExecutionCharts={unitsExecutionCharts}
         />
       </>

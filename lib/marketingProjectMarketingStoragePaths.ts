@@ -23,3 +23,11 @@ export function marketingProjectUnitsExecutionJsonPath(projectId: string): strin
 export function marketingProjectUnitsExecutionRawCsvPath(projectId: string): string {
   return path.join(marketingProjectMarketingDir(projectId), "units-execution.raw.csv");
 }
+
+export function marketingProjectSegmentExecutionJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "segment-execution.json");
+}
+
+export function marketingProjectSegmentExecutionRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "segment-execution.raw.csv");
+}
