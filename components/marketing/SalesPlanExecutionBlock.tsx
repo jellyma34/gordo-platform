@@ -18,7 +18,6 @@ import { PlanExecutionMonthlyPlanFactLineCard } from "@/components/marketing/Pla
 import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
-  formatReportDateRu,
   type SalesPlanExecutionDataset,
   type SalesPlanExecutionRow,
 } from "@/lib/marketingSalesPlanExecutionTable";
@@ -90,7 +89,6 @@ export function SalesPlanExecutionBlock({
   unitsCsvError = null,
 }: Props) {
   const data = dataset;
-  const reportLabel = formatReportDateRu(data.reportDateYmd);
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
   const segmentChartsHydrating = segmentExecutionCharts === undefined;
 
@@ -177,14 +175,10 @@ export function SalesPlanExecutionBlock({
 
   return (
     <section className={shell} aria-labelledby="sales-plan-exec-heading">
-      <div className="mb-2 flex flex-col gap-1 sm:mb-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+      <div className="mb-2 sm:mb-3">
         <h2 id="sales-plan-exec-heading" className={`text-base font-semibold tracking-tight sm:text-lg ${titleCls}`}>
           Исполнение плана продаж
         </h2>
-        <div className={`shrink-0 text-xs tabular-nums sm:text-sm ${mutedCls}`}>
-          Отчётная дата{" "}
-          <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{reportLabel}</span>
-        </div>
       </div>
 
       <div className="flex min-w-0 w-full flex-col gap-3 sm:gap-4">

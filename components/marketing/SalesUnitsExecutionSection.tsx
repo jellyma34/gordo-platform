@@ -14,7 +14,6 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import { MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
-import { formatReportDateRu } from "@/lib/marketingSalesPlanExecutionTable";
 import type { UnitsExecutionChartsPayload, UnitsExecutionSegmentRow } from "@/lib/marketingUnitsExecutionCsv";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 
@@ -90,8 +89,6 @@ export function SalesUnitsExecutionSection({
 }: Props) {
   const hydrating = data === undefined;
 
-  const reportLabel = data?.reportDateYmd ? formatReportDateRu(data.reportDateYmd) : "—";
-
   const hasData = planFactChartRows.length > 0 || completionChartRows.length > 0;
   const showPlaceholder = !hydrating && !hasData;
   const unitsErr = unitsCsvError?.trim() ?? "";
@@ -156,11 +153,8 @@ export function SalesUnitsExecutionSection({
         presDark ? "border-white/10" : presentation ? "border-mpl-border/70" : "border-slate-200/70"
       }`}
     >
-      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+      <div className="mb-3">
         <h3 className={`text-sm font-semibold tracking-tight sm:text-base ${titleCls}`}>Исполнение плана продаж (штуки)</h3>
-        <div className={`shrink-0 text-xs tabular-nums sm:text-sm ${mutedCls}`}>
-          Отчётная дата <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{reportLabel}</span>
-        </div>
       </div>
 
       {hydrating ? (
