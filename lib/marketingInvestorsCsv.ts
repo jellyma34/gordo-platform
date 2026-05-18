@@ -96,17 +96,16 @@ function monthKeyRu(monthRaw: string, year: string): string {
 type ColIdx = {
   year: number;
   month: number;
-  apartmentsPlan: number | null;
-  apartmentsFact: number | null;
-  parkingPlan: number | null;
-  parkingFact: number | null;
-  storagePlan: number | null;
-  storageFact: number | null;
-  commercialPlan: number | null;
-  commercialFact: number | null;
+  /** Факт по сегменту: «квартиры сумма», «паркинг сумма» и т.д. */
+  apartmentsFactSum: number | null;
+  parkingFactSum: number | null;
+  storageFactSum: number | null;
+  commercialFactSum: number | null;
+  /** Общий план продаж проекта (не дублировать «… сумма»). */
+  salesPlan: number | null;
 };
 
-/** Wide-table: «квартиры сумма», «паркинг сумма» — колонка с ₽, в названии есть «сумм». */
+/** Wide-table: «квартиры сумма», «паркинг сумма» — факт (₽), в названии есть «сумм». */
 function pickWideSumColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
   let best: { i: number; s: number } | null = null;
   for (let i = 0; i < headers.length; i++) {
@@ -122,17 +121,36 @@ function pickWideSumColumn(headers: string[], categoryMatch: (n: string) => bool
   return best?.i ?? null;
 }
 
-/** Отдельная колонка факта по категории; если нет — в numAtPlanFact подставим plan. */
-function pickOptionalFactColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
+/** Колонка «План продаж» (общий план проекта, не «квартиры сумма»). */
+function pickSalesPlanColumn(headers: string[]): number | null {
+  let best: { i: number; s: number } | null = null;
+  for (let i = 0; i < headers.length; i++) {
+    const n = normHeaderCell(headers[i] ?? "");
+    if (n.includes("расторж") || n.includes("итого")) continue;
+    if (!n.includes("план")) continue;
+    if (!n.includes("продаж")) continue;
+    if (n.includes("факт") || n.includes("фактич")) continue;
+    let s = 90;
+    if (n.includes("змп")) s += 5;
+    if (n === "план продаж" || n.startsWith("план продаж ")) s += 15;
+    if (!best || s > best.s) best = { i, s };
+  }
+  return best?.i ?? null;
+}
+
+/** План по сегменту, если в CSV есть отдельные колонки (не «… сумма»). */
+function pickSegmentPlanColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
   let best: { i: number; s: number } | null = null;
   for (let i = 0; i < headers.length; i++) {
     const n = normHeaderCell(headers[i] ?? "");
     if (n.includes("расторж") || n.includes("итого")) continue;
     if (!categoryMatch(n)) continue;
-    if (!n.includes("факт") && !n.includes("фактич")) continue;
-    if (n.includes("план") && !n.includes("факт") && !n.includes("фактич")) continue;
-    let s = 70;
-    if (n.includes("сумм")) s += 10;
+    if (!n.includes("план") && !n.includes("планов")) continue;
+    if (n.includes("сумм")) continue;
+    if (n.includes("факт") || n.includes("фактич")) continue;
+    if (n.includes("продаж") && n.includes("план")) continue;
+    let s = 60;
+    if (n.includes("накоп")) s += 20;
     if (!best || s > best.s) best = { i, s };
   }
   return best?.i ?? null;
@@ -168,30 +186,24 @@ function findYearMonthColumns(headers: string[]): { year: number; month: number 
 function buildColumnMap(headerCells: string[]): ColIdx | null {
   const { year, month } = findYearMonthColumns(headerCells);
 
-  const apartmentsPlan = pickWideSumColumn(headerCells, matchApartments);
-  const apartmentsFact = pickOptionalFactColumn(headerCells, matchApartments);
-  const parkingPlan = pickWideSumColumn(headerCells, matchParking);
-  const parkingFact = pickOptionalFactColumn(headerCells, matchParking);
-  const storagePlan = pickWideSumColumn(headerCells, matchStorage);
-  const storageFact = pickOptionalFactColumn(headerCells, matchStorage);
-  const commercialPlan = pickWideSumColumn(headerCells, matchCommercial);
-  const commercialFact = pickOptionalFactColumn(headerCells, matchCommercial);
+  const apartmentsFactSum = pickWideSumColumn(headerCells, matchApartments);
+  const parkingFactSum = pickWideSumColumn(headerCells, matchParking);
+  const storageFactSum = pickWideSumColumn(headerCells, matchStorage);
+  const commercialFactSum = pickWideSumColumn(headerCells, matchCommercial);
+  const salesPlan = pickSalesPlanColumn(headerCells);
 
-  if (apartmentsPlan == null) {
+  if (apartmentsFactSum == null) {
     return null;
   }
 
   return {
     year,
     month,
-    apartmentsPlan,
-    apartmentsFact,
-    parkingPlan,
-    parkingFact,
-    storagePlan,
-    storageFact,
-    commercialPlan,
-    commercialFact,
+    apartmentsFactSum,
+    parkingFactSum,
+    storageFactSum,
+    commercialFactSum,
+    salesPlan,
   };
 }
 
@@ -200,11 +212,24 @@ function numAt(row: string[], idx: number | null): number {
   return toNumber(row[idx]);
 }
 
-/** План из колонки «… сумма»; факт из колонки «… факт» или временно = plan. */
-function numAtPlanFact(row: string[], planIdx: number | null, factIdx: number | null): { plan: number; fact: number } {
-  const plan = numAt(row, planIdx);
-  const fact = factIdx != null ? numAt(row, factIdx) : plan;
-  return { plan, fact };
+function numAtFact(row: string[], factSumIdx: number | null): number {
+  return factSumIdx != null ? numAt(row, factSumIdx) : 0;
+}
+
+function distributeSalesPlanByFactShare(
+  totalSalesPlan: number,
+  facts: Record<MacroCategoryKey, number>,
+): Record<MacroCategoryKey, number> {
+  const totalFact = MACRO_ORDER.reduce((s, { key }) => s + Math.max(0, facts[key]), 0);
+  if (totalSalesPlan <= 0 || totalFact <= 0) {
+    return { apartments: 0, parking: 0, storage: 0, commercial: 0 };
+  }
+  return {
+    apartments: (totalSalesPlan * facts.apartments) / totalFact,
+    parking: (totalSalesPlan * facts.parking) / totalFact,
+    storage: (totalSalesPlan * facts.storage) / totalFact,
+    commercial: (totalSalesPlan * facts.commercial) / totalFact,
+  };
 }
 
 function completionChartFill(pct: number): string {
@@ -252,14 +277,11 @@ export type InvestorsParsedMonthRow = {
   monthKey: string;
   year: string;
   month: string;
-  apartmentsPlan: number;
   apartmentsFact: number;
-  parkingPlan: number;
   parkingFact: number;
-  storagePlan: number;
   storageFact: number;
-  commercialPlan: number;
   commercialFact: number;
+  salesPlan: number;
 };
 
 export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestorsCsvResult {
@@ -297,8 +319,21 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
+  const segmentPlanCols = {
+    apartments: pickSegmentPlanColumn(headerRow, matchApartments),
+    parking: pickSegmentPlanColumn(headerRow, matchParking),
+    storage: pickSegmentPlanColumn(headerRow, matchStorage),
+    commercial: pickSegmentPlanColumn(headerRow, matchCommercial),
+  };
+  const hasPerSegmentPlanCols = Object.values(segmentPlanCols).some((idx) => idx != null);
+
   console.log("[Investors CSV] header row", headerLineIdx + 1, headerRow);
-  console.log("[Investors CSV] column map", colMap);
+  console.log("[Investors CSV] column map", colMap, { segmentPlanCols, hasPerSegmentPlanCols });
+  if (colMap.salesPlan == null && !hasPerSegmentPlanCols) {
+    warnings.push(
+      "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или план по сегментам.",
+    );
+  }
 
   const parsedRows: InvestorsParsedMonthRow[] = [];
 
@@ -315,24 +350,16 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     if (!year || !month) continue;
     if (shouldSilentlySkipInvestorsCsvMonthLabel(month)) continue;
 
-    const ap = numAtPlanFact(row, colMap.apartmentsPlan, colMap.apartmentsFact);
-    const pk = numAtPlanFact(row, colMap.parkingPlan, colMap.parkingFact);
-    const st = numAtPlanFact(row, colMap.storagePlan, colMap.storageFact);
-    const cm = numAtPlanFact(row, colMap.commercialPlan, colMap.commercialFact);
-
     parsedRows.push({
       rowIndex1: lineIdx + 1,
       monthKey: monthKeyRu(month, year),
       year,
       month,
-      apartmentsPlan: toNumber(ap.plan as unknown),
-      apartmentsFact: toNumber(ap.fact as unknown),
-      parkingPlan: toNumber(pk.plan as unknown),
-      parkingFact: toNumber(pk.fact as unknown),
-      storagePlan: toNumber(st.plan as unknown),
-      storageFact: toNumber(st.fact as unknown),
-      commercialPlan: toNumber(cm.plan as unknown),
-      commercialFact: toNumber(cm.fact as unknown),
+      apartmentsFact: numAtFact(row, colMap.apartmentsFactSum),
+      parkingFact: numAtFact(row, colMap.parkingFactSum),
+      storageFact: numAtFact(row, colMap.storageFactSum),
+      commercialFact: numAtFact(row, colMap.commercialFactSum),
+      salesPlan: colMap.salesPlan != null ? numAt(row, colMap.salesPlan) : 0,
     });
   }
 
@@ -347,36 +374,60 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
-  const totals = parsedRows.reduce(
-    (acc, r) => ({
-      apartmentsPlan: acc.apartmentsPlan + toNumber(r.apartmentsPlan as unknown),
-      apartmentsFact: acc.apartmentsFact + toNumber(r.apartmentsFact as unknown),
-      parkingPlan: acc.parkingPlan + toNumber(r.parkingPlan as unknown),
-      parkingFact: acc.parkingFact + toNumber(r.parkingFact as unknown),
-      storagePlan: acc.storagePlan + toNumber(r.storagePlan as unknown),
-      storageFact: acc.storageFact + toNumber(r.storageFact as unknown),
-      commercialPlan: acc.commercialPlan + toNumber(r.commercialPlan as unknown),
-      commercialFact: acc.commercialFact + toNumber(r.commercialFact as unknown),
-    }),
-    {
-      apartmentsPlan: 0,
-      apartmentsFact: 0,
-      parkingPlan: 0,
-      parkingFact: 0,
-      storagePlan: 0,
-      storageFact: 0,
-      commercialPlan: 0,
-      commercialFact: 0,
-    },
-  );
+  /** Накопительные «… сумма» — последняя строка месяца; «План продаж» — сумма помесячного плана. */
+  const lastRow = parsedRows[parsedRows.length - 1]!;
+  const factsAtReport: Record<MacroCategoryKey, number> = {
+    apartments: toNumber(lastRow.apartmentsFact as unknown),
+    parking: toNumber(lastRow.parkingFact as unknown),
+    storage: toNumber(lastRow.storageFact as unknown),
+    commercial: toNumber(lastRow.commercialFact as unknown),
+  };
 
-  console.log("[aggregated totals]", totals);
+  const totalSalesPlan = parsedRows.reduce((s, r) => s + toNumber(r.salesPlan as unknown), 0);
+
+  let plansBySegment: Record<MacroCategoryKey, number>;
+
+  if (hasPerSegmentPlanCols) {
+    let lastDataRow: string[] | null = null;
+    for (let lineIdx = headerLineIdx + 1; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx] ?? "";
+      if (line.trim() === "") continue;
+      const row = line.split(DELIM).map((c) => preprocessCell(c));
+      if (!row.some((c) => c !== "")) continue;
+      if (isSkippableDataRow(row)) continue;
+      if (!isYearMonthDataRow(row)) continue;
+      const month = preprocessCell(row[colMap.month] ?? "");
+      if (shouldSilentlySkipInvestorsCsvMonthLabel(month)) continue;
+      lastDataRow = row;
+    }
+    plansBySegment = {
+      apartments: lastDataRow ? numAt(lastDataRow, segmentPlanCols.apartments) : 0,
+      parking: lastDataRow ? numAt(lastDataRow, segmentPlanCols.parking) : 0,
+      storage: lastDataRow ? numAt(lastDataRow, segmentPlanCols.storage) : 0,
+      commercial: lastDataRow ? numAt(lastDataRow, segmentPlanCols.commercial) : 0,
+    };
+    warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
+  } else {
+    plansBySegment = distributeSalesPlanByFactShare(totalSalesPlan, factsAtReport);
+    if (colMap.salesPlan != null && totalSalesPlan > 0) {
+      warnings.push(
+        "План на графике: из колонки «План продаж» (сумма по месяцам), распределён по сегментам пропорционально факту.",
+      );
+    }
+  }
+
+  console.log("[aggregated segment execution]", {
+    factsAtReport,
+    totalSalesPlan,
+    plansBySegment,
+    lastMonth: lastRow.monthKey,
+  });
 
   const byKey: Record<MacroCategoryKey, { plan: number; fact: number }> = {
-    apartments: { plan: totals.apartmentsPlan, fact: totals.apartmentsFact },
-    parking: { plan: totals.parkingPlan, fact: totals.parkingFact },
-    storage: { plan: totals.storagePlan, fact: totals.storageFact },
-    commercial: { plan: totals.commercialPlan, fact: totals.commercialFact },
+    apartments: { plan: plansBySegment.apartments, fact: factsAtReport.apartments },
+    parking: { plan: plansBySegment.parking, fact: factsAtReport.parking },
+    storage: { plan: plansBySegment.storage, fact: factsAtReport.storage },
+    commercial: { plan: plansBySegment.commercial, fact: factsAtReport.commercial },
   };
 
   const planFactChartRows: InvestorsPlanFactChartRow[] = MACRO_ORDER.map(({ key, name }) => ({
