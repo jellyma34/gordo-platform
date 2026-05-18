@@ -43,6 +43,39 @@ export function unitsExecutionChartsHaveRows(
   return (payload?.segments?.length ?? 0) > 0;
 }
 
+export function unitsExecutionDocHasApartments(
+  doc: Pick<MarketingUnitsExecutionStoredV1, "segments"> | null | undefined,
+): boolean {
+  return (doc?.segments ?? []).some((s) => s.key === "apartments");
+}
+
+/** Пересобрать segments/totals из CSV-текста (исправляет устаревший JSON после фикса парсера). */
+export function reconcileUnitsExecutionDoc(
+  doc: MarketingUnitsExecutionStoredV1,
+  csvText?: string | null,
+): MarketingUnitsExecutionStoredV1 {
+  const text = (csvText ?? doc.rawText ?? "").trim();
+  if (!text) return doc;
+  const parsed = parseSalesUnitsExecutionCsv(text);
+  if (!parsed.ok || parsed.segments.length === 0) return doc;
+  return {
+    ...doc,
+    rawText: text,
+    reportDateYmd: parsed.reportDateYmd,
+    segments: parsed.segments,
+    totals: parsed.totals,
+    warnings: parsed.warnings,
+  };
+}
+
+export function unitsExecutionDocToChartsPayload(doc: MarketingUnitsExecutionStoredV1): UnitsExecutionChartsPayload {
+  return {
+    reportDateYmd: doc.reportDateYmd,
+    segments: doc.segments,
+    totals: doc.totals,
+  };
+}
+
 function normalizeSegmentRow(raw: unknown): UnitsExecutionSegmentRow {
   if (!raw || typeof raw !== "object") {
     return {
@@ -100,6 +133,7 @@ export function parseStoredMarketingUnitsExecutionCsv(raw: unknown): MarketingUn
     updatedAt: o.updatedAt,
     fileName: o.fileName,
     uploadedBy: typeof o.uploadedBy === "string" ? o.uploadedBy : undefined,
+    rawText: typeof o.rawText === "string" ? o.rawText : undefined,
     reportDateYmd: o.reportDateYmd,
     segments,
     totals,
@@ -113,7 +147,8 @@ export function readMarketingUnitsExecutionCsvFromLocalStorage(projectId: string
     const raw = window.localStorage.getItem(marketingUnitsExecutionCsvLocalStorageKey(projectId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
-    return parseStoredMarketingUnitsExecutionCsv(parsed);
+    const doc = parseStoredMarketingUnitsExecutionCsv(parsed);
+    return doc ? reconcileUnitsExecutionDoc(doc) : null;
   } catch {
     return null;
   }

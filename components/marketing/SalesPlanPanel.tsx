@@ -75,7 +75,9 @@ import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
   readMarketingUnitsExecutionCsvFromLocalStorage,
+  reconcileUnitsExecutionDoc,
   unitsExecutionChartsHaveRows,
+  unitsExecutionDocToChartsPayload,
   writeMarketingUnitsExecutionCsvToLocalStorage,
   type MarketingUnitsExecutionStoredV1,
   type UnitsExecutionChartsPayload,
@@ -189,11 +191,7 @@ function readInitialUnitsExecutionCharts(): UnitsExecutionChartsPayload | null |
   if (typeof window === "undefined") return undefined;
   const doc = readMarketingUnitsExecutionCsvFromLocalStorage(marketingStorageProjectId());
   if (!doc || !unitsExecutionCsvDocIsValid(doc)) return undefined;
-  return {
-    reportDateYmd: doc.reportDateYmd,
-    segments: doc.segments,
-    totals: doc.totals,
-  };
+  return unitsExecutionDocToChartsPayload(doc);
 }
 
 function readInitialInvestorsCsvMeta(): {
@@ -1267,18 +1265,15 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       writeMarketingSegmentExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
     };
     const applyFromUnitsDoc = (doc: MarketingUnitsExecutionStoredV1) => {
-      setUnitsExecutionCharts({
-        reportDateYmd: doc.reportDateYmd,
-        segments: doc.segments,
-        totals: doc.totals,
-      });
+      const fresh = reconcileUnitsExecutionDoc(doc);
+      setUnitsExecutionCharts(unitsExecutionDocToChartsPayload(fresh));
       setUnitsCsvError(null);
       setUnitsCsvMeta({
-        fileName: doc.fileName,
-        uploadedAt: doc.updatedAt,
-        uploadedBy: doc.uploadedBy,
+        fileName: fresh.fileName,
+        uploadedAt: fresh.updatedAt,
+        uploadedBy: fresh.uploadedBy,
       });
-      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, doc);
+      writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, fresh);
     };
     const resetInvestorsUi = () => {
       setInvestorsCsvMeta(null);

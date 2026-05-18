@@ -27,6 +27,8 @@ import {
 import {
   parseSalesUnitsExecutionCsv,
   parseStoredMarketingUnitsExecutionCsv,
+  reconcileUnitsExecutionDoc,
+  unitsExecutionDocHasApartments,
 } from "@/lib/marketingUnitsExecutionCsv";
 import {
   marketingProjectApartmentsJsonPath,
@@ -82,7 +84,33 @@ async function readJsonUnitsDoc(
 ): Promise<ReturnType<typeof parseStoredMarketingUnitsExecutionCsv>> {
   try {
     const raw = await readFile(marketingProjectUnitsExecutionJsonPath(projectId), "utf-8");
-    return parseStoredMarketingUnitsExecutionCsv(JSON.parse(raw) as unknown);
+    const doc = parseStoredMarketingUnitsExecutionCsv(JSON.parse(raw) as unknown);
+    if (!doc) return null;
+
+    let csvText = doc.rawText?.trim() ?? "";
+    if (!csvText) {
+      try {
+        csvText = (await readFile(marketingProjectUnitsExecutionRawCsvPath(projectId), "utf-8")).trim();
+      } catch {
+        csvText = "";
+      }
+    }
+
+    const reconciled = reconcileUnitsExecutionDoc(doc, csvText || null);
+    const repaired =
+      !unitsExecutionDocHasApartments(doc) && unitsExecutionDocHasApartments(reconciled);
+    if (repaired || reconciled.segments.length > doc.segments.length) {
+      try {
+        await writeFile(
+          marketingProjectUnitsExecutionJsonPath(projectId),
+          JSON.stringify(reconciled, null, 0),
+          "utf-8",
+        );
+      } catch {
+        /* ignore persist errors */
+      }
+    }
+    return reconciled;
   } catch {
     return null;
   }

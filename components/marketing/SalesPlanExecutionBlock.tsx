@@ -208,6 +208,21 @@ export function SalesPlanExecutionBlock({
     [unitsExecutionCharts],
   );
 
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    console.log("[UNITS CHART DATA]", {
+      planFact: unitsPlanFactChartRows,
+      completion: unitsCompletionChartRows,
+      segments: unitsExecutionCharts?.segments?.map((s) => ({
+        key: s.key,
+        segment: s.segment,
+        planCumulative: s.planCumulative,
+        factCumulative: s.factCumulative,
+        completionPct: s.completionPct,
+      })),
+    });
+  }, [unitsPlanFactChartRows, unitsCompletionChartRows, unitsExecutionCharts]);
+
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
   };
