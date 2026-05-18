@@ -36,6 +36,12 @@ export type UnitsExecutionChartsPayload = {
   totals: UnitsExecutionTotals;
 };
 
+export function unitsExecutionChartsHaveRows(
+  payload: UnitsExecutionChartsPayload | null | undefined,
+): boolean {
+  return (payload?.segments?.length ?? 0) > 0;
+}
+
 function normalizeSegmentRow(raw: unknown): UnitsExecutionSegmentRow {
   if (!raw || typeof raw !== "object") {
     return {

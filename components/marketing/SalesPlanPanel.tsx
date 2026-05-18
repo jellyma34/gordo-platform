@@ -59,6 +59,7 @@ import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
   readMarketingUnitsExecutionCsvFromLocalStorage,
+  unitsExecutionChartsHaveRows,
   writeMarketingUnitsExecutionCsvToLocalStorage,
   type MarketingUnitsExecutionStoredV1,
   type UnitsExecutionChartsPayload,
@@ -762,6 +763,12 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
     uploadedBy?: string;
   } | null>(null);
   const [unitsCsvError, setUnitsCsvError] = useState<string | null>(null);
+
+  const unitsHasChartRows = useMemo(
+    () => unitsExecutionChartsHaveRows(unitsExecutionCharts),
+    [unitsExecutionCharts],
+  );
+
   const [supplementalMarketingHydrated, setSupplementalMarketingHydrated] = useState(false);
 
   useEffect(() => {
@@ -1099,6 +1106,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         segments: doc.segments,
         totals: doc.totals,
       });
+      setUnitsCsvError(null);
       setUnitsCsvMeta({
         fileName: doc.fileName,
         uploadedAt: doc.updatedAt,
@@ -1122,6 +1130,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       clearMarketingUnitsExecutionCsvLocalStorage(paymentPlanProjectId);
       setUnitsExecutionCharts(null);
       setUnitsCsvMeta(null);
+      setUnitsCsvError(null);
     };
     (async () => {
       try {
@@ -1295,9 +1304,17 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
       console.log("[units CSV] first line", firstLine);
       const parsed = parseSalesUnitsExecutionCsv(text);
       if (!parsed.ok) {
+        setUnitsExecutionCharts(null);
         setUnitsCsvError(parsed.error);
         return;
       }
+      const clientCharts: UnitsExecutionChartsPayload = {
+        reportDateYmd: parsed.reportDateYmd,
+        segments: parsed.segments,
+        totals: parsed.totals,
+      };
+      setUnitsExecutionCharts(clientCharts);
+      setUnitsCsvError(null);
       const fd = new FormData();
       fd.append("file", file);
       fd.append("kind", "units_execution");
@@ -1313,7 +1330,28 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         warnings?: string[];
       } | null;
       if (!res.ok || !j?.ok || !j.doc) {
-        setUnitsCsvError(typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV на сервере.");
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV на сервере.";
+        if (unitsExecutionChartsHaveRows(clientCharts)) {
+          writeMarketingUnitsExecutionCsvToLocalStorage(paymentPlanProjectId, {
+            v: 1,
+            updatedAt: new Date().toISOString(),
+            fileName: file.name,
+            uploadedBy: paymentUploadedByLabel,
+            reportDateYmd: parsed.reportDateYmd,
+            segments: parsed.segments,
+            totals: parsed.totals,
+            warnings: [...(parsed.warnings ?? []), `Сервер: ${serverMsg} (данные на графике из локального разбора).`],
+          });
+          setUnitsCsvMeta({
+            fileName: file.name,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: paymentUploadedByLabel,
+          });
+          setUnitsCsvError(null);
+        } else {
+          setUnitsCsvError(serverMsg);
+        }
         return;
       }
       const saved = j.doc;
@@ -1323,6 +1361,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
         segments: saved.segments,
         totals: saved.totals,
       });
+      setUnitsCsvError(null);
       setUnitsCsvMeta({
         fileName: saved.fileName,
         uploadedAt: saved.updatedAt,
@@ -3062,7 +3101,9 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
               <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
             ) : null}
             {investorsCsvError ? <p className="text-xs font-medium text-rose-600">{investorsCsvError}</p> : null}
-            {unitsCsvError ? <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p> : null}
+            {unitsCsvError && !unitsHasChartRows ? (
+              <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p>
+            ) : null}
             {segmentExecutionCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {segmentExecutionCsvWarnings.map((w, i) => (
@@ -3264,6 +3305,7 @@ export function SalesPlanPanel({ presentation, period, objectId, dealTypeId, ini
           segmentExecutionCharts={segmentExecutionCharts}
           segmentExecutionCsvError={segmentExecutionCsvError}
           unitsExecutionCharts={unitsExecutionCharts}
+          unitsCsvError={unitsCsvError}
         />
       </>
 

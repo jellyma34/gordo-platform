@@ -70,6 +70,8 @@ type Props = {
   segmentExecutionCsvError?: string | null;
   /** Исполнение в штуках — отдельный CSV (localStorage), не Verba / investors / plan_fact. */
   unitsExecutionCharts?: UnitsExecutionChartsPayload | null;
+  /** Ошибка загрузки CSV штук (показывается только без строк на графиках). */
+  unitsCsvError?: string | null;
 };
 
 export function SalesPlanExecutionBlock({
@@ -82,6 +84,7 @@ export function SalesPlanExecutionBlock({
   segmentExecutionCharts,
   segmentExecutionCsvError = null,
   unitsExecutionCharts,
+  unitsCsvError = null,
 }: Props) {
   const data = dataset;
   const reportLabel = formatReportDateRu(data.reportDateYmd);
@@ -201,6 +204,7 @@ export function SalesPlanExecutionBlock({
           data={unitsExecutionCharts}
           planFactChartRows={unitsPlanFactChartRows}
           completionChartRows={unitsCompletionChartRows}
+          unitsCsvError={unitsCsvError}
         />
       </div>
 

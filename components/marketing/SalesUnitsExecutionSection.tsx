@@ -70,6 +70,8 @@ type Props = {
   data: UnitsExecutionChartsPayload | null | undefined;
   planFactChartRows: UnitsPlanFactChartRow[];
   completionChartRows: UnitsCompletionChartRow[];
+  /** Stale parse error — не показывать, если rows уже есть. */
+  unitsCsvError?: string | null;
 };
 
 function formatUnits(n: number): string {
@@ -84,6 +86,7 @@ export function SalesUnitsExecutionSection({
   data,
   planFactChartRows,
   completionChartRows,
+  unitsCsvError = null,
 }: Props) {
   const hydrating = data === undefined;
 
@@ -91,11 +94,16 @@ export function SalesUnitsExecutionSection({
 
   const hasData = planFactChartRows.length > 0 || completionChartRows.length > 0;
   const showPlaceholder = !hydrating && !hasData;
+  const unitsErr = unitsCsvError?.trim() ?? "";
 
-  console.log("[SalesUnitsExecutionSection props]", {
-    planFactChartRows,
-    completionChartRows,
-  });
+  if (process.env.NODE_ENV === "development") {
+    console.log("[units execution state]", {
+      error: unitsCsvError,
+      planFactLen: planFactChartRows.length,
+      completionLen: completionChartRows.length,
+      hasRows: hasData,
+    });
+  }
 
   const yDomain = useMemo((): [number, number] => {
     let m = 0;
@@ -158,7 +166,11 @@ export function SalesUnitsExecutionSection({
       {hydrating ? (
         placeholder("Загрузка…")
       ) : showPlaceholder ? (
-        placeholder("Загрузите CSV исполнения в штуках, чтобы увидеть графики и показатели.")
+        placeholder(
+          unitsErr && !hasData
+            ? unitsErr
+            : "Загрузите CSV исполнения в штуках, чтобы увидеть графики и показатели.",
+        )
       ) : (
         <>
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4" aria-label="Исполнение в штуках">
