@@ -39,3 +39,11 @@ export function marketingProjectApartmentsJsonPath(projectId: string): string {
 export function marketingProjectApartmentsRawCsvPath(projectId: string): string {
   return path.join(marketingProjectMarketingDir(projectId), "apartments.raw.csv");
 }
+
+export function marketingProjectParkingJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "parking.json");
+}
+
+export function marketingProjectParkingRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "parking.raw.csv");
+}

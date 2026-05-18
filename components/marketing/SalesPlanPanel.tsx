@@ -74,6 +74,16 @@ import {
   type MarketingApartmentsCsvMetaV1,
   type MarketingApartmentsCsvStoredV1,
 } from "@/lib/marketingApartmentsCsv";
+import {
+  clearMarketingParkingCsvLocalStorage,
+  metaFromParkingDoc,
+  parkingCsvHasData,
+  parseParkingCsv,
+  readMarketingParkingCsvFromLocalStorage,
+  writeMarketingParkingCsvToLocalStorage,
+  type MarketingParkingCsvMetaV1,
+  type MarketingParkingCsvStoredV1,
+} from "@/lib/marketingParkingCsv";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
@@ -764,6 +774,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
 
   const unitsCsvInputRef = useRef<HTMLInputElement>(null);
   const apartmentsCsvInputRef = useRef<HTMLInputElement>(null);
+  const parkingCsvInputRef = useRef<HTMLInputElement>(null);
   const [unitsExecutionCharts, setUnitsExecutionCharts] = useState<UnitsExecutionChartsPayload | null | undefined>(
     undefined,
   );
@@ -777,6 +788,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [apartmentsCsvDoc, setApartmentsCsvDoc] = useState<MarketingApartmentsCsvStoredV1 | null>(null);
   const [apartmentsCsvError, setApartmentsCsvError] = useState<string | null>(null);
   const [apartmentsCsvWarnings, setApartmentsCsvWarnings] = useState<string[]>([]);
+  const [parkingCsvMeta, setParkingCsvMeta] = useState<MarketingParkingCsvMetaV1 | null>(null);
+  const [parkingCsvDoc, setParkingCsvDoc] = useState<MarketingParkingCsvStoredV1 | null>(null);
+  const [parkingCsvError, setParkingCsvError] = useState<string | null>(null);
+  const [parkingCsvWarnings, setParkingCsvWarnings] = useState<string[]>([]);
 
   const unitsHasChartRows = useMemo(
     () => unitsExecutionChartsHaveRows(unitsExecutionCharts),
@@ -1163,6 +1178,20 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setApartmentsCsvError(null);
       setApartmentsCsvWarnings([]);
     };
+    const applyFromParkingDoc = (doc: MarketingParkingCsvStoredV1) => {
+      setParkingCsvError(null);
+      setParkingCsvDoc(doc);
+      setParkingCsvMeta(metaFromParkingDoc(doc));
+      setParkingCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
+      writeMarketingParkingCsvToLocalStorage(paymentPlanProjectId, doc);
+    };
+    const clearParkingState = () => {
+      clearMarketingParkingCsvLocalStorage(paymentPlanProjectId);
+      setParkingCsvDoc(null);
+      setParkingCsvMeta(null);
+      setParkingCsvError(null);
+      setParkingCsvWarnings([]);
+    };
     (async () => {
       try {
         const res = await fetch(
@@ -1176,6 +1205,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             segmentExecution: MarketingSegmentExecutionStoredV1 | null;
             unitsExecution: MarketingUnitsExecutionStoredV1 | null;
             apartments: MarketingApartmentsCsvStoredV1 | null;
+            parking: MarketingParkingCsvStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1194,6 +1224,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const apt = j.datasets.apartments;
         if (apt && apartmentsCsvHasData(apt)) applyFromApartmentsDoc(apt);
         else clearApartmentsState();
+        const park = j.datasets.parking;
+        if (park && parkingCsvHasData(park)) applyFromParkingDoc(park);
+        else clearParkingState();
       } catch {
         if (cancelled) return;
         const invDoc = readMarketingInvestorsCsvFromLocalStorage(paymentPlanProjectId);
@@ -1208,6 +1241,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         const aptDoc = readMarketingApartmentsCsvFromLocalStorage(paymentPlanProjectId);
         if (aptDoc && apartmentsCsvHasData(aptDoc)) applyFromApartmentsDoc(aptDoc);
         else clearApartmentsState();
+        const parkDoc = readMarketingParkingCsvFromLocalStorage(paymentPlanProjectId);
+        if (parkDoc && parkingCsvHasData(parkDoc)) applyFromParkingDoc(parkDoc);
+        else clearParkingState();
       } finally {
         if (!cancelled) setSupplementalMarketingHydrated(true);
       }
@@ -1521,6 +1557,97 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     setApartmentsCsvMeta(null);
     setApartmentsCsvWarnings([]);
     if (apartmentsCsvInputRef.current) apartmentsCsvInputRef.current.value = "";
+  };
+
+  const onMarketingParkingCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setParkingCsvError(null);
+    try {
+      const text = await readMarketingCsvFileAsText(file);
+      const parsed = parseParkingCsv(text, file.name);
+      if (!parsed.ok) {
+        setParkingCsvError(parsed.error);
+        setParkingCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", "parking");
+      fd.append("uploadedBy", paymentUploadedByLabel);
+      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        doc?: MarketingParkingCsvStoredV1;
+        warnings?: string[];
+      } | null;
+      if (!res.ok || !j?.ok || !j.doc) {
+        const serverMsg =
+          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV машино-мест на сервере.";
+        const localDoc: MarketingParkingCsvStoredV1 = {
+          v: 1,
+          updatedAt: parsed.uploadedAt,
+          fileName: parsed.filename,
+          uploadedBy: paymentUploadedByLabel,
+          headers: parsed.headers,
+          rows: parsed.rows,
+          warnings: [
+            ...parsed.warnings,
+            `Сервер: ${serverMsg} (данные сохранены локально).`,
+          ],
+        };
+        writeMarketingParkingCsvToLocalStorage(paymentPlanProjectId, localDoc);
+        setParkingCsvDoc(localDoc);
+        setParkingCsvMeta({
+          v: 1,
+          fileName: parsed.filename,
+          uploadedAt: parsed.uploadedAt,
+          uploadedBy: paymentUploadedByLabel,
+        });
+        setParkingCsvWarnings([
+          ...parsed.warnings,
+          `Сервер: ${serverMsg} (данные сохранены локально).`,
+        ]);
+        setParkingCsvError(null);
+        return;
+      }
+      const saved = j.doc;
+      writeMarketingParkingCsvToLocalStorage(paymentPlanProjectId, saved);
+      setParkingCsvDoc(saved);
+      setParkingCsvMeta(metaFromParkingDoc(saved));
+      setParkingCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
+      setParkingCsvError(null);
+    } catch {
+      setParkingCsvError("Не удалось прочитать CSV машино-мест.");
+    }
+    if (parkingCsvInputRef.current) parkingCsvInputRef.current.value = "";
+  };
+
+  const clearMarketingParkingCsv = async () => {
+    setParkingCsvError(null);
+    try {
+      const dr = await fetch(
+        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=parking`,
+        { method: "DELETE" },
+      );
+      if (!dr.ok) {
+        setParkingCsvError("Не удалось сбросить CSV машино-мест на сервере.");
+        return;
+      }
+    } catch {
+      setParkingCsvError("Не удалось сбросить CSV машино-мест.");
+      return;
+    }
+    clearMarketingParkingCsvLocalStorage(paymentPlanProjectId);
+    setParkingCsvDoc(null);
+    setParkingCsvMeta(null);
+    setParkingCsvWarnings([]);
+    if (parkingCsvInputRef.current) parkingCsvInputRef.current.value = "";
   };
 
   const clearMarketingInvestorsCsv = async () => {
@@ -3276,6 +3403,39 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                 </button>
               ) : null}
             </div>
+            <div
+              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
+                presDark ? "border-slate-600/50" : "border-slate-300/80"
+              }`}
+            >
+              <input
+                ref={parkingCsvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => void onMarketingParkingCsvSelected(e)}
+              />
+              <button
+                type="button"
+                className={
+                  presDark
+                    ? "rounded-md border border-violet-400/45 bg-violet-500/15 px-2.5 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-500/25"
+                    : "rounded-md border border-violet-500/50 bg-violet-500/10 px-2.5 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-500/15"
+                }
+                onClick={() => parkingCsvInputRef.current?.click()}
+              >
+                Загрузить CSV машино-мест
+              </button>
+              {parkingCsvMeta ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
+                  onClick={() => void clearMarketingParkingCsv()}
+                >
+                  Сбросить CSV машино-мест
+                </button>
+              ) : null}
+            </div>
             {segmentExecutionCsvError && !segmentExecutionHasChartRows ? (
               <p className="text-xs font-medium text-rose-600">{segmentExecutionCsvError}</p>
             ) : null}
@@ -3284,6 +3444,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
               <p className="text-xs font-medium text-rose-600">{unitsCsvError}</p>
             ) : null}
             {apartmentsCsvError ? <p className="text-xs font-medium text-rose-600">{apartmentsCsvError}</p> : null}
+            {parkingCsvError ? <p className="text-xs font-medium text-rose-600">{parkingCsvError}</p> : null}
             {segmentExecutionCsvWarnings.length > 0 ? (
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {segmentExecutionCsvWarnings.map((w, i) => (
@@ -3302,6 +3463,13 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
               <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
                 {apartmentsCsvWarnings.map((w, i) => (
                   <li key={`apt-${i}-${w.slice(0, 64)}`}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            {parkingCsvWarnings.length > 0 ? (
+              <ul className="list-inside list-disc text-[11px] font-medium text-amber-800">
+                {parkingCsvWarnings.map((w, i) => (
+                  <li key={`park-${i}-${w.slice(0, 64)}`}>{w}</li>
                 ))}
               </ul>
             ) : null}
@@ -3367,6 +3535,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                   <>
                     <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
                     <span>{apartmentsCsvMeta.uploadedBy}</span>
+                  </>
+                ) : null}
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — сервер</span>
+              </div>
+            ) : null}
+            {parkingCsvMeta ? (
+              <div className={`text-[11px] ${presDark ? "text-slate-400" : "text-slate-600"}`}>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}>Машино-места CSV: </span>
+                <span className={`font-medium ${presDark ? "text-slate-200" : "text-slate-800"}`}>{parkingCsvMeta.fileName}</span>
+                <span className={presDark ? "text-slate-500" : "text-slate-500"}> — </span>
+                <span className="tabular-nums">{new Date(parkingCsvMeta.uploadedAt).toLocaleString("ru-RU")}</span>
+                {parkingCsvMeta.uploadedBy ? (
+                  <>
+                    <span className={presDark ? "text-slate-500" : "text-slate-500"}> · </span>
+                    <span>{parkingCsvMeta.uploadedBy}</span>
                   </>
                 ) : null}
                 <span className={presDark ? "text-slate-500" : "text-slate-500"}> — сервер</span>
