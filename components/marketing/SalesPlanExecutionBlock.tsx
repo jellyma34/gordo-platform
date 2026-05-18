@@ -38,7 +38,12 @@ import {
   buildUnitsPlanFactChartRows,
   SalesUnitsExecutionSection,
 } from "@/components/marketing/SalesUnitsExecutionSection";
-import { compactRub, dec1Fmt, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
+import {
+  compactRub,
+  dec1Fmt,
+  formatCompactMoneyAxis,
+  formatCumulativePlanFactBarLabel,
+} from "@/lib/salesPlanChartFormat";
 function completionBarTone(pct: number | null): { track: string; fill: string } {
   if (pct == null || !Number.isFinite(pct)) {
     return { track: "bg-slate-200/80", fill: "bg-slate-400" };
@@ -414,7 +419,7 @@ function ExecutionMacroChartsBlock({
             <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <BarChart
                 data={planFactRows}
-                margin={{ top: 10, right: 6, left: 0, bottom: 4 }}
+                margin={{ top: 32, right: 6, left: 0, bottom: 4 }}
                 barGap={6}
                 barCategoryGap="28%"
               >
@@ -471,9 +476,31 @@ function ExecutionMacroChartsBlock({
                     );
                   }}
                 />
-                <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                <Bar dataKey="fact" name="Факт" fill="#2563EB" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
+                  <LabelList
+                    dataKey="fact"
+                    position="top"
+                    offset={6}
+                    fill="#2563EB"
+                    fontSize={12}
+                    fontWeight={600}
+                    className="tabular-nums"
+                    formatter={formatCumulativePlanFactBarLabel}
+                  />
+                </Bar>
                 {hasSegmentPlan ? (
-                  <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false} />
+                  <Bar dataKey="plan" name="План" fill="#F97316" radius={[7, 7, 0, 0]} maxBarSize={46} isAnimationActive={false}>
+                    <LabelList
+                      dataKey="plan"
+                      position="top"
+                      offset={6}
+                      fill="#F97316"
+                      fontSize={12}
+                      fontWeight={600}
+                      className="tabular-nums"
+                      formatter={formatCumulativePlanFactBarLabel}
+                    />
+                  </Bar>
                 ) : null}
               </BarChart>
             </ResponsiveContainer>

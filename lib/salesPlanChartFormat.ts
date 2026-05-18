@@ -185,6 +185,13 @@ export function formatCashflowYAxisMlnRub(v: number): string {
   return `${core} млн ₽`;
 }
 
+/** Подпись над столбцом «План vs факт (накопительно)»: «99,4 млн ₽»; при нуле — пусто. */
+export function formatCumulativePlanFactBarLabel(rub: unknown): string {
+  const n = typeof rub === "number" ? rub : Number(rub);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return formatCashflowYAxisMlnRub(n);
+}
+
 /** Ось Y: min 0, max = округление вверх(max(данные)×1.1) с шагом 50 или 100 млн. */
 export function cashflowYAxisScale(chartPlanFactValues: number[]): { domainMax: number; ticks: number[] } {
   const mil = 1_000_000;
