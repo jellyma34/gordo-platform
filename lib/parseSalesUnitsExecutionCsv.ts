@@ -39,7 +39,11 @@ export type ParseSalesUnitsExecutionCsvFail = {
 export type ParseSalesUnitsExecutionCsvResult = ParseSalesUnitsExecutionCsvOk | ParseSalesUnitsExecutionCsvFail;
 
 const SEGMENT_ORDER: readonly { key: UnitsExecutionSegmentRow["key"]; label: string; aliases: readonly string[] }[] = [
-  { key: "apartments", label: "Квартиры", aliases: ["квартиры", "квартира", "жилые помещения", "жилой фонд"] },
+  {
+    key: "apartments",
+    label: "Квартиры",
+    aliases: ["квартиры", "квартира", "apartments", "apartment", "flats", "flat", "жилые помещения", "жилой фонд"],
+  },
   { key: "parking", label: "Парковки", aliases: ["парковки", "паркинг", "машино-места", "машиноместа", "м/места"] },
   { key: "storage", label: "Кладовые", aliases: ["кладовые", "кладов", "кладовки", "кладовая"] },
   { key: "commercial", label: "Коммерческие помещения", aliases: ["коммерческие помещения", "коммерция", "нжп", "нежилые помещения"] },
@@ -201,22 +205,61 @@ function findPrimaryHeaderRowIndex(lines: string[], delim: ";" | "\t" | ","): nu
   return -1;
 }
 
+/** Ячейка с числом / «89,5%» — значение строки сегмента, не подпись колонки. */
+function cellLooksLikeNumericDataValue(cell: string): boolean {
+  const c = preprocessCell(cell);
+  if (!c) return false;
+  if (/^-?\d+([.,]\d+)?\s*%?$/u.test(c)) return true;
+  const stripped = c.replace(/%/g, "").replace(/[\s\u00a0\u202f\u2009]+/g, "").replace(",", ".");
+  return /^-?\d+(\.\d+)?$/u.test(stripped);
+}
+
+function cellLooksLikeHeaderLabel(cell: string): boolean {
+  if (cellLooksLikeNumericDataValue(cell)) return false;
+  const h = normalizeHeader(cell);
+  if (!h) return false;
+  if (h.includes("план") || h.includes("факт")) return true;
+  if (
+    h.includes("%") &&
+    (h.includes("выполн") ||
+      h.includes("выпол") ||
+      h.includes("объем") ||
+      h.includes("объём") ||
+      h.includes("накопит") ||
+      h.includes("накоп"))
+  ) {
+    return true;
+  }
+  if (h.includes("откл") || h.includes("отклон")) return true;
+  return false;
+}
+
+/** Вторая строка заголовка Excel (подписи «План» / «Факт»), не первая строка данных с «%» в числах. */
+function rowLooksLikeSecondaryHeaderRow(row: string[]): boolean {
+  if (row.every((c) => preprocessCell(c) === "")) return false;
+  const nameNorm = normalizeSegmentName(row[0] ?? "");
+  if (nameNorm && (matchSegment(nameNorm) || isItogoRowName(nameNorm) || shouldSkipName(nameNorm))) return false;
+
+  let labels = 0;
+  let numeric = 0;
+  for (const cell of row) {
+    if (!preprocessCell(cell)) continue;
+    if (cellLooksLikeNumericDataValue(cell)) numeric++;
+    else if (cellLooksLikeHeaderLabel(cell)) labels++;
+  }
+  return labels >= 2 && numeric === 0;
+}
+
 /**
- * Вторая строка заголовка: предпочтительно строка с «План» / «Факт» / «%»;
- * иначе первая непустая после первичной (двухуровневый Excel).
+ * Вторая строка заголовка: только строка с подписями колонок (План / Факт / % выполнения).
+ * Однострочный заголовок Excel — нет второй строки (−1), данные сразу после primary.
  */
 function findSecondaryHeaderRowIndex(lines: string[], primaryIdx: number, delim: ";" | "\t" | ","): number {
-  let firstNonEmpty = -1;
-  for (let i = primaryIdx + 1; i < lines.length; i++) {
+  for (let i = primaryIdx + 1; i < Math.min(lines.length, primaryIdx + 8); i++) {
     const row = splitRow(lines[i] ?? "", delim);
-    if (row.every((c) => preprocessCell(c) === "")) continue;
-    if (firstNonEmpty < 0) firstNonEmpty = i;
-    for (const cell of row) {
-      const h = normalizeHeader(cell);
-      if (h.includes("план") || h.includes("факт") || h.includes("%")) return i;
-    }
+    if (rowLooksLikeSecondaryHeaderRow(row)) return i;
   }
-  return firstNonEmpty;
+  return -1;
 }
 
 /** Подпись группы из первой строки заголовка: пустые ячейки наследуют последнюю непустую слева. */
@@ -352,7 +395,7 @@ function shouldSkipName(segmentNorm: string): boolean {
   if (segmentNorm.includes("2-ком") || segmentNorm.includes("2 ком")) return true;
   if (segmentNorm.includes("3-ком") || segmentNorm.includes("3 ком")) return true;
   if (segmentNorm.includes("вложен")) return true;
-  if (segmentNorm.includes("комнат") && !segmentNorm.includes("коммерч")) return true;
+  if (segmentNorm.includes("комнат") && !segmentNorm.includes("коммерч") && !segmentNorm.includes("квартир")) return true;
   return false;
 }
 
@@ -423,18 +466,14 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     return { ok: false, error: "Не найдена строка заголовков (нужна колонка «Наименование»).", warnings };
   }
 
-  const secondaryIdx = findSecondaryHeaderRowIndex(lines, primaryIdx, delim);
-  if (secondaryIdx < 0) {
-    return {
-      ok: false,
-      error: "Не найдена вторая строка заголовков (ожидаются подписи План / Факт / %).",
-      warnings,
-    };
-  }
-
   const primaryHeader = splitRow(lines[primaryIdx] ?? "", delim).map((c) => preprocessCell(c));
-  const secondaryHeader = splitRow(lines[secondaryIdx] ?? "", delim).map((c) => preprocessCell(c));
+  const secondaryIdx = findSecondaryHeaderRowIndex(lines, primaryIdx, delim);
+  const secondaryHeader =
+    secondaryIdx >= 0
+      ? splitRow(lines[secondaryIdx] ?? "", delim).map((c) => preprocessCell(c))
+      : primaryHeader.map(() => "");
   const mergedHeaders = buildMergedHeaderLabels(primaryHeader, secondaryHeader);
+  const dataStartRowIndex = secondaryIdx >= 0 ? secondaryIdx + 1 : primaryIdx + 1;
 
   const col = buildColumnIndices(mergedHeaders);
   if (!col) {
@@ -460,19 +499,11 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     deviation: col.deviation,
     share: col.shareVol,
   };
-  console.table({
-    headerRowIndex: primaryIdx,
-    primaryHeader,
-    secondaryHeader,
-    mergedHeaders,
-  });
-  console.log("UNITS CSV colMap", colMap);
-
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
   const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
   let totalsFromItogo: UnitsExecutionTotals | null = null;
 
-  for (let i = secondaryIdx + 1; i < lines.length; i++) {
+  for (let i = dataStartRowIndex; i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
     const nameRaw = preprocessCell(row[nameCol] ?? "");
