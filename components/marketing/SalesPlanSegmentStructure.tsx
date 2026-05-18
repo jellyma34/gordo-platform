@@ -10,6 +10,12 @@ import {
 import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
+import {
+  APARTMENTS_PRICE_COLUMN_WARNING,
+  apartmentRevenueShareFromCsvPool,
+  sumApartmentsCsvTotalRevenue,
+} from "@/lib/apartmentsCsvMetrics";
+import type { MarketingApartmentsCsvStoredV1 } from "@/lib/marketingApartmentsCsv";
 import { marketingMockData } from "@/lib/marketingMockData";
 import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
@@ -226,9 +232,19 @@ type Props = {
   objectId: string;
   /** Поток сделок с панели (один GET `/api/deals`). */
   dealsFeed: MarketingDealsJsonFeed;
+  /** База квартир из CSV (все лоты) — для доли выручки в карточке «Квартиры». */
+  apartmentsCsv?: MarketingApartmentsCsvStoredV1 | null;
+  /** Предупреждение об отсутствии колонки стоимости — только режим редактирования. */
+  showApartmentsShareWarning?: boolean;
 };
 
-export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }: Props) {
+export function SalesPlanSegmentStructure({
+  presentation,
+  objectId,
+  dealsFeed,
+  apartmentsCsv = null,
+  showApartmentsShareWarning = false,
+}: Props) {
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const segmentCardRadius = mplPremium && presentation && !presDark ? "rounded-[18px]" : "rounded-xl";
@@ -240,6 +256,17 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
 
   const loadError = dealsFeed.error;
   const loadingDeals = dealsFeed.loading && dealsFeed.rows.length === 0;
+
+  const apartmentsRevenuePool = useMemo(() => {
+    if (!apartmentsCsv?.headers?.length || !apartmentsCsv.rows?.length) return null;
+    return sumApartmentsCsvTotalRevenue(apartmentsCsv.headers, apartmentsCsv.rows);
+  }, [apartmentsCsv]);
+
+  const apartmentsShareWarning = useMemo(() => {
+    if (!showApartmentsShareWarning || !apartmentsCsv) return null;
+    if (apartmentsRevenuePool?.priceColumnIndex != null) return null;
+    return APARTMENTS_PRICE_COLUMN_WARNING;
+  }, [apartmentsCsv, apartmentsRevenuePool?.priceColumnIndex, showApartmentsShareWarning]);
 
   const cards = useMemo(() => {
     const totalSum = filteredRows.reduce((s, r) => s + r.sumRub, 0);
@@ -261,17 +288,22 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
         const a = r.objectParams.areaTotal;
         return s + (a != null && Number.isFinite(a) && a > 0 ? a : 0);
       }, 0);
+      let share = totalSum > 0 ? sum / totalSum : 0;
+      if (key === "apartment") {
+        const fromCsvPool = apartmentRevenueShareFromCsvPool(sum, apartmentsRevenuePool);
+        if (fromCsvPool != null) share = fromCsvPool;
+      }
       out.push({
         key,
         count,
         sum,
         avg: count > 0 ? sum / count : 0,
-        share: totalSum > 0 ? sum / totalSum : 0,
+        share,
         soldAreaM2,
       });
     }
     return out;
-  }, [filteredRows]);
+  }, [filteredRows, apartmentsRevenuePool]);
 
   if (loadingDeals) {
     return (
@@ -307,6 +339,9 @@ export function SalesPlanSegmentStructure({ presentation, objectId, dealsFeed }:
   return (
     <div className="mb-7 w-full min-w-0 max-w-none">
       <h2 className={`mb-4 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+      {apartmentsShareWarning ? (
+        <p className={`mb-3 text-xs font-medium ${presDark ? "text-amber-300/90" : "text-amber-800"}`}>{apartmentsShareWarning}</p>
+      ) : null}
       <div className={gridClass}>
         {cards.map((c) => {
           const vs = presDark
