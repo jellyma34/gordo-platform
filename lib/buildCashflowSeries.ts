@@ -207,9 +207,68 @@ function planOrFactNonZeroInSource(s: CashflowSeriesRow): boolean {
   return false;
 }
 
+type ScaledCashflowSeriesRow = CashflowSeriesRow & { planMonthScaled: number };
+
+function buildMonthlyCashflowChartRows(
+  scaled: readonly ScaledCashflowSeriesRow[],
+  planDisplayEnd: string,
+): CashflowChartRow[] {
+  let lastSourceFactIndex = -1;
+  for (let i = 0; i < scaled.length; i++) {
+    if (scaled[i]!.factMonth != null) lastSourceFactIndex = i;
+  }
+  let lastRawMonthly: number | null = null;
+  return scaled.map((r, i) => {
+    const planFull = r.planMonthScaled;
+    const afterPlanEnd = r.periodKey > planDisplayEnd;
+    const raw = r.factMonth;
+    if (raw != null) lastRawMonthly = raw;
+    let factDisplayed =
+      raw != null ? raw : lastRawMonthly != null ? lastRawMonthly : null;
+    if (lastSourceFactIndex >= 0 && i > lastSourceFactIndex && raw == null) {
+      factDisplayed = null;
+    }
+    const planDisplayed = afterPlanEnd ? null : planFull;
+    const deviation =
+      afterPlanEnd || raw == null ? null : raw - planFull;
+    return {
+      periodKey: r.periodKey,
+      label: r.label,
+      plan: planDisplayed,
+      fact: factDisplayed,
+      deviation,
+    };
+  });
+}
+
 /**
- * Убирает только **хвостовые** месяцы без плана и без факта в **исходных** рядах
- * (для режима «Нарастающим итогом»: на графике кумулятив может оставаться >0 без новых поступлений).
+ * Последний месяц с **помесячными** поступлениями (не кумулятивом): ненулевой факт в CSV
+ * или ненулевой план в пределах границы отображения плана.
+ * Кумулятив после конца данных повторяет последнее Σ — по нему обрезку не делаем.
+ */
+export function lastCashflowVisibleMonthIndex(
+  scaled: readonly ScaledCashflowSeriesRow[],
+  planDisplayEnd: string,
+): number {
+  const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd);
+  return trimTrailingEmptyCashflowDisplayedRows(monthly).lastVisibleIndex;
+}
+
+/**
+ * Обрезка кумулятивного ряда по индексу последнего месяца с реальными помесячными данными.
+ */
+export function trimCashflowChartRowsToVisibleMonth(
+  chartRows: CashflowChartRow[],
+  lastVisibleIndex: number,
+): CashflowChartRow[] {
+  if (chartRows.length === 0 || lastVisibleIndex < 0) return chartRows;
+  if (lastVisibleIndex >= chartRows.length - 1) return chartRows;
+  return chartRows.slice(0, lastVisibleIndex + 1);
+}
+
+/**
+ * Убирает хвост по **исходным** помесячным planMonth / factMonth (без кумулятива).
+ * @deprecated Prefer {@link lastCashflowVisibleMonthIndex} + {@link trimCashflowChartRowsToVisibleMonth}.
  */
 export function trimTrailingEmptyCashflowChartRows(
   chartRows: CashflowChartRow[],
@@ -248,7 +307,7 @@ function logCashflowFinalTimeline(
  * Помесячные точки для графика: `plan` / `fact` — только величины **за месяц**.
  * В режиме «Нарастающим итогом» кумулятив считается здесь **один раз** (сумма помесячных).
  * Факт — полный горизонт `rows`; план для `periodKey` строго после границы отображения — `null`.
- * Хвост: «Помесячно» — обрезка по **отображаемым** plan/fact; «Нарастающим итогом» — по последнему месяцу с данными в исходных рядах.
+ * Хвост обоих режимов: последний месяц с ненулевыми **помесячными** plan/fact (не по плато кумулятива).
  */
 export function cashflowRowsForChart(
   rows: CashflowSeriesRow[],
@@ -263,36 +322,17 @@ export function cashflowRowsForChart(
     planMonthScaled: Math.round(r.planMonth * scale),
   }));
 
+  const lastVisibleIndex = lastCashflowVisibleMonthIndex(scaled, planDisplayEnd);
+
   if (mode === "monthly") {
-    let lastSourceFactIndex = -1;
-    for (let i = 0; i < scaled.length; i++) {
-      if (scaled[i]!.factMonth != null) lastSourceFactIndex = i;
-    }
-    let lastRawMonthly: number | null = null;
-    const monthly = scaled.map((r, i) => {
-      const planFull = r.planMonthScaled;
-      const afterPlanEnd = r.periodKey > planDisplayEnd;
-      const raw = r.factMonth;
-      if (raw != null) lastRawMonthly = raw;
-      let factDisplayed =
-        raw != null ? raw : lastRawMonthly != null ? lastRawMonthly : null;
-      if (lastSourceFactIndex >= 0 && i > lastSourceFactIndex && raw == null) {
-        factDisplayed = null;
-      }
-      const planDisplayed = afterPlanEnd ? null : planFull;
-      const deviation =
-        afterPlanEnd || raw == null ? null : raw - planFull;
-      return {
-        periodKey: r.periodKey,
-        label: r.label,
-        plan: planDisplayed,
-        fact: factDisplayed,
-        deviation,
-      };
-    });
-    const trimmedMonthly = trimTrailingEmptyCashflowDisplayedRows(monthly);
-    logCashflowFinalTimeline(mode, trimmedMonthly.rows, trimmedMonthly.lastVisibleIndex);
-    return trimmedMonthly.rows;
+    const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd);
+    const trimmedMonthly = trimCashflowChartRowsToVisibleMonth(monthly, lastVisibleIndex);
+    logCashflowFinalTimeline(
+      mode,
+      trimmedMonthly,
+      lastVisibleIndex >= 0 ? lastVisibleIndex : -1,
+    );
+    return trimmedMonthly;
   }
 
   let accPlan = 0;
@@ -317,11 +357,11 @@ export function cashflowRowsForChart(
         afterPlanEnd || factDisplayed == null ? null : factDisplayed - accPlan,
     };
   });
-  const trimmedCum = trimTrailingEmptyCashflowChartRows(cumulative, rows);
+  const trimmedCum = trimCashflowChartRowsToVisibleMonth(cumulative, lastVisibleIndex);
   logCashflowFinalTimeline(
     mode,
     trimmedCum,
-    trimmedCum.length > 0 ? trimmedCum.length - 1 : -1,
+    lastVisibleIndex >= 0 ? lastVisibleIndex : trimmedCum.length > 0 ? trimmedCum.length - 1 : -1,
   );
   return trimmedCum;
 }
