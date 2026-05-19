@@ -695,6 +695,9 @@ export function CashflowDynamicsSvgLabels({
     const { safeLeft, safeRight, safeTop, plotBottomY } = chartBadgeSafeBounds(plot, chartW, chartH);
     const labelBandTop = plotBottomY - X_AXIS_LABEL_BAND_RESERVE;
     const pillH = BADGE_H_PX;
+    const labelHalfH = pillH / 2;
+    const labelPillCenterYMin = safeTop + labelHalfH;
+    const labelPillCenterYMax = labelBandTop - FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX - labelHalfH;
     const isCumulativeFact = mode === "cumulative";
     const gridLineYs = isCumulativeFact ? gridLinePixelYs(yScale, yGridTickValues) : [];
 
@@ -741,8 +744,7 @@ export function CashflowDynamicsSvgLabels({
         : formatCashflowMillionsLabel(c.valueRub, false);
       const pillW = approxLabelWidthPx(chartLabelText, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
       const halfW = pillW / 2;
-      const halfH = pillH / 2;
-      const factPillCenterYMax = labelBandTop - FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX - halfH;
+      const halfH = labelHalfH;
       const minCenterX = safeLeft + halfW;
       const maxCenterX = safeRight - halfW;
       let anchorX = cx - LABEL_FACT_DX;
@@ -780,19 +782,15 @@ export function CashflowDynamicsSvgLabels({
       for (let ti = 0; ti < staggerTries.length; ti++) {
         const { dx, dy } = staggerTries[ti]!;
         const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-        let pillCy = clamp(
-          yFactPt - factOffsetCore - halfH - dy,
-          safeTop + halfH,
-          factPillCenterYMax,
-        );
+        let pillCy = clamp(yFactPt - factOffsetCore - halfH - dy, labelPillCenterYMin, labelPillCenterYMax);
         if (isCumulativeFact) {
           pillCy = applyCumulativeLabelSmartLift(pillCy, halfH, yFactPt, gridLineYs, liftF);
-          pillCy = clamp(pillCy, safeTop + halfH, factPillCenterYMax);
+          pillCy = clamp(pillCy, labelPillCenterYMin, labelPillCenterYMax);
         } else {
           const capFromPoint = yFactPt - MONTHLY_FACT_LINE_CLEARANCE_PX - halfH;
           pillCy = Math.min(pillCy, capFromPoint);
-          pillCy = clamp(pillCy, safeTop + halfH, factPillCenterYMax);
-          pillCy = snapLabelCenterY(pillCy, safeTop + halfH, factPillCenterYMax, FACT_LABEL_Y_SNAP_PX);
+          pillCy = clamp(pillCy, labelPillCenterYMin, labelPillCenterYMax);
+          pillCy = snapLabelCenterY(pillCy, labelPillCenterYMin, labelPillCenterYMax, FACT_LABEL_Y_SNAP_PX);
         }
         const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
         const candidate: Resolved = {
@@ -832,7 +830,6 @@ export function CashflowDynamicsSvgLabels({
     }));
 
     const planPillsOut: Pill[] = [];
-    const maxPlanCenterY = labelBandTop - FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX - pillH / 2;
 
     if (planCandidates.length > 0) {
       const sortedPlan = [...planCandidates].sort((a, b) => {
@@ -861,7 +858,7 @@ export function CashflowDynamicsSvgLabels({
             : formatCashflowMillionsLabel(c.valueRub, false);
         const pillW = approxLabelWidthPx(text, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
         const halfW = pillW / 2;
-        const halfH = pillH / 2;
+        const halfH = labelHalfH;
         const minCenterX = safeLeft + halfW;
         const maxCenterX = safeRight - halfW;
         const pointCenterX = clamp(cx - LABEL_FACT_DX, minCenterX, maxCenterX);
@@ -883,7 +880,7 @@ export function CashflowDynamicsSvgLabels({
               ];
           for (const { dx, dy } of staggerBelow) {
             const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-            const pillCy = clamp(baseBelow + dy, safeTop + halfH, maxPlanCenterY);
+            const pillCy = clamp(baseBelow + dy, labelPillCenterYMin, labelPillCenterYMax);
             const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
             if (!labelOverlapsAny(box, keptBoxes)) {
               placed = { pillCx, pillCy, box };
@@ -894,9 +891,7 @@ export function CashflowDynamicsSvgLabels({
           const planOffsetAbove =
             mode === "cumulative" ? CUM_LABEL_OFFSET_PLAN_ABOVE_PX : LABEL_OFFSET_PLAN_ABOVE;
           const maxCyAboveLine =
-            mode === "cumulative"
-              ? factPillCenterYMax
-              : yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
+            mode === "cumulative" ? labelPillCenterYMax : yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
           const staggerAbove =
             mode === "cumulative"
               ? CUM_LABEL_STAGGER_TRIES
@@ -910,7 +905,7 @@ export function CashflowDynamicsSvgLabels({
             if (mode === "cumulative") {
               pillCy = applyCumulativeLabelSmartLift(pillCy, halfH, yPlan, gridLineYs, liftPlan);
             }
-            pillCy = clamp(pillCy, safeTop + halfH, maxCyAboveLine);
+            pillCy = clamp(pillCy, labelPillCenterYMin, maxCyAboveLine);
             const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
             if (!fallback) fallback = { pillCx, pillCy, box };
             if (!labelOverlapsAny(box, keptBoxes)) {
