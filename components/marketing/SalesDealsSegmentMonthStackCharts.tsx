@@ -15,7 +15,9 @@ import {
   compactRub,
   formatAvgPricePerM2Rub,
   formatCashflowMillionsLabelTidy,
+  formatSegmentMiniDealsYAxisTick,
   formatSegmentMiniRevenueChartNumber,
+  formatSegmentMiniRevenueYAxisTick,
   numFmt,
 } from "@/lib/salesPlanChartFormat";
 import {
@@ -273,6 +275,7 @@ function SegmentMonthBarChart({
             <XAxis dataKey="labelShort" tick={renderMonthTick} {...MARKETING_DEALS_STYLE_MONTH_X_AXIS} />
             <YAxis
               domain={[0, yMax]}
+              allowDecimals={false}
               tick={{ fill: axisColor, fontSize: 10 }}
               axisLine={false}
               tickLine={false}
@@ -438,7 +441,7 @@ function SegmentAnalyticsCard({
             presDark={presDark}
             presentation={presentation}
             infographicMode={presentation}
-            yTickFmt={(v) => numFmt.format(Math.round(v))}
+            yTickFmt={formatSegmentMiniDealsYAxisTick}
           />
           <SegmentMonthBarChart
             title="По месяцам — ₽"
@@ -451,7 +454,7 @@ function SegmentAnalyticsCard({
             presDark={presDark}
             presentation={presentation}
             infographicMode={presentation}
-            yTickFmt={(v) => formatSegmentMiniRevenueChartNumber(v)}
+            yTickFmt={formatSegmentMiniRevenueYAxisTick}
           />
         </div>
       </div>

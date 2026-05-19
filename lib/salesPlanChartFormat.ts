@@ -181,6 +181,22 @@ export function formatSegmentMiniRevenueChartNumber(n: number): string {
   return formatCashflowMillionsLabel(n, false);
 }
 
+/** Ось Y мини-графика «Сделки — шт.»: только целые значения. */
+export function formatSegmentMiniDealsYAxisTick(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  return numFmt.format(Math.round(n));
+}
+
+/** Ось Y мини-графика «Сделки — ₽»: целые млн (без 39,3 / 55,2). */
+export function formatSegmentMiniRevenueYAxisTick(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  const absRub = Math.abs(n);
+  if (absRub >= 1_000_000_000) {
+    return numFmt.format(Math.round(absRub / 1_000_000_000));
+  }
+  return numFmt.format(Math.round(absRub / 1_000_000));
+}
+
 /**
  * Подписи оси Y графика «Динамика поступлений» (серые тики слева): число + « млн» или « млрд».
  * Подписи на линии, тултип и прочие места используют {@link formatCashflowMillionsLabel} / {@link formatCashflowTooltipRub} — без «млн» в строке.
