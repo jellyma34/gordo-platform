@@ -185,6 +185,14 @@ export function formatCashflowYAxisMlnRub(v: number): string {
   return `${core} млн ₽`;
 }
 
+/** Ось Y «План vs факт (накопительно)»: одна строка «300 млн» (без переноса). */
+export function formatCumulativePlanFactYAxisTick(rub: number): string {
+  if (!Number.isFinite(rub)) return "";
+  const sign = rub < 0 ? "−" : "";
+  const mln = Math.round(Math.abs(rub) / 1_000_000);
+  return `${sign}${mln} млн`;
+}
+
 /** Подпись над столбцом «План vs факт (накопительно)»: только число в млн (напр. «113,8»); при нуле — пусто. */
 export function formatCumulativePlanFactBarLabel(rub: unknown): string {
   const n = typeof rub === "number" ? rub : Number(rub);

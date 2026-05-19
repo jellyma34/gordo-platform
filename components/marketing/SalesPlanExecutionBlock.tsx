@@ -44,8 +44,11 @@ import {
   dec1Fmt,
   formatCompactMoneyAxis,
   formatCumulativePlanFactBarLabel,
+  formatCumulativePlanFactYAxisTick,
 } from "@/lib/salesPlanChartFormat";
 const CUMULATIVE_BAR_LABEL_OFFSET_PX = 7;
+/** Ширина оси Y: «300 млн» в одну строку (52px давало перенос). */
+const CUMULATIVE_PLAN_FACT_Y_AXIS_WIDTH = 56;
 
 type CumulativeBarLabelProps = {
   x?: number | string;
@@ -82,6 +85,33 @@ function createCumulativePlanFactBarLabel(fill: string) {
 
 const cumulativePlanFactFactBarLabel = createCumulativePlanFactBarLabel("#2563EB");
 const cumulativePlanFactPlanBarLabel = createCumulativePlanFactBarLabel("#F97316");
+
+type CumulativePlanFactYAxisTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: number | string };
+  fill: string;
+};
+
+function CumulativePlanFactYAxisTick({ x, y, payload, fill }: CumulativePlanFactYAxisTickProps) {
+  if (x == null || y == null || payload?.value == null) return null;
+  const label = formatCumulativePlanFactYAxisTick(Number(payload.value));
+  if (!label) return null;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fill={fill}
+      fontSize={10}
+      style={{ whiteSpace: "nowrap" }}
+      className="tabular-nums"
+    >
+      {label}
+    </text>
+  );
+}
 
 function completionBarTone(pct: number | null): { track: string; fill: string } {
   if (pct == null || !Number.isFinite(pct)) {
@@ -488,12 +518,11 @@ function ExecutionMacroChartsBlock({
                 <YAxis
                   domain={[0, planFactYAxis.domainMax]}
                   ticks={planFactYAxis.ticks}
-                  tick={{ fill: chartAxis, fontSize: 10 }}
+                  tick={(props) => <CumulativePlanFactYAxisTick {...props} fill={chartAxis} />}
                   axisLine={false}
                   tickLine={false}
-                  width={52}
+                  width={CUMULATIVE_PLAN_FACT_Y_AXIS_WIDTH}
                   allowDataOverflow
-                  tickFormatter={(v) => (Number.isFinite(Number(v)) ? formatCompactMoneyAxis(Number(v)) : "")}
                 />
                 <Tooltip
                   cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
