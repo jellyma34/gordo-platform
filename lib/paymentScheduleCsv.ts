@@ -679,6 +679,7 @@ function extractReportAsOf(rows: string[][]): string | undefined {
 export function decodePaymentScheduleCsvBuffer(buffer: ArrayBuffer): string {
   const cp1251 = new TextDecoder("windows-1251").decode(buffer);
   if (
+    (/план\s*продаж/i.test(cp1251) && /\bгод\b/i.test(cp1251) && /\bмесяц\b/i.test(cp1251)) ||
     /план\s+[а-яё]+\s+\d{4}/i.test(cp1251) ||
     /рассрочка/i.test(cp1251) ||
     /дду/i.test(cp1251) ||
@@ -717,6 +718,131 @@ function rowLooksLikeNumericPlanRow(row: string[], periodToCol: Map<string, numb
   return nz >= 2;
 }
 
+/** Заголовок колонки long-format CSV плана поступлений (Год;месяц;План продаж). */
+function normalizePlanCsvHeaderCell(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\u00a0/g, " ")
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+type RevenuePlanLongCsvColumns = {
+  headerRow: number;
+  yearCol: number;
+  monthCol: number;
+  planCol: number;
+};
+
+/** Поиск шапки «Год;месяц;План продаж» в первых строках файла. */
+function detectRevenuePlanLongCsvColumns(rows: string[][]): RevenuePlanLongCsvColumns | null {
+  const scan = Math.min(rows.length, 10);
+  for (let i = 0; i < scan; i++) {
+    const row = rows[i]!;
+    if (!row.some((c) => String(c ?? "").trim())) continue;
+    const norms = row.map(normalizePlanCsvHeaderCell);
+    const yearCol = norms.findIndex((h) => h === "год");
+    const monthCol = norms.findIndex((h) => h === "месяц");
+    const planCol = norms.findIndex((h) => /^план\s*продаж/.test(h));
+    if (yearCol >= 0 && monthCol >= 0 && planCol >= 0) {
+      return { headerRow: i, yearCol, monthCol, planCol };
+    }
+  }
+  return null;
+}
+
+function parsePlanCsvYearCell(raw: unknown): number | null {
+  const s = String(raw ?? "")
+    .trim()
+    .replace(/\u00a0/g, " ")
+    .replace(/\s/g, "");
+  if (!s) return null;
+  const digits = s.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const n = Number(digits);
+  if (!Number.isFinite(n) || n < 1900 || n > 2100) return null;
+  return Math.round(n);
+}
+
+function parsePlanCsvMonthCell(raw: unknown): number | null {
+  const w = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\./g, "")
+    .replace(/\u00a0/g, " ");
+  if (!w) return null;
+  const direct = resolveRuMonthWord(w);
+  if (direct) return direct;
+  for (const { stem, m } of FUZZY_MONTH_STEM_TO_M) {
+    if (w.startsWith(stem)) return m;
+  }
+  const num = Number(w.replace(/[^\d]/g, ""));
+  if (Number.isFinite(num) && num >= 1 && num <= 12) return Math.round(num);
+  return null;
+}
+
+/**
+ * Помесячный план поступлений: long CSV «Год;месяц;План продаж» (cp1251, ₽ с пробелами и запятой).
+ * Ключи периода — `YYYY-MM`; подписи на графике — {@link periodKeyToRuChartLabel} в buildCashflowSeries.
+ */
+function parseRevenuePlanLongCsvFromRows(
+  rows: string[][],
+  cols: RevenuePlanLongCsvColumns,
+): MarketingPaymentPlanOnlyCsvParseResult {
+  const warnings: string[] = [];
+  const byPeriodKey: Record<string, number> = {};
+  let skippedRows = 0;
+
+  for (let i = cols.headerRow + 1; i < rows.length; i++) {
+    const row = rows[i]!;
+    const yearRaw = row[cols.yearCol];
+    const monthRaw = row[cols.monthCol];
+    const planRaw = row[cols.planCol];
+    const hasAny =
+      String(yearRaw ?? "").trim() || String(monthRaw ?? "").trim() || String(planRaw ?? "").trim();
+    if (!hasAny) continue;
+
+    const year = parsePlanCsvYearCell(yearRaw);
+    const month = parsePlanCsvMonthCell(monthRaw);
+    if (year == null || month == null) {
+      skippedRows++;
+      continue;
+    }
+
+    const amount = parseMoneyRu(planRaw);
+    const pk = toPeriodKey(year, month);
+    if (Object.prototype.hasOwnProperty.call(byPeriodKey, pk)) {
+      warnings.push(`Дубликат периода ${pk}: суммы объединены.`);
+    }
+    byPeriodKey[pk] = (byPeriodKey[pk] ?? 0) + amount;
+  }
+
+  const columnPeriodKeysPlan = Object.keys(byPeriodKey).sort((a, b) => a.localeCompare(b));
+  if (columnPeriodKeysPlan.length === 0) {
+    return {
+      ok: false,
+      error:
+        skippedRows > 0
+          ? "Не удалось распознать строки: проверьте колонки «Год», «месяц» и суммы в «План продаж»."
+          : "В файле нет данных плана поступлений (ожидаются колонки Год;месяц;План продаж).",
+    };
+  }
+  if (skippedRows > 0) {
+    warnings.push(`Пропущено строк без корректных «Год»/«месяц»: ${skippedRows}.`);
+  }
+
+  return {
+    ok: true,
+    planByPeriodKey: byPeriodKey,
+    columnPeriodKeysPlan,
+    warnings: warnings.length ? warnings : undefined,
+  };
+}
+
+/** @deprecated Широкий график платежей; для загрузки плана используйте long CSV через {@link parsePlanCsv}. */
 function parsePlanFromRows(rows: string[][]): MarketingPaymentPlanOnlyCsvParseResult {
   if (rows.length < 3) {
     return { ok: false, error: "Файл слишком короткий — ожидался график платежей с помесячными колонками." };
@@ -933,11 +1059,19 @@ function parseFactFromRows(rows: string[][]): MarketingPaymentFactOnlyCsvParseRe
 }
 
 /**
- * План из CSV графика платежей: автопоиск шапки по всему листу, колонки «План …», «мар.26», «зайдет …» в файле графика;
- * сумма по строкам сделок (не из строки итогов).
+ * План поступлений для «Динамика поступлений»: CSV «Год;месяц;План продаж» (разделитель «;», cp1251).
  */
 export function parsePlanCsv(text: string): MarketingPaymentPlanOnlyCsvParseResult {
-  return parsePlanFromRows(parseSpreadsheetRows(text));
+  const rows = parseSpreadsheetRows(text);
+  const cols = detectRevenuePlanLongCsvColumns(rows);
+  if (!cols) {
+    return {
+      ok: false,
+      error:
+        "Ожидается CSV с колонками «Год», «месяц», «План продаж» (помесячный план поступлений, разделитель «;»).",
+    };
+  }
+  return parseRevenuePlanLongCsvFromRows(rows, cols);
 }
 
 /** Совместимость с API: то же, что {@link parsePlanCsv}. */
