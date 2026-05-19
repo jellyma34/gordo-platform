@@ -192,16 +192,20 @@ export function formatCumulativePlanFactBarLabel(rub: unknown): string {
   return formatCashflowMillionsLabelTidy(n, false);
 }
 
-/** Ось Y: min 0, max = округление вверх(max(данные)×1.1) с шагом 50 или 100 млн. */
-export function cashflowYAxisScale(chartPlanFactValues: number[]): { domainMax: number; ticks: number[] } {
+/** Ось Y: min 0, max = округление вверх(max(данные)×headroom) с шагом 50 или 100 млн. */
+export function cashflowYAxisScale(
+  chartPlanFactValues: number[],
+  opts?: { headroom?: number },
+): { domainMax: number; ticks: number[] } {
   const mil = 1_000_000;
   const step50 = 50 * mil;
   const step100 = 100 * mil;
+  const headroom = opts?.headroom ?? 1.1;
   const vals = chartPlanFactValues
     .map((n) => (Number.isFinite(n) ? Math.max(0, n) : 0))
     .filter((n) => n >= 0);
   const maxVal = vals.length > 0 ? Math.max(...vals) : 0;
-  const padded = maxVal * 1.1;
+  const padded = maxVal * headroom;
   if (padded <= 0 || !Number.isFinite(padded)) {
     const step = step50;
     return { domainMax: step, ticks: [0, step] };

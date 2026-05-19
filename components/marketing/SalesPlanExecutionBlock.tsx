@@ -39,6 +39,7 @@ import {
   SalesUnitsExecutionSection,
 } from "@/components/marketing/SalesUnitsExecutionSection";
 import {
+  cashflowYAxisScale,
   compactRub,
   dec1Fmt,
   formatCompactMoneyAxis,
@@ -375,14 +376,13 @@ function ExecutionMacroChartsBlock({
     [segmentExecutionCharts, planFactRows, planTotalFallback],
   );
 
-  const planFactYDomain = useMemo((): [number, number] => {
-    let m = 0;
+  const planFactYAxis = useMemo(() => {
+    const vals: number[] = [];
     for (const row of planFactRows) {
-      if (hasSegmentPlan && Number.isFinite(row.plan)) m = Math.max(m, row.plan);
-      if (Number.isFinite(row.fact)) m = Math.max(m, row.fact);
+      if (hasSegmentPlan && Number.isFinite(row.plan)) vals.push(row.plan);
+      if (Number.isFinite(row.fact)) vals.push(row.fact);
     }
-    if (m <= 0 || !Number.isFinite(m)) return [0, 1];
-    return [0, m * 1.08];
+    return cashflowYAxisScale(vals, { headroom: 1.08 });
   }, [planFactRows, hasSegmentPlan]);
 
   const chartGrid = presDark ? "rgba(148,163,184,0.2)" : presentation ? "rgba(100,116,139,0.12)" : "rgba(148,163,184,0.28)";
@@ -486,11 +486,13 @@ function ExecutionMacroChartsBlock({
                   height={36}
                 />
                 <YAxis
-                  domain={planFactYDomain}
+                  domain={[0, planFactYAxis.domainMax]}
+                  ticks={planFactYAxis.ticks}
                   tick={{ fill: chartAxis, fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
                   width={52}
+                  allowDataOverflow
                   tickFormatter={(v) => (Number.isFinite(Number(v)) ? formatCompactMoneyAxis(Number(v)) : "")}
                 />
                 <Tooltip
