@@ -18,6 +18,7 @@ import {
 } from "@/lib/filterDealsForSegmentChartPeriod";
 import { isStagnantDealMonthNoNewSales } from "@/lib/marketingDealMonthCumulative";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
+import { CASHFLOW_INFLOW_PLAN } from "@/lib/cashflowInflowChartSeries";
 import { formatCashflowMillionsLabelTidy, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
 import {
   MPL_PREMIUM_CHART_SHELL,
@@ -81,7 +82,7 @@ function SegmentBarTooltip({
         </div>
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
-          <span style={{ color: "#F97316" }} className="font-medium">
+          <span style={{ color: CASHFLOW_INFLOW_PLAN.label }} className="font-medium">
             {formatCompactMoneyAxis(plan)}
           </span>
         </div>
@@ -466,7 +467,8 @@ export function SalesPlanSegmentPlanFactBarChart({
             <Bar
               dataKey="plan"
               name="План"
-              fill={showEmptyOverlay ? "transparent" : "#F97316"}
+              fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.stroke}
+              fillOpacity={showEmptyOverlay ? 0 : CASHFLOW_INFLOW_PLAN.strokeOpacity}
               radius={[8, 8, 0, 0]}
               maxBarSize={52}
               isAnimationActive={false}
@@ -474,9 +476,9 @@ export function SalesPlanSegmentPlanFactBarChart({
               <LabelList
                 dataKey="plan"
                 position="top"
-                fill={showEmptyOverlay ? "transparent" : "#F97316"}
+                fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.label}
                 fontSize={12}
-                fontWeight={600}
+                fontWeight={500}
                 className="tabular-nums"
                 formatter={formatBarTopLabel}
               />
@@ -505,7 +507,10 @@ export function SalesPlanSegmentPlanFactBarChart({
           Факт
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-4 rounded-sm bg-[#F97316]" />
+          <span
+            className="inline-block h-2.5 w-4 rounded-sm"
+            style={{ backgroundColor: CASHFLOW_INFLOW_PLAN.stroke }}
+          />
           План
         </span>
       </div>
