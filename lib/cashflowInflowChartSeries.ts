@@ -17,11 +17,11 @@ export const CASHFLOW_INFLOW_FACT = {
   activeDotR: 6.5,
 } as const;
 
-/** Мягкая secondary-линия плана (пастельный голубой, ниже контраста чем факт). */
+/** Мягкая secondary-линия плана (пастельный оранжевый, ниже контраста чем факт). */
 export const CASHFLOW_INFLOW_PLAN = {
-  stroke: "#AFC6FF",
+  stroke: "#F6BC7A",
   /** Подписи значений у точек плана */
-  label: "#94A8D8",
+  label: "#D9A06A",
   strokeWidth: 2.5,
   strokeOpacity: 0.88,
   strokeDasharray: "6 4",

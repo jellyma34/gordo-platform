@@ -543,8 +543,8 @@ export function CashflowDynamicsSvgLabels({
   const plot = usePlotArea();
 
   const planPillFill = "#ffffff";
-  const planPillStroke = presDark ? "rgba(175,198,255,0.55)" : "rgba(175,198,255,0.65)";
-  const planPillText = presDark ? "#B8C9F0" : CASHFLOW_INFLOW_PLAN.label;
+  const planPillStroke = presDark ? "rgba(246,188,122,0.5)" : "rgba(246,188,122,0.62)";
+  const planPillText = presDark ? "#F0C896" : CASHFLOW_INFLOW_PLAN.label;
 
   const factPillFill = "#ffffff";
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
