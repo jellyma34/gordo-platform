@@ -1,7 +1,14 @@
+import { createElement } from "react";
+
 /**
  * Единый источник стилей серий графика «Динамика поступлений» (факт / план).
  * Используйте в <Line /> и в легенде, чтобы внешний вид не расходился.
  */
+
+type CashflowDotProps = {
+  cx?: number;
+  cy?: number;
+};
 
 export const CASHFLOW_INFLOW_FACT = {
   stroke: "#1d4ed8",
@@ -23,7 +30,42 @@ export const CASHFLOW_INFLOW_PLAN = {
 } as const;
 
 export function cashflowInflowDotRingStroke(presDark: boolean): string {
-  return presDark ? "#0f172a" : "#ffffff";
+  return presDark ? "#0f172a" : "#FFFFFF";
+}
+
+/** Круглые маркеры плана без артефактов stroke/fill (Recharts dot). */
+export function createCashflowInflowPlanDot(presDark: boolean) {
+  const fill = cashflowInflowDotRingStroke(presDark);
+  return function CashflowInflowPlanDot({ cx, cy }: CashflowDotProps) {
+    if (cx == null || cy == null || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+    return createElement("circle", {
+      cx,
+      cy,
+      r: CASHFLOW_INFLOW_PLAN.dotR,
+      fill,
+      stroke: CASHFLOW_INFLOW_PLAN.stroke,
+      strokeWidth: 2,
+      shapeRendering: "geometricPrecision",
+      pointerEvents: "none",
+    });
+  };
+}
+
+export function createCashflowInflowPlanActiveDot(presDark: boolean) {
+  const fill = cashflowInflowDotRingStroke(presDark);
+  return function CashflowInflowPlanActiveDot({ cx, cy }: CashflowDotProps) {
+    if (cx == null || cy == null || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+    return createElement("circle", {
+      cx,
+      cy,
+      r: CASHFLOW_INFLOW_PLAN.activeDotR,
+      fill,
+      stroke: CASHFLOW_INFLOW_PLAN.stroke,
+      strokeWidth: 2,
+      shapeRendering: "geometricPrecision",
+      pointerEvents: "none",
+    });
+  };
 }
 
 /** Пропсы Recharts <Line /> для факта (без type/dataKey/name). */
@@ -53,7 +95,6 @@ export function cashflowInflowFactLineProps(presDark: boolean) {
 
 /** Пропсы Recharts <Line /> для плана (без type/dataKey/name). */
 export function cashflowInflowPlanLineProps(presDark: boolean) {
-  const ring = cashflowInflowDotRingStroke(presDark);
   return {
     stroke: CASHFLOW_INFLOW_PLAN.stroke,
     strokeWidth: CASHFLOW_INFLOW_PLAN.strokeWidth,
@@ -61,22 +102,8 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
     strokeDasharray: CASHFLOW_INFLOW_PLAN.strokeDasharray,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    dot: {
-      r: CASHFLOW_INFLOW_PLAN.dotR,
-      fill: ring,
-      stroke: CASHFLOW_INFLOW_PLAN.stroke,
-      strokeWidth: 2,
-      strokeOpacity: 1,
-      fillOpacity: 1,
-    },
-    activeDot: {
-      r: CASHFLOW_INFLOW_PLAN.activeDotR,
-      fill: ring,
-      stroke: CASHFLOW_INFLOW_PLAN.stroke,
-      strokeWidth: 2,
-      strokeOpacity: 1,
-      fillOpacity: 1,
-    },
+    dot: createCashflowInflowPlanDot(presDark),
+    activeDot: createCashflowInflowPlanActiveDot(presDark),
     isAnimationActive: false as const,
   };
 }

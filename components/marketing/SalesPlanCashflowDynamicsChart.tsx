@@ -1052,7 +1052,7 @@ export function SalesPlanCashflowDynamicsChart({
     );
   }
 
-  const gridStroke = presDark ? "rgba(148,163,184,0.07)" : "rgba(148,163,184,0.12)";
+  const gridStroke = presDark ? "rgba(148,163,184,0.22)" : "#E5E7EB";
   const axisColor = presDark ? "#94a3b8" : "#475569";
 
   return (
@@ -1177,12 +1177,17 @@ export function SalesPlanCashflowDynamicsChart({
               data={chartData}
               margin={{
                 top: presDark ? 16 : CHART_MARGIN_TOP_LIGHT_LABELS,
-                right: 12,
+                right: 18,
                 left: CHART_MARGIN_LEFT_PX,
                 bottom: CHART_MARGIN_BOTTOM,
               }}
             >
-            <CartesianGrid strokeDasharray="4 6" stroke={gridStroke} vertical={false} />
+            <CartesianGrid
+              strokeDasharray="4 4"
+              stroke={gridStroke}
+              vertical={false}
+              horizontalValues={yTicks}
+            />
             <XAxis dataKey="label" type="category" {...cashflowMonthXAxis} />
             <YAxis
               domain={[0, yDomainMax]}
