@@ -84,7 +84,7 @@ function CashflowInflowLegendSwatchPlan({ presDark }: SwatchProps) {
         r={CASHFLOW_INFLOW_PLAN.dotR}
         fill={ring}
         stroke={CASHFLOW_INFLOW_PLAN.stroke}
-        strokeWidth={2}
+        strokeWidth={1.5}
       />
     </svg>
   );

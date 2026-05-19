@@ -29,7 +29,11 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
-import { cashflowInflowFactLineProps, cashflowInflowPlanLineProps } from "@/lib/cashflowInflowChartSeries";
+import {
+  cashflowInflowFactLineProps,
+  cashflowInflowPlanLineProps,
+  CASHFLOW_INFLOW_PLAN,
+} from "@/lib/cashflowInflowChartSeries";
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
 import {
   createMarketingDealsStyleMonthTickRenderer,
@@ -488,7 +492,7 @@ export function CashflowTooltip({
     <div className={`rounded-xl px-3.5 py-2.5 text-xs ring-1 ring-black/[0.04] ${base}`}>
       <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-slate-900"}`}>{row.label}</div>
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-slate-800"}`}>
-        <span className="text-[#ea580c]">
+        <span style={{ color: CASHFLOW_INFLOW_PLAN.label }}>
           План: {row.plan != null ? formatCashflowTooltipRub(row.plan) : "—"}
         </span>
         {row.fact != null ? (
@@ -539,8 +543,8 @@ export function CashflowDynamicsSvgLabels({
   const plot = usePlotArea();
 
   const planPillFill = "#ffffff";
-  const planPillStroke = presDark ? "rgba(234,88,12,0.62)" : "rgba(234,88,12,0.48)";
-  const planPillText = presDark ? "#9a3412" : "#c2410c";
+  const planPillStroke = presDark ? "rgba(175,198,255,0.55)" : "rgba(175,198,255,0.65)";
+  const planPillText = presDark ? "#B8C9F0" : CASHFLOW_INFLOW_PLAN.label;
 
   const factPillFill = "#ffffff";
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
@@ -816,21 +820,24 @@ export function CashflowDynamicsSvgLabels({
     return null;
   }
 
-  const renderLabelText = (p: Pill) => (
-    <text
-      key={p.key}
-      x={p.cx}
-      y={p.cy}
-      textAnchor="middle"
-      dominantBaseline="middle"
-      fill={p.textFill}
-      fontSize={BADGE_FONT_PX}
-      fontWeight={600}
-      className="tabular-nums"
-    >
-      {p.text}
-    </text>
-  );
+  const renderLabelText = (p: Pill) => {
+    const isPlan = p.key.startsWith("plan-");
+    return (
+      <text
+        key={p.key}
+        x={p.cx}
+        y={p.cy}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill={p.textFill}
+        fontSize={BADGE_FONT_PX}
+        fontWeight={isPlan ? 500 : 600}
+        className="tabular-nums"
+      >
+        {p.text}
+      </text>
+    );
+  };
 
   return (
     <g pointerEvents="none">

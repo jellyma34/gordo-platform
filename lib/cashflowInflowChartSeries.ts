@@ -10,12 +10,16 @@ export const CASHFLOW_INFLOW_FACT = {
   activeDotR: 6.5,
 } as const;
 
+/** Мягкая secondary-линия плана (пастельный голубой, ниже контраста чем факт). */
 export const CASHFLOW_INFLOW_PLAN = {
-  stroke: "#ea580c",
-  strokeWidth: 3,
+  stroke: "#AFC6FF",
+  /** Подписи значений у точек плана */
+  label: "#94A8D8",
+  strokeWidth: 2.5,
+  strokeOpacity: 0.88,
   strokeDasharray: "6 4",
-  dotR: 4.5,
-  activeDotR: 6,
+  dotR: 3.5,
+  activeDotR: 5,
 } as const;
 
 export function cashflowInflowDotRingStroke(presDark: boolean): string {
@@ -53,6 +57,7 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
   return {
     stroke: CASHFLOW_INFLOW_PLAN.stroke,
     strokeWidth: CASHFLOW_INFLOW_PLAN.strokeWidth,
+    strokeOpacity: CASHFLOW_INFLOW_PLAN.strokeOpacity,
     strokeDasharray: CASHFLOW_INFLOW_PLAN.strokeDasharray,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
@@ -60,13 +65,14 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
       r: CASHFLOW_INFLOW_PLAN.dotR,
       fill: ring,
       stroke: CASHFLOW_INFLOW_PLAN.stroke,
-      strokeWidth: 2,
+      strokeWidth: 1.5,
+      strokeOpacity: 0.95,
     },
     activeDot: {
       r: CASHFLOW_INFLOW_PLAN.activeDotR,
       fill: ring,
       stroke: CASHFLOW_INFLOW_PLAN.stroke,
-      strokeWidth: 2.5,
+      strokeWidth: 2,
     },
     isAnimationActive: false as const,
   };
