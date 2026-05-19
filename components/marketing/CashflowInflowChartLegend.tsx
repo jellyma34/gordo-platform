@@ -100,8 +100,8 @@ function LegendRow({
   label: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="inline-flex h-[14px] items-center">{swatch}</span>
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="inline-flex shrink-0 translate-y-[2px]">{swatch}</span>
       <span className={`leading-none ${legendLabelClass(chrome)}`}>{label}</span>
     </span>
   );
@@ -112,7 +112,7 @@ export function CashflowInflowChartLegendToolbar({ chrome, className }: { chrome
   const wrap = legendMutedWrapClass(chrome);
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] font-medium tabular-nums ${wrap} ${className ?? ""}`}
+      className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[10.5px] font-semibold tabular-nums ${wrap} ${className ?? ""}`}
       aria-label="Легенда серий"
     >
       <LegendRow chrome={chrome} swatch={<CashflowInflowLegendSwatchFact presDark={chrome.presDark} />} label="Факт" />
@@ -128,7 +128,7 @@ export function CashflowInflowChartLegendToolbar({ chrome, className }: { chrome
 export function createCashflowInflowChartLegendRechartsContent(chrome: Chrome): () => ReactNode {
   return function CashflowInflowChartLegendRechartsContent() {
     return (
-      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 px-1 py-1">
+      <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-0.5 px-1 py-0.5">
         <CashflowInflowChartLegendToolbar chrome={chrome} />
       </div>
     );

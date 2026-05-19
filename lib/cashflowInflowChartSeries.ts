@@ -4,18 +4,18 @@
  */
 
 export const CASHFLOW_INFLOW_FACT = {
-  stroke: "#1e40af",
-  strokeWidth: 2.25,
-  dotR: 4,
-  activeDotR: 5,
+  stroke: "#1d4ed8",
+  strokeWidth: 3,
+  dotR: 5,
+  activeDotR: 6.5,
 } as const;
 
 export const CASHFLOW_INFLOW_PLAN = {
-  stroke: "#F97316",
-  strokeWidth: 2.35,
+  stroke: "#ea580c",
+  strokeWidth: 3,
   strokeDasharray: "6 4",
-  dotR: 3.5,
-  activeDotR: 4.5,
+  dotR: 4.5,
+  activeDotR: 6,
 } as const;
 
 export function cashflowInflowDotRingStroke(presDark: boolean): string {
@@ -28,14 +28,21 @@ export function cashflowInflowFactLineProps(presDark: boolean) {
   return {
     stroke: CASHFLOW_INFLOW_FACT.stroke,
     strokeWidth: CASHFLOW_INFLOW_FACT.strokeWidth,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
     connectNulls: false as const,
     dot: {
       r: CASHFLOW_INFLOW_FACT.dotR,
       fill: CASHFLOW_INFLOW_FACT.stroke,
       stroke: ring,
-      strokeWidth: 1,
+      strokeWidth: 1.5,
     },
-    activeDot: { r: CASHFLOW_INFLOW_FACT.activeDotR },
+    activeDot: {
+      r: CASHFLOW_INFLOW_FACT.activeDotR,
+      fill: CASHFLOW_INFLOW_FACT.stroke,
+      stroke: ring,
+      strokeWidth: 2,
+    },
     isAnimationActive: false as const,
   };
 }
@@ -47,13 +54,20 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
     stroke: CASHFLOW_INFLOW_PLAN.stroke,
     strokeWidth: CASHFLOW_INFLOW_PLAN.strokeWidth,
     strokeDasharray: CASHFLOW_INFLOW_PLAN.strokeDasharray,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
     dot: {
       r: CASHFLOW_INFLOW_PLAN.dotR,
       fill: CASHFLOW_INFLOW_PLAN.stroke,
       stroke: ring,
-      strokeWidth: 1,
+      strokeWidth: 1.5,
     },
-    activeDot: { r: CASHFLOW_INFLOW_PLAN.activeDotR },
+    activeDot: {
+      r: CASHFLOW_INFLOW_PLAN.activeDotR,
+      fill: CASHFLOW_INFLOW_PLAN.stroke,
+      stroke: ring,
+      strokeWidth: 2,
+    },
     isAnimationActive: false as const,
   };
 }

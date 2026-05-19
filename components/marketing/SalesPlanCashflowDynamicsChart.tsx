@@ -52,13 +52,13 @@ const CHART_LABEL_MIN_RUB = 1_000_000;
 const CHART_LABEL_ALWAYS_SHOW_RUB = 5_000_000;
 /** План: нижняя полоса — значения ≥ 3 млн, пики, первый и последний месяц (≥ 1 млн). */
 const CHART_PLAN_BAND_THRESHOLD_RUB = 3_000_000;
-const CHART_MARGIN_TOP_LIGHT_LABELS = 40;
+const CHART_MARGIN_TOP_LIGHT_LABELS = 26;
 /** Нижний отступ SVG: подписи месяцев оси X и запас под подписи значений у линий. */
-const CHART_MARGIN_BOTTOM = 82;
+const CHART_MARGIN_BOTTOM = 76;
 /** Запас над зоной тиков оси X (px), включая мобильные переносы. */
 const X_AXIS_LABEL_BAND_RESERVE = 44;
 /** Факт: вертикальный зазор центра подписи над точкой (только текст, без налезания на линию). */
-const LABEL_OFFSET_FACT_ABOVE = 7;
+const LABEL_OFFSET_FACT_ABOVE = 5;
 /** Доп. подъём синих подписей факта: презентация + нарастающий итог (плато у линии). */
 const LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA = 8;
 /** Базовый доп. подъём для всех cumulative-лейблов факта (до плато / collision). */
@@ -66,7 +66,7 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 /** Запас от нижнего края подписи факта до полосы подписей месяцев (направляющих больше нет). */
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
-const LABEL_OFFSET_PLAN_ABOVE = 7;
+const LABEL_OFFSET_PLAN_ABOVE = 5;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -112,8 +112,8 @@ const NEAR_X_AXIS_PX = 72;
 const NEAR_AXIS_LIFT_MAX = 20;
 
 /** Размеры подписей значений у линий (только текст, без фона). */
-const BADGE_FONT_PX = 11;
-const BADGE_H_PX = 22;
+const BADGE_FONT_PX = 12;
+const BADGE_H_PX = 24;
 const BADGE_PAD_X = 9;
 
 type PlotRect = { x: number; y: number; width: number; height: number };
@@ -249,7 +249,7 @@ const CHART_MARGIN_LEFT_PX = 10;
 const CHART_Y_AXIS_WIDTH_PX = 88;
 /** Зазор таблетки от границы области построения (сетка, подписи тиков). */
 const BADGE_CLEAR_FROM_PLOT_EDGE_PX = 8;
-const BADGE_CLEAR_FROM_CHART_TOP_PX = 10;
+const BADGE_CLEAR_FROM_CHART_TOP_PX = 6;
 const BADGE_CLEAR_FROM_CHART_RIGHT_PX = 10;
 
 function chartBadgeSafeBounds(
@@ -480,27 +480,27 @@ export function CashflowTooltip({
   const row = payload[0]?.payload as CashflowChartRow | undefined;
   if (!row) return null;
   const base = darkChrome
-    ? "border-slate-500/45 bg-[#0b1220]/95 text-slate-100"
+    ? "border-slate-500/40 bg-[#0b1220]/92 text-slate-100 backdrop-blur-md"
     : mplPremium
-      ? "border-black/[0.04] bg-white/90 text-mpl-text backdrop-blur-md"
-      : "border-mpl-border bg-mpl-card text-mpl-text";
+      ? "border-black/[0.05] bg-white/92 text-mpl-text shadow-[0_10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md"
+      : "border-slate-200/80 bg-white/95 text-slate-900 shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-sm";
   return (
-    <div className={`rounded-lg px-3 py-2 text-xs shadow-lg ring-1 ${base}`}>
-      <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>{row.label}</div>
-      <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-mpl-text"}`}>
-        <span className="text-orange-500">
+    <div className={`rounded-xl px-3.5 py-2.5 text-xs ring-1 ring-black/[0.04] ${base}`}>
+      <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-slate-900"}`}>{row.label}</div>
+      <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-slate-800"}`}>
+        <span className="text-[#ea580c]">
           План: {row.plan != null ? formatCashflowTooltipRub(row.plan) : "—"}
         </span>
         {row.fact != null ? (
           <>
-            <span className={darkChrome ? "text-slate-500" : "text-mpl-muted"}> / </span>
-            <span className="text-[#1e40af]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
+            <span className={darkChrome ? "text-slate-500" : "text-slate-400"}> / </span>
+            <span className="text-[#1d4ed8]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
           </>
         ) : null}
       </div>
       {row.fact != null && row.deviation != null ? (
         <div
-          className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : mplPremium ? "border-black/[0.06]" : "border-mpl-border"}`}
+          className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : mplPremium ? "border-black/[0.06]" : "border-slate-200/70"}`}
         >
           <span className={darkChrome ? "text-slate-400" : "text-mpl-muted"}>Отклонение</span>
           <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatCashflowTooltipRub(row.deviation)}</span>
@@ -540,11 +540,11 @@ export function CashflowDynamicsSvgLabels({
 
   const planPillFill = "#ffffff";
   const planPillStroke = presDark ? "rgba(234,88,12,0.62)" : "rgba(234,88,12,0.48)";
-  const planPillText = presDark ? "#7c2d12" : "#9a3412";
+  const planPillText = presDark ? "#9a3412" : "#c2410c";
 
   const factPillFill = "#ffffff";
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
-  const factPillText = "#1d4ed8";
+  const factPillText = presDark ? "#93c5fd" : "#1e40af";
 
   const factCandidates = useMemo(
     () => buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined),
@@ -1008,6 +1008,8 @@ export function SalesPlanCashflowDynamicsChart({
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
         tickCount: Math.max(1, chartData.length),
+        translateYPx: 4,
+        tickFill: presDark ? "#cbd5e1" : "#374151",
       }),
     [presDark, chartData.length],
   );
@@ -1032,8 +1034,9 @@ export function SalesPlanCashflowDynamicsChart({
     );
   }
 
-  const gridStroke = presDark ? "rgba(148,163,184,0.12)" : "rgba(148,163,184,0.35)";
-  const axisColor = presDark ? "#94a3b8" : "#64748b";
+  const gridStroke = presDark ? "rgba(148,163,184,0.08)" : "rgba(148,163,184,0.16)";
+  const axisColor = presDark ? "#94a3b8" : "#475569";
+  const monthAxisColor = presDark ? "#cbd5e1" : "#334155";
 
   return (
     <div
@@ -1047,7 +1050,7 @@ export function SalesPlanCashflowDynamicsChart({
               : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       }
     >
-      <div className="mb-4">
+      <div className="mb-3">
         <h3
           className={`mb-2 text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
         >
@@ -1145,7 +1148,7 @@ export function SalesPlanCashflowDynamicsChart({
         </div>
       ) : null}
 
-      <div className="min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-3 pb-4">
+      <div className="min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-1 pb-3">
         <div className="h-[320px] min-h-[320px] w-full overflow-visible [&_svg]:overflow-visible">
           <ResponsiveContainer
             width="100%"
@@ -1156,25 +1159,25 @@ export function SalesPlanCashflowDynamicsChart({
             <LineChart
               data={chartData}
               margin={{
-                top: presDark ? 30 : CHART_MARGIN_TOP_LIGHT_LABELS,
+                top: presDark ? 20 : CHART_MARGIN_TOP_LIGHT_LABELS,
                 right: 12,
                 left: CHART_MARGIN_LEFT_PX,
                 bottom: CHART_MARGIN_BOTTOM,
               }}
             >
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+            <CartesianGrid strokeDasharray="4 6" stroke={gridStroke} vertical={false} />
             <XAxis
               dataKey="label"
               type="category"
               {...(presentation
                 ? { ...MARKETING_DEALS_STYLE_MONTH_X_AXIS, tick: presentationMonthXTick }
                 : {
-                    tick: { fill: axisColor, fontSize: 10 },
+                    tick: { fill: monthAxisColor, fontSize: 10.5, fontWeight: 500 },
                     axisLine: { stroke: gridStroke },
                     tickLine: false,
                     angle: -90,
                     textAnchor: "end" as const,
-                    tickMargin: 12,
+                    tickMargin: 14,
                     interval: 0,
                     minTickGap: 5,
                   })}
@@ -1191,7 +1194,7 @@ export function SalesPlanCashflowDynamicsChart({
             />
             <Tooltip
               content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
-              cursor={{ stroke: presDark ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.35)" }}
+              cursor={{ stroke: presDark ? "rgba(148,163,184,0.28)" : "rgba(100,116,139,0.22)" }}
             />
             <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
             <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />

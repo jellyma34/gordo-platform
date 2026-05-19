@@ -33,6 +33,8 @@ export type MarketingDealsStyleMonthTickOptions = {
   isTickMuted?: (index: number) => boolean;
   /** Доп. сдвиг подписи вниз по SVG (px), для отдельных графиков. */
   translateYPx?: number;
+  /** Переопределение цвета подписи (если нет isTickMuted). */
+  tickFill?: string;
 };
 
 /**
@@ -57,8 +59,8 @@ export function createMarketingDealsStyleMonthTickRenderer(
         : opts.presDark
           ? "#e2e8f0"
           : MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT
-      : axisColor;
-    const fs = n > 14 ? 8.5 : 9.5;
+      : (opts.tickFill ?? axisColor);
+    const fs = n > 14 ? 8.5 : 10;
     const v = payload?.value;
     const label = v == null ? "" : String(v);
     const xf = typeof x === "number" ? x : Number(x);
@@ -71,6 +73,7 @@ export function createMarketingDealsStyleMonthTickRenderer(
           y={0}
           fill={fill}
           fontSize={fs}
+          fontWeight={500}
           textAnchor="end"
           dominantBaseline="central"
           transform="rotate(-45)"
