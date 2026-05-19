@@ -87,6 +87,8 @@ const FACT_PLAN_COLLISION_FACT_SHIFT_PX = 8;
 const FACT_PLAN_COLLISION_PLAN_SHIFT_PX = 8;
 /** Первая точка: подписи правее, чтобы не налезать на тики оси Y. */
 const FIRST_POINT_LABEL_X_OFFSET_PX = 14;
+/** Нарастающий итог: первая синяя подпись чуть ниже (зазор от «40» и линии плана). */
+const CUMULATIVE_FIRST_FACT_LABEL_Y_EXTRA_DOWN_PX = 10;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -473,6 +475,8 @@ function buildCashflowPointOverlayLabels(opts: {
   factIndices: ReadonlySet<number> | null;
   planIndices: ReadonlySet<number> | null;
   planLabelBelowPoint?: boolean;
+  /** Только первая подпись Fact: доп. сдвиг вниз (px), 0 — без сдвига. */
+  firstPointFactLabelExtraDownPx?: number;
 }): { fact: CashflowOverlayLabel[]; plan: CashflowOverlayLabel[] } {
   const {
     chartData,
@@ -484,6 +488,7 @@ function buildCashflowPointOverlayLabels(opts: {
     factIndices,
     planIndices,
     planLabelBelowPoint = false,
+    firstPointFactLabelExtraDownPx = 0,
   } = opts;
   const halfH = BADGE_H_PX / 2;
   const n = chartData.length;
@@ -531,6 +536,9 @@ function buildCashflowPointOverlayLabels(opts: {
     if (factY != null && factPointY != null && hasFact) {
       factY = nudgePointLabelYAbovePoint(factY, halfH, factPointY);
       factY = nudgePointLabelYAboveGrid(factY, halfH, gridLineYs);
+      if (index === 0 && firstPointFactLabelExtraDownPx > 0) {
+        factY += firstPointFactLabelExtraDownPx;
+      }
       const text = formatLabel(factValue);
       if (text) fact.push({ key: `fact-${row.periodKey}-${index}`, x: labelX, y: factY, text });
     }
@@ -614,6 +622,8 @@ function CashflowPointLabelsOverlay({
       factIndices,
       planIndices,
       planLabelBelowPoint: planFactExecutionLabels,
+      firstPointFactLabelExtraDownPx:
+        mode === "cumulative" ? CUMULATIVE_FIRST_FACT_LABEL_Y_EXTRA_DOWN_PX : 0,
     });
   }, [
     chartData,
