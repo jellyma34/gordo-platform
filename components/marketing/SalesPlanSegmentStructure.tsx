@@ -248,9 +248,81 @@ type Props = {
   parkingCsv?: MarketingParkingCsvStoredV1 | null;
   /** База кладовых из CSV — для доли выручки в карточке «Кладовые». */
   storagesCsv?: MarketingStoragesCsvStoredV1 | null;
+  /** План проекта в штуках (CSV исполнения) — «из X шт» в карточке «Коммерция». */
+  commercialInventoryUnits?: number | null;
   /** Предупреждение об отсутствии колонки стоимости — только режим редактирования. */
   showApartmentsShareWarning?: boolean;
 };
+
+type SegmentStructurePrimaryKpiProps = {
+  count: number;
+  inventoryTotal: number | null;
+  sumRub: number;
+  valueClass: string;
+  presDark: boolean;
+};
+
+/** Единый блок KPI: крупное число + «из X шт», выручка отдельной строкой. */
+function SegmentStructurePrimaryKpi({
+  count,
+  inventoryTotal,
+  sumRub,
+  valueClass,
+  presDark,
+}: SegmentStructurePrimaryKpiProps) {
+  const mutedCount = presDark ? "text-slate-500" : "text-slate-400";
+  return (
+    <div className="mt-1 min-w-0">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span
+          className={`text-[30px] font-bold leading-none tabular-nums tracking-tight sm:text-[34px] ${valueClass}`}
+        >
+          {numFmt.format(count)}
+        </span>
+        {inventoryTotal != null && inventoryTotal > 0 ? (
+          <span
+            className={`shrink-0 text-[12px] font-normal leading-none tabular-nums sm:text-[13px] ${mutedCount} opacity-50`}
+          >
+            из {numFmt.format(inventoryTotal)} шт
+          </span>
+        ) : (
+          <span
+            className={`shrink-0 text-[12px] font-normal leading-none sm:text-[13px] ${mutedCount} opacity-50`}
+          >
+            шт
+          </span>
+        )}
+      </div>
+      <div className={`mt-1.5 text-xl font-semibold leading-none tabular-nums sm:text-2xl ${valueClass}`}>
+        {compactRub(sumRub)}
+      </div>
+    </div>
+  );
+}
+
+function resolveSegmentInventoryTotal(
+  key: DealSegmentKey,
+  pools: {
+    apartments: ReturnType<typeof sumApartmentsCsvTotalRevenue> | null;
+    parking: ReturnType<typeof sumParkingCsvTotalRevenue> | null;
+    storages: ReturnType<typeof sumStoragesCsvTotalRevenue> | null;
+    commercialInventoryUnits: number | null | undefined;
+  },
+): number | null {
+  if (key === "apartment" && pools.apartments != null && pools.apartments.totalCount > 0) {
+    return pools.apartments.totalCount;
+  }
+  if (key === "parking" && pools.parking != null && pools.parking.totalCount > 0) {
+    return pools.parking.totalCount;
+  }
+  if (key === "storage" && pools.storages != null && pools.storages.totalCount > 0) {
+    return pools.storages.totalCount;
+  }
+  if (key === "commercial" && pools.commercialInventoryUnits != null && pools.commercialInventoryUnits > 0) {
+    return pools.commercialInventoryUnits;
+  }
+  return null;
+}
 
 export function SalesPlanSegmentStructure({
   presentation,
@@ -259,6 +331,7 @@ export function SalesPlanSegmentStructure({
   apartmentsCsv = null,
   parkingCsv = null,
   storagesCsv = null,
+  commercialInventoryUnits = null,
   showApartmentsShareWarning = false,
 }: Props) {
   const mplPremium = useMarketingPresentationLight();
@@ -421,56 +494,18 @@ export function SalesPlanSegmentStructure({
                     labelTone={labelTone}
                     className="mb-1"
                   />
-                  {(c.key === "apartment" &&
-                    apartmentsRevenuePool != null &&
-                    apartmentsRevenuePool.totalCount > 0) ||
-                  (c.key === "parking" &&
-                    parkingRevenuePool != null &&
-                    parkingRevenuePool.totalCount > 0) ||
-                  (c.key === "storage" &&
-                    storagesRevenuePool != null &&
-                    storagesRevenuePool.totalCount > 0) ? (
-                    <div className="mt-1 min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span
-                          className={`text-[30px] font-bold leading-none tabular-nums tracking-tight sm:text-[34px] ${vs.value}`}
-                        >
-                          {numFmt.format(c.count)}
-                        </span>
-                        <span
-                          className={`shrink-0 text-[12px] font-normal leading-none tabular-nums sm:text-[13px] ${
-                            presDark ? "text-slate-500" : "text-slate-400"
-                          } opacity-50`}
-                        >
-                          из{" "}
-                          {numFmt.format(
-                            c.key === "apartment"
-                              ? apartmentsRevenuePool!.totalCount
-                              : c.key === "parking"
-                                ? parkingRevenuePool!.totalCount
-                                : storagesRevenuePool!.totalCount,
-                          )}{" "}
-                          шт
-                        </span>
-                      </div>
-                      <div
-                        className={`mt-1.5 text-xl font-semibold leading-none tabular-nums sm:text-2xl ${vs.value}`}
-                      >
-                        {compactRub(c.sum)}
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={`mt-1 text-2xl font-medium leading-none tabular-nums sm:text-[30px] ${vs.value}`}
-                    >
-                      <span className="tabular-nums">{numFmt.format(c.count)}</span>
-                      <span className="opacity-70"> шт</span>
-                      <span className="inline-block px-0.5 opacity-45 select-none" aria-hidden>
-                        {" · "}
-                      </span>
-                      <span className="tabular-nums">{compactRub(c.sum)}</span>
-                    </div>
-                  )}
+                  <SegmentStructurePrimaryKpi
+                    count={c.count}
+                    inventoryTotal={resolveSegmentInventoryTotal(c.key, {
+                      apartments: apartmentsRevenuePool,
+                      parking: parkingRevenuePool,
+                      storages: storagesRevenuePool,
+                      commercialInventoryUnits,
+                    })}
+                    sumRub={c.sum}
+                    valueClass={vs.value}
+                    presDark={presDark}
+                  />
                   <div className="mt-1.5 tabular-nums leading-snug">
                     <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
                     <div

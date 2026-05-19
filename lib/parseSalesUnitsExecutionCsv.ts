@@ -313,6 +313,7 @@ function pickCol(headers: string[], predicate: (n: string) => boolean): number |
 
 function buildColumnIndices(headers: string[]): {
   nameCol: number;
+  planProject: number | null;
   planCumulative: number | null;
   factCumulative: number | null;
   deviation: number | null;
@@ -321,6 +322,11 @@ function buildColumnIndices(headers: string[]): {
 } | null {
   const nameCol = pickCol(headers, (n) => n.includes("наимен") || n.includes("наименование"));
   if (nameCol == null) return null;
+
+  const planProject = pickCol(
+    headers,
+    (n) => n.includes("план") && n.includes("проект") && !n.includes("накопит") && !n.includes("накоп"),
+  );
 
   /** План в штуках: «план накопит…»; fallback — план+накопит без % / выполн / проект. */
   let planCumulative = pickCol(
@@ -385,7 +391,7 @@ function buildColumnIndices(headers: string[]): {
 
   if (planCumulative == null || factCumulative == null) return null;
 
-  return { nameCol, planCumulative, factCumulative, deviation, completionPct, shareVol };
+  return { nameCol, planProject, planCumulative, factCumulative, deviation, completionPct, shareVol };
 }
 
 function shouldSkipName(segmentNorm: string): boolean {
@@ -530,7 +536,8 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     const segKey = matchSegment(segmentNorm);
     if (!segKey) continue;
 
-    const planProject = 0;
+    const planProject =
+      col.planProject != null ? normalizeUnitCell(row[col.planProject] ?? "") : 0;
     const planCumulative = normalizeUnitCell(row[planCumIdx] ?? "");
     const factCumulative = normalizeUnitCell(row[factCumIdx] ?? "");
     const deviationCumulative =

@@ -887,6 +887,12 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     [unitsExecutionCharts],
   );
 
+  const commercialInventoryUnits = useMemo(() => {
+    const row = unitsExecutionCharts?.segments?.find((s) => s.key === "commercial");
+    const n = row?.planProject ?? 0;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [unitsExecutionCharts]);
+
   const [supplementalMarketingHydrated, setSupplementalMarketingHydrated] = useState(false);
 
   useEffect(() => {
@@ -3463,6 +3469,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         apartmentsCsv={apartmentsCsvDoc}
         parkingCsv={parkingCsvDoc}
         storagesCsv={storagesCsvDoc}
+        commercialInventoryUnits={commercialInventoryUnits}
         showApartmentsShareWarning={!presentation}
       />
 
