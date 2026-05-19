@@ -133,9 +133,7 @@ export function SalesPlanSegmentPlanFactBarChart({
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const mplLight = useMarketingPresentationLight();
 
-  const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>(() =>
-    marketingPeriod === "quarter" ? "quarter" : "month",
-  );
+  const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>("all");
   const [segmentScope, setSegmentScope] = useState<SegmentChartScope>("all");
   /** Явный выбор месяца YYYY-MM (совпадает с колонками «Сделки по месяцам»). */
   const [userMonthKey, setUserMonthKey] = useState<string | null>(null);
