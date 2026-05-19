@@ -35,6 +35,8 @@ export type MarketingDealsStyleMonthTickOptions = {
   translateYPx?: number;
   /** Переопределение цвета подписи (если нет isTickMuted). */
   tickFill?: string;
+  /** Угол поворота подписи; по умолчанию -45 (сделки), 0 — горизонтально (кэшфлоу). */
+  labelRotateDeg?: number;
 };
 
 /**
@@ -66,6 +68,8 @@ export function createMarketingDealsStyleMonthTickRenderer(
     const xf = typeof x === "number" ? x : Number(x);
     const yf = typeof y === "number" ? y : Number(y);
     const dy = opts.translateYPx ?? 0;
+    const rot = opts.labelRotateDeg ?? -45;
+    const textAnchor = rot === 0 ? "middle" : "end";
     return (
       <g transform={`translate(${xf},${yf + dy})`}>
         <text
@@ -74,9 +78,9 @@ export function createMarketingDealsStyleMonthTickRenderer(
           fill={fill}
           fontSize={fs}
           fontWeight={500}
-          textAnchor="end"
+          textAnchor={textAnchor}
           dominantBaseline="central"
-          transform="rotate(-45)"
+          transform={rot === 0 ? undefined : `rotate(${rot})`}
         >
           {label}
         </text>

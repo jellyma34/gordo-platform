@@ -58,15 +58,15 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
     strokeLinejoin: "round" as const,
     dot: {
       r: CASHFLOW_INFLOW_PLAN.dotR,
-      fill: CASHFLOW_INFLOW_PLAN.stroke,
-      stroke: ring,
-      strokeWidth: 1.5,
+      fill: ring,
+      stroke: CASHFLOW_INFLOW_PLAN.stroke,
+      strokeWidth: 2,
     },
     activeDot: {
       r: CASHFLOW_INFLOW_PLAN.activeDotR,
-      fill: CASHFLOW_INFLOW_PLAN.stroke,
-      stroke: ring,
-      strokeWidth: 2,
+      fill: ring,
+      stroke: CASHFLOW_INFLOW_PLAN.stroke,
+      strokeWidth: 2.5,
     },
     isAnimationActive: false as const,
   };

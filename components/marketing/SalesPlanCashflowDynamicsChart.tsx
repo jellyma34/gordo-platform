@@ -52,13 +52,13 @@ const CHART_LABEL_MIN_RUB = 1_000_000;
 const CHART_LABEL_ALWAYS_SHOW_RUB = 5_000_000;
 /** План: нижняя полоса — значения ≥ 3 млн, пики, первый и последний месяц (≥ 1 млн). */
 const CHART_PLAN_BAND_THRESHOLD_RUB = 3_000_000;
-const CHART_MARGIN_TOP_LIGHT_LABELS = 26;
+const CHART_MARGIN_TOP_LIGHT_LABELS = 20;
 /** Нижний отступ SVG: подписи месяцев оси X и запас под подписи значений у линий. */
-const CHART_MARGIN_BOTTOM = 76;
+const CHART_MARGIN_BOTTOM = 64;
 /** Запас над зоной тиков оси X (px), включая мобильные переносы. */
-const X_AXIS_LABEL_BAND_RESERVE = 44;
+const X_AXIS_LABEL_BAND_RESERVE = 36;
 /** Факт: вертикальный зазор центра подписи над точкой (только текст, без налезания на линию). */
-const LABEL_OFFSET_FACT_ABOVE = 5;
+const LABEL_OFFSET_FACT_ABOVE = 4;
 /** Доп. подъём синих подписей факта: презентация + нарастающий итог (плато у линии). */
 const LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA = 8;
 /** Базовый доп. подъём для всех cumulative-лейблов факта (до плато / collision). */
@@ -66,7 +66,7 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 /** Запас от нижнего края подписи факта до полосы подписей месяцев (направляющих больше нет). */
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
-const LABEL_OFFSET_PLAN_ABOVE = 5;
+const LABEL_OFFSET_PLAN_ABOVE = 4;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -1003,15 +1003,26 @@ export function SalesPlanCashflowDynamicsChart({
     return { yDomainMax: domainMax, yTicks: ticks };
   }, [chartData]);
 
-  const presentationMonthXTick = useMemo(
+  const monthXTick = useMemo(
     () =>
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
         tickCount: Math.max(1, chartData.length),
-        translateYPx: 4,
+        translateYPx: 6,
         tickFill: presDark ? "#cbd5e1" : "#374151",
+        labelRotateDeg: 0,
       }),
     [presDark, chartData.length],
+  );
+
+  const cashflowMonthXAxis = useMemo(
+    () => ({
+      ...MARKETING_DEALS_STYLE_MONTH_X_AXIS,
+      height: 34,
+      tickMargin: 6,
+      tick: monthXTick,
+    }),
+    [monthXTick],
   );
 
   const segmentSurface = presDark ? "dark" : mplPremium && presentation ? "premium" : "light";
@@ -1034,9 +1045,8 @@ export function SalesPlanCashflowDynamicsChart({
     );
   }
 
-  const gridStroke = presDark ? "rgba(148,163,184,0.08)" : "rgba(148,163,184,0.16)";
+  const gridStroke = presDark ? "rgba(148,163,184,0.07)" : "rgba(148,163,184,0.12)";
   const axisColor = presDark ? "#94a3b8" : "#475569";
-  const monthAxisColor = presDark ? "#cbd5e1" : "#334155";
 
   return (
     <div
@@ -1051,13 +1061,12 @@ export function SalesPlanCashflowDynamicsChart({
       }
     >
       <div className="mb-3">
-        <h3
-          className={`mb-2 text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
-        >
-          Динамика поступлений
-        </h3>
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3
+            className={`text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
+          >
+            Динамика поступлений
+          </h3>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <button
               type="button"
@@ -1075,6 +1084,7 @@ export function SalesPlanCashflowDynamicsChart({
             </button>
           </div>
         </div>
+        <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="mt-2" />
       </div>
 
       {factUnavailableMessage ? (
@@ -1159,33 +1169,18 @@ export function SalesPlanCashflowDynamicsChart({
             <LineChart
               data={chartData}
               margin={{
-                top: presDark ? 20 : CHART_MARGIN_TOP_LIGHT_LABELS,
+                top: presDark ? 16 : CHART_MARGIN_TOP_LIGHT_LABELS,
                 right: 12,
                 left: CHART_MARGIN_LEFT_PX,
                 bottom: CHART_MARGIN_BOTTOM,
               }}
             >
             <CartesianGrid strokeDasharray="4 6" stroke={gridStroke} vertical={false} />
-            <XAxis
-              dataKey="label"
-              type="category"
-              {...(presentation
-                ? { ...MARKETING_DEALS_STYLE_MONTH_X_AXIS, tick: presentationMonthXTick }
-                : {
-                    tick: { fill: monthAxisColor, fontSize: 10.5, fontWeight: 500 },
-                    axisLine: { stroke: gridStroke },
-                    tickLine: false,
-                    angle: -90,
-                    textAnchor: "end" as const,
-                    tickMargin: 14,
-                    interval: 0,
-                    minTickGap: 5,
-                  })}
-            />
+            <XAxis dataKey="label" type="category" {...cashflowMonthXAxis} />
             <YAxis
               domain={[0, yDomainMax]}
               ticks={yTicks}
-              tick={{ fill: axisColor, fontSize: 10 }}
+              tick={{ fill: axisColor, fontSize: 10, fontWeight: 500 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => formatCashflowYAxisMlnRub(Number(v))}

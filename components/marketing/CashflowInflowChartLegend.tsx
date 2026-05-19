@@ -82,9 +82,9 @@ function CashflowInflowLegendSwatchPlan({ presDark }: SwatchProps) {
         cx={plan.dotCx}
         cy={midY}
         r={CASHFLOW_INFLOW_PLAN.dotR}
-        fill={CASHFLOW_INFLOW_PLAN.stroke}
-        stroke={ring}
-        strokeWidth={1}
+        fill={ring}
+        stroke={CASHFLOW_INFLOW_PLAN.stroke}
+        strokeWidth={2}
       />
     </svg>
   );
@@ -112,7 +112,7 @@ export function CashflowInflowChartLegendToolbar({ chrome, className }: { chrome
   const wrap = legendMutedWrapClass(chrome);
   return (
     <div
-      className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[10.5px] font-semibold tabular-nums ${wrap} ${className ?? ""}`}
+      className={`flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-[10.5px] font-semibold tabular-nums ${wrap} ${className ?? ""}`}
       aria-label="Легенда серий"
     >
       <LegendRow chrome={chrome} swatch={<CashflowInflowLegendSwatchFact presDark={chrome.presDark} />} label="Факт" />
