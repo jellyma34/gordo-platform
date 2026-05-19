@@ -78,6 +78,11 @@ const CUM_POINT_LABEL_Y_OFFSET_FACT = 12;
 const CUM_POINT_LABEL_Y_OFFSET_PLAN = 14;
 /** Зазор нижнего края подписи над горизонтальной линией сетки (только при пересечении). */
 const CUM_LABEL_GRID_LINE_CLEARANCE_PX = 5;
+/** Минимальный зазор между подписями Fact и Plan на одном месяце. */
+const CUM_FACT_PLAN_MIN_LABEL_GAP_PX = 18;
+/** Разведение пары Fact/Plan: факт выше своей точки, план ниже своей. */
+const CUM_FACT_PLAN_SPREAD_FACT_ABOVE_PX = 8;
+const CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX = 18;
 /** Смещения при коллизии: база всегда от pointY, dy>0 поднимает выше. */
 const CUM_LABEL_COLLISION_SHIFTS: ReadonlyArray<{ dx: number; dy: number }> = [
   { dx: 0, dy: 0 },
@@ -463,7 +468,23 @@ function nudgeCumulativeLabelYAboveGrid(labelY: number, halfH: number, gridLineY
   return y;
 }
 
-type CumulativePlacedLabel = { x: number; y: number; box: LabelBBox; pillW: number };
+type CumulativePlacedLabel = { x: number; y: number; box: LabelBBox; pillW: number; pointY: number };
+
+function buildCumulativePlacedLabel(
+  pointX: number,
+  pointY: number,
+  labelY: number,
+  text: string,
+  pillH: number,
+  safeLeft: number,
+  safeRight: number,
+  pillW: number,
+): CumulativePlacedLabel {
+  const halfW = pillW / 2;
+  const x = clamp(pointX, safeLeft + halfW, safeRight - halfW);
+  const y = labelY;
+  return { x, y, box: labelBBoxCenteredPill(x, y, pillW, pillH), pillW, pointY };
+}
 
 function placeCumulativeLabelAtPoint(opts: {
   pointX: number;
@@ -475,25 +496,88 @@ function placeCumulativeLabelAtPoint(opts: {
   safeRight: number;
   keptBoxes: readonly LabelBBox[];
   gridLineYs: readonly number[];
+  preferredLabelY?: number;
 }): CumulativePlacedLabel {
-  const { pointX, pointY, yOffset, text, pillH, safeLeft, safeRight, keptBoxes, gridLineYs } = opts;
+  const { pointX, pointY, yOffset, text, pillH, safeLeft, safeRight, keptBoxes, gridLineYs, preferredLabelY } = opts;
   const pillW = approxLabelWidthPx(text, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
   const halfW = pillW / 2;
   const halfH = pillH / 2;
   const minCx = safeLeft + halfW;
   const maxCx = safeRight - halfW;
-  const baseY = cumulativeLabelYFromPoint(pointY, yOffset);
+  const baseY = preferredLabelY ?? cumulativeLabelYFromPoint(pointY, yOffset);
 
   let fallback: CumulativePlacedLabel | null = null;
   for (const { dx, dy } of CUM_LABEL_COLLISION_SHIFTS) {
     const x = clamp(pointX + dx, minCx, maxCx);
     const y = nudgeCumulativeLabelYAboveGrid(baseY - dy, halfH, gridLineYs);
-    const box = labelBBoxCenteredPill(x, y, pillW, pillH);
-    const candidate = { x, y, box, pillW };
+    const candidate = buildCumulativePlacedLabel(x, pointY, y, text, pillH, safeLeft, safeRight, pillW);
     if (!fallback) fallback = candidate;
-    if (!labelOverlapsAny(box, keptBoxes)) return candidate;
+    if (!labelOverlapsAny(candidate.box, keptBoxes)) return candidate;
   }
   return fallback!;
+}
+
+/** Fact/Plan на одном месяце: развести, если подписи слишком близко по Y. */
+function spreadCumulativeFactPlanPairYs(opts: {
+  factPointY: number;
+  planPointY: number;
+  factLabelY: number;
+  planLabelY: number;
+  halfH: number;
+  gridLineYs: readonly number[];
+}): { factY: number; planY: number } {
+  const { factPointY, planPointY, factLabelY, planLabelY, halfH, gridLineYs } = opts;
+  if (Math.abs(factLabelY - planLabelY) >= CUM_FACT_PLAN_MIN_LABEL_GAP_PX) {
+    return { factY: factLabelY, planY: planLabelY };
+  }
+  let factY = nudgeCumulativeLabelYAboveGrid(
+    factPointY - CUM_FACT_PLAN_SPREAD_FACT_ABOVE_PX,
+    halfH,
+    gridLineYs,
+  );
+  let planY = nudgeCumulativeLabelYAboveGrid(
+    planPointY + CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX,
+    halfH,
+    gridLineYs,
+  );
+  const gap = Math.abs(factY - planY);
+  if (gap < CUM_FACT_PLAN_MIN_LABEL_GAP_PX) {
+    const extra = (CUM_FACT_PLAN_MIN_LABEL_GAP_PX - gap) / 2 + 1;
+    if (factY <= planY) {
+      factY -= extra;
+      planY += extra;
+    } else {
+      factY += extra;
+      planY -= extra;
+    }
+  }
+  return { factY, planY };
+}
+
+function tryShiftCumulativeLabelDx(
+  placed: CumulativePlacedLabel,
+  pointX: number,
+  text: string,
+  pillH: number,
+  safeLeft: number,
+  safeRight: number,
+  keptBoxes: readonly LabelBBox[],
+): CumulativePlacedLabel {
+  const halfH = pillH / 2;
+  for (const dx of [10, -10, 14, -14, 18, -18]) {
+    const shifted = buildCumulativePlacedLabel(
+      pointX + dx,
+      placed.pointY,
+      placed.y,
+      text,
+      pillH,
+      safeLeft,
+      safeRight,
+      placed.pillW,
+    );
+    if (!labelOverlapsAny(shifted.box, keptBoxes)) return shifted;
+  }
+  return placed;
 }
 
 function categoryPointX(
@@ -724,71 +808,127 @@ export function CashflowDynamicsSvgLabels({
       const keptBoxes: LabelBBox[] = [];
       const factPillsOut: Pill[] = [];
       const planPillsOut: Pill[] = [];
+      const halfH = pillH / 2;
 
-      for (const c of factCandidates) {
-        const row = chartData[c.index]!;
-        if (row.fact == null || !Number.isFinite(row.fact)) continue;
-        const pointX = categoryPointX(row, c.index, n, xCat, plot);
-        const pointY = yScale(row.fact);
-        if (pointX == null || pointY == null) continue;
-        const text = formatCashflowCumulativePointLabel(c.valueRub);
-        if (!text) continue;
-        const placed = placeCumulativeLabelAtPoint({
-          pointX,
-          pointY,
-          yOffset: CUM_POINT_LABEL_Y_OFFSET_FACT,
-          text,
-          pillH,
-          safeLeft,
-          safeRight,
-          keptBoxes,
-          gridLineYs,
-        });
-        keptBoxes.push(placed.box);
-        factPillsOut.push({
-          key: `fact-${row.periodKey}-${c.index}`,
-          cx: placed.x,
-          cy: placed.y,
-          pillW: placed.pillW,
-          pillH,
-          text,
-          fill: factPillFill,
-          stroke: factPillStroke,
-          textFill: factPillText,
-        });
-      }
+      const factByIndex = new Map(factCandidates.map((c) => [c.index, c] as const));
+      const planByIndex = new Map(planCandidates.map((c) => [c.index, c] as const));
+      const monthIndices = [...new Set([...factByIndex.keys(), ...planByIndex.keys()])].sort((a, b) => a - b);
 
-      for (const c of planCandidates) {
-        const row = chartData[c.index]!;
-        if (row.plan == null || !Number.isFinite(row.plan)) continue;
-        const pointX = categoryPointX(row, c.index, n, xCat, plot);
-        const pointY = yScale(row.plan);
-        if (pointX == null || pointY == null) continue;
-        const text = formatCashflowCumulativePointLabel(c.valueRub);
-        if (!text) continue;
-        const placed = placeCumulativeLabelAtPoint({
-          pointX,
-          pointY,
-          yOffset: CUM_POINT_LABEL_Y_OFFSET_PLAN,
-          text,
-          pillH,
-          safeLeft,
-          safeRight,
-          keptBoxes,
-          gridLineYs,
-        });
-        keptBoxes.push(placed.box);
-        planPillsOut.push({
-          key: `plan-${row.periodKey}-${c.index}`,
-          cx: placed.x,
-          cy: placed.y,
-          pillW: placed.pillW,
-          pillH,
-          text,
-          fill: planPillFill,
-          stroke: planPillStroke,
-          textFill: planPillText,
-        });
+      for (const index of monthIndices) {
+        const row = chartData[index]!;
+        const pointX = categoryPointX(row, index, n, xCat, plot);
+        if (pointX == null) continue;
+
+        const factCand = factByIndex.get(index);
+        const planCand = planByIndex.get(index);
+
+        let factPlaced: CumulativePlacedLabel | null = null;
+        let planPlaced: CumulativePlacedLabel | null = null;
+        let factPointY: number | null = null;
+        let planPointY: number | null = null;
+
+        if (factCand && row.fact != null && Number.isFinite(row.fact)) {
+          factPointY = yScale(row.fact) ?? null;
+          const text = formatCashflowCumulativePointLabel(factCand.valueRub);
+          if (factPointY != null && text) {
+            factPlaced = placeCumulativeLabelAtPoint({
+              pointX,
+              pointY: factPointY,
+              yOffset: CUM_POINT_LABEL_Y_OFFSET_FACT,
+              text,
+              pillH,
+              safeLeft,
+              safeRight,
+              keptBoxes,
+              gridLineYs,
+            });
+          }
+        }
+
+        if (planCand && row.plan != null && Number.isFinite(row.plan)) {
+          planPointY = yScale(row.plan) ?? null;
+          const text = formatCashflowCumulativePointLabel(planCand.valueRub);
+          if (planPointY != null && text) {
+            planPlaced = placeCumulativeLabelAtPoint({
+              pointX,
+              pointY: planPointY,
+              yOffset: CUM_POINT_LABEL_Y_OFFSET_PLAN,
+              text,
+              pillH,
+              safeLeft,
+              safeRight,
+              keptBoxes,
+              gridLineYs,
+            });
+          }
+        }
+
+        if (factPlaced && planPlaced && factPointY != null && planPointY != null) {
+          const spread = spreadCumulativeFactPlanPairYs({
+            factPointY,
+            planPointY,
+            factLabelY: factPlaced.y,
+            planLabelY: planPlaced.y,
+            halfH,
+            gridLineYs,
+          });
+          const factText = formatCashflowCumulativePointLabel(factCand!.valueRub);
+          const planText = formatCashflowCumulativePointLabel(planCand!.valueRub);
+          factPlaced = buildCumulativePlacedLabel(
+            factPlaced.x,
+            factPointY,
+            spread.factY,
+            factText,
+            pillH,
+            safeLeft,
+            safeRight,
+            factPlaced.pillW,
+          );
+          planPlaced = buildCumulativePlacedLabel(
+            planPlaced.x,
+            planPointY,
+            spread.planY,
+            planText,
+            pillH,
+            safeLeft,
+            safeRight,
+            planPlaced.pillW,
+          );
+        }
+
+        if (factPlaced) {
+          const factText = formatCashflowCumulativePointLabel(factCand!.valueRub);
+          factPlaced = tryShiftCumulativeLabelDx(factPlaced, pointX, factText, pillH, safeLeft, safeRight, keptBoxes);
+          keptBoxes.push(factPlaced.box);
+          factPillsOut.push({
+            key: `fact-${row.periodKey}-${index}`,
+            cx: factPlaced.x,
+            cy: factPlaced.y,
+            pillW: factPlaced.pillW,
+            pillH,
+            text: factText,
+            fill: factPillFill,
+            stroke: factPillStroke,
+            textFill: factPillText,
+          });
+        }
+
+        if (planPlaced) {
+          const planText = formatCashflowCumulativePointLabel(planCand!.valueRub);
+          planPlaced = tryShiftCumulativeLabelDx(planPlaced, pointX, planText, pillH, safeLeft, safeRight, keptBoxes);
+          keptBoxes.push(planPlaced.box);
+          planPillsOut.push({
+            key: `plan-${row.periodKey}-${index}`,
+            cx: planPlaced.x,
+            cy: planPlaced.y,
+            pillW: planPlaced.pillW,
+            pillH,
+            text: planText,
+            fill: planPillFill,
+            stroke: planPillStroke,
+            textFill: planPillText,
+          });
+        }
       }
 
       return { factPills: factPillsOut, planPills: planPillsOut };
