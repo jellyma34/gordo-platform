@@ -167,12 +167,12 @@ export function SalesPlanExecutionBlock({
   const segmentChartsHydrating = segmentExecutionCharts === undefined;
 
   const shell = presDark
-    ? "mb-7 rounded-2xl border border-slate-700/55 bg-[#1e293b] px-5 pb-5 pt-4 shadow-[0_8px_28px_rgba(0,0,0,0.2)] sm:px-6 sm:pb-6 sm:pt-4"
+    ? "rounded-2xl border border-slate-700/55 bg-[#1e293b] px-5 pb-5 pt-4 shadow-[0_8px_28px_rgba(0,0,0,0.2)] sm:px-6 sm:pb-6 sm:pt-4"
     : mplPremium && presentation
-      ? `mb-7 px-5 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-4 ${MPL_PREMIUM_GLASS_MAIN}`
+      ? `px-5 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-4 ${MPL_PREMIUM_GLASS_MAIN}`
       : presentation
-        ? "mb-7 rounded-2xl border border-mpl-border bg-mpl-card px-5 pb-5 pt-4 shadow-sm sm:px-6 sm:pb-6 sm:pt-4"
-        : "mb-7 rounded-2xl border border-slate-200/70 bg-white px-5 pb-5 pt-4 shadow-[0_4px_24px_rgba(15,23,42,0.04)] sm:px-6 sm:pb-6 sm:pt-4";
+        ? "rounded-2xl border border-mpl-border bg-mpl-card px-5 pb-5 pt-4 shadow-sm sm:px-6 sm:pb-6 sm:pt-4"
+        : "rounded-2xl border border-slate-200/70 bg-white px-5 pb-5 pt-4 shadow-[0_4px_24px_rgba(15,23,42,0.04)] sm:px-6 sm:pb-6 sm:pt-4";
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";

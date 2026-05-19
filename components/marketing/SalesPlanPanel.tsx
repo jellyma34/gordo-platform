@@ -2686,8 +2686,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     return { rows, maxDelta, axisMaxPp, scaleTicks, maxAbsRub };
   }, [salesStructureBalanceRows]);
   const chartMode: SalesPlanChartMode = presentation ? (presDark ? "presentation" : "presentationLight") : "work";
-  /** KPI, темп продаж и прочая аналитика ниже «Исполнение (штуки)» — только презентация; на /edit/marketing скрыто. */
-  const showLowerAnalyticsSections = presentation;
+  /** Расширенная аналитика ниже «Исполнение (штуки)» и графики сделок между блоками — скрыты (edit и presentation). */
+  const showMarketingExtendedSections = false;
   const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
@@ -4029,7 +4029,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           zaydetMonthVerify={paymentZaydetMonthVerify}
           showZaydetCsvDebugTable={mode === "edit" && !presentation}
         />
-        {!dealsFeed.loading ? (
+        {showMarketingExtendedSections && !dealsFeed.loading ? (
           <SalesPlanSegmentPlanFactBarChart
             dealsRows={marketingDealsFiltered}
             fallbackTotalPlanRub={rev.planCumulative}
@@ -4038,14 +4038,14 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             presentation={presentation}
           />
         ) : null}
-        {!dealsFeed.loading ? (
+        {showMarketingExtendedSections && !dealsFeed.loading ? (
           <SalesDealsSegmentMonthStackCharts dealsRows={marketingDealsFiltered} presentation={presentation} />
         ) : null}
         <SalesPlanExecutionBlock
           presentation={presentation}
           presDark={presDark}
           mplPremium={mplPremium}
-          showDetailTable={!presentation && mode === "view"}
+          showDetailTable={showMarketingExtendedSections && !presentation && mode === "view"}
           dataset={executionDataset}
           monthlyPlanVsFact={monthlyPlanVsFactChart}
           segmentExecutionCharts={segmentExecutionCharts}
@@ -4055,7 +4055,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         />
       </>
 
-      {showLowerAnalyticsSections ? (
+      {showMarketingExtendedSections ? (
         <div className="flex flex-col gap-4">
       {/* KPI summary */}
       <KpiDashboard mode="work" items={dynamicsKpiItems} className="mb-7 w-full min-w-0" />
