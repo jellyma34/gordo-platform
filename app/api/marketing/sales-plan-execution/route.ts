@@ -13,6 +13,7 @@ import {
   type MarketingSalesPlanExecutionDocV1,
   type MarketingSalesPlanExecutionMeta,
 } from "@/lib/marketingSalesPlanExecutionStore";
+import type { SalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutionTable";
 import {
   decodeSalesPlanExecutionCsvBytes,
   parseSalesPlanExecutionCsv,
@@ -150,12 +151,57 @@ export async function GET(req: NextRequest) {
   );
 }
 
+type MigrateExecutionBody = {
+  projectId?: string;
+  migrateFromBrowser?: boolean;
+  dataset?: SalesPlanExecutionDataset;
+  meta?: MarketingSalesPlanExecutionMeta;
+  parseWarnings?: string[];
+};
+
 export async function POST(req: NextRequest) {
   try {
     const ct = req.headers.get("content-type") ?? "";
+
+    if (ct.includes("application/json")) {
+      const body = (await req.json().catch(() => null)) as MigrateExecutionBody | null;
+      if (!body?.migrateFromBrowser || !body.dataset) {
+        return NextResponse.json(
+          { ok: false, error: "Ожидался migrateFromBrowser: true и dataset." },
+          { status: 400 },
+        );
+      }
+      const projectId = sanitizeMarketingSalesPlanExecutionProjectId(String(body.projectId ?? "default"));
+      const uploadedAt = body.meta?.uploadedAt ?? new Date().toISOString();
+      const meta: MarketingSalesPlanExecutionMeta = {
+        fileName: body.meta?.fileName ?? "browser-import.csv",
+        uploadedAt,
+        uploadedBy: body.meta?.uploadedBy ?? "Импорт из браузера",
+      };
+      const doc: MarketingSalesPlanExecutionDocV1 = {
+        v: 1,
+        projectId,
+        updatedAt: uploadedAt,
+        meta,
+        dataset: body.dataset,
+        parseWarnings: Array.isArray(body.parseWarnings) ? body.parseWarnings : undefined,
+      };
+      await persistDoc(
+        projectId,
+        doc,
+        `— Migrated from browser (${uploadedAt})\n`,
+      );
+      return NextResponse.json({
+        ok: true,
+        dataset: doc.dataset,
+        meta: doc.meta,
+        warnings: doc.parseWarnings ?? [],
+      });
+    }
+
     if (!ct.includes("multipart/form-data")) {
       return NextResponse.json(
-        { ok: false, error: "Ожидается multipart/form-data с полем file." },
+        { ok: false, error: "Ожидается multipart/form-data с полем file или JSON migrateFromBrowser." },
         { status: 400 },
       );
     }

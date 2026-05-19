@@ -30,16 +30,12 @@ export function readMarketingPaymentPlanFromLocalStorage(projectId: string): Mar
   }
 }
 
+/** @deprecated Бизнес-данные только на сервере; запись отключена. */
 export function writeMarketingPaymentPlanToLocalStorage(
-  projectId: string,
-  plan: MarketingPaymentPlanFileV2,
+  _projectId: string,
+  _plan: MarketingPaymentPlanFileV2,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(marketingPaymentPlanLocalStorageKey(projectId), JSON.stringify(plan));
-  } catch (e) {
-    console.warn("[Payment plan] localStorage save failed", e);
-  }
+  /* no-op: server is source of truth */
 }
 
 export function clearMarketingPaymentPlanLocalStorage(projectId: string): void {
@@ -64,16 +60,12 @@ export function readMarketingSalesPlanExecutionFromLocalStorage(
   }
 }
 
+/** @deprecated Бизнес-данные только на сервере; запись отключена. */
 export function writeMarketingSalesPlanExecutionToLocalStorage(
-  projectId: string,
-  doc: MarketingSalesPlanExecutionDocV1,
+  _projectId: string,
+  _doc: MarketingSalesPlanExecutionDocV1,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(marketingSalesPlanExecutionLocalStorageKey(projectId), JSON.stringify(doc));
-  } catch (e) {
-    console.warn("[Sales plan execution] localStorage save failed", e);
-  }
+  /* no-op */
 }
 
 export function clearMarketingSalesPlanExecutionLocalStorage(projectId: string): void {
@@ -85,13 +77,12 @@ export function clearMarketingSalesPlanExecutionLocalStorage(projectId: string):
   }
 }
 
-/** Серверный снимок приоритетнее; localStorage — запасной источник при пустом ответе. */
+/** Только серверный снимок (localStorage не используется для отображения). */
 export function mergeMarketingDataset<T>(
   server: T | null | undefined,
-  local: T | null | undefined,
+  _local: T | null | undefined,
   isValid: (doc: T) => boolean,
 ): T | null {
   if (server != null && isValid(server)) return server;
-  if (local != null && isValid(local)) return local;
   return null;
 }

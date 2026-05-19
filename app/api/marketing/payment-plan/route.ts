@@ -126,7 +126,9 @@ type MigrateJsonBody = {
   projectId?: string;
   migrateFromBrowser?: boolean;
   byPeriodKey?: Record<string, number>;
+  factByPeriodKey?: Record<string, number> | null;
   meta?: Partial<MarketingPaymentPlanMeta>;
+  factMeta?: Partial<MarketingPaymentPlanMeta> | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -227,6 +229,25 @@ export async function POST(req: NextRequest) {
         uploadedAt,
         uploadedBy: typeof m.uploadedBy === "string" ? m.uploadedBy : "Импорт из браузера",
       };
+      const factKeysRaw = body.factByPeriodKey;
+      const factKeys =
+        factKeysRaw && typeof factKeysRaw === "object" && !Array.isArray(factKeysRaw)
+          ? (factKeysRaw as Record<string, number>)
+          : null;
+      const factKeysSorted = factKeys
+        ? Object.keys(factKeys)
+            .filter((k) => /^\d{4}-\d{2}$/.test(k))
+            .sort((a, b) => a.localeCompare(b))
+        : [];
+      const fm = body.factMeta;
+      const factMeta: MarketingPaymentPlanMeta | null =
+        factKeys && factKeysSorted.length > 0
+          ? {
+              fileName: typeof fm?.fileName === "string" ? fm.fileName : "browser-fact-import.csv",
+              uploadedAt: typeof fm?.uploadedAt === "string" ? fm.uploadedAt : uploadedAt,
+              uploadedBy: typeof fm?.uploadedBy === "string" ? fm.uploadedBy : "Импорт из браузера",
+            }
+          : null;
       const prev = await readPlanDoc(projectId);
       const base = prev ?? emptyDoc(projectId, uploadedAt);
       const doc: MarketingPaymentPlanFileV2 = {
@@ -235,16 +256,19 @@ export async function POST(req: NextRequest) {
         planByPeriodKey: keys as Record<string, number>,
         columnPeriodKeysPlan: planKeys,
         planMeta,
-        factByPeriodKey: base.factByPeriodKey,
+        factByPeriodKey: factKeys && factKeysSorted.length > 0 ? factKeys : base.factByPeriodKey,
         factUnavailableReason:
-          base.factByPeriodKey != null && Object.keys(base.factByPeriodKey).length > 0
-            ? base.factUnavailableReason
-            : "Импорт из браузера: только план. Загрузите отдельный CSV факта поступлений.",
-        columnPeriodKeysFact: base.columnPeriodKeysFact ?? [],
+          factKeys && factKeysSorted.length > 0
+            ? null
+            : base.factByPeriodKey != null && Object.keys(base.factByPeriodKey).length > 0
+              ? base.factUnavailableReason
+              : "Импорт из браузера: только план. Загрузите отдельный CSV факта поступлений.",
+        columnPeriodKeysFact:
+          factKeys && factKeysSorted.length > 0 ? factKeysSorted : (base.columnPeriodKeysFact ?? []),
         zaydetColumnDebug: base.zaydetColumnDebug ?? [],
         zaydetMonthVerify: base.zaydetMonthVerify ?? [],
-        factMeta: base.factMeta ?? null,
-        meta: planMeta ?? base.factMeta ?? base.meta,
+        factMeta: factMeta ?? base.factMeta ?? null,
+        meta: planMeta ?? factMeta ?? base.factMeta ?? base.meta,
       };
       const saved = await persistDoc(projectId, doc, {
         plan: `— Migrated from browser storage (${uploadedAt})\n`,

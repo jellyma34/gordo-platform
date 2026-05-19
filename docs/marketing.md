@@ -33,11 +33,23 @@ JSON envelope formats supported:
 ### Payment plan CSV
 
 - Uploaded via `/edit/marketing` → `POST /api/marketing/payment-plan`
-- Stored in `data/marketing-payment-plan/`
-  - `default.plan.raw.csv` — plan
-  - `default.fact.raw.csv` — fact
-  - `default.json` — parsed/cached
+- Stored in `data/marketing-payment-plan/` (shared for all users on the instance)
+  - `{projectId}.plan.raw.csv` — plan
+  - `{projectId}.fact.raw.csv` — fact
+  - `{projectId}.json` — parsed cache (`projectId`, `uploadedAt`, `uploadedBy`, `planMeta`, `factMeta`)
+- Loaded on page open via `GET /api/marketing/payment-plan?projectId=…` (not `localStorage`)
 - Parser: `lib/paymentScheduleCsv.ts`
+
+### Supplemental marketing CSVs (investors, segments, units, apartments, parking, storages)
+
+- `POST/GET/DELETE /api/projects/{projectId}/marketing/storage`
+- Files under `data/projects/{projectId}/marketing/*.json` + `*.raw.csv`
+- Hydration: server only; one-time migration from browser `localStorage` via `lib/marketingCsvLocalMigration.ts`
+
+### Sales plan execution CSV (Verba)
+
+- `POST/GET/DELETE /api/marketing/sales-plan-execution?projectId=…`
+- `data/marketing-sales-plan-execution/{projectId}.execution.json` + `.raw.csv`
 
 ## Analytics logic
 
