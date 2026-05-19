@@ -65,10 +65,27 @@ const LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA = 8;
 const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 /** Запас от нижнего края подписи факта до полосы подписей месяцев (направляющих больше нет). */
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
-/** Подпись плана у точки: зазор от оранжевой линии до ближайшего края текста (вниз / вверх при нехватке места). */
+/** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
+const LABEL_OFFSET_PLAN_ABOVE = 7;
+/** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
-/** Над точкой — как у факта (~7px), раньше 9px и визуально «отрывалось» от пунктира. */
-const PLAN_LABEL_GAP_ABOVE_POINT_PX = 2;
+/** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
+const PLAN_LABEL_LINE_CLEARANCE_PX = 4;
+
+/** Подпись плана над линией: без крупного dy вверх (раньше до 25–35px от пунктира). */
+const PLAN_LABEL_STAGGER_ABOVE: ReadonlyArray<{ dx: number; dy: number }> = [
+  { dx: 0, dy: 0 },
+  { dx: 14, dy: 0 },
+  { dx: -14, dy: 0 },
+  { dx: 22, dy: 0 },
+  { dx: -22, dy: 0 },
+  { dx: 0, dy: 4 },
+  { dx: 12, dy: 3 },
+  { dx: -12, dy: 3 },
+  { dx: 0, dy: 8 },
+  { dx: 18, dy: 5 },
+  { dx: -18, dy: 5 },
+];
 
 /** Подпись факта по центру категории (ровнее «вертикальная сетка»). */
 const LABEL_FACT_DX = 0;
@@ -480,7 +497,7 @@ function pillHorizontalOverlap(aL: number, aR: number, bL: number, bR: number, g
 }
 
 /**
- * Подписи в координатах SVG (Recharts 3): факт над синей линией, план у оранжевой точки (снизу или сверху при нехватке места), только цифры.
+ * Подписи в координатах SVG (Recharts 3): факт и план над линией (~7px), только цифры; plan_fact — план под точкой.
  * План и факт разводятся по bbox; пересечений с синими подписями нет. Без фона и без пунктирных направляющих.
  */
 export function CashflowDynamicsSvgLabels({
@@ -709,63 +726,48 @@ export function CashflowDynamicsSvgLabels({
         const maxCenterX = safeRight - halfW;
         const anchorX = clamp(cx - LABEL_FACT_DX, minCenterX, maxCenterX);
 
-        const baseBelow = yPlan + PLAN_LABEL_GAP_BELOW_POINT_PX + halfH;
-        const baseAbove = yPlan - PLAN_LABEL_GAP_ABOVE_POINT_PX - halfH;
-        const fitsBelow = baseBelow + halfH <= maxPlanCenterY + 0.5;
-        const fitsAbove = baseAbove - halfH >= safeTop + halfH - 0.5;
+        let placed: { pillCx: number; pillCy: number; box: LabelBBox } | null = null;
 
-        let preferBelow = fitsBelow;
-        if (!planFactExecutionLabels) {
-          if (fitsBelow && fitsAbove) {
-            const roomBelow = maxPlanCenterY - baseBelow;
-            const roomAbove = baseAbove - (safeTop + halfH);
-            preferBelow = roomBelow >= roomAbove - 6;
-          } else if (!fitsBelow && fitsAbove) {
-            preferBelow = false;
-          } else if (!fitsBelow && !fitsAbove) {
-            preferBelow = true;
+        if (planFactExecutionLabels) {
+          const baseBelow = yPlan + PLAN_LABEL_GAP_BELOW_POINT_PX + halfH;
+          const staggerBelow: ReadonlyArray<{ dx: number; dy: number }> = [
+            { dx: 0, dy: 0 },
+            { dx: 14, dy: 0 },
+            { dx: -14, dy: 0 },
+            { dx: 0, dy: 6 },
+            { dx: 18, dy: 4 },
+            { dx: -18, dy: 4 },
+          ];
+          for (const { dx, dy } of staggerBelow) {
+            const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
+            const pillCy = clamp(baseBelow + dy, safeTop + halfH, maxPlanCenterY);
+            const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
+            if (!labelOverlapsAny(box, keptBoxes)) {
+              placed = { pillCx, pillCy, box };
+              break;
+            }
           }
         } else {
-          preferBelow = true;
-        }
-
-        let near = 0;
-        for (const p of planPillsOut) {
-          if (Math.abs(p.cx - anchorX) < 56) near++;
-        }
-        const tierDy = (near % 2) * 7;
-        const staggerPlan: ReadonlyArray<{ dx: number; dy: number }> = [
-          { dx: 0, dy: tierDy },
-          { dx: 0, dy: tierDy + 9 },
-          { dx: 0, dy: tierDy + 18 },
-          { dx: 14, dy: tierDy },
-          { dx: -14, dy: tierDy },
-          { dx: 22, dy: tierDy + 5 },
-          { dx: -22, dy: tierDy + 5 },
-          { dx: 28, dy: tierDy + 8 },
-          { dx: -28, dy: tierDy + 8 },
-        ];
-
-        const tryPlace = (useBelow: boolean): { pillCx: number; pillCy: number; box: LabelBBox } | null => {
-          for (const { dx, dy } of staggerPlan) {
+          const maxCyAboveLine = yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
+          for (const { dx, dy } of PLAN_LABEL_STAGGER_ABOVE) {
             const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-            let pillCy = useBelow ? baseBelow + dy : baseAbove - dy;
-            pillCy = clamp(pillCy, safeTop + halfH, maxPlanCenterY);
+            let pillCy = yPlan - LABEL_OFFSET_PLAN_ABOVE - halfH - dy;
+            pillCy = clamp(pillCy, safeTop + halfH, maxCyAboveLine);
             const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
-            if (!labelOverlapsAny(box, keptBoxes)) return { pillCx, pillCy, box };
+            if (!labelOverlapsAny(box, keptBoxes)) {
+              placed = { pillCx, pillCy, box };
+              break;
+            }
           }
-          return null;
-        };
+        }
 
-        let ok = tryPlace(planFactExecutionLabels ? true : preferBelow);
-        if (!ok && !planFactExecutionLabels) ok = tryPlace(!preferBelow);
-        if (!ok) continue;
+        if (!placed) continue;
 
-        keptBoxes.push(ok.box);
+        keptBoxes.push(placed.box);
         planPillsOut.push({
           key: `plan-${row.periodKey}-${c.index}`,
-          cx: ok.pillCx,
-          cy: ok.pillCy,
+          cx: placed.pillCx,
+          cy: placed.pillCy,
           pillW,
           pillH,
           text,
