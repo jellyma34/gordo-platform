@@ -87,6 +87,24 @@ const PLAN_LABEL_STAGGER_ABOVE: ReadonlyArray<{ dx: number; dy: number }> = [
   { dx: -18, dy: 5 },
 ];
 
+/** План: правый край графика — только dx ≤ 0 (подпись не уходит вправо от точки). */
+const PLAN_LABEL_STAGGER_LAST_INDEX: ReadonlyArray<{ dx: number; dy: number }> = (() => {
+  const seen = new Set<string>();
+  const out: { dx: number; dy: number }[] = [];
+  const push = (dx: number, dy: number) => {
+    const key = `${dx},${dy}`;
+    if (seen.has(key) || dx > 0) return;
+    seen.add(key);
+    out.push({ dx, dy });
+  };
+  push(0, 0);
+  push(-10, 0);
+  for (const { dx, dy } of PLAN_LABEL_STAGGER_ABOVE) {
+    push(dx, dy);
+  }
+  return out;
+})();
+
 /** Подпись факта по центру категории (ровнее «вертикальная сетка»). */
 const LABEL_FACT_DX = 0;
 /** Если маркер близко к нулю (низ графика), поднимаем подпись факта. */
@@ -709,6 +727,7 @@ export function CashflowDynamicsSvgLabels({
       for (const c of sortedPlan) {
         const row = chartData[c.index]!;
         const n = chartData.length;
+        const isLastChartIndex = c.index === n - 1;
         let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
         if (cx == null && plot && n > 0) {
           cx = plot.x + ((c.index + 0.5) / n) * plot.width;
@@ -724,20 +743,23 @@ export function CashflowDynamicsSvgLabels({
         const halfH = pillH / 2;
         const minCenterX = safeLeft + halfW;
         const maxCenterX = safeRight - halfW;
-        const anchorX = clamp(cx - LABEL_FACT_DX, minCenterX, maxCenterX);
+        const pointCenterX = clamp(cx - LABEL_FACT_DX, minCenterX, maxCenterX);
+        const anchorX = pointCenterX;
 
         let placed: { pillCx: number; pillCy: number; box: LabelBBox } | null = null;
 
         if (planFactExecutionLabels) {
           const baseBelow = yPlan + PLAN_LABEL_GAP_BELOW_POINT_PX + halfH;
-          const staggerBelow: ReadonlyArray<{ dx: number; dy: number }> = [
-            { dx: 0, dy: 0 },
-            { dx: 14, dy: 0 },
-            { dx: -14, dy: 0 },
-            { dx: 0, dy: 6 },
-            { dx: 18, dy: 4 },
-            { dx: -18, dy: 4 },
-          ];
+          const staggerBelow: ReadonlyArray<{ dx: number; dy: number }> = isLastChartIndex
+            ? PLAN_LABEL_STAGGER_LAST_INDEX
+            : [
+                { dx: 0, dy: 0 },
+                { dx: 14, dy: 0 },
+                { dx: -14, dy: 0 },
+                { dx: 0, dy: 6 },
+                { dx: 18, dy: 4 },
+                { dx: -18, dy: 4 },
+              ];
           for (const { dx, dy } of staggerBelow) {
             const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
             const pillCy = clamp(baseBelow + dy, safeTop + halfH, maxPlanCenterY);
@@ -749,7 +771,8 @@ export function CashflowDynamicsSvgLabels({
           }
         } else {
           const maxCyAboveLine = yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
-          for (const { dx, dy } of PLAN_LABEL_STAGGER_ABOVE) {
+          const staggerAbove = isLastChartIndex ? PLAN_LABEL_STAGGER_LAST_INDEX : PLAN_LABEL_STAGGER_ABOVE;
+          for (const { dx, dy } of staggerAbove) {
             const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
             let pillCy = yPlan - LABEL_OFFSET_PLAN_ABOVE - halfH - dy;
             pillCy = clamp(pillCy, safeTop + halfH, maxCyAboveLine);
@@ -758,6 +781,14 @@ export function CashflowDynamicsSvgLabels({
               placed = { pillCx, pillCy, box };
               break;
             }
+          }
+        }
+
+        if (placed && isLastChartIndex && placed.pillCx > pointCenterX) {
+          const nudgedCx = Math.max(minCenterX, pointCenterX);
+          const nudgedBox = labelBBoxCenteredPill(nudgedCx, placed.pillCy, pillW, pillH);
+          if (!labelOverlapsAny(nudgedBox, keptBoxes)) {
+            placed = { pillCx: nudgedCx, pillCy: placed.pillCy, box: nudgedBox };
           }
         }
 
