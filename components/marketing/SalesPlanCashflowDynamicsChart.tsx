@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useChartHeight, useChartWidth, usePlotArea, useXAxisScale, useYAxisScale } from "recharts";
+import { usePlotArea, useXAxisScale, useYAxisScale } from "recharts";
 
 import {
   cashflowRowsForChart,
@@ -73,18 +73,18 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
 const LABEL_OFFSET_PLAN_ABOVE = 4;
-/** Нарастающий итог: labelY = pointY − offset (dominantBaseline middle), привязка к точке. */
-const CUM_POINT_LABEL_Y_OFFSET_FACT = 10;
-const CUM_POINT_LABEL_Y_OFFSET_PLAN = 12;
+/** labelY = pointY − offset (dominantBaseline central), привязка к точке. */
+const POINT_LABEL_Y_OFFSET_FACT = 10;
+const POINT_LABEL_Y_OFFSET_PLAN = 12;
 /** Зазор нижнего края подписи над горизонтальной линией сетки (только при пересечении). */
-const CUM_LABEL_GRID_LINE_CLEARANCE_PX = 5;
+const POINT_LABEL_GRID_LINE_CLEARANCE_PX = 5;
 /** Нижний край подписи не заходит на маркер точки. */
-const CUM_LABEL_POINT_CLEARANCE_PX = 5;
+const POINT_LABEL_POINT_CLEARANCE_PX = 5;
 /** Минимальный зазор между центрами Fact и Plan на одном месяце. */
-const CUM_FACT_PLAN_MIN_LABEL_GAP_PX = 18;
+const FACT_PLAN_MIN_LABEL_GAP_PX = 18;
 /** Доп. сдвиг при коллизии Fact/Plan (от базы pointY − offset). */
-const CUM_FACT_PLAN_COLLISION_FACT_SHIFT_PX = 8;
-const CUM_FACT_PLAN_COLLISION_PLAN_SHIFT_PX = 8;
+const FACT_PLAN_COLLISION_FACT_SHIFT_PX = 8;
+const FACT_PLAN_COLLISION_PLAN_SHIFT_PX = 8;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -416,11 +416,11 @@ function gridLinePixelYs(yScale: (v: number) => number | undefined, tickValues: 
 }
 
 /** Не перекрывать маркер (подпись над точкой): при необходимости чуть поднять. */
-function nudgeCumulativeLabelYAbovePoint(
+function nudgePointLabelYAbovePoint(
   labelY: number,
   halfH: number,
   pointY: number,
-  clearancePx = CUM_LABEL_POINT_CLEARANCE_PX,
+  clearancePx = POINT_LABEL_POINT_CLEARANCE_PX,
 ): number {
   const maxBottom = pointY - clearancePx;
   if (labelY + halfH <= maxBottom) return labelY;
@@ -428,15 +428,15 @@ function nudgeCumulativeLabelYAbovePoint(
 }
 
 /** Лёгкий подъём только если нижний край подписи попал на линию сетки. */
-function nudgeCumulativeLabelYAboveGrid(labelY: number, halfH: number, gridLineYs: readonly number[]): number {
+function nudgePointLabelYAboveGrid(labelY: number, halfH: number, gridLineYs: readonly number[]): number {
   let y = labelY;
   for (let guard = 0; guard < 3; guard++) {
     const bottom = y + halfH;
     let lift = 0;
     for (const gy of gridLineYs) {
-      const nearBand = CUM_LABEL_GRID_LINE_CLEARANCE_PX + 2;
+      const nearBand = POINT_LABEL_GRID_LINE_CLEARANCE_PX + 2;
       if (bottom >= gy - nearBand && bottom <= gy + 1) {
-        lift = Math.max(lift, bottom - gy + CUM_LABEL_GRID_LINE_CLEARANCE_PX + 2);
+        lift = Math.max(lift, bottom - gy + POINT_LABEL_GRID_LINE_CLEARANCE_PX + 2);
       }
     }
     if (lift <= 0.25) break;
@@ -445,29 +445,62 @@ function nudgeCumulativeLabelYAboveGrid(labelY: number, halfH: number, gridLineY
   return y;
 }
 
-type CumulativeOverlayLabel = { key: string; x: number; y: number; text: string };
+type CashflowOverlayLabel = { key: string; x: number; y: number; text: string };
 
-function buildCumulativeOverlayLabels(
-  chartData: CashflowChartRow[],
-  xCat: CashflowChartXScale,
-  plot: PlotRect | null | undefined,
-  yScale: (v: number) => number | undefined,
-  gridLineYs: readonly number[],
-): { fact: CumulativeOverlayLabel[]; plan: CumulativeOverlayLabel[] } {
+function overlayMonthIndices(
+  n: number,
+  factIndices: ReadonlySet<number> | null,
+  planIndices: ReadonlySet<number> | null,
+): number[] {
+  if (factIndices === null && planIndices === null) {
+    return Array.from({ length: n }, (_, i) => i);
+  }
+  const merged = new Set<number>();
+  if (factIndices) for (const i of factIndices) merged.add(i);
+  if (planIndices) for (const i of planIndices) merged.add(i);
+  return [...merged].sort((a, b) => a - b);
+}
+
+function buildCashflowPointOverlayLabels(opts: {
+  chartData: CashflowChartRow[];
+  xCat: CashflowChartXScale;
+  plot: PlotRect | null | undefined;
+  yScale: (v: number) => number | undefined;
+  gridLineYs: readonly number[];
+  formatLabel: (rub: number) => string;
+  factIndices: ReadonlySet<number> | null;
+  planIndices: ReadonlySet<number> | null;
+  planLabelBelowPoint?: boolean;
+}): { fact: CashflowOverlayLabel[]; plan: CashflowOverlayLabel[] } {
+  const {
+    chartData,
+    xCat,
+    plot,
+    yScale,
+    gridLineYs,
+    formatLabel,
+    factIndices,
+    planIndices,
+    planLabelBelowPoint = false,
+  } = opts;
   const halfH = BADGE_H_PX / 2;
   const n = chartData.length;
-  const fact: CumulativeOverlayLabel[] = [];
-  const plan: CumulativeOverlayLabel[] = [];
+  const fact: CashflowOverlayLabel[] = [];
+  const plan: CashflowOverlayLabel[] = [];
+  const monthIndices = overlayMonthIndices(n, factIndices, planIndices);
 
-  for (let index = 0; index < n; index++) {
+  for (const index of monthIndices) {
     const row = chartData[index]!;
     const pointX = categoryPointX(row, index, n, xCat, plot);
     if (pointX == null) continue;
 
+    const showFact = factIndices === null || factIndices.has(index);
+    const showPlan = planIndices === null || planIndices.has(index);
+
     const factValue = row.fact;
     const planValue = row.plan;
-    const hasFact = factValue != null && Number.isFinite(factValue);
-    const hasPlan = planValue != null && Number.isFinite(planValue);
+    const hasFact = showFact && factValue != null && Number.isFinite(factValue);
+    const hasPlan = showPlan && planValue != null && Number.isFinite(planValue);
 
     let factPointY: number | null = null;
     let planPointY: number | null = null;
@@ -476,29 +509,35 @@ function buildCumulativeOverlayLabels(
 
     if (hasFact) {
       factPointY = yScale(factValue) ?? null;
-      if (factPointY != null) factY = factPointY - CUM_POINT_LABEL_Y_OFFSET_FACT;
+      if (factPointY != null) factY = factPointY - POINT_LABEL_Y_OFFSET_FACT;
     }
     if (hasPlan) {
       planPointY = yScale(planValue) ?? null;
-      if (planPointY != null) planY = planPointY - CUM_POINT_LABEL_Y_OFFSET_PLAN;
+      if (planPointY != null) {
+        planY = planLabelBelowPoint
+          ? planPointY + PLAN_LABEL_GAP_BELOW_POINT_PX + halfH
+          : planPointY - POINT_LABEL_Y_OFFSET_PLAN;
+      }
     }
 
-    if (factY != null && planY != null && Math.abs(factY - planY) < CUM_FACT_PLAN_MIN_LABEL_GAP_PX) {
-      factY -= CUM_FACT_PLAN_COLLISION_FACT_SHIFT_PX;
-      planY += CUM_FACT_PLAN_COLLISION_PLAN_SHIFT_PX;
+    if (factY != null && planY != null && Math.abs(factY - planY) < FACT_PLAN_MIN_LABEL_GAP_PX) {
+      factY -= FACT_PLAN_COLLISION_FACT_SHIFT_PX;
+      planY += FACT_PLAN_COLLISION_PLAN_SHIFT_PX;
     }
 
     if (factY != null && factPointY != null && hasFact) {
-      factY = nudgeCumulativeLabelYAbovePoint(factY, halfH, factPointY);
-      factY = nudgeCumulativeLabelYAboveGrid(factY, halfH, gridLineYs);
-      const text = formatCashflowCumulativePointLabel(factValue);
+      factY = nudgePointLabelYAbovePoint(factY, halfH, factPointY);
+      factY = nudgePointLabelYAboveGrid(factY, halfH, gridLineYs);
+      const text = formatLabel(factValue);
       if (text) fact.push({ key: `fact-${row.periodKey}-${index}`, x: pointX, y: factY, text });
     }
 
     if (planY != null && planPointY != null && hasPlan) {
-      planY = nudgeCumulativeLabelYAbovePoint(planY, halfH, planPointY);
-      planY = nudgeCumulativeLabelYAboveGrid(planY, halfH, gridLineYs);
-      const text = formatCashflowCumulativePointLabel(planValue);
+      if (!planLabelBelowPoint) {
+        planY = nudgePointLabelYAbovePoint(planY, halfH, planPointY);
+      }
+      planY = nudgePointLabelYAboveGrid(planY, halfH, gridLineYs);
+      const text = formatLabel(planValue);
       if (text) plan.push({ key: `plan-${row.periodKey}-${index}`, x: pointX, y: planY, text });
     }
   }
@@ -507,36 +546,94 @@ function buildCumulativeOverlayLabels(
 }
 
 /**
- * Нарастающий итог: ручной SVG-overlay у координат точек (без LabelList / transform / clamp layout).
+ * Помесячно и нарастающим итогом: ручной SVG-overlay у координат точек (без LabelList / auto labels).
  */
-function CashflowCumulativePointLabelsOverlay({
+function CashflowPointLabelsOverlay({
   chartData,
   presDark,
+  mode,
   yGridTickValues,
+  planFactExecutionLabels = false,
 }: {
   chartData: CashflowChartRow[];
   presDark: boolean;
+  mode: CashflowChartMode;
   yGridTickValues: readonly number[];
+  planFactExecutionLabels?: boolean;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
   const plot = usePlotArea();
 
+  const factCandidates = useMemo(
+    () =>
+      mode === "monthly"
+        ? buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined)
+        : null,
+    [chartData, mode, planFactExecutionLabels],
+  );
+  const planCandidates = useMemo(
+    () =>
+      mode === "monthly"
+        ? buildPlanLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0, relaxBand: true } : undefined)
+        : null,
+    [chartData, mode, planFactExecutionLabels],
+  );
+
+  const factIndices = useMemo(
+    () => (mode === "monthly" && factCandidates ? new Set(factCandidates.map((c) => c.index)) : null),
+    [mode, factCandidates],
+  );
+  const planIndices = useMemo(
+    () => (mode === "monthly" && planCandidates ? new Set(planCandidates.map((c) => c.index)) : null),
+    [mode, planCandidates],
+  );
+
+  const formatLabel = useMemo(
+    () =>
+      mode === "cumulative"
+        ? formatCashflowCumulativePointLabel
+        : (rub: number) => formatCashflowMillionsLabel(rub, false),
+    [mode],
+  );
+
   const labels = useMemo(() => {
-    if (!xScale || !yScale) return { fact: [] as CumulativeOverlayLabel[], plan: [] as CumulativeOverlayLabel[] };
+    if (!xScale || !yScale) return { fact: [] as CashflowOverlayLabel[], plan: [] as CashflowOverlayLabel[] };
     const xCat = xScale as unknown as CashflowChartXScale;
     const gridLineYs = gridLinePixelYs(yScale, yGridTickValues);
-    return buildCumulativeOverlayLabels(chartData, xCat, plot, yScale, gridLineYs);
-  }, [chartData, xScale, yScale, plot, yGridTickValues]);
+    return buildCashflowPointOverlayLabels({
+      chartData,
+      xCat,
+      plot,
+      yScale,
+      gridLineYs,
+      formatLabel,
+      factIndices,
+      planIndices,
+      planLabelBelowPoint: planFactExecutionLabels,
+    });
+  }, [
+    chartData,
+    xScale,
+    yScale,
+    plot,
+    yGridTickValues,
+    formatLabel,
+    factIndices,
+    planIndices,
+    planFactExecutionLabels,
+  ]);
 
   if (!xScale || !yScale) return null;
 
   const factFill = presDark ? "#93c5fd" : CASHFLOW_INFLOW_FACT.stroke;
   const planFill = presDark ? "#F0C896" : CASHFLOW_INFLOW_PLAN.label;
+  const factLayerClass = mode === "monthly" ? "monthly-fact-labels" : "fact-labels-layer";
+  const planLayerClass = mode === "monthly" ? "monthly-plan-labels" : "plan-labels-layer";
 
   return (
     <>
-      <g className="fact-labels-layer" pointerEvents="none">
+      <g className={factLayerClass} pointerEvents="none">
         {labels.fact.map((p) => (
           <text
             key={p.key}
@@ -553,7 +650,7 @@ function CashflowCumulativePointLabelsOverlay({
           </text>
         ))}
       </g>
-      <g className="plan-labels-layer" pointerEvents="none">
+      <g className={planLayerClass} pointerEvents="none">
         {labels.plan.map((p) => (
           <text
             key={p.key}
@@ -714,15 +811,12 @@ function pillHorizontalOverlap(aL: number, aR: number, bL: number, bR: number, g
   return !(aR + gap < bL || aL - gap > bR);
 }
 
-/**
- * Подписи в координатах SVG (Recharts 3): факт и план над линией (~7px), только цифры; plan_fact — план под точкой.
- * План и факт разводятся по bbox; пересечений с синими подписями нет. Без фона и без пунктирных направляющих.
- */
+/** Подписи Fact/Plan: единый ручной SVG-overlay (помесячно и нарастающим итогом). */
 export function CashflowDynamicsSvgLabels({
   chartData,
   presDark,
   mode,
-  presentation,
+  presentation: _presentation,
   planFactExecutionLabels = false,
   yGridTickValues = [],
 }: {
@@ -730,313 +824,17 @@ export function CashflowDynamicsSvgLabels({
   presDark: boolean;
   mode: CashflowChartMode;
   presentation: boolean;
-  /** План vs факт (plan_fact.csv): подпись факта над точкой, плана под точкой. */
   planFactExecutionLabels?: boolean;
-  /** Тики оси Y (руб.) — для отступа подписей от горизонтальных линий сетки в cumulative. */
   yGridTickValues?: readonly number[];
 }) {
-  if (mode === "cumulative") {
-    return (
-      <CashflowCumulativePointLabelsOverlay
-        chartData={chartData}
-        presDark={presDark}
-        yGridTickValues={yGridTickValues}
-      />
-    );
-  }
-
-  const xScale = useXAxisScale();
-  const yScale = useYAxisScale();
-  const chartW = useChartWidth();
-  const chartH = useChartHeight();
-  const plot = usePlotArea();
-
-  const planPillFill = "#ffffff";
-  const planPillStroke = presDark ? "rgba(246,188,122,0.5)" : "rgba(246,188,122,0.62)";
-
-  const factPillFill = "#ffffff";
-  const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
-  const factPillText = presDark ? "#93c5fd" : "#1e40af";
-  const planPillText = presDark ? "#F0C896" : CASHFLOW_INFLOW_PLAN.label;
-
-  const factCandidates = useMemo(
-    () => buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined),
-    [chartData, planFactExecutionLabels],
-  );
-  const planCandidates = useMemo(
-    () => buildPlanLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0, relaxBand: true } : undefined),
-    [chartData, planFactExecutionLabels],
-  );
-
-  type Pill = {
-    key: string;
-    cx: number;
-    cy: number;
-    pillW: number;
-    pillH: number;
-    text: string;
-    fill: string;
-    stroke: string;
-    textFill: string;
-  };
-
-  const { factPills, planPills } = useMemo(() => {
-    if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
-      return { factPills: [] as Pill[], planPills: [] as Pill[] };
-    }
-
-    const pillH = BADGE_H_PX;
-    const { safeLeft, safeRight, safeTop, plotBottomY } = chartBadgeSafeBounds(plot, chartW, chartH);
-    const labelBandTop = plotBottomY - X_AXIS_LABEL_BAND_RESERVE;
-    const labelHalfH = pillH / 2;
-    const labelPillCenterYMin = safeTop + labelHalfH;
-    const labelPillCenterYMax = labelBandTop - FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX - labelHalfH;
-    type Resolved = {
-      key: string;
-      priority: number;
-      pointCx: number;
-      pillCx: number;
-      pillCy: number;
-      text: string;
-      pillW: number;
-      yFactPt: number;
-      box: LabelBBox;
-    };
-
-    const sorted = [...factCandidates].sort((a, b) => {
-      if (a.index !== b.index) return a.index - b.index;
-      return b.priority - a.priority;
-    });
-    const keptBoxes: LabelBBox[] = [];
-    const resolved: Resolved[] = [];
-
-    for (const c of sorted) {
-      const row = chartData[c.index]!;
-      const n = chartData.length;
-      let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
-      if (cx == null && plot && n > 0) {
-        cx = plot.x + ((c.index + 0.5) / n) * plot.width;
-      }
-      if (cx == null) continue;
-      if (row.fact == null || !Number.isFinite(row.fact)) continue;
-      const yFactPt = yScale(row.fact);
-      if (yFactPt == null) continue;
-
-      const chartLabelText = formatCashflowMillionsLabel(c.valueRub, false);
-      const pillW = approxLabelWidthPx(chartLabelText, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
-      const halfW = pillW / 2;
-      const halfH = labelHalfH;
-      const minCenterX = safeLeft + halfW;
-      const maxCenterX = safeRight - halfW;
-      let anchorX = cx - LABEL_FACT_DX;
-      anchorX = clamp(anchorX, minCenterX, maxCenterX);
-
-      const factOffsetCore =
-        LABEL_OFFSET_FACT_ABOVE +
-        (presentation ? LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA : 0) +
-        cumulativeFactPlateauExtraPx(cumulativeFactMinNeighborDyPx(chartData, c.index, yScale));
-
-      const staggerTries = (() => {
-        let near = 0;
-        for (const r of resolved) {
-          if (Math.abs(r.pointCx - cx) < 58) near++;
-        }
-        const tierDy = (near % 2) * 8;
-        const neighborPrefix: ReadonlyArray<{ dx: number; dy: number }> = [
-          { dx: 0, dy: tierDy },
-          { dx: 0, dy: tierDy + 10 },
-          { dx: 0, dy: tierDy + 20 },
-          { dx: 12, dy: tierDy },
-          { dx: -12, dy: tierDy },
-          { dx: 18, dy: tierDy + 6 },
-          { dx: -18, dy: tierDy + 6 },
-        ];
-        const plateauExtra = cumulativeFactPlateauExtraPx(cumulativeFactMinNeighborDyPx(chartData, c.index, yScale));
-        const cumPrefix = plateauExtra >= 16 ? CUM_FACT_PLATEAU_STAGGER_PREFIX : [];
-        return [...neighborPrefix, ...cumPrefix, ...LABEL_STAGGER_TRIES];
-      })();
-
-      let best: Resolved | null = null;
-      for (let ti = 0; ti < staggerTries.length; ti++) {
-        const { dx, dy } = staggerTries[ti]!;
-        const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-        let pillCy = clamp(yFactPt - factOffsetCore - halfH - dy, labelPillCenterYMin, labelPillCenterYMax);
-        const capFromPoint = yFactPt - MONTHLY_FACT_LINE_CLEARANCE_PX - halfH;
-        pillCy = Math.min(pillCy, capFromPoint);
-        pillCy = clamp(pillCy, labelPillCenterYMin, labelPillCenterYMax);
-        pillCy = snapLabelCenterY(pillCy, labelPillCenterYMin, labelPillCenterYMax, FACT_LABEL_Y_SNAP_PX);
-        const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
-        const candidate: Resolved = {
-          key: `fact-${row.periodKey}-${c.index}`,
-          priority: c.priority,
-          pointCx: cx,
-          pillCx,
-          pillCy,
-          text: chartLabelText,
-          pillW,
-          yFactPt,
-          box,
-        };
-        if (!labelOverlapsAny(box, keptBoxes)) {
-          best = candidate;
-          break;
-        }
-        best = candidate;
-      }
-
-      if (best) {
-        keptBoxes.push(best.box);
-        resolved.push(best);
-      }
-    }
-
-    const factPills = resolved.map((r) => ({
-      key: r.key,
-      cx: r.pillCx,
-      cy: r.pillCy,
-      pillW: r.pillW,
-      pillH,
-      text: r.text,
-      fill: factPillFill,
-      stroke: factPillStroke,
-      textFill: factPillText,
-    }));
-
-    const planPillsOut: Pill[] = [];
-
-    if (planCandidates.length > 0) {
-      const sortedPlan = [...planCandidates].sort((a, b) => {
-        if (a.index !== b.index) return a.index - b.index;
-        return b.priority - a.priority;
-      });
-
-      for (const c of sortedPlan) {
-        const row = chartData[c.index]!;
-        const n = chartData.length;
-        const isLastChartIndex = c.index === n - 1;
-        let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
-        if (cx == null && plot && n > 0) {
-          cx = plot.x + ((c.index + 0.5) / n) * plot.width;
-        }
-        if (cx == null) continue;
-        if (row.plan == null || !Number.isFinite(row.plan)) continue;
-        const yPlan = yScale(row.plan);
-        if (yPlan == null) continue;
-
-        const text = formatCashflowMillionsLabel(c.valueRub, false);
-        const pillW = approxLabelWidthPx(text, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
-        const halfW = pillW / 2;
-        const halfH = labelHalfH;
-        const minCenterX = safeLeft + halfW;
-        const maxCenterX = safeRight - halfW;
-        const pointCenterX = clamp(cx - LABEL_FACT_DX, minCenterX, maxCenterX);
-        const anchorX = pointCenterX;
-
-        let placed: { pillCx: number; pillCy: number; box: LabelBBox } | null = null;
-
-        if (planFactExecutionLabels) {
-          const baseBelow = yPlan + PLAN_LABEL_GAP_BELOW_POINT_PX + halfH;
-          const staggerBelow: ReadonlyArray<{ dx: number; dy: number }> = isLastChartIndex
-            ? PLAN_LABEL_STAGGER_LAST_INDEX
-            : [
-                { dx: 0, dy: 0 },
-                { dx: 14, dy: 0 },
-                { dx: -14, dy: 0 },
-                { dx: 0, dy: 6 },
-                { dx: 18, dy: 4 },
-                { dx: -18, dy: 4 },
-              ];
-          for (const { dx, dy } of staggerBelow) {
-            const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-            const pillCy = clamp(baseBelow + dy, labelPillCenterYMin, labelPillCenterYMax);
-            const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
-            if (!labelOverlapsAny(box, keptBoxes)) {
-              placed = { pillCx, pillCy, box };
-              break;
-            }
-          }
-        } else {
-          const maxCyAboveLine = yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
-          const staggerAbove = isLastChartIndex ? PLAN_LABEL_STAGGER_LAST_INDEX : PLAN_LABEL_STAGGER_ABOVE;
-          for (const { dx, dy } of staggerAbove) {
-            const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-            const pillCy = clamp(yPlan - LABEL_OFFSET_PLAN_ABOVE - halfH - dy, labelPillCenterYMin, maxCyAboveLine);
-            const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
-            if (!labelOverlapsAny(box, keptBoxes)) {
-              placed = { pillCx, pillCy, box };
-              break;
-            }
-          }
-        }
-
-        if (placed && isLastChartIndex && placed.pillCx > pointCenterX) {
-          const nudgedCx = Math.max(minCenterX, pointCenterX);
-          const nudgedBox = labelBBoxCenteredPill(nudgedCx, placed.pillCy, pillW, pillH);
-          if (!labelOverlapsAny(nudgedBox, keptBoxes)) {
-            placed = { pillCx: nudgedCx, pillCy: placed.pillCy, box: nudgedBox };
-          }
-        }
-
-        if (!placed) continue;
-
-        keptBoxes.push(placed.box);
-        planPillsOut.push({
-          key: `plan-${row.periodKey}-${c.index}`,
-          cx: placed.pillCx,
-          cy: placed.pillCy,
-          pillW,
-          pillH,
-          text,
-          fill: planPillFill,
-          stroke: planPillStroke,
-          textFill: planPillText,
-        });
-      }
-    }
-
-    return { factPills, planPills: planPillsOut };
-  }, [
-    chartData,
-    factCandidates,
-    planCandidates,
-    xScale,
-    yScale,
-    chartW,
-    chartH,
-    plot,
-    presDark,
-    presentation,
-    planFactExecutionLabels,
-  ]);
-
-  if (!xScale || !yScale || chartW == null || chartH == null || chartW <= 0 || chartH <= 0) {
-    return null;
-  }
-
-  const renderLabelText = (p: Pill) => {
-    const isPlan = p.key.startsWith("plan-");
-    return (
-      <text
-        key={p.key}
-        x={p.cx}
-        y={p.cy}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fill={p.textFill}
-        fontSize={BADGE_FONT_PX}
-        fontWeight={isPlan ? 500 : 600}
-        className="tabular-nums"
-      >
-        {p.text}
-      </text>
-    );
-  };
-
   return (
-    <g pointerEvents="none">
-      {factPills.map(renderLabelText)}
-      {planPills.map(renderLabelText)}
-    </g>
+    <CashflowPointLabelsOverlay
+      chartData={chartData}
+      presDark={presDark}
+      mode={mode}
+      yGridTickValues={yGridTickValues}
+      planFactExecutionLabels={planFactExecutionLabels}
+    />
   );
 }
 
