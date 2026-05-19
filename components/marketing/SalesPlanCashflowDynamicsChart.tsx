@@ -12,6 +12,7 @@ import {
 } from "@/lib/buildCashflowSeries";
 import {
   cashflowYAxisScale,
+  formatCashflowCumulativePointLabel,
   formatCashflowMillionsLabel,
   formatCashflowTooltipRub,
   formatCashflowYAxisMlnRub,
@@ -32,6 +33,7 @@ import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentSchedule
 import {
   cashflowInflowFactLineProps,
   cashflowInflowPlanLineProps,
+  CASHFLOW_INFLOW_FACT,
   CASHFLOW_INFLOW_PLAN,
 } from "@/lib/cashflowInflowChartSeries";
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
@@ -71,6 +73,10 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
 const LABEL_OFFSET_PLAN_ABOVE = 4;
+/** Нарастающий итог: факт над синей линией (px от точки до центра подписи). */
+const CUM_LABEL_OFFSET_FACT_ABOVE_PX = 14;
+/** Нарастающий итог: план выше оранжевой линии, чем факт — меньше наложений. */
+const CUM_LABEL_OFFSET_PLAN_ABOVE_PX = 20;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -392,6 +398,30 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub
   return out;
 }
 
+/** Нарастающий итог: подпись только при изменении значения (без повторов на плато). */
+function buildCumulativeSeriesLabelCandidates(
+  chartData: CashflowChartRow[],
+  series: LabelSeries,
+  pick: (row: CashflowChartRow) => number | null | undefined,
+): LabelCandidate[] {
+  const n = chartData.length;
+  if (n === 0) return [];
+  const out: LabelCandidate[] = [];
+  let prevLabel: string | null = null;
+  for (let i = 0; i < n; i++) {
+    const v = pick(chartData[i]!);
+    if (v == null || !Number.isFinite(v)) continue;
+    const label = formatCashflowCumulativePointLabel(v);
+    if (!label || label === prevLabel) continue;
+    prevLabel = label;
+    let priority = v;
+    if (i === 0) priority += 2e9;
+    if (i === n - 1) priority += 2e9;
+    out.push({ series, index: i, valueRub: v, priority });
+  }
+  return out;
+}
+
 function buildPlanLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub?: number; relaxBand?: boolean }): LabelCandidate[] {
   const n = chartData.length;
   if (n === 0) return [];
@@ -544,20 +574,37 @@ export function CashflowDynamicsSvgLabels({
 
   const planPillFill = "#ffffff";
   const planPillStroke = presDark ? "rgba(246,188,122,0.5)" : "rgba(246,188,122,0.62)";
-  const planPillText = presDark ? "#F0C896" : CASHFLOW_INFLOW_PLAN.label;
 
   const factPillFill = "#ffffff";
   const factPillStroke = presDark ? "rgba(59,130,246,0.88)" : "rgba(37,99,235,0.72)";
-  const factPillText = presDark ? "#93c5fd" : "#1e40af";
+  const isCumulativeMode = mode === "cumulative";
+  const factPillText = isCumulativeMode
+    ? presDark
+      ? "#93c5fd"
+      : CASHFLOW_INFLOW_FACT.stroke
+    : presDark
+      ? "#93c5fd"
+      : "#1e40af";
+  const planPillText = isCumulativeMode
+    ? presDark
+      ? "#F0C896"
+      : CASHFLOW_INFLOW_PLAN.label
+    : presDark
+      ? "#F0C896"
+      : CASHFLOW_INFLOW_PLAN.label;
 
-  const factCandidates = useMemo(
-    () => buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined),
-    [chartData, planFactExecutionLabels],
-  );
-  const planCandidates = useMemo(
-    () => buildPlanLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0, relaxBand: true } : undefined),
-    [chartData, planFactExecutionLabels],
-  );
+  const factCandidates = useMemo(() => {
+    if (mode === "cumulative") {
+      return buildCumulativeSeriesLabelCandidates(chartData, "fact", (row) => row.fact);
+    }
+    return buildFactLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0 } : undefined);
+  }, [chartData, mode, planFactExecutionLabels]);
+  const planCandidates = useMemo(() => {
+    if (mode === "cumulative") {
+      return buildCumulativeSeriesLabelCandidates(chartData, "plan", (row) => row.plan);
+    }
+    return buildPlanLabelCandidates(chartData, planFactExecutionLabels ? { minRub: 0, relaxBand: true } : undefined);
+  }, [chartData, mode, planFactExecutionLabels]);
 
   type Pill = {
     key: string;
@@ -619,7 +666,9 @@ export function CashflowDynamicsSvgLabels({
       if (yFactPt == null) continue;
 
       const liftF = proximityLiftFromAxis(yFactPt);
-      const chartLabelText = formatCashflowMillionsLabel(c.valueRub, false);
+      const chartLabelText = isCumulativeFact
+        ? formatCashflowCumulativePointLabel(c.valueRub)
+        : formatCashflowMillionsLabel(c.valueRub, false);
       const pillW = approxLabelWidthPx(chartLabelText, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
       const halfW = pillW / 2;
       const halfH = pillH / 2;
@@ -629,15 +678,25 @@ export function CashflowDynamicsSvgLabels({
       let anchorX = cx - LABEL_FACT_DX;
       anchorX = clamp(anchorX, minCenterX, maxCenterX);
 
-      const neighborDyPx = isCumulativeFact ? cumulativeFactMinNeighborDyPx(chartData, c.index, yScale) : Number.POSITIVE_INFINITY;
-      const plateauExtra = isCumulativeFact ? cumulativeFactPlateauExtraPx(neighborDyPx) : 0;
-      const factOffsetCore =
-        LABEL_OFFSET_FACT_ABOVE +
-        (isCumulativeFact ? LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA : 0) +
-        (isCumulativeFact && presentation ? LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA : 0) +
-        plateauExtra;
+      const factOffsetCore = isCumulativeFact
+        ? CUM_LABEL_OFFSET_FACT_ABOVE_PX
+        : LABEL_OFFSET_FACT_ABOVE +
+          (isCumulativeFact ? LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA : 0) +
+          (isCumulativeFact && presentation ? LABEL_OFFSET_FACT_CUMULATIVE_PRES_EXTRA : 0) +
+          (isCumulativeFact ? cumulativeFactPlateauExtraPx(cumulativeFactMinNeighborDyPx(chartData, c.index, yScale)) : 0);
 
       const staggerTries = (() => {
+        if (isCumulativeFact) {
+          return [
+            { dx: 0, dy: 0 },
+            { dx: 12, dy: 0 },
+            { dx: -12, dy: 0 },
+            { dx: 18, dy: 4 },
+            { dx: -18, dy: 4 },
+            { dx: 0, dy: 8 },
+            { dx: 0, dy: 14 },
+          ] as const;
+        }
         let near = 0;
         for (const r of resolved) {
           if (Math.abs(r.pointCx - cx) < 58) near++;
@@ -652,7 +711,8 @@ export function CashflowDynamicsSvgLabels({
           { dx: 18, dy: tierDy + 6 },
           { dx: -18, dy: tierDy + 6 },
         ];
-        const cumPrefix = isCumulativeFact && plateauExtra >= 16 ? CUM_FACT_PLATEAU_STAGGER_PREFIX : [];
+        const plateauExtra = cumulativeFactPlateauExtraPx(cumulativeFactMinNeighborDyPx(chartData, c.index, yScale));
+        const cumPrefix = plateauExtra >= 16 ? CUM_FACT_PLATEAU_STAGGER_PREFIX : [];
         return [...neighborPrefix, ...cumPrefix, ...LABEL_STAGGER_TRIES];
       })();
 
@@ -665,17 +725,6 @@ export function CashflowDynamicsSvgLabels({
           safeTop + halfH,
           factPillCenterYMax,
         );
-        if (isCumulativeFact) {
-          const xCat = xScale as unknown as CashflowChartXScale;
-          for (let guard = 0; guard < 4; guard++) {
-            const pillBottom = pillCy + halfH;
-            const lineEx = cumulativeFactLineClearanceExtraPx(chartData, pillCx, pillBottom, yScale, xCat, plot);
-            if (lineEx <= 0) break;
-            const nextCy = pillCy - lineEx;
-            if (nextCy >= pillCy - 0.25) break;
-            pillCy = clamp(nextCy, safeTop + halfH, factPillCenterYMax);
-          }
-        }
         if (!isCumulativeFact) {
           const capFromPoint = yFactPt - MONTHLY_FACT_LINE_CLEARANCE_PX - halfH;
           pillCy = Math.min(pillCy, capFromPoint);
@@ -741,7 +790,10 @@ export function CashflowDynamicsSvgLabels({
         const yPlan = yScale(row.plan);
         if (yPlan == null) continue;
 
-        const text = formatCashflowMillionsLabel(c.valueRub, false);
+        const text =
+          mode === "cumulative"
+            ? formatCashflowCumulativePointLabel(c.valueRub)
+            : formatCashflowMillionsLabel(c.valueRub, false);
         const pillW = approxLabelWidthPx(text, BADGE_FONT_PX) + 2 * BADGE_PAD_X;
         const halfW = pillW / 2;
         const halfH = pillH / 2;
@@ -774,11 +826,25 @@ export function CashflowDynamicsSvgLabels({
             }
           }
         } else {
+          const planOffsetAbove =
+            mode === "cumulative" ? CUM_LABEL_OFFSET_PLAN_ABOVE_PX : LABEL_OFFSET_PLAN_ABOVE;
           const maxCyAboveLine = yPlan - PLAN_LABEL_LINE_CLEARANCE_PX - halfH;
-          const staggerAbove = isLastChartIndex ? PLAN_LABEL_STAGGER_LAST_INDEX : PLAN_LABEL_STAGGER_ABOVE;
+          const staggerAbove =
+            mode === "cumulative"
+              ? ([
+                  { dx: 0, dy: 0 },
+                  { dx: 12, dy: 0 },
+                  { dx: -12, dy: 0 },
+                  { dx: 18, dy: 4 },
+                  { dx: -18, dy: 4 },
+                  { dx: 0, dy: 8 },
+                ] as const)
+              : isLastChartIndex
+                ? PLAN_LABEL_STAGGER_LAST_INDEX
+                : PLAN_LABEL_STAGGER_ABOVE;
           for (const { dx, dy } of staggerAbove) {
             const pillCx = clamp(anchorX + dx, minCenterX, maxCenterX);
-            let pillCy = yPlan - LABEL_OFFSET_PLAN_ABOVE - halfH - dy;
+            let pillCy = yPlan - planOffsetAbove - halfH - dy;
             pillCy = clamp(pillCy, safeTop + halfH, maxCyAboveLine);
             const box = labelBBoxCenteredPill(pillCx, pillCy, pillW, pillH);
             if (!labelOverlapsAny(box, keptBoxes)) {
@@ -831,7 +897,7 @@ export function CashflowDynamicsSvgLabels({
         dominantBaseline="middle"
         fill={p.textFill}
         fontSize={BADGE_FONT_PX}
-        fontWeight={isPlan ? 500 : 600}
+        fontWeight={isPlan ? 500 : mode === "cumulative" ? 700 : 600}
         className="tabular-nums"
       >
         {p.text}
