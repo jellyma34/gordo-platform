@@ -78,6 +78,17 @@ import {
   uploadMarketingReceiptsPlanFactCsvFile,
 } from "@/lib/marketingReceiptsPlanFactCsvUpload";
 import {
+  marketingLeadsCsvDocIsValid,
+  marketingLeadsDocToChartBundle,
+  MARKETING_LEADS_CSV_STORAGE_KEY,
+  type MarketingLeadsCsvChartBundle,
+  type MarketingLeadsCsvStoredV1,
+} from "@/lib/marketingLeadsCsv";
+import {
+  deleteMarketingLeadsCsv,
+  uploadMarketingLeadsCsvFile as persistMarketingLeadsCsvFile,
+} from "@/lib/marketingLeadsCsvUpload";
+import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
   reconcileUnitsExecutionDoc,
@@ -797,6 +808,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [receiptsPlanFactError, setReceiptsPlanFactError] = useState<string | null>(null);
   const [receiptsPlanFactLoading, setReceiptsPlanFactLoading] = useState(false);
 
+  const [marketingLeadsCharts, setMarketingLeadsCharts] = useState<MarketingLeadsCsvChartBundle>({
+    adSpend: [],
+    leads: [],
+    deals: [],
+  });
+  const [marketingLeadsMeta, setMarketingLeadsMeta] = useState<{
+    fileName: string;
+    uploadedAt: string;
+    uploadedBy?: string;
+    storageKey: string;
+  } | null>(null);
+  const [marketingLeadsHydrated, setMarketingLeadsHydrated] = useState(false);
+  const [marketingLeadsError, setMarketingLeadsError] = useState<string | null>(null);
+  const [marketingLeadsLoading, setMarketingLeadsLoading] = useState(false);
+
   const segmentExecutionHasChartRows = useMemo(
     () => segmentExecutionChartsHaveRows(segmentExecutionCharts),
     [segmentExecutionCharts],
@@ -907,6 +933,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             hasStorages: false,
             hasExecutionPlan: false,
             hasReceiptsPlanFact: false,
+            hasMarketingLeads: false,
           },
         });
         if (migrated.paymentPlan?.v === 2) {
@@ -1240,6 +1267,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setReceiptsPlanFactMeta(null);
       setReceiptsPlanFactError(null);
     };
+    const applyFromMarketingLeadsDoc = (doc: MarketingLeadsCsvStoredV1) => {
+      setMarketingLeadsCharts(marketingLeadsDocToChartBundle(doc));
+      setMarketingLeadsError(null);
+      setMarketingLeadsMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        uploadedBy: doc.uploadedBy,
+        storageKey: MARKETING_LEADS_CSV_STORAGE_KEY,
+      });
+    };
+    const resetMarketingLeadsUi = () => {
+      setMarketingLeadsCharts({ adSpend: [], leads: [], deals: [] });
+      setMarketingLeadsMeta(null);
+      setMarketingLeadsError(null);
+    };
     const resetUnitsUi = () => {
       setUnitsExecutionCharts(null);
       setUnitsCsvMeta(null);
@@ -1290,6 +1332,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         parking: MarketingParkingCsvStoredV1 | null;
         storages: MarketingStoragesCsvStoredV1 | null;
         receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
+        marketingLeads: MarketingLeadsCsvStoredV1 | null;
       } | null = null;
       let presence: MarketingCsvServerPresence = {
         hasPlan: false,
@@ -1302,6 +1345,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         hasStorages: false,
         hasExecutionPlan: false,
         hasReceiptsPlanFact: false,
+        hasMarketingLeads: false,
       };
       try {
         const res = await fetch(
@@ -1319,6 +1363,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             parking: MarketingParkingCsvStoredV1 | null;
             storages: MarketingStoragesCsvStoredV1 | null;
             receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
+            marketingLeads: MarketingLeadsCsvStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1386,6 +1431,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       );
       if (rpf) applyFromReceiptsPlanFactDoc(rpf);
       else resetReceiptsPlanFactUi();
+
+      const ml = mergeMarketingDataset(serverDatasets?.marketingLeads, null, marketingLeadsCsvDocIsValid);
+      if (ml) applyFromMarketingLeadsDoc(ml);
+      else resetMarketingLeadsUi();
     })()
       .catch(() => {
         /* handled in merge path */
@@ -1393,6 +1442,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       .finally(() => {
         if (!cancelled) {
           setReceiptsPlanFactHydrated(true);
+          setMarketingLeadsHydrated(true);
           setSupplementalMarketingHydrated(true);
         }
       });
@@ -1429,6 +1479,36 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     }
     setReceiptsPlanFactMonthly([]);
     setReceiptsPlanFactMeta(null);
+  }, [paymentPlanProjectId]);
+
+  const uploadMarketingLeadsCsvHandler = useCallback(
+    async (file: File) => {
+      setMarketingLeadsLoading(true);
+      setMarketingLeadsError(null);
+      try {
+        const result = await persistMarketingLeadsCsvFile(file, paymentPlanProjectId, paymentUploadedByLabel);
+        if (!result.ok) {
+          setMarketingLeadsError(result.error);
+          throw new Error(result.error);
+        }
+        setMarketingLeadsCharts(result.charts);
+        setMarketingLeadsMeta(result.meta);
+      } finally {
+        setMarketingLeadsLoading(false);
+      }
+    },
+    [paymentPlanProjectId, paymentUploadedByLabel],
+  );
+
+  const clearMarketingLeadsCsvHandler = useCallback(async () => {
+    setMarketingLeadsError(null);
+    const result = await deleteMarketingLeadsCsv(paymentPlanProjectId);
+    if (!result.ok) {
+      setMarketingLeadsError(result.error);
+      throw new Error(result.error);
+    }
+    setMarketingLeadsCharts({ adSpend: [], leads: [], deals: [] });
+    setMarketingLeadsMeta(null);
   }, [paymentPlanProjectId]);
 
   const uploadSalesPlanExecutionFile = useCallback(
@@ -3834,6 +3914,12 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           hasPlanFactCsv={receiptsPlanFactMeta != null}
           onPlanFactCsvUpload={uploadPlanVsFactCsvFile}
           onPlanFactCsvClear={clearPlanVsFactCsv}
+          marketingLeadsCharts={marketingLeadsCharts}
+          marketingLeadsCsvHydrated={marketingLeadsHydrated}
+          marketingLeadsCsvLoading={marketingLeadsLoading}
+          hasMarketingLeadsCsv={marketingLeadsMeta != null}
+          onMarketingLeadsCsvUpload={uploadMarketingLeadsCsvHandler}
+          onMarketingLeadsCsvClear={clearMarketingLeadsCsvHandler}
         />
       </>
 

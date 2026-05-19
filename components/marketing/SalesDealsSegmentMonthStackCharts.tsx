@@ -35,16 +35,19 @@ import {
   createMarketingDealsStyleMonthTickRenderer,
   MARKETING_DEALS_STYLE_MONTH_X_AXIS,
 } from "@/components/marketing/marketingDealsStyleMonthXAxis";
+import { MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE } from "@/lib/marketingDealSegmentIdentity";
+
+/** Единый цвет подписей блока «Сделки» (светлая тема). */
+const DEALS_LABEL = "text-[#111827]";
+const DEALS_LABEL_SECONDARY = "text-[#1F2937]";
+const DEALS_CHART_AXIS_LIGHT = "#111827";
+const DEALS_CHART_BAR_LABEL_LIGHT = "#111827";
 
 type SegmentCardSkin = {
   dark: string;
   premium: string;
   work: string;
   radial: string;
-  titleDark: string;
-  titleLight: string;
-  mutedDark: string;
-  mutedLight: string;
 };
 
 const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
@@ -56,10 +59,6 @@ const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
     work:
       "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
     radial: "radial-gradient(circle at 14% 12%, rgba(99,102,241,0.07), transparent 58%)",
-    titleDark: "text-indigo-300/90",
-    titleLight: "text-indigo-800",
-    mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-400",
   },
   parking: {
     dark:
@@ -69,10 +68,6 @@ const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
     work:
       "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
     radial: "radial-gradient(circle at 14% 12%, rgba(139,92,246,0.07), transparent 58%)",
-    titleDark: "text-violet-300/90",
-    titleLight: "text-violet-800",
-    mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-400",
   },
   storage: {
     dark:
@@ -82,10 +77,6 @@ const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
     work:
       "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
     radial: "radial-gradient(circle at 14% 12%, rgba(6,182,212,0.06), transparent 58%)",
-    titleDark: "text-slate-300",
-    titleLight: "text-cyan-900",
-    mutedDark: "text-slate-500/80",
-    mutedLight: "text-slate-400",
   },
   commercial: {
     dark:
@@ -95,10 +86,6 @@ const SEGMENT_CARD_SKIN: Record<DealsAnalyticsSegmentKey, SegmentCardSkin> = {
     work:
       "rounded-2xl border border-slate-200/65 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.045)]",
     radial: "radial-gradient(circle at 14% 12%, rgba(249,115,22,0.07), transparent 58%)",
-    titleDark: "text-orange-300/90",
-    titleLight: "text-orange-900",
-    mutedDark: "text-slate-500/85",
-    mutedLight: "text-slate-400",
   },
 };
 
@@ -145,21 +132,15 @@ type MiniBarLabelProps = {
   index?: number;
 };
 
-function createSegmentMiniBarTopLabel(
-  fill: string,
-  peakFill: string,
-  peakIndex: number | null,
-  formatValue: (v: unknown) => string,
-) {
+function createSegmentMiniBarTopLabel(labelFill: string, formatValue: (v: unknown) => string) {
   return function SegmentMiniBarTopLabel(props: MiniBarLabelProps) {
     const x = typeof props.x === "number" ? props.x : Number(props.x);
     const y = typeof props.y === "number" ? props.y : Number(props.y);
     const width = typeof props.width === "number" ? props.width : Number(props.width);
-    const i = props.index ?? 0;
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width)) return null;
     const text = formatValue(props.value);
     if (!text) return null;
-    const color = peakIndex != null && i === peakIndex ? peakFill : fill;
+    const color = labelFill;
     return (
       <text
         x={x + width / 2}
@@ -227,7 +208,8 @@ function SegmentMonthBarChart({
     return m > 0 ? m * 1.1 : 1;
   }, [data, dataKey]);
   const gridStroke = presDark ? "rgba(148,163,184,0.06)" : "rgba(148,163,184,0.11)";
-  const axisColor = presDark ? "#94a3b8" : "#a1a7b3";
+  const axisColor = presDark ? "#e2e8f0" : DEALS_CHART_AXIS_LIGHT;
+  const barLabelFill = presDark ? "#f8fafc" : DEALS_CHART_BAR_LABEL_LIGHT;
   const categoryGap = infographicMode ? (n <= 6 ? "18%" : n <= 10 ? "22%" : "28%") : n <= 6 ? "16%" : n <= 10 ? "20%" : "26%";
   const lastI = n - 1;
   const renderMonthTick = useMemo(
@@ -248,18 +230,16 @@ function SegmentMonthBarChart({
   const barTopLabel = useMemo(
     () =>
       createSegmentMiniBarTopLabel(
-        fill,
-        peakFill,
-        peakIndex,
+        barLabelFill,
         dataKey === "deals" ? formatDealsMiniBarTopLabel : formatRevenueMiniBarTopLabel,
       ),
-    [fill, peakFill, peakIndex, dataKey],
+    [barLabelFill, dataKey],
   );
 
   return (
     <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}>
       <div
-        className={`mb-1.5 pl-10 pr-1 sm:pl-[2.6rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-500" : "text-slate-400"}`}
+        className={`mb-1.5 pl-10 pr-1 sm:pl-[2.6rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-200" : DEALS_LABEL}`}
       >
         {title}
       </div>
@@ -298,7 +278,7 @@ function SegmentMonthBarChart({
                   ? { borderRadius: 8, fontSize: 10, borderColor: "rgba(148,163,184,0.3)", background: "#0f172a" }
                   : { borderRadius: 8, fontSize: 10 }
               }
-              labelStyle={presDark ? { color: "#e2e8f0" } : { color: "#334155" }}
+              labelStyle={presDark ? { color: "#e2e8f0" } : { color: DEALS_CHART_AXIS_LIGHT }}
             />
             <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={infographicMode ? 32 : 28} isAnimationActive={false}>
               {data.map((_, i) => {
@@ -335,10 +315,13 @@ function SegmentAnalyticsCard({
 }) {
   const skin = SEGMENT_CARD_SKIN[model.segment];
   const wrap = presDark ? skin.dark : mplPremium && presentation ? skin.premium : skin.work;
-  const mutedCls = presDark ? skin.mutedDark : skin.mutedLight;
-  const statValueCls = presDark ? "text-slate-50" : "text-slate-950";
-  const bodyCls = presDark ? "text-slate-300/95" : "text-slate-600";
-  const sectionTitleCls = presDark ? "text-slate-200" : "text-slate-500";
+  const mutedCls = presDark ? "text-slate-200" : DEALS_LABEL_SECONDARY;
+  const statValueCls = presDark ? "text-slate-50" : DEALS_LABEL;
+  const bodyCls = presDark ? "text-slate-200" : DEALS_LABEL_SECONDARY;
+  const sectionTitleCls = presDark ? "text-slate-100" : DEALS_LABEL;
+  const segmentTitleCls = presDark
+    ? `${MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE} text-slate-100`
+    : `${MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE} ${DEALS_LABEL}`;
   const lastPt = model.months.length > 0 ? model.months[model.months.length - 1]! : null;
   const ringLast =
     model.declineNote != null &&
@@ -364,6 +347,7 @@ function SegmentAnalyticsCard({
               presDark ? "dark" : mplPremium && presentation ? "premium" : presentation ? "presentation" : "work"
             }
             labelTone={presDark ? "dark" : "work"}
+            labelClassName={segmentTitleCls}
             className="min-w-0 flex-1 gap-3 pr-2 pt-0.5"
           />
           {model.trendLabel !== "Без существенных изменений" ? (
@@ -409,7 +393,7 @@ function SegmentAnalyticsCard({
         {presentation ? (
           model.presentationInsightLine ? (
             <p
-              className={`text-left text-[11px] font-medium leading-relaxed sm:text-xs ${presDark ? "text-slate-400" : "text-slate-600"}`}
+              className={`text-left text-[11px] font-medium leading-relaxed sm:text-xs ${presDark ? "text-slate-200" : DEALS_LABEL_SECONDARY}`}
             >
               {model.presentationInsightLine}
             </p>
@@ -485,8 +469,8 @@ export function SalesDealsSegmentMonthStackCharts({ dealsRows, presentation }: P
           ? `mb-8 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart shadow-[0_4px_22px_rgba(15,23,42,0.05)] ${shellPad}`
           : `mb-8 overflow-visible rounded-2xl border border-slate-200/70 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.04)] ${shellPad}`;
 
-  const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
-  const subCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-500";
+  const titleCls = presDark ? "text-slate-100" : DEALS_LABEL;
+  const subCls = presDark ? "text-slate-200" : DEALS_LABEL_SECONDARY;
 
   if (!hasMonths) {
     return (

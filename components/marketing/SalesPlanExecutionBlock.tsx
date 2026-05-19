@@ -33,7 +33,9 @@ import type {
 } from "@/lib/parseSegmentExecutionCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
+import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
 import {
   cashflowYAxisScale,
   compactRub,
@@ -153,6 +155,13 @@ type Props = {
   hasPlanFactCsv?: boolean;
   onPlanFactCsvUpload?: (file: File) => Promise<void>;
   onPlanFactCsvClear?: () => Promise<void>;
+  /** Блок «Маркетинг» (лиды.csv): три графика план/факт. */
+  marketingLeadsCharts?: MarketingLeadsCsvChartBundle;
+  marketingLeadsCsvHydrated?: boolean;
+  marketingLeadsCsvLoading?: boolean;
+  hasMarketingLeadsCsv?: boolean;
+  onMarketingLeadsCsvUpload?: (file: File) => Promise<void>;
+  onMarketingLeadsCsvClear?: () => Promise<void>;
 };
 
 export function SalesPlanExecutionBlock({
@@ -173,6 +182,12 @@ export function SalesPlanExecutionBlock({
   hasPlanFactCsv = false,
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
+  marketingLeadsCharts = { adSpend: [], leads: [], deals: [] },
+  marketingLeadsCsvHydrated = true,
+  marketingLeadsCsvLoading = false,
+  hasMarketingLeadsCsv = false,
+  onMarketingLeadsCsvUpload,
+  onMarketingLeadsCsvClear,
 }: Props) {
   const data = dataset;
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -291,6 +306,19 @@ export function SalesPlanExecutionBlock({
           data={unitsExecutionCharts}
           dealsRows={unitsExecutionDealsRows}
           unitsCsvError={unitsCsvError}
+        />
+
+        <MarketingLeadsCsvSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          isEditMode={isEditMode}
+          charts={marketingLeadsCharts}
+          csvHydrated={marketingLeadsCsvHydrated}
+          csvLoading={marketingLeadsCsvLoading}
+          hasCsv={hasMarketingLeadsCsv}
+          onCsvUpload={onMarketingLeadsCsvUpload}
+          onCsvClear={onMarketingLeadsCsvClear}
         />
       </div>
 

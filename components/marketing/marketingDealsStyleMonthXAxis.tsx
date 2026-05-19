@@ -18,9 +18,9 @@ export const MARKETING_DEALS_STYLE_MONTH_X_AXIS = {
 } as const;
 
 /** Подпись месяца с данными (мини-графики «Сделки», светлая тема). */
-export const MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT = "#1f2937";
+export const MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT = "#111827";
 /** Подпись месяца без данных (мини-графики «Сделки», светлая тема). */
-export const MARKETING_DEALS_MONTH_TICK_MUTED_LIGHT = "#cbd5e1";
+export const MARKETING_DEALS_MONTH_TICK_MUTED_LIGHT = "rgba(31,41,55,0.45)";
 
 export type MarketingDealsStyleMonthTickOptions = {
   presDark: boolean;
@@ -46,7 +46,7 @@ export type MarketingDealsStyleMonthTickOptions = {
 export function createMarketingDealsStyleMonthTickRenderer(
   opts: MarketingDealsStyleMonthTickOptions,
 ): (props: XAxisTickContentProps) => JSX.Element {
-  const axisColor = opts.presDark ? "#94a3b8" : "#a1a7b3";
+  const axisColor = opts.presDark ? "#e2e8f0" : MARKETING_DEALS_MONTH_TICK_ACTIVE_LIGHT;
   const highlightByData = opts.isTickMuted != null;
   const n = opts.tickCount;
 

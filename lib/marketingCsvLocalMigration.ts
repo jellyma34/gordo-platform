@@ -105,6 +105,7 @@ export type MarketingCsvServerPresence = {
   hasStorages: boolean;
   hasExecutionPlan: boolean;
   hasReceiptsPlanFact: boolean;
+  hasMarketingLeads?: boolean;
 };
 
 /** Сбрасывает все marketing CSV ключи в localStorage для проекта. */

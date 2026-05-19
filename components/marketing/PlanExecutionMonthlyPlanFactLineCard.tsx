@@ -28,6 +28,8 @@ import {
   formatCashflowMillionsLabelTidy,
   cashflowYAxisScale,
   formatCumulativePlanFactYAxisTick,
+  integerNiceYAxisScale,
+  numFmt,
 } from "@/lib/salesPlanChartFormat";
 
 function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
@@ -44,6 +46,7 @@ const FACT_LABEL_OFFSET_BELOW_PX = 6;
 
 /** Порог «план и факт близко» (млн ₽ по модулю разницы в рублях): доп. сдвиг подписей. */
 const CLOSE_PLAN_FACT_RUB = 8 * 1_000_000;
+const CLOSE_PLAN_FACT_COUNT = 10;
 const CLOSE_EXTRA_PLAN_ABOVE_PX = 10;
 const CLOSE_EXTRA_FACT_BELOW_PX = 10;
 
@@ -88,6 +91,14 @@ type Props = {
   hasPlanFactCsv?: boolean;
   onPlanFactCsvUpload?: (file: File) => Promise<void>;
   onPlanFactCsvClear?: () => Promise<void>;
+  /** Заголовок карточки (по умолчанию «План vs факт»). */
+  chartTitle?: string;
+  /** `null` — без подзаголовка; `undefined` — текст по умолчанию. */
+  chartDescription?: string | null;
+  hideCsvUpload?: boolean;
+  hideLegend?: boolean;
+  valueMode?: "rub_mln" | "integer";
+  emptyStateMessage?: string;
 };
 
 function rubFromLabelValue(v: LabelProps["value"]): number | null {
@@ -115,9 +126,21 @@ export function PlanExecutionMonthlyPlanFactLineCard({
   hasPlanFactCsv = false,
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
+  chartTitle = "План vs факт",
+  chartDescription,
+  hideCsvUpload = false,
+  hideLegend = false,
+  valueMode = "rub_mln",
+  emptyStateMessage = "Загрузите CSV файл для отображения графика",
 }: Props) {
+  const isIntegerMode = valueMode === "integer";
+  const closeThreshold = isIntegerMode ? CLOSE_PLAN_FACT_COUNT : CLOSE_PLAN_FACT_RUB;
+  const resolvedDescription =
+    chartDescription === undefined
+      ? "План и факт из файла поступления_план_факт.csv (колонки «План поступлений», «Факт поступлений», млн ₽)."
+      : chartDescription;
   const showPlanFactCsvUpload =
-    isEditMode && !presentation && onPlanFactCsvUpload != null && onPlanFactCsvClear != null;
+    !hideCsvUpload && isEditMode && !presentation && onPlanFactCsvUpload != null && onPlanFactCsvClear != null;
   const chartData = useMemo((): CashflowChartRow[] => {
     const rows = monthlyPlanVsFact ?? [];
     return [...rows]
@@ -157,8 +180,13 @@ export function PlanExecutionMonthlyPlanFactLineCard({
       if (r.plan != null && Number.isFinite(r.plan)) vals.push(r.plan);
       if (r.fact != null && Number.isFinite(r.fact)) vals.push(r.fact);
     }
+    if (isIntegerMode) {
+      const max = vals.length > 0 ? Math.max(...vals) : 0;
+      const scaled = integerNiceYAxisScale(max);
+      return { domainMax: scaled.domain[1] ?? 5, ticks: scaled.ticks };
+    }
     return cashflowYAxisScale(vals);
-  }, [chartData]);
+  }, [chartData, isIntegerMode]);
 
   const factStaggerPx = useMemo(
     () => buildLabelStaggerPx(chartData.map((r) => r.fact), domainMax),
@@ -175,10 +203,16 @@ export function PlanExecutionMonthlyPlanFactLineCard({
         const p = r.plan;
         const f = r.fact;
         if (p == null || f == null || !Number.isFinite(p) || !Number.isFinite(f)) return 0;
-        return Math.abs(f - p) < CLOSE_PLAN_FACT_RUB ? 1 : 0;
+        return Math.abs(f - p) < closeThreshold ? 1 : 0;
       }),
-    [chartData],
+    [chartData, closeThreshold],
   );
+
+  const formatPointLabel = (rub: number) =>
+    isIntegerMode ? numFmt.format(Math.round(rub)) : formatCashflowMillionsLabelTidy(rub, false);
+
+  const formatYAxisTick = (v: number) =>
+    isIntegerMode ? numFmt.format(Math.round(v)) : formatCumulativePlanFactYAxisTick(v);
 
   const monthXTick = useMemo(
     () =>
@@ -234,11 +268,11 @@ export function PlanExecutionMonthlyPlanFactLineCard({
             <h3
               className={`text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
             >
-              План vs факт
+              {chartTitle}
             </h3>
-            {!presentation ? (
+            {!presentation && resolvedDescription ? (
               <p className={`mt-1.5 text-[11px] leading-snug ${presDark ? "text-slate-400" : "text-slate-500"}`}>
-                План и факт из файла поступления_план_факт.csv (колонки «План поступлений», «Факт поступлений», млн ₽).
+                {resolvedDescription}
               </p>
             ) : null}
           </div>
@@ -254,9 +288,11 @@ export function PlanExecutionMonthlyPlanFactLineCard({
             </div>
           ) : null}
         </div>
-        <div className="mt-2.5 flex justify-end">
-          <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
-        </div>
+        {!hideLegend ? (
+          <div className="mt-2.5 flex justify-end">
+            <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-[300px] min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-3 pb-4">
@@ -274,7 +310,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({
               presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
             }`}
           >
-            Загрузите CSV файл для отображения графика
+            {emptyStateMessage}
           </div>
         ) : (
         <div className="h-[320px] min-h-[300px] w-full min-w-0 overflow-visible [&_svg]:overflow-visible">
@@ -310,7 +346,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({
                 tick={{ fill: axisColor, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => formatCumulativePlanFactYAxisTick(Number(v))}
+                tickFormatter={(v) => formatYAxisTick(Number(v))}
                 width={CHART_Y_AXIS_WIDTH}
                 allowDataOverflow
               />
@@ -348,7 +384,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({
                         letterSpacing="-0.2px"
                         className="tabular-nums pointer-events-none"
                       >
-                        {formatCashflowMillionsLabelTidy(num, false)}
+                        {formatPointLabel(num)}
                       </text>
                     );
                   }}
@@ -384,7 +420,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({
                         letterSpacing="-0.2px"
                         className="tabular-nums pointer-events-none"
                       >
-                        {formatCashflowMillionsLabelTidy(num, false)}
+                        {formatPointLabel(num)}
                       </text>
                     );
                   }}
