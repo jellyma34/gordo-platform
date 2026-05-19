@@ -73,10 +73,10 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
 const LABEL_OFFSET_PLAN_ABOVE = 4;
-/** Нарастающий итог: факт над синей линией (px от точки до центра подписи). */
-const CUM_LABEL_OFFSET_FACT_ABOVE_PX = 14;
-/** Нарастающий итог: план выше оранжевой линии, чем факт — меньше наложений. */
-const CUM_LABEL_OFFSET_PLAN_ABOVE_PX = 20;
+/** Нарастающий итог: факт — компактно над точкой (px от точки до центра подписи). */
+const CUM_LABEL_OFFSET_FACT_ABOVE_PX = 8;
+/** Нарастающий итог: план чуть выше факта, чтобы не сливались. */
+const CUM_LABEL_OFFSET_PLAN_ABOVE_PX = 10;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */

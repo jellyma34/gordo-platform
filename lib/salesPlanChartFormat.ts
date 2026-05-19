@@ -144,18 +144,11 @@ export function formatCashflowMillionsLabelTidy(n: number, withRubSuffix = false
 
 /**
  * Подпись точки на графике «Динамика поступлений» в режиме нарастающим итогом:
- * «24 млн», «50,5 млн» — до одной десятичной, без «₽» и без лишних нулей.
+ * только число в млн («24», «50,5») — без «млн», «₽» и лишних нулей; ось Y задаёт масштаб.
  */
 export function formatCashflowCumulativePointLabel(rub: number): string {
   if (!Number.isFinite(rub)) return "";
-  const sign = rub < 0 ? "−" : "";
-  const absRub = Math.abs(rub);
-  if (absRub === 0) return "0 млн";
-
-  const mln = absRub / 1_000_000;
-  const nearlyInt = Math.abs(mln - Math.round(mln)) < 1e-6;
-  const core = nearlyInt ? String(Math.round(mln)) : trimRuDecimalZeros(mln.toFixed(1).replace(".", ","));
-  return `${sign}${core} млн`;
+  return formatCashflowMillionsLabelTidy(rub, false);
 }
 
 /** Подписи на графике «Динамика поступлений» (tooltip, отклонение): как {@link formatCashflowMillionsLabel} с « ₽». */
