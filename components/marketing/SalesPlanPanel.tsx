@@ -2686,8 +2686,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     return { rows, maxDelta, axisMaxPp, scaleTicks, maxAbsRub };
   }, [salesStructureBalanceRows]);
   const chartMode: SalesPlanChartMode = presentation ? (presDark ? "presentation" : "presentationLight") : "work";
-  /** KPI, темп продаж и прочая аналитика ниже «Исполнение (штуки)» — только view, не edit. */
-  const showLowerAnalyticsSections = !presentation && mode !== "edit";
+  /** KPI, темп продаж и прочая аналитика ниже «Исполнение (штуки)» — только презентация; на /edit/marketing скрыто. */
+  const showLowerAnalyticsSections = presentation;
   const velocityLineData = useMemo(() => buildVelocityLineRows(monthlyPlanExecutionData), [monthlyPlanExecutionData]);
   const velocityCompletionPct = useMemo(() => {
     if (velocityMetrics.planPerMonth <= 0) return 0;
