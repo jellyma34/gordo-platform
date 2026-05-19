@@ -786,7 +786,7 @@ export function CashflowDynamicsSvgLabels({
     }
 
     const pillH = BADGE_H_PX;
-    const { safeTop, plotBottomY } = chartBadgeSafeBounds(plot, chartW, chartH);
+    const { safeLeft, safeRight, safeTop, plotBottomY } = chartBadgeSafeBounds(plot, chartW, chartH);
     const labelBandTop = plotBottomY - X_AXIS_LABEL_BAND_RESERVE;
     const labelHalfH = pillH / 2;
     const labelPillCenterYMin = safeTop + labelHalfH;
