@@ -73,28 +73,20 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
 const LABEL_OFFSET_PLAN_ABOVE = 4;
-/** Нарастающий итог: Y подписи = pointY − offset (dominantBaseline middle). */
-const CUM_POINT_LABEL_Y_OFFSET_FACT = 12;
-const CUM_POINT_LABEL_Y_OFFSET_PLAN = 14;
+/** Нарастающий итог: labelY = pointY − offset (dominantBaseline middle), привязка к точке. */
+const CUM_POINT_LABEL_Y_OFFSET_FACT = 10;
+const CUM_POINT_LABEL_Y_OFFSET_PLAN = 12;
 /** Зазор нижнего края подписи над горизонтальной линией сетки (только при пересечении). */
 const CUM_LABEL_GRID_LINE_CLEARANCE_PX = 5;
-/** Минимальный зазор между подписями Fact и Plan на одном месяце. */
-const CUM_FACT_PLAN_MIN_LABEL_GAP_PX = 18;
-/** Разведение пары Fact/Plan: факт выше своей точки, план ниже своей. */
+/** Нижний край подписи не заходит на маркер точки. */
+const CUM_LABEL_POINT_CLEARANCE_PX = 5;
+/** Минимальный зазор между центрами Fact и Plan на одном месяце. */
+const CUM_FACT_PLAN_MIN_LABEL_GAP_PX = 20;
+/** Разведение пары Fact/Plan у первой / близких точек. */
 const CUM_FACT_PLAN_SPREAD_FACT_ABOVE_PX = 8;
-const CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX = 18;
-/** Смещения при коллизии: база всегда от pointY, dy>0 поднимает выше. */
-const CUM_LABEL_COLLISION_SHIFTS: ReadonlyArray<{ dx: number; dy: number }> = [
-  { dx: 0, dy: 0 },
-  { dx: 10, dy: 0 },
-  { dx: -10, dy: 0 },
-  { dx: 14, dy: 0 },
-  { dx: -14, dy: 0 },
-  { dx: 0, dy: 8 },
-  { dx: 0, dy: 14 },
-  { dx: 10, dy: 8 },
-  { dx: -10, dy: 8 },
-];
+const CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX = 16;
+/** Горизонтальный сдвиг при коллизии с другими подписями (Y остаётся у точки). */
+const CUM_LABEL_DX_SHIFTS: readonly number[] = [0, 10, -10, 14, -14, 18, -18];
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -450,6 +442,30 @@ function cumulativeLabelYFromPoint(pointY: number, yOffset: number): number {
   return pointY - yOffset;
 }
 
+/** Не перекрывать маркер (подпись над точкой): при необходимости чуть поднять. */
+function nudgeCumulativeLabelYAbovePoint(
+  labelY: number,
+  halfH: number,
+  pointY: number,
+  clearancePx = CUM_LABEL_POINT_CLEARANCE_PX,
+): number {
+  const maxBottom = pointY - clearancePx;
+  if (labelY + halfH <= maxBottom) return labelY;
+  return maxBottom - halfH;
+}
+
+/** Не перекрывать маркер (подпись под точкой): при необходимости чуть опустить. */
+function nudgeCumulativeLabelYBelowPoint(
+  labelY: number,
+  halfH: number,
+  pointY: number,
+  clearancePx = CUM_LABEL_POINT_CLEARANCE_PX,
+): number {
+  const minTop = pointY + clearancePx;
+  if (labelY - halfH >= minTop) return labelY;
+  return minTop + halfH;
+}
+
 /** Лёгкий подъём только если нижний край подписи попал на линию сетки. */
 function nudgeCumulativeLabelYAboveGrid(labelY: number, halfH: number, gridLineYs: readonly number[]): number {
   let y = labelY;
@@ -486,6 +502,18 @@ function buildCumulativePlacedLabel(
   return { x, y, box: labelBBoxCenteredPill(x, y, pillW, pillH), pillW, pointY };
 }
 
+function resolveCumulativeLabelYFromPoint(
+  pointY: number,
+  offsetAbove: number,
+  halfH: number,
+  gridLineYs: readonly number[],
+): number {
+  let y = cumulativeLabelYFromPoint(pointY, offsetAbove);
+  y = nudgeCumulativeLabelYAbovePoint(y, halfH, pointY);
+  y = nudgeCumulativeLabelYAboveGrid(y, halfH, gridLineYs);
+  return y;
+}
+
 function placeCumulativeLabelAtPoint(opts: {
   pointX: number;
   pointY: number;
@@ -504,13 +532,14 @@ function placeCumulativeLabelAtPoint(opts: {
   const halfH = pillH / 2;
   const minCx = safeLeft + halfW;
   const maxCx = safeRight - halfW;
-  const baseY = preferredLabelY ?? cumulativeLabelYFromPoint(pointY, yOffset);
+  const anchorY =
+    preferredLabelY ??
+    resolveCumulativeLabelYFromPoint(pointY, yOffset, halfH, gridLineYs);
 
   let fallback: CumulativePlacedLabel | null = null;
-  for (const { dx, dy } of CUM_LABEL_COLLISION_SHIFTS) {
+  for (const dx of CUM_LABEL_DX_SHIFTS) {
     const x = clamp(pointX + dx, minCx, maxCx);
-    const y = nudgeCumulativeLabelYAboveGrid(baseY - dy, halfH, gridLineYs);
-    const candidate = buildCumulativePlacedLabel(x, pointY, y, text, pillH, safeLeft, safeRight, pillW);
+    const candidate = buildCumulativePlacedLabel(x, pointY, anchorY, text, pillH, safeLeft, safeRight, pillW);
     if (!fallback) fallback = candidate;
     if (!labelOverlapsAny(candidate.box, keptBoxes)) return candidate;
   }
@@ -530,16 +559,15 @@ function spreadCumulativeFactPlanPairYs(opts: {
   if (Math.abs(factLabelY - planLabelY) >= CUM_FACT_PLAN_MIN_LABEL_GAP_PX) {
     return { factY: factLabelY, planY: planLabelY };
   }
-  let factY = nudgeCumulativeLabelYAboveGrid(
-    factPointY - CUM_FACT_PLAN_SPREAD_FACT_ABOVE_PX,
+  let factY = resolveCumulativeLabelYFromPoint(
+    factPointY,
+    CUM_FACT_PLAN_SPREAD_FACT_ABOVE_PX,
     halfH,
     gridLineYs,
   );
-  let planY = nudgeCumulativeLabelYAboveGrid(
-    planPointY + CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX,
-    halfH,
-    gridLineYs,
-  );
+  let planY = planPointY + CUM_FACT_PLAN_SPREAD_PLAN_BELOW_PX;
+  planY = nudgeCumulativeLabelYBelowPoint(planY, halfH, planPointY);
+  planY = nudgeCumulativeLabelYAboveGrid(planY, halfH, gridLineYs);
   const gap = Math.abs(factY - planY);
   if (gap < CUM_FACT_PLAN_MIN_LABEL_GAP_PX) {
     const extra = (CUM_FACT_PLAN_MIN_LABEL_GAP_PX - gap) / 2 + 1;
@@ -563,8 +591,8 @@ function tryShiftCumulativeLabelDx(
   safeRight: number,
   keptBoxes: readonly LabelBBox[],
 ): CumulativePlacedLabel {
-  const halfH = pillH / 2;
-  for (const dx of [10, -10, 14, -14, 18, -18]) {
+  for (const dx of CUM_LABEL_DX_SHIFTS) {
+    if (dx === 0) continue;
     const shifted = buildCumulativePlacedLabel(
       pointX + dx,
       placed.pointY,
