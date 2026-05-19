@@ -26,7 +26,7 @@ import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import {
   formatCashflowMillionsLabelTidy,
   cashflowYAxisScale,
-  formatCashflowYAxisMlnRub,
+  formatCumulativePlanFactYAxisTick,
 } from "@/lib/salesPlanChartFormat";
 
 function lineDotAlwaysVisible(fill: string, strokeRing: string, r: number) {
@@ -260,7 +260,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
                 tick={{ fill: axisColor, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => formatCashflowYAxisMlnRub(Number(v))}
+                tickFormatter={(v) => formatCumulativePlanFactYAxisTick(Number(v))}
                 width={CHART_Y_AXIS_WIDTH}
                 allowDataOverflow
               />
