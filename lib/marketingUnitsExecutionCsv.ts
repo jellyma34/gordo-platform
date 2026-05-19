@@ -6,11 +6,14 @@ import {
   type UnitsExecutionSegmentRow,
   type UnitsExecutionTotals,
 } from "@/lib/parseSalesUnitsExecutionCsv";
+import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import {
   buildUnitsExecutionByMonthFromBase,
   buildUnitsExecutionSliceForMonth,
-  resolveCumulativeFactByMonth,
+  resolveCumulativeFactForMonth,
 } from "@/lib/unitsExecutionCumulative";
+import { applyUnitsExecutionValueMode, type UnitsExecutionValueMode } from "@/lib/unitsExecutionValueMode";
+import { getCumulativePlanForMonth } from "@/lib/unitsExecutionMonths";
 import { UNITS_EXECUTION_BASE_MONTH } from "@/lib/unitsExecutionMonths";
 
 export { normalizeSegmentName, normalizeUnitCell, parseSalesUnitsExecutionCsv };
@@ -69,14 +72,28 @@ function normalizeByMonth(raw: unknown): UnitsExecutionByMonth | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Базовые строки CSV (февраль 2026) → накопительные срезы по месяцам фильтра. */
+/** Базовые строки CSV (февраль 2026) → срез по месяцу; режим «Месяц» — plan/fact за отчётный месяц. */
 export function resolveUnitsExecutionMonthSlice(
   payload: UnitsExecutionChartsPayload | null | undefined,
   monthKey: string,
+  dealsRows?: readonly NormalizedDealRow[],
+  valueMode: UnitsExecutionValueMode = "cumulative",
 ): UnitsExecutionMonthSlice | null {
   if (!payload?.segments?.length) return null;
-  const factByMonth = resolveCumulativeFactByMonth(payload.segments);
-  return buildUnitsExecutionSliceForMonth(payload.segments, monthKey, factByMonth);
+  const cumulativeSlice = buildUnitsExecutionSliceForMonth(payload.segments, monthKey, {
+    dealsRows,
+    explicitFactByMonth: payload.byMonth,
+  });
+  if (!cumulativeSlice) return null;
+  if (valueMode === "cumulative") return cumulativeSlice;
+  return applyUnitsExecutionValueMode(
+    cumulativeSlice,
+    monthKey,
+    valueMode,
+    getCumulativePlanForMonth,
+    (mk) =>
+      resolveCumulativeFactForMonth(mk, payload.segments, dealsRows, payload.byMonth),
+  );
 }
 
 export function unitsExecutionChartsHaveAnyMonth(

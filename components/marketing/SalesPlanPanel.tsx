@@ -3796,6 +3796,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           segmentExecutionCharts={segmentExecutionCharts}
           segmentExecutionCsvError={segmentExecutionCsvError}
           unitsExecutionCharts={unitsExecutionCharts}
+          unitsExecutionDealsRows={dealsFeed.loading ? [] : marketingDealsFiltered}
           unitsCsvError={unitsCsvError}
         />
       </>

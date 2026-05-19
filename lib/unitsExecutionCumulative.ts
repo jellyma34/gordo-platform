@@ -1,12 +1,17 @@
+import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import {
+  aggregateUnitsFactMonthlyFromDeals,
+  cumulativeUnitsFactThroughMonth,
+  factCountsToSegmentRows,
+  unitsFactMonthlyHasAnyDeals,
+} from "@/lib/buildUnitsExecutionFactFromDeals";
 import type { UnitsExecutionMonthSlice, UnitsExecutionByMonth } from "@/lib/marketingUnitsExecutionCsv";
 import type { UnitsExecutionSegmentRow, UnitsExecutionTotals } from "@/lib/parseSalesUnitsExecutionCsv";
 import {
-  cumulativePlanByMonth,
-  executionMonths,
-  isUnitsExecutionMonthKey,
+  getCumulativePlanForMonth,
+  resolveUnitsExecutionMonthKeys,
   UNITS_EXECUTION_BASE_MONTH,
   type CumulativeExecutionSegmentCounts,
-  type UnitsExecutionMonthKey,
 } from "@/lib/unitsExecutionMonths";
 
 function emptyCounts(): CumulativeExecutionSegmentCounts {
@@ -19,10 +24,6 @@ function countsFromSegments(segments: readonly UnitsExecutionSegmentRow[]): Cumu
     out[s.key] = Number.isFinite(s.factCumulative) ? s.factCumulative : 0;
   }
   return out;
-}
-
-function planCumulativeForSegment(monthKey: UnitsExecutionMonthKey, segKey: UnitsExecutionSegmentRow["key"]): number {
-  return cumulativePlanByMonth[monthKey][segKey];
 }
 
 function buildTotalsFromSegments(segments: readonly UnitsExecutionSegmentRow[]): UnitsExecutionTotals {
@@ -56,22 +57,22 @@ function countsDiffer(a: CumulativeExecutionSegmentCounts, b: CumulativeExecutio
 }
 
 /**
- * Накопительный факт по месяцам: только CSV / API / dataset.
- * Без привязки к росту плана. Если новых фактов нет — последнее известное значение.
+ * Накопительный факт из CSV (carry-forward), если нет сделок в JSON/API.
  */
 export function resolveCumulativeFactByMonth(
   baseSegments: readonly UnitsExecutionSegmentRow[],
-  /** Срезы из загрузок/API с фактом по месяцу (ключ YYYY-MM). */
   explicitFactByMonth?: Partial<Record<string, UnitsExecutionMonthSlice>>,
-): Record<UnitsExecutionMonthKey, CumulativeExecutionSegmentCounts> {
+  monthKeys?: readonly string[],
+): Record<string, CumulativeExecutionSegmentCounts> {
+  const keys = monthKeys ?? resolveUnitsExecutionMonthKeys();
   const baseFeb = countsFromSegments(baseSegments);
   let lastKnown: CumulativeExecutionSegmentCounts = hasExplicitFactSnapshot(baseFeb)
     ? { ...baseFeb }
     : emptyCounts();
 
-  const out = {} as Record<UnitsExecutionMonthKey, CumulativeExecutionSegmentCounts>;
+  const out: Record<string, CumulativeExecutionSegmentCounts> = {};
 
-  for (const mk of executionMonths) {
+  for (const mk of keys) {
     const explicit = explicitFactByMonth?.[mk];
     if (explicit?.segments?.length) {
       const fromExplicit = countsFromSegments(explicit.segments);
@@ -90,30 +91,43 @@ export function resolveCumulativeFactByMonth(
   return out;
 }
 
+export function resolveCumulativeFactForMonth(
+  monthKey: string,
+  baseSegments: readonly UnitsExecutionSegmentRow[],
+  dealsRows?: readonly NormalizedDealRow[],
+  explicitFactByMonth?: Partial<Record<string, UnitsExecutionMonthSlice>>,
+): CumulativeExecutionSegmentCounts {
+  const monthlyFromDeals = aggregateUnitsFactMonthlyFromDeals(dealsRows ?? []);
+  if (unitsFactMonthlyHasAnyDeals(monthlyFromDeals)) {
+    return cumulativeUnitsFactThroughMonth(monthlyFromDeals, monthKey);
+  }
+  const keys = resolveUnitsExecutionMonthKeys(
+    Object.keys(monthlyFromDeals),
+  );
+  const byMonth = resolveCumulativeFactByMonth(baseSegments, explicitFactByMonth, keys);
+  return byMonth[monthKey] ?? emptyCounts();
+}
+
 /**
- * Срез: план — {@link cumulativePlanByMonth}; факт — last known fact для месяца (не planDelta).
+ * Срез: план — снимок на конец месяца; факт — накопление сделок с января или CSV carry-forward.
  */
 export function buildUnitsExecutionSliceForMonth(
   baseSegments: readonly UnitsExecutionSegmentRow[],
   monthKey: string,
-  factByMonth: Record<UnitsExecutionMonthKey, CumulativeExecutionSegmentCounts>,
+  options?: {
+    dealsRows?: readonly NormalizedDealRow[];
+    explicitFactByMonth?: Partial<Record<string, UnitsExecutionMonthSlice>>;
+    factByMonth?: Record<string, CumulativeExecutionSegmentCounts>;
+  },
 ): UnitsExecutionMonthSlice | null {
-  if (!isUnitsExecutionMonthKey(monthKey) || baseSegments.length === 0) return null;
+  if (!/^\d{4}-\d{2}$/.test(monthKey) || baseSegments.length === 0) return null;
 
-  const segments: UnitsExecutionSegmentRow[] = baseSegments.map((base) => {
-    const planCumulative = planCumulativeForSegment(monthKey, base.key);
-    const factCumulative = factByMonth[monthKey][base.key];
-    const deviationCumulative = factCumulative - planCumulative;
-    const completionPct = planCumulative > 0 ? (factCumulative / planCumulative) * 100 : 0;
+  const planCounts = getCumulativePlanForMonth(monthKey);
+  const factCounts =
+    options?.factByMonth?.[monthKey] ??
+    resolveCumulativeFactForMonth(monthKey, baseSegments, options?.dealsRows, options?.explicitFactByMonth);
 
-    return {
-      ...base,
-      planCumulative,
-      factCumulative,
-      deviationCumulative,
-      completionPct: Number.isFinite(completionPct) ? completionPct : 0,
-    };
-  });
+  const segments = factCountsToSegmentRows(baseSegments, planCounts, factCounts);
 
   return {
     segments,
@@ -121,15 +135,29 @@ export function buildUnitsExecutionSliceForMonth(
   };
 }
 
-/** Все месяцы фильтра: plan series + fact series (carry-forward). */
+/** Все месяцы фильтра: plan + fact (сделки или CSV). */
 export function buildUnitsExecutionByMonthFromBase(
   baseSegments: readonly UnitsExecutionSegmentRow[],
-  explicitFactByMonth?: Partial<Record<string, UnitsExecutionMonthSlice>>,
+  options?: {
+    dealsRows?: readonly NormalizedDealRow[];
+    explicitFactByMonth?: Partial<Record<string, UnitsExecutionMonthSlice>>;
+  },
 ): UnitsExecutionByMonth {
-  const factByMonth = resolveCumulativeFactByMonth(baseSegments, explicitFactByMonth);
+  const monthlyFromDeals = aggregateUnitsFactMonthlyFromDeals(options?.dealsRows ?? []);
+  const monthKeys = resolveUnitsExecutionMonthKeys(Object.keys(monthlyFromDeals));
+  const factByMonth = unitsFactMonthlyHasAnyDeals(monthlyFromDeals)
+    ? Object.fromEntries(
+        monthKeys.map((mk) => [mk, cumulativeUnitsFactThroughMonth(monthlyFromDeals, mk)]),
+      )
+    : resolveCumulativeFactByMonth(baseSegments, options?.explicitFactByMonth, monthKeys);
+
   const out: UnitsExecutionByMonth = {};
-  for (const mk of executionMonths) {
-    const slice = buildUnitsExecutionSliceForMonth(baseSegments, mk, factByMonth);
+  for (const mk of monthKeys) {
+    const slice = buildUnitsExecutionSliceForMonth(baseSegments, mk, {
+      dealsRows: options?.dealsRows,
+      explicitFactByMonth: options?.explicitFactByMonth,
+      factByMonth,
+    });
     if (slice) out[mk] = slice;
   }
   return out;

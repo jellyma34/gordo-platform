@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { MPL_PREMIUM_FILTER_SELECT_12, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import {
   resolveUnitsExecutionMonthSlice,
@@ -22,11 +23,14 @@ import {
   type UnitsExecutionSegmentRow,
 } from "@/lib/marketingUnitsExecutionCsv";
 import { dec1Fmt, integerNiceYAxisScale } from "@/lib/salesPlanChartFormat";
+import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import {
   DEFAULT_UNITS_EXECUTION_MONTH,
-  executionMonths,
+  isUnitsExecutionAccumulationMonth,
+  resolveUnitsExecutionMonthKeys,
   unitsExecutionMonthLabelRu,
 } from "@/lib/unitsExecutionMonths";
+import type { UnitsExecutionValueMode } from "@/lib/unitsExecutionValueMode";
 
 export type UnitsPlanFactChartRow = { key: string; segment: string; plan: number; fact: number };
 export type UnitsCompletionChartRow = {
@@ -78,6 +82,8 @@ type Props = {
   mplPremium: boolean;
   /** `undefined` — гидратация; `null` — нет файла; объект — метаданные и KPI. */
   data: UnitsExecutionChartsPayload | null | undefined;
+  /** Сделки из JSON/API (Верба) — накопительный факт по месяцам. */
+  dealsRows?: readonly NormalizedDealRow[];
   /** Stale parse error — не показывать, если rows уже есть. */
   unitsCsvError?: string | null;
 };
@@ -136,21 +142,44 @@ export function SalesUnitsExecutionSection({
   presDark,
   mplPremium,
   data,
+  dealsRows = [],
   unitsCsvError = null,
 }: Props) {
   const mplLight = useMarketingPresentationLight();
+  const segmentSurface =
+    presDark ? "dark" : mplPremium && presentation && mplLight ? "premium" : "light";
 
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(DEFAULT_UNITS_EXECUTION_MONTH);
+  const [valueMode, setValueMode] = useState<UnitsExecutionValueMode>("cumulative");
+
+  const monthKeys = useMemo(() => {
+    const fromDeals = [
+      ...new Set(
+        (dealsRows ?? [])
+          .map((r) => r.monthKey)
+          .filter((k) => isUnitsExecutionAccumulationMonth(k)),
+      ),
+    ];
+    return resolveUnitsExecutionMonthKeys(fromDeals);
+  }, [dealsRows]);
 
   const hydrating = data === undefined;
   const hasFileData = unitsExecutionChartsHaveAnyMonth(data);
   const showUploadPlaceholder = !hydrating && !hasFileData;
   const unitsErr = unitsCsvError?.trim() ?? "";
 
+  const effectiveMonthKey = monthKeys.includes(selectedMonthKey)
+    ? selectedMonthKey
+    : (monthKeys.includes(DEFAULT_UNITS_EXECUTION_MONTH)
+        ? DEFAULT_UNITS_EXECUTION_MONTH
+        : (monthKeys[monthKeys.length - 1] ?? DEFAULT_UNITS_EXECUTION_MONTH));
+
   const monthSlice = useMemo(
-    () => resolveUnitsExecutionMonthSlice(data, selectedMonthKey),
-    [data, selectedMonthKey],
+    () => resolveUnitsExecutionMonthSlice(data, effectiveMonthKey, dealsRows, valueMode),
+    [data, effectiveMonthKey, dealsRows, valueMode],
   );
+
+  const isMonthlyMode = valueMode === "monthly";
 
   const planFactChartRows = useMemo(
     () => buildUnitsPlanFactChartRows(monthSlice?.segments ?? []),
@@ -167,7 +196,7 @@ export function SalesUnitsExecutionSection({
   if (process.env.NODE_ENV === "development") {
     console.log("[units execution state]", {
       error: unitsCsvError,
-      selectedMonthKey,
+      effectiveMonthKey,
       planFactLen: planFactChartRows.length,
       completionLen: completionChartRows.length,
       hasFileData,
@@ -250,21 +279,39 @@ export function SalesUnitsExecutionSection({
           Исполнение плана продаж (штуки) накопительным итогом
         </h3>
         {!hydrating && hasFileData ? (
-          <label className="flex shrink-0 flex-col gap-1 sm:items-end">
-            <span className={filterLabelCls}>Месяц</span>
-            <select
-              value={selectedMonthKey}
-              onChange={(e) => setSelectedMonthKey(e.target.value)}
-              className={monthSelectCls}
-              aria-label="Месяц исполнения плана в штуках"
-            >
-              {executionMonths.map((mk) => (
-                <option key={mk} value={mk}>
-                  {unitsExecutionMonthLabelRu(mk)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setValueMode("monthly")}
+                className={segmentedControlTabClass(isMonthlyMode, segmentSurface)}
+              >
+                Месяц
+              </button>
+              <button
+                type="button"
+                onClick={() => setValueMode("cumulative")}
+                className={segmentedControlTabClass(!isMonthlyMode, segmentSurface)}
+              >
+                Накопительно
+              </button>
+            </div>
+            <label className="flex flex-col gap-1 sm:items-end">
+              <span className={filterLabelCls}>Отчётный месяц</span>
+              <select
+                value={effectiveMonthKey}
+                onChange={(e) => setSelectedMonthKey(e.target.value)}
+                className={monthSelectCls}
+                aria-label="Отчётный месяц исполнения плана в штуках"
+              >
+                {monthKeys.map((mk) => (
+                  <option key={mk} value={mk}>
+                    {unitsExecutionMonthLabelRu(mk)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         ) : null}
       </div>
 
@@ -282,7 +329,9 @@ export function SalesUnitsExecutionSection({
         <>
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4" aria-label="Исполнение в штуках">
             <div className={chartCard}>
-              <div className={chartTitle}>План vs факт (шт.)</div>
+              <div className={chartTitle}>
+                {isMonthlyMode ? "План vs факт за месяц (шт.)" : "План vs факт (шт.)"}
+              </div>
               <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
                 <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <BarChart
@@ -430,11 +479,15 @@ export function SalesUnitsExecutionSection({
           {!presentation && monthSlice != null ? (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className={kpiCard}>
-              <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>План накопительно</div>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>
+                {isMonthlyMode ? "План за месяц" : "План накопительно"}
+              </div>
               <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(monthSlice.totals.planCumulative)}</div>
             </div>
             <div className={kpiCard}>
-              <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>Факт накопительно</div>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>
+                {isMonthlyMode ? "Факт за месяц" : "Факт накопительно"}
+              </div>
               <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(monthSlice.totals.factCumulative)}</div>
             </div>
             <div className={kpiCard}>

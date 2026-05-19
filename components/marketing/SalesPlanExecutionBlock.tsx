@@ -32,6 +32,7 @@ import type {
   SegmentExecutionPlanFactRow,
 } from "@/lib/parseSegmentExecutionCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
+import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import {
   cashflowYAxisScale,
@@ -141,6 +142,8 @@ type Props = {
   segmentExecutionCsvError?: string | null;
   /** Исполнение в штуках — отдельный CSV (localStorage), не Verba / investors / plan_fact. */
   unitsExecutionCharts?: UnitsExecutionChartsPayload | null;
+  /** Сделки JSON/API — накопительный факт в штуках по месяцам. */
+  unitsExecutionDealsRows?: readonly NormalizedDealRow[];
   /** Ошибка загрузки CSV штук (показывается только без строк на графиках). */
   unitsCsvError?: string | null;
 };
@@ -155,6 +158,7 @@ export function SalesPlanExecutionBlock({
   segmentExecutionCharts,
   segmentExecutionCsvError = null,
   unitsExecutionCharts,
+  unitsExecutionDealsRows = [],
   unitsCsvError = null,
 }: Props) {
   const data = dataset;
@@ -264,6 +268,7 @@ export function SalesPlanExecutionBlock({
           presDark={presDark}
           mplPremium={mplPremium}
           data={unitsExecutionCharts}
+          dealsRows={unitsExecutionDealsRows}
           unitsCsvError={unitsCsvError}
         />
       </div>
