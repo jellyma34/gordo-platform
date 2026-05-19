@@ -18,7 +18,7 @@ export const CASHFLOW_INFLOW_PLAN = {
   strokeWidth: 2.5,
   strokeOpacity: 0.88,
   strokeDasharray: "6 4",
-  dotR: 3.5,
+  dotR: 4,
   activeDotR: 5,
 } as const;
 
@@ -65,14 +65,17 @@ export function cashflowInflowPlanLineProps(presDark: boolean) {
       r: CASHFLOW_INFLOW_PLAN.dotR,
       fill: ring,
       stroke: CASHFLOW_INFLOW_PLAN.stroke,
-      strokeWidth: 1.5,
-      strokeOpacity: 0.95,
+      strokeWidth: 2,
+      strokeOpacity: 1,
+      fillOpacity: 1,
     },
     activeDot: {
       r: CASHFLOW_INFLOW_PLAN.activeDotR,
       fill: ring,
       stroke: CASHFLOW_INFLOW_PLAN.stroke,
       strokeWidth: 2,
+      strokeOpacity: 1,
+      fillOpacity: 1,
     },
     isAnimationActive: false as const,
   };
