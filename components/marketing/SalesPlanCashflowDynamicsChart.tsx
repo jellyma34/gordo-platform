@@ -73,8 +73,8 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** План: нижний край подписи над пунктиром (симметрично LABEL_OFFSET_FACT_ABOVE). */
 const LABEL_OFFSET_PLAN_ABOVE = 4;
-/** Нарастающий итог: факт над точкой (px от точки до нижнего края подписи ≈ offset − halfH). */
-const CUM_LABEL_OFFSET_FACT_ABOVE_PX = 14;
+/** Нарастающий итог: факт — ближе к точке (px от точки до нижнего края подписи). */
+const CUM_LABEL_OFFSET_FACT_ABOVE_PX = 11;
 /** Нарастающий итог: план чуть выше факта. */
 const CUM_LABEL_OFFSET_PLAN_ABOVE_PX = 16;
 /** Зазор нижнего края подписи над горизонтальной линией сетки. */
