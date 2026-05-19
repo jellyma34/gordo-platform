@@ -173,7 +173,7 @@ export function formatSegmentMiniRevenueChartNumber(n: number): string {
 }
 
 /**
- * Подписи оси Y графика «Динамика поступлений» (серые тики слева): число + « млн ₽» или « млрд ₽».
+ * Подписи оси Y графика «Динамика поступлений» (серые тики слева): число + « млн» или « млрд».
  * Подписи на линии, тултип и прочие места используют {@link formatCashflowMillionsLabel} / {@link formatCashflowTooltipRub} — без «млн» в строке.
  */
 export function formatCashflowYAxisMlnRub(v: number): string {
@@ -181,8 +181,8 @@ export function formatCashflowYAxisMlnRub(v: number): string {
   const absRub = Math.abs(v);
   const core = formatCashflowMillionsLabel(v, false);
   if (core === "") return "";
-  if (absRub >= 1_000_000_000) return `${core} млрд ₽`;
-  return `${core} млн ₽`;
+  if (absRub >= 1_000_000_000) return `${core} млрд`;
+  return `${core} млн`;
 }
 
 /** Ось Y графиков «План vs факт» (помесячно и накопительно): «300 млн» без «₽». */
