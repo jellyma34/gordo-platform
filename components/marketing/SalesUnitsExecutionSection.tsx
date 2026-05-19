@@ -414,7 +414,7 @@ export function SalesUnitsExecutionSection({
                   <BarChart
                     layout="vertical"
                     data={completionChartRows}
-                    margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
+                    margin={{ top: 10, right: 50, left: 10, bottom: 10 }}
                     barCategoryGap={14}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
@@ -454,24 +454,18 @@ export function SalesUnitsExecutionSection({
                       {completionChartRows.map((entry) => (
                         <Cell key={entry.key} fill={entry.fill} />
                       ))}
-                      <LabelList dataKey="label" position="right" fill={chartAxis} fontSize={10} fontWeight={500} />
+                      <LabelList
+                        dataKey="label"
+                        position="right"
+                        offset={12}
+                        fill={chartAxis}
+                        fontSize={10}
+                        fontWeight={500}
+                        style={{ textAnchor: "start" }}
+                      />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-              <div className={`${legendCls} gap-x-4 gap-y-1`}>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-3.5 rounded-sm bg-emerald-500" />
-                  выше 95%
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-3.5 rounded-sm bg-orange-500" />
-                  85–95%
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
-                  ниже 85%
-                </span>
               </div>
             </div>
           </div>

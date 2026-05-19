@@ -1,5 +1,10 @@
 /** Месяцы фильтра по умолчанию (если в данных/API ещё нет других ключей). */
-export const UNITS_EXECUTION_DEFAULT_MONTH_KEYS = ["2026-01", "2026-02", "2026-04", "2026-05"] as const;
+export const UNITS_EXECUTION_DEFAULT_MONTH_KEYS = [
+  "2026-01",
+  "2026-02",
+  "2026-03",
+  "2026-04",
+] as const;
 
 /** @deprecated Используйте {@link resolveUnitsExecutionMonthKeys}. */
 export const executionMonths = UNITS_EXECUTION_DEFAULT_MONTH_KEYS;
@@ -24,38 +29,38 @@ export type CumulativeExecutionSegmentCounts = {
   commercial: number;
 };
 
+const SEGMENT_KEYS = ["apartments", "parking", "storage", "commercial"] as const;
+
 /**
- * Накопительный план (шт.) на конец отчётного месяца — по Excel.
+ * Помесячный план (шт.) — только значения за отчётный месяц (Excel).
+ * Накопительный план в коде: {@link getCumulativePlanForMonth}.
  */
-export const cumulativePlanByMonth: Record<string, CumulativeExecutionSegmentCounts> = {
+export const monthlyPlanByMonth: Record<string, CumulativeExecutionSegmentCounts> = {
   "2026-01": {
-    apartments: 13,
-    parking: 7,
-    storage: 4,
+    apartments: 3,
+    parking: 1,
+    storage: 1,
     commercial: 0,
   },
   "2026-02": {
-    apartments: 19,
-    parking: 7,
-    storage: 5,
-    commercial: 3,
+    apartments: 3,
+    parking: 2,
+    storage: 0,
+    commercial: 0,
+  },
+  "2026-03": {
+    apartments: 2,
+    parking: 1,
+    storage: 1,
+    commercial: 0,
   },
   "2026-04": {
-    apartments: 21,
-    parking: 8,
-    storage: 6,
-    commercial: 3,
-  },
-  "2026-05": {
-    apartments: 21,
-    parking: 8,
-    storage: 6,
-    commercial: 3,
+    apartments: 2,
+    parking: 1,
+    storage: 1,
+    commercial: 0,
   },
 };
-
-/** @deprecated Используйте {@link cumulativePlanByMonth}. */
-export const cumulativeExecutionByMonth = cumulativePlanByMonth;
 
 function emptyCounts(): CumulativeExecutionSegmentCounts {
   return { apartments: 0, parking: 0, storage: 0, commercial: 0 };
@@ -66,26 +71,51 @@ export function isUnitsExecutionAccumulationMonth(monthKey: string): boolean {
   return /^\d{4}-\d{2}$/.test(monthKey) && monthKey >= UNITS_EXECUTION_START_ACCUMULATION_MONTH;
 }
 
-/** План на конец месяца: последний известный снимок с ключом ≤ `monthKey` (с января 2026). */
+/** План за один отчётный месяц (0, если месяца нет в Excel). */
+export function getMonthlyPlanForMonth(monthKey: string): CumulativeExecutionSegmentCounts {
+  const m = monthlyPlanByMonth[monthKey];
+  return m ? { ...m } : emptyCounts();
+}
+
+/** Накопительный план: сумма помесячных планов с января 2026 по `throughMonthKey` включительно. */
+export function sumMonthlyPlanThroughMonth(throughMonthKey: string): CumulativeExecutionSegmentCounts {
+  const acc = emptyCounts();
+  for (const mk of Object.keys(monthlyPlanByMonth).sort()) {
+    if (mk < UNITS_EXECUTION_START_ACCUMULATION_MONTH) continue;
+    if (mk > throughMonthKey) break;
+    const m = monthlyPlanByMonth[mk];
+    if (!m) continue;
+    for (const k of SEGMENT_KEYS) {
+      acc[k] += Number.isFinite(m[k]) ? m[k] : 0;
+    }
+  }
+  return acc;
+}
+
+/** Накопительный план на конец месяца (строится из {@link monthlyPlanByMonth}, не из CSV). */
 export function getCumulativePlanForMonth(monthKey: string): CumulativeExecutionSegmentCounts {
   if (monthKey < UNITS_EXECUTION_START_ACCUMULATION_MONTH) return emptyCounts();
-  const keys = Object.keys(cumulativePlanByMonth)
-    .filter((k) => k >= UNITS_EXECUTION_START_ACCUMULATION_MONTH)
-    .sort();
-  let last = emptyCounts();
-  for (const k of keys) {
-    if (k > monthKey) break;
-    last = { ...cumulativePlanByMonth[k]! };
-  }
-  return last;
+  return sumMonthlyPlanThroughMonth(monthKey);
 }
+
+/** @deprecated Используйте {@link monthlyPlanByMonth} + {@link getCumulativePlanForMonth}. */
+export const cumulativePlanByMonth: Record<string, CumulativeExecutionSegmentCounts> = (() => {
+  const out: Record<string, CumulativeExecutionSegmentCounts> = {};
+  for (const mk of Object.keys(monthlyPlanByMonth).sort()) {
+    out[mk] = getCumulativePlanForMonth(mk);
+  }
+  return out;
+})();
+
+/** @deprecated Используйте {@link monthlyPlanByMonth}. */
+export const cumulativeExecutionByMonth = cumulativePlanByMonth;
 
 /**
  * Ключи месяцев для dropdown: дефолт + план + месяцы из сделок (JSON/API).
  */
 export function resolveUnitsExecutionMonthKeys(dealsMonthKeys?: readonly string[]): string[] {
   const keys = new Set<string>(UNITS_EXECUTION_DEFAULT_MONTH_KEYS);
-  for (const k of Object.keys(cumulativePlanByMonth)) keys.add(k);
+  for (const k of Object.keys(monthlyPlanByMonth)) keys.add(k);
   for (const mk of dealsMonthKeys ?? []) {
     const n = mk.trim();
     if (isUnitsExecutionAccumulationMonth(n)) keys.add(n);

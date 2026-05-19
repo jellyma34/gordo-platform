@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import type { LabelProps } from "recharts";
 
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
+import { UploadPlanFactCsvButton } from "@/components/marketing/UploadPlanFactCsvButton";
 import { CashflowTooltip } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
 import {
   CartesianGrid,
@@ -80,6 +81,13 @@ type Props = {
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
+  /** Маршрут «Редактирование» (`/edit/*`), не слайд презентации. */
+  isEditMode?: boolean;
+  planFactCsvHydrated?: boolean;
+  planFactCsvLoading?: boolean;
+  hasPlanFactCsv?: boolean;
+  onPlanFactCsvUpload?: (file: File) => Promise<void>;
+  onPlanFactCsvClear?: () => Promise<void>;
 };
 
 function rubFromLabelValue(v: LabelProps["value"]): number | null {
@@ -96,7 +104,20 @@ function finiteSeriesRub(n: number | null | undefined): number | null {
   return x;
 }
 
-export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presentation, presDark, mplPremium }: Props) {
+export function PlanExecutionMonthlyPlanFactLineCard({
+  monthlyPlanVsFact,
+  presentation,
+  presDark,
+  mplPremium,
+  isEditMode = false,
+  planFactCsvHydrated = true,
+  planFactCsvLoading = false,
+  hasPlanFactCsv = false,
+  onPlanFactCsvUpload,
+  onPlanFactCsvClear,
+}: Props) {
+  const showPlanFactCsvUpload =
+    isEditMode && !presentation && onPlanFactCsvUpload != null && onPlanFactCsvClear != null;
   const chartData = useMemo((): CashflowChartRow[] => {
     const rows = monthlyPlanVsFact ?? [];
     return [...rows]
@@ -191,7 +212,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
     [ringStroke],
   );
 
-  if (chartData.length === 0) return null;
+  const hasData = chartData.length > 0;
 
   const shell =
     presDark
@@ -208,26 +229,54 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
   return (
     <div className={`w-full min-w-0 ${shell}`}>
       <div className="mb-4">
-        <h3
-          className={`mb-2 text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
-        >
-          План vs факт
-        </h3>
-        <div
-          className={`flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3 ${presentation ? "sm:justify-end" : "sm:justify-between"}`}
-        >
-          {!presentation ? (
-            <p
-              className={`text-[11px] leading-snug ${presDark ? "text-slate-400" : "text-slate-500"}`}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3
+              className={`text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
             >
-              План и факт из одного файла plan_fact.csv (колонки «План продаж ЗМП» и «Сумма поступлений факт»). Линии как в «Динамика поступлений».
-            </p>
+              План vs факт
+            </h3>
+            {!presentation ? (
+              <p className={`mt-1.5 text-[11px] leading-snug ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+                План и факт из файла поступления_план_факт.csv (колонки «План поступлений», «Факт поступлений», млн ₽).
+              </p>
+            ) : null}
+          </div>
+          {showPlanFactCsvUpload ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <UploadPlanFactCsvButton
+                hasCsv={hasPlanFactCsv}
+                loading={!planFactCsvHydrated || planFactCsvLoading}
+                presDark={presDark}
+                onUploadFile={onPlanFactCsvUpload}
+                onClear={onPlanFactCsvClear}
+              />
+            </div>
           ) : null}
+        </div>
+        <div className="mt-2.5 flex justify-end">
           <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="sm:justify-end" />
         </div>
       </div>
 
       <div className="min-h-[300px] min-w-0 overflow-visible overflow-x-visible overflow-y-visible pt-3 pb-4">
+        {!planFactCsvHydrated ? (
+          <p
+            className={`flex h-[280px] items-center justify-center px-3 text-center text-sm ${
+              presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
+            }`}
+          >
+            Загрузка…
+          </p>
+        ) : !hasData ? (
+          <div
+            className={`flex h-[320px] min-h-[300px] items-center justify-center px-3 text-center text-sm ${
+              presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
+            }`}
+          >
+            Загрузите CSV файл для отображения графика
+          </div>
+        ) : (
         <div className="h-[320px] min-h-[300px] w-full min-w-0 overflow-visible [&_svg]:overflow-visible">
           <ResponsiveContainer
             width="100%"
@@ -344,6 +393,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
       </div>
     </div>
   );

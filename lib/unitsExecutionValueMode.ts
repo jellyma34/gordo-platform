@@ -2,6 +2,7 @@ import type { UnitsExecutionMonthSlice } from "@/lib/marketingUnitsExecutionCsv"
 import type { UnitsExecutionSegmentRow } from "@/lib/parseSalesUnitsExecutionCsv";
 import { factCountsToSegmentRows } from "@/lib/buildUnitsExecutionFactFromDeals";
 import {
+  getMonthlyPlanForMonth,
   isUnitsExecutionAccumulationMonth,
   type CumulativeExecutionSegmentCounts,
 } from "@/lib/unitsExecutionMonths";
@@ -61,20 +62,17 @@ export function applyUnitsExecutionValueMode(
   slice: UnitsExecutionMonthSlice,
   monthKey: string,
   mode: UnitsExecutionValueMode,
-  planCumulativeForMonth: (mk: string) => CumulativeExecutionSegmentCounts,
+  _planCumulativeForMonth: (mk: string) => CumulativeExecutionSegmentCounts,
   factCumulativeForMonth: (mk: string) => CumulativeExecutionSegmentCounts,
 ): UnitsExecutionMonthSlice {
   if (mode === "cumulative") return slice;
 
+  const monthlyPlan = getMonthlyPlanForMonth(monthKey);
+  const curFact = factCumulativeForMonth(monthKey);
   const prevKeyRaw = previousUnitsExecutionMonthKey(monthKey);
   const prevKey =
     prevKeyRaw && isUnitsExecutionAccumulationMonth(prevKeyRaw) ? prevKeyRaw : null;
-  const curPlan = planCumulativeForMonth(monthKey);
-  const curFact = factCumulativeForMonth(monthKey);
-  const prevPlan = prevKey ? planCumulativeForMonth(prevKey) : null;
   const prevFact = prevKey ? factCumulativeForMonth(prevKey) : null;
-
-  const monthlyPlan = deriveMonthlyCountsFromCumulative(curPlan, prevPlan);
   const monthlyFact = deriveMonthlyCountsFromCumulative(curFact, prevFact);
 
   const segments = factCountsToSegmentRows(slice.segments, monthlyPlan, monthlyFact);

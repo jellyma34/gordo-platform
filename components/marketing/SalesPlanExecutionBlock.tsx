@@ -146,6 +146,13 @@ type Props = {
   unitsExecutionDealsRows?: readonly NormalizedDealRow[];
   /** Ошибка загрузки CSV штук (показывается только без строк на графиках). */
   unitsCsvError?: string | null;
+  /** Загрузка plan_fact.csv — только маршрут «Редактирование» (`!presentation`), не презентация. */
+  isEditMode?: boolean;
+  planFactCsvHydrated?: boolean;
+  planFactCsvLoading?: boolean;
+  hasPlanFactCsv?: boolean;
+  onPlanFactCsvUpload?: (file: File) => Promise<void>;
+  onPlanFactCsvClear?: () => Promise<void>;
 };
 
 export function SalesPlanExecutionBlock({
@@ -160,6 +167,12 @@ export function SalesPlanExecutionBlock({
   unitsExecutionCharts,
   unitsExecutionDealsRows = [],
   unitsCsvError = null,
+  isEditMode = false,
+  planFactCsvHydrated = true,
+  planFactCsvLoading = false,
+  hasPlanFactCsv = false,
+  onPlanFactCsvUpload,
+  onPlanFactCsvClear,
 }: Props) {
   const data = dataset;
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -245,14 +258,16 @@ export function SalesPlanExecutionBlock({
       </div>
 
       <div className="flex min-w-0 w-full flex-col gap-3 sm:gap-4">
-        <ExecutionMacroChartsBlock
-          presDark={presDark}
-          presentation={presentation}
-          mplPremium={mplPremium}
-          mutedCls={mutedCls}
-          segmentExecutionCharts={segmentExecutionCharts}
-          macroChartPlaceholder={macroChartPlaceholderResolved}
-        />
+        {!presentation ? (
+          <ExecutionMacroChartsBlock
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+            mutedCls={mutedCls}
+            segmentExecutionCharts={segmentExecutionCharts}
+            macroChartPlaceholder={macroChartPlaceholderResolved}
+          />
+        ) : null}
 
         <div className="min-w-0 w-full max-w-none">
           <PlanExecutionMonthlyPlanFactLineCard
@@ -260,6 +275,12 @@ export function SalesPlanExecutionBlock({
             presentation={presentation}
             presDark={presDark}
             mplPremium={mplPremium}
+            isEditMode={isEditMode}
+            planFactCsvHydrated={planFactCsvHydrated}
+            planFactCsvLoading={planFactCsvLoading}
+            hasPlanFactCsv={hasPlanFactCsv}
+            onPlanFactCsvUpload={onPlanFactCsvUpload}
+            onPlanFactCsvClear={onPlanFactCsvClear}
           />
         </div>
 
@@ -569,7 +590,7 @@ function ExecutionMacroChartsBlock({
                 <BarChart
                   layout="vertical"
                   data={completionRows}
-                  margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
+                  margin={{ top: 10, right: 50, left: 10, bottom: 10 }}
                   barCategoryGap={14}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
@@ -612,31 +633,17 @@ function ExecutionMacroChartsBlock({
                     <LabelList
                       dataKey="label"
                       position="right"
+                      offset={12}
                       fill={chartAxis}
                       fontSize={10}
                       fontWeight={500}
+                      style={{ textAnchor: "start" }}
                     />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
-          {showCompletionChart ? (
-            <div className={`${legendCls} gap-x-4 gap-y-1`}>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2 w-3.5 rounded-sm bg-emerald-500" />
-                выше 95%
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2 w-3.5 rounded-sm bg-orange-500" />
-                85–95%
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2 w-3.5 rounded-sm bg-red-500" />
-                ниже 85%
-              </span>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

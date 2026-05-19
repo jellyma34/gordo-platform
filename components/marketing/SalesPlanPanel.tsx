@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import {
   filterByObject,
   mergeSalesPlanFact,
@@ -67,6 +67,16 @@ import {
   deleteMarketingSegmentExecutionCsv,
   uploadMarketingSegmentExecutionCsvFile,
 } from "@/lib/marketingSegmentExecutionCsvUpload";
+import {
+  receiptsPlanFactCsvDocIsValid,
+  receiptsPlanFactDocToChartRows,
+  MARKETING_RECEIPTS_PLAN_FACT_CSV_STORAGE_KEY,
+  type MarketingReceiptsPlanFactStoredV1,
+} from "@/lib/marketingReceiptsPlanFactCsv";
+import {
+  deleteMarketingReceiptsPlanFactCsv,
+  uploadMarketingReceiptsPlanFactCsvFile,
+} from "@/lib/marketingReceiptsPlanFactCsvUpload";
 import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
@@ -754,7 +764,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [scheduleWarnings, setScheduleWarnings] = useState<string[] | null>(null);
   const paymentPlanCsvInputRef = useRef<HTMLInputElement>(null);
   const paymentFactCsvInputRef = useRef<HTMLInputElement>(null);
-  const salesPlanExecutionCsvInputRef = useRef<HTMLInputElement>(null);
   const marketingInvestorsCsvInputRef = useRef<HTMLInputElement>(null);
   const segmentExecutionCsvInputRef = useRef<HTMLInputElement>(null);
   const [executionDataset, setExecutionDataset] = useState<SalesPlanExecutionDataset>(() => emptySalesPlanExecutionDataset(""));
@@ -776,6 +785,17 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     storageKey: string;
   } | null>(null);
   const [segmentExecutionCsvLoading, setSegmentExecutionCsvLoading] = useState(false);
+
+  const [receiptsPlanFactMonthly, setReceiptsPlanFactMonthly] = useState<PlanVsFactMonthlyRubPoint[]>([]);
+  const [receiptsPlanFactMeta, setReceiptsPlanFactMeta] = useState<{
+    fileName: string;
+    uploadedAt: string;
+    uploadedBy?: string;
+    storageKey: string;
+  } | null>(null);
+  const [receiptsPlanFactHydrated, setReceiptsPlanFactHydrated] = useState(false);
+  const [receiptsPlanFactError, setReceiptsPlanFactError] = useState<string | null>(null);
+  const [receiptsPlanFactLoading, setReceiptsPlanFactLoading] = useState(false);
 
   const segmentExecutionHasChartRows = useMemo(
     () => segmentExecutionChartsHaveRows(segmentExecutionCharts),
@@ -886,6 +906,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             hasParking: false,
             hasStorages: false,
             hasExecutionPlan: false,
+            hasReceiptsPlanFact: false,
           },
         });
         if (migrated.paymentPlan?.v === 2) {
@@ -1204,6 +1225,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setSegmentExecutionCsvWarnings([]);
       setSegmentExecutionCsvError(null);
     };
+    const applyFromReceiptsPlanFactDoc = (doc: MarketingReceiptsPlanFactStoredV1) => {
+      setReceiptsPlanFactMonthly(receiptsPlanFactDocToChartRows(doc));
+      setReceiptsPlanFactError(null);
+      setReceiptsPlanFactMeta({
+        fileName: doc.fileName,
+        uploadedAt: doc.updatedAt,
+        uploadedBy: doc.uploadedBy,
+        storageKey: MARKETING_RECEIPTS_PLAN_FACT_CSV_STORAGE_KEY,
+      });
+    };
+    const resetReceiptsPlanFactUi = () => {
+      setReceiptsPlanFactMonthly([]);
+      setReceiptsPlanFactMeta(null);
+      setReceiptsPlanFactError(null);
+    };
     const resetUnitsUi = () => {
       setUnitsExecutionCharts(null);
       setUnitsCsvMeta(null);
@@ -1253,6 +1289,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         apartments: MarketingApartmentsCsvStoredV1 | null;
         parking: MarketingParkingCsvStoredV1 | null;
         storages: MarketingStoragesCsvStoredV1 | null;
+        receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
       } | null = null;
       let presence: MarketingCsvServerPresence = {
         hasPlan: false,
@@ -1264,6 +1301,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         hasParking: false,
         hasStorages: false,
         hasExecutionPlan: false,
+        hasReceiptsPlanFact: false,
       };
       try {
         const res = await fetch(
@@ -1280,6 +1318,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             apartments: MarketingApartmentsCsvStoredV1 | null;
             parking: MarketingParkingCsvStoredV1 | null;
             storages: MarketingStoragesCsvStoredV1 | null;
+            receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1339,24 +1378,62 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       const stor = mergeMarketingDataset(serverDatasets?.storages, null, storagesCsvDocIsValid);
       if (stor) applyFromStoragesDoc(stor);
       else resetStoragesUi();
+
+      const rpf = mergeMarketingDataset(
+        serverDatasets?.receiptsPlanFact,
+        null,
+        receiptsPlanFactCsvDocIsValid,
+      );
+      if (rpf) applyFromReceiptsPlanFactDoc(rpf);
+      else resetReceiptsPlanFactUi();
     })()
       .catch(() => {
         /* handled in merge path */
       })
       .finally(() => {
-        if (!cancelled) setSupplementalMarketingHydrated(true);
+        if (!cancelled) {
+          setReceiptsPlanFactHydrated(true);
+          setSupplementalMarketingHydrated(true);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [paymentPlanProjectId, paymentUploadedByLabel, report.asOf]);
 
-  const onSalesPlanExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setExecutionError(null);
-    try {
+  const uploadPlanVsFactCsvFile = useCallback(
+    async (file: File) => {
+      setReceiptsPlanFactLoading(true);
+      setReceiptsPlanFactError(null);
+      try {
+        const result = await uploadMarketingReceiptsPlanFactCsvFile(file, paymentPlanProjectId, paymentUploadedByLabel);
+        if (!result.ok) {
+          setReceiptsPlanFactError(result.error);
+          throw new Error(result.error);
+        }
+        setReceiptsPlanFactMonthly(result.monthly);
+        setReceiptsPlanFactMeta(result.meta);
+      } finally {
+        setReceiptsPlanFactLoading(false);
+      }
+    },
+    [paymentPlanProjectId, paymentUploadedByLabel],
+  );
+
+  const clearPlanVsFactCsv = useCallback(async () => {
+    setReceiptsPlanFactError(null);
+    const result = await deleteMarketingReceiptsPlanFactCsv(paymentPlanProjectId);
+    if (!result.ok) {
+      setReceiptsPlanFactError(result.error);
+      throw new Error(result.error);
+    }
+    setReceiptsPlanFactMonthly([]);
+    setReceiptsPlanFactMeta(null);
+  }, [paymentPlanProjectId]);
+
+  const uploadSalesPlanExecutionFile = useCallback(
+    async (file: File) => {
+      setExecutionError(null);
       const fd = new FormData();
       fd.append("file", file);
       fd.append("projectId", paymentPlanProjectId);
@@ -1371,7 +1448,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         warnings?: string[];
       } | null;
       if (!res.ok || !j?.ok) {
-        setExecutionError(typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана.");
+        const err = typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана.";
+        setExecutionError(err);
         if (j?.dataset) {
           setExecutionDataset({
             ...j.dataset,
@@ -1380,7 +1458,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         }
         setExecutionMeta(j?.meta ?? null);
         setExecutionWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
-        return;
+        throw new Error(err);
       }
       if (j.dataset) {
         const ds = {
@@ -1392,33 +1470,27 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setExecutionMeta(j.meta ?? null);
       setExecutionSource("json");
       setExecutionWarnings(Array.isArray(j.warnings) ? j.warnings : []);
-    } catch {
-      setExecutionError("Не удалось отправить CSV исполнения плана.");
-    }
-    if (salesPlanExecutionCsvInputRef.current) salesPlanExecutionCsvInputRef.current.value = "";
-  };
+    },
+    [paymentPlanProjectId, paymentUploadedByLabel, report.asOf],
+  );
 
-  const clearSalesPlanExecutionCsv = async () => {
+  const clearSalesPlanExecutionCsv = useCallback(async () => {
     setExecutionError(null);
-    try {
-      const dr = await fetch(
-        `/api/marketing/sales-plan-execution?projectId=${encodeURIComponent(paymentPlanProjectId)}`,
-        { method: "DELETE" },
-      );
-      if (!dr.ok) {
-        setExecutionError("Не удалось сбросить данные исполнения на сервере.");
-        return;
-      }
-      setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
-      setExecutionMeta(null);
-      setExecutionSource("empty");
-      setExecutionWarnings([]);
-      clearMarketingSalesPlanExecutionLocalStorage(paymentPlanProjectId);
-    } catch {
-      setExecutionError("Не удалось сбросить исполнение плана.");
+    const dr = await fetch(
+      `/api/marketing/sales-plan-execution?projectId=${encodeURIComponent(paymentPlanProjectId)}`,
+      { method: "DELETE" },
+    );
+    if (!dr.ok) {
+      const err = "Не удалось сбросить данные исполнения на сервере.";
+      setExecutionError(err);
+      throw new Error(err);
     }
-    if (salesPlanExecutionCsvInputRef.current) salesPlanExecutionCsvInputRef.current.value = "";
-  };
+    setExecutionDataset(emptySalesPlanExecutionDataset(report.asOf));
+    setExecutionMeta(null);
+    setExecutionSource("empty");
+    setExecutionWarnings([]);
+    clearMarketingSalesPlanExecutionLocalStorage(paymentPlanProjectId);
+  }, [paymentPlanProjectId, report.asOf]);
 
   const onMarketingInvestorsCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1879,15 +1951,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       marketingDealsFiltered,
     ],
   );
-  const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => {
-    const u = executionDataset.planFactCsvMonthly;
-    if (!u?.length) return [];
-    return u.map((p) => ({
-      periodKey: p.periodKey,
-      planRub: p.planRub,
-      factRub: p.factRub,
-    }));
-  }, [executionDataset.planFactCsvMonthly]);
+  const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => receiptsPlanFactMonthly, [receiptsPlanFactMonthly]);
   const cashflowPlanScale = 1;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasAnyPaymentCsv
@@ -3286,40 +3350,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
               }`}
             >
               <input
-                ref={salesPlanExecutionCsvInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={onSalesPlanExecutionCsvSelected}
-              />
-              <button
-                type="button"
-                disabled={!executionHydrated}
-                className={
-                  presDark
-                    ? "rounded-md border border-violet-400/40 bg-violet-500/15 px-2.5 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-45"
-                    : "rounded-md border border-violet-500/50 bg-violet-500/10 px-2.5 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-45"
-                }
-                onClick={() => salesPlanExecutionCsvInputRef.current?.click()}
-              >
-                Исполнение плана (Верба CSV)
-              </button>
-              {executionMeta || executionSource === "csv" ? (
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-rose-600 hover:text-rose-500"
-                  onClick={() => void clearSalesPlanExecutionCsv()}
-                >
-                  Сбросить исполнение (CSV/JSON)
-                </button>
-              ) : null}
-            </div>
-            <div
-              className={`flex flex-wrap items-center gap-3 border-t border-dashed pt-3 ${
-                presDark ? "border-slate-600/50" : "border-slate-300/80"
-              }`}
-            >
-              <input
                 ref={segmentExecutionCsvInputRef}
                 type="file"
                 accept=".csv,text/csv"
@@ -3798,6 +3828,12 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           unitsExecutionCharts={unitsExecutionCharts}
           unitsExecutionDealsRows={dealsFeed.loading ? [] : marketingDealsFiltered}
           unitsCsvError={unitsCsvError}
+          isEditMode={!presentation}
+          planFactCsvHydrated={receiptsPlanFactHydrated}
+          planFactCsvLoading={receiptsPlanFactLoading}
+          hasPlanFactCsv={receiptsPlanFactMeta != null}
+          onPlanFactCsvUpload={uploadPlanVsFactCsvFile}
+          onPlanFactCsvClear={clearPlanVsFactCsv}
         />
       </>
 

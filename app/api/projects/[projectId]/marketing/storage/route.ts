@@ -13,6 +13,10 @@ import {
   parseStoredMarketingSegmentExecutionCsv,
 } from "@/lib/marketingSegmentExecutionCsv";
 import {
+  parseReceiptsPlanFactCsv,
+  parseStoredMarketingReceiptsPlanFactCsv,
+} from "@/lib/marketingReceiptsPlanFactCsv";
+import {
   parseApartmentsCsv,
   parseStoredMarketingApartmentsCsv,
 } from "@/lib/marketingApartmentsCsv";
@@ -43,6 +47,8 @@ import {
   marketingProjectMarketingDir,
   marketingProjectSegmentExecutionJsonPath,
   marketingProjectSegmentExecutionRawCsvPath,
+  marketingProjectReceiptsPlanFactJsonPath,
+  marketingProjectReceiptsPlanFactRawCsvPath,
   marketingProjectUnitsExecutionJsonPath,
   marketingProjectUnitsExecutionRawCsvPath,
 } from "@/lib/marketingProjectMarketingStoragePaths";
@@ -67,6 +73,7 @@ type MarketingStoragePresence = {
   hasParking: boolean;
   hasStorages: boolean;
   hasExecutionPlan: boolean;
+  hasReceiptsPlanFact: boolean;
 };
 
 async function readJsonInvestorsDoc(
@@ -150,6 +157,17 @@ async function readJsonStoragesDoc(
   }
 }
 
+async function readJsonReceiptsPlanFactDoc(
+  projectId: string,
+): Promise<ReturnType<typeof parseStoredMarketingReceiptsPlanFactCsv>> {
+  try {
+    const raw = await readFile(marketingProjectReceiptsPlanFactJsonPath(projectId), "utf-8");
+    return parseStoredMarketingReceiptsPlanFactCsv(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 async function readJsonSegmentExecutionDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingSegmentExecutionCsv>> {
@@ -197,6 +215,7 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
   const apt = await readJsonApartmentsDoc(safeProjectId);
   const parking = await readJsonParkingDoc(safeProjectId);
   const storages = await readJsonStoragesDoc(safeProjectId);
+  const receipts = await readJsonReceiptsPlanFactDoc(safeProjectId);
 
   return {
     hasPlan,
@@ -208,6 +227,7 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
     hasParking: parking != null && (parking.rows.length > 0 || parking.headers.length > 0),
     hasStorages: storages != null && (storages.rows.length > 0 || storages.headers.length > 0),
     hasExecutionPlan,
+    hasReceiptsPlanFact: receipts != null && receipts.monthly.length > 0,
   };
 }
 
@@ -215,13 +235,15 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const { projectId: raw } = await ctx.params;
   const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
   const presence = await computePresence(safeProjectId);
-  const [investors, segmentExecution, unitsExecution, apartments, parking, storages] = await Promise.all([
+  const [investors, segmentExecution, unitsExecution, apartments, parking, storages, receiptsPlanFact] =
+    await Promise.all([
     readJsonInvestorsDoc(safeProjectId),
     readJsonSegmentExecutionDoc(safeProjectId),
     readJsonUnitsDoc(safeProjectId),
     readJsonApartmentsDoc(safeProjectId),
     readJsonParkingDoc(safeProjectId),
     readJsonStoragesDoc(safeProjectId),
+    readJsonReceiptsPlanFactDoc(safeProjectId),
   ]);
   return NextResponse.json(
     {
@@ -235,6 +257,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         apartments,
         parking,
         storages,
+        receiptsPlanFact,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -325,6 +348,39 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         kind: "segment_execution",
         doc,
         presence,
+      });
+    }
+
+    if (
+      kind === "receipts_plan_fact" ||
+      kind === "receipts-plan-fact" ||
+      kind === "plan_vs_fact" ||
+      kind === "поступления_план_факт"
+    ) {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = parseReceiptsPlanFactCsv(text);
+      if (!parsed.ok) {
+        return NextResponse.json({ ok: false, error: parsed.error, warnings: parsed.warnings ?? [] }, { status: 400 });
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rawText: text,
+        monthly: parsed.monthly,
+        warnings: parsed.warnings,
+      };
+      await writeFile(marketingProjectReceiptsPlanFactJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
+      await writeFile(marketingProjectReceiptsPlanFactRawCsvPath(safeProjectId), text, "utf-8");
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({
+        ok: true,
+        projectId: safeProjectId,
+        kind: "receipts_plan_fact",
+        doc,
+        presence,
+        warnings: parsed.warnings,
       });
     }
 
@@ -443,7 +499,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       {
         ok: false,
         error:
-          "Укажите kind=investors, kind=segment_execution, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
+          "Укажите kind=investors, kind=segment_execution, kind=receipts_plan_fact, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
       },
       { status: 400 },
     );
@@ -474,13 +530,16 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       kind !== "storages" &&
       kind !== "storages_csv" &&
       kind !== "storage" &&
-      kind !== "storage_csv"
+      kind !== "storage_csv" &&
+      kind !== "receipts_plan_fact" &&
+      kind !== "receipts-plan-fact" &&
+      kind !== "plan_vs_fact"
     ) {
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Ожидался query kind=investors, kind=segment_execution, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
+            "Ожидался query kind=investors, kind=segment_execution, kind=receipts_plan_fact, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
         },
         { status: 400 },
       );
@@ -501,6 +560,17 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       for (const p of [
         marketingProjectSegmentExecutionJsonPath(safeProjectId),
         marketingProjectSegmentExecutionRawCsvPath(safeProjectId),
+      ]) {
+        try {
+          await unlink(p);
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (kind === "receipts_plan_fact" || kind === "receipts-plan-fact" || kind === "plan_vs_fact") {
+      for (const p of [
+        marketingProjectReceiptsPlanFactJsonPath(safeProjectId),
+        marketingProjectReceiptsPlanFactRawCsvPath(safeProjectId),
       ]) {
         try {
           await unlink(p);
