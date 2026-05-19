@@ -85,6 +85,8 @@ const FACT_PLAN_MIN_LABEL_GAP_PX = 18;
 /** Доп. сдвиг при коллизии Fact/Plan (от базы pointY − offset). */
 const FACT_PLAN_COLLISION_FACT_SHIFT_PX = 8;
 const FACT_PLAN_COLLISION_PLAN_SHIFT_PX = 8;
+/** Первая точка: подписи правее, чтобы не налезать на тики оси Y. */
+const FIRST_POINT_LABEL_X_OFFSET_PX = 14;
 /** План (plan_fact.csv): подпись под точкой. */
 const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
 /** Минимум между нижним краем подписи плана и линией (не заходить на точку). */
@@ -493,6 +495,7 @@ function buildCashflowPointOverlayLabels(opts: {
     const row = chartData[index]!;
     const pointX = categoryPointX(row, index, n, xCat, plot);
     if (pointX == null) continue;
+    const labelX = pointX + (index === 0 ? FIRST_POINT_LABEL_X_OFFSET_PX : 0);
 
     const showFact = factIndices === null || factIndices.has(index);
     const showPlan = planIndices === null || planIndices.has(index);
@@ -529,7 +532,7 @@ function buildCashflowPointOverlayLabels(opts: {
       factY = nudgePointLabelYAbovePoint(factY, halfH, factPointY);
       factY = nudgePointLabelYAboveGrid(factY, halfH, gridLineYs);
       const text = formatLabel(factValue);
-      if (text) fact.push({ key: `fact-${row.periodKey}-${index}`, x: pointX, y: factY, text });
+      if (text) fact.push({ key: `fact-${row.periodKey}-${index}`, x: labelX, y: factY, text });
     }
 
     if (planY != null && planPointY != null && hasPlan) {
@@ -538,7 +541,7 @@ function buildCashflowPointOverlayLabels(opts: {
       }
       planY = nudgePointLabelYAboveGrid(planY, halfH, gridLineYs);
       const text = formatLabel(planValue);
-      if (text) plan.push({ key: `plan-${row.periodKey}-${index}`, x: pointX, y: planY, text });
+      if (text) plan.push({ key: `plan-${row.periodKey}-${index}`, x: labelX, y: planY, text });
     }
   }
 
