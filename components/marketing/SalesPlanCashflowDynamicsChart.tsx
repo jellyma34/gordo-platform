@@ -1006,7 +1006,7 @@ export function SalesPlanCashflowDynamicsChart({
 
   const { yDomainMax, yTicks } = useMemo(() => {
     const vals = chartData.flatMap((d) => [d.plan, d.fact].filter((x): x is number => x != null));
-    const { domainMax, ticks } = cashflowYAxisScale(vals);
+    const { domainMax, ticks } = cashflowYAxisScale(vals, { tickStep25Mln: true });
     return { yDomainMax: domainMax, yTicks: ticks };
   }, [chartData]);
 

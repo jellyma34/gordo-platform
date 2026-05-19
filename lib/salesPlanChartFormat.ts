@@ -200,10 +200,26 @@ export function formatCumulativePlanFactBarLabel(rub: unknown): string {
   return formatCashflowMillionsLabelTidy(n, false);
 }
 
+/** Вставляет тики 25 млн между шагами по 50 млн (0 → 25 → 50 …). */
+function cashflowYAxisTicksWith25Mln(ticks: number[], step: number): number[] {
+  const step50 = 50 * 1_000_000;
+  const step25 = 25 * 1_000_000;
+  if (step !== step50 || ticks.length < 2) return ticks;
+  const out: number[] = [];
+  for (let i = 0; i < ticks.length - 1; i++) {
+    out.push(ticks[i]!);
+    const next = ticks[i + 1]!;
+    const mid = ticks[i]! + step25;
+    if (next - ticks[i]! >= step50 - 1e-9 && mid < next - 1e-9) out.push(mid);
+  }
+  out.push(ticks[ticks.length - 1]!);
+  return out;
+}
+
 /** Ось Y: min 0, max = округление вверх(max(данные)×headroom) с шагом 50 или 100 млн. */
 export function cashflowYAxisScale(
   chartPlanFactValues: number[],
-  opts?: { headroom?: number },
+  opts?: { headroom?: number; /** Доп. тик и grid на 25 млн между уровнями 50 млн */ tickStep25Mln?: boolean },
 ): { domainMax: number; ticks: number[] } {
   const mil = 1_000_000;
   const step50 = 50 * mil;
@@ -216,7 +232,8 @@ export function cashflowYAxisScale(
   const padded = maxVal * headroom;
   if (padded <= 0 || !Number.isFinite(padded)) {
     const step = step50;
-    return { domainMax: step, ticks: [0, step] };
+    const baseTicks = opts?.tickStep25Mln ? [0, step50 / 2, step] : [0, step];
+    return { domainMax: step, ticks: baseTicks };
   }
   let step = step50;
   let domainMax = Math.ceil(padded / step) * step;
@@ -226,7 +243,8 @@ export function cashflowYAxisScale(
   }
   const ticks: number[] = [];
   for (let t = 0; t <= domainMax + 1e-9; t += step) ticks.push(Math.round(t));
-  return { domainMax, ticks };
+  const finalTicks = opts?.tickStep25Mln ? cashflowYAxisTicksWith25Mln(ticks, step) : ticks;
+  return { domainMax, ticks: finalTicks };
 }
 
 
