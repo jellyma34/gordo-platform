@@ -66,8 +66,9 @@ const LABEL_OFFSET_FACT_CUMULATIVE_BASE_EXTRA = 4;
 /** Запас от нижнего края подписи факта до полосы подписей месяцев (направляющих больше нет). */
 const FACT_LABEL_MARGIN_ABOVE_MONTH_AXIS_PX = 3;
 /** Подпись плана у точки: зазор от оранжевой линии до ближайшего края текста (вниз / вверх при нехватке места). */
-const PLAN_LABEL_GAP_BELOW_POINT_PX = 9;
-const PLAN_LABEL_GAP_ABOVE_POINT_PX = 9;
+const PLAN_LABEL_GAP_BELOW_POINT_PX = 3;
+/** Над точкой — как у факта (~7px), раньше 9px и визуально «отрывалось» от пунктира. */
+const PLAN_LABEL_GAP_ABOVE_POINT_PX = 2;
 
 /** Подпись факта по центру категории (ровнее «вертикальная сетка»). */
 const LABEL_FACT_DX = 0;
