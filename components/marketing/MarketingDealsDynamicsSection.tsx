@@ -541,7 +541,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId }
               <BarChart data={enrichedChartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
-                <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={28} tickFormatter={(v) => numFmt.format(v)} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={28} tickFormatter={(v) => numFmt.format(Math.round(Number(v)))} />
                 <Bar
                   dataKey="deals"
                   name="Сделки"
@@ -593,8 +593,8 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId }
               <ComposedChart data={enrichedChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
-                <YAxis yAxisId="left" tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={28} tickFormatter={(v) => numFmt.format(v)} />
+                <YAxis yAxisId="left" allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}M`} />
+                <YAxis yAxisId="right" orientation="right" allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={28} tickFormatter={(v) => numFmt.format(Math.round(Number(v)))} />
                 <Legend wrapperStyle={{ fontSize: 9 }} formatter={(v) => <span style={{ color: axisColor }}>{v}</span>} />
                 <Bar
                   yAxisId="left"
@@ -669,7 +669,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId }
               <ComposedChart data={enrichedChartData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
-                <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} tickFormatter={(v) => `${(v / 1_000_000).toFixed(1)}M`} />
+                <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={36} allowDecimals={false} tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}M`} />
                 <defs>
                   <linearGradient id="avgCheckAreaGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#C4B5FD" stopOpacity={0.06} />
@@ -724,7 +724,7 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId }
             <BarChart data={stackedShareData} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} interval={0} angle={-18} textAnchor="end" height={48} />
-              <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={32} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+              <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={32} domain={[0, 100]} allowDecimals={false} tickFormatter={(v) => `${Math.round(Number(v))}%`} />
               <Legend
                 wrapperStyle={{ fontSize: 9 }}
                 formatter={(value, entry) => (

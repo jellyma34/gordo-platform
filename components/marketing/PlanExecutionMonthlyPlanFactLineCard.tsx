@@ -257,6 +257,7 @@ export function PlanExecutionMonthlyPlanFactLineCard({ monthlyPlanVsFact, presen
               <YAxis
                 domain={[0, domainMax]}
                 ticks={ticks}
+                allowDecimals={false}
                 tick={{ fill: axisColor, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}

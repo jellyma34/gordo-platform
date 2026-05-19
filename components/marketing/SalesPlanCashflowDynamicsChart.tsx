@@ -13,7 +13,7 @@ import {
 import {
   cashflowYAxisScale,
   formatCashflowCumulativePointLabel,
-  formatCashflowMillionsLabel,
+  formatCashflowMillionsChartInteger,
   formatCashflowTooltipRub,
   formatCashflowYAxisMlnRub,
 } from "@/lib/salesPlanChartFormat";
@@ -604,7 +604,7 @@ function CashflowPointLabelsOverlay({
     () =>
       mode === "cumulative"
         ? formatCashflowCumulativePointLabel
-        : (rub: number) => formatCashflowMillionsLabel(rub, false),
+        : (rub: number) => formatCashflowMillionsChartInteger(rub, false),
     [mode],
   );
 
@@ -1196,6 +1196,7 @@ export function SalesPlanCashflowDynamicsChart({
             <YAxis
               domain={[0, yDomainMax]}
               ticks={yTicks}
+              allowDecimals={false}
               tick={{ fill: axisColor, fontSize: 10, fontWeight: 500 }}
               axisLine={false}
               tickLine={false}

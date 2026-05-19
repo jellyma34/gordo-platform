@@ -367,7 +367,7 @@ export function SalesTempoChart({
   const presentationTooltipUx = mode === "presentation" || mode === "presentationLight";
   const axisColor = darkChrome ? "#94a3b8" : "#64748b";
   const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
-  const yTickDeals = (v: number) => numFmt.format(v);
+  const yTickDeals = (v: number) => numFmt.format(Math.round(v));
 
   const chartData = useMemo(() => buildSalesTempoChartData(lineData), [lineData]);
 
@@ -572,7 +572,7 @@ export function SalesTempoChart({
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTickDeals} />
                 {presentationTooltipUx ? (
                   <Tooltip
                     content={() => null}
@@ -833,7 +833,7 @@ export function SalesTempoCumulativeChart({
   const darkChrome = chartUsesDarkVisual(mode);
   const axisColor = darkChrome ? "#94a3b8" : "#64748b";
   const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
-  const yTickDeals = (v: number) => numFmt.format(v);
+  const yTickDeals = (v: number) => numFmt.format(Math.round(v));
   const chartData = useMemo(() => buildSalesTempoChartData(lineData), [lineData]);
   const expandedData = useMemo(() => buildCumulativeExpandedRows(chartData), [chartData]);
   const lastMonthIdx = chartData.length - 1;
@@ -924,7 +924,7 @@ export function SalesTempoCumulativeChart({
               tickLine={false}
               tickFormatter={(v) => chartData[Math.round(Number(v))]?.label ?? ""}
             />
-            <YAxis tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} width={44} tickFormatter={yTickDeals} />
+            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} width={44} tickFormatter={yTickDeals} />
             <ReferenceLine
               y={0}
               stroke={darkChrome ? "#e2e8f0" : "#334155"}

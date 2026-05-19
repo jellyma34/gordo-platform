@@ -6,6 +6,12 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 export const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
+/** Целое для подписей осей и меток на графике (не tooltip). */
+export function formatChartAxisTickNumber(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  return numFmt.format(Math.round(n));
+}
+
 /** Убирает лишние нули после запятой в ручной записи «2,20» → «2,2», «245,0» → «245». */
 function trimRuDecimalZeros(s: string): string {
   if (!s.includes(",")) return s;
@@ -133,22 +139,37 @@ export function formatCashflowMillionsLabel(n: number, withRubSuffix = false): s
 }
 
 /**
- * Как {@link formatCashflowMillionsLabel}, но без хвоста «,0» у дробной части (`50,0` → `50`).
+ * Подписи точек/столбцов cashflow: целые млн/млрд без «млн»/«₽» (только UI, не tooltip).
+ */
+export function formatCashflowMillionsChartInteger(n: number, withRubSuffix = false): string {
+  if (!Number.isFinite(n)) return "";
+  const rub = withRubSuffix ? " ₽" : "";
+  if (n === 0) return withRubSuffix ? `0${rub}` : "0";
+
+  const sign = n < 0 ? "−" : "";
+  const absRub = Math.abs(n);
+
+  if (absRub >= 1_000_000_000) {
+    return `${sign}${numFmt.format(Math.round(absRub / 1_000_000_000))}${rub}`;
+  }
+
+  return `${sign}${numFmt.format(Math.round(absRub / 1_000_000))}${rub}`;
+}
+
+/**
+ * Как {@link formatCashflowMillionsChartInteger} — подписи над столбцами и на линиях (без дробной части).
  */
 export function formatCashflowMillionsLabelTidy(n: number, withRubSuffix = false): string {
-  const s = formatCashflowMillionsLabel(n, withRubSuffix);
-  if (!withRubSuffix) return trimRuDecimalZeros(s);
-  const core = s.replace(/\s*₽\s*$/, "");
-  return `${trimRuDecimalZeros(core)} ₽`;
+  return formatCashflowMillionsChartInteger(n, withRubSuffix);
 }
 
 /**
  * Подпись точки на графике «Динамика поступлений» в режиме нарастающим итогом:
- * только число в млн («24», «50,5») — без «млн», «₽» и лишних нулей; ось Y задаёт масштаб.
+ * только целое число в млн («24», «50») — без «млн», «₽»; ось Y задаёт масштаб.
  */
 export function formatCashflowCumulativePointLabel(rub: number): string {
   if (!Number.isFinite(rub)) return "";
-  return formatCashflowMillionsLabelTidy(rub, false);
+  return formatCashflowMillionsChartInteger(rub, false);
 }
 
 /** Подписи на графике «Динамика поступлений» (tooltip, отклонение): как {@link formatCashflowMillionsLabel} с « ₽». */
@@ -198,16 +219,36 @@ export function formatSegmentMiniRevenueYAxisTick(n: number): string {
 }
 
 /**
- * Подписи оси Y графика «Динамика поступлений» (серые тики слева): число + « млн» или « млрд».
- * Подписи на линии, тултип и прочие места используют {@link formatCashflowMillionsLabel} / {@link formatCashflowTooltipRub} — без «млн» в строке.
+ * Подписи оси Y графика «Динамика поступлений» (серые тики слева): целое + « млн» или « млрд».
+ * Подписи на линии — {@link formatCashflowMillionsChartInteger}; тултип — {@link formatCashflowTooltipRub}.
  */
 export function formatCashflowYAxisMlnRub(v: number): string {
   if (!Number.isFinite(v)) return "";
   const absRub = Math.abs(v);
-  const core = formatCashflowMillionsLabel(v, false);
+  const core = formatCashflowMillionsChartInteger(v, false);
   if (core === "") return "";
   if (absRub >= 1_000_000_000) return `${core} млрд`;
   return `${core} млн`;
+}
+
+/**
+ * Ось Y денежных графиков «Выполнение по сегментам» и аналогичных: только целые млн/млрд.
+ * Tooltip по-прежнему использует {@link formatCompactMoneyAxis}.
+ */
+export function formatCompactMoneyAxisTick(rub: number): string {
+  if (!Number.isFinite(rub)) return "—";
+  if (rub === 0) return "0 млн";
+
+  const sign = rub < 0 ? "−" : "";
+  const absRub = Math.abs(rub);
+  const mln = absRub / 1_000_000;
+
+  if (mln >= 999) {
+    const bln = Math.round(absRub / 1_000_000_000);
+    return `${sign}${numFmt.format(bln)} млрд`;
+  }
+
+  return `${sign}${numFmt.format(Math.round(mln))} млн`;
 }
 
 /** Ось Y графиков «План vs факт» (помесячно и накопительно): «300 млн» без «₽». */

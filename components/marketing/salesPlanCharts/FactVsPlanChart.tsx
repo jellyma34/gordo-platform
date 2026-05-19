@@ -270,7 +270,7 @@ export function FactVsPlanChart({
   const presentationTooltipUx = mode === "presentation" || mode === "presentationLight";
   const axisColor = darkChrome ? "#94a3b8" : "#64748b";
   const gridColor = darkChrome ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
-  const yTick = (v: number) => (valueKind === "deals" ? numFmt.format(v) : compactRub(v));
+  const yTick = (v: number) => (valueKind === "deals" ? numFmt.format(Math.round(v)) : compactRub(v));
 
   const worstIdx = useMemo(() => velocityFactPlanWorstIndex(rows), [rows]);
   const lastDevPct = useMemo(() => barLastDeviationPct(rows), [rows]);
@@ -388,7 +388,7 @@ export function FactVsPlanChart({
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
             <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 9 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-            <YAxis tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTick} />
+            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} width={40} tickFormatter={yTick} />
             {presentationTooltipUx ? (
               <Tooltip
                 content={() => null}

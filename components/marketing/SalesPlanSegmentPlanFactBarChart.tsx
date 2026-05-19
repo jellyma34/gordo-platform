@@ -19,7 +19,11 @@ import {
 import { isStagnantDealMonthNoNewSales } from "@/lib/marketingDealMonthCumulative";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { CASHFLOW_INFLOW_PLAN } from "@/lib/cashflowInflowChartSeries";
-import { formatCashflowMillionsLabelTidy, formatCompactMoneyAxis } from "@/lib/salesPlanChartFormat";
+import {
+  formatCashflowMillionsLabelTidy,
+  formatCompactMoneyAxis,
+  formatCompactMoneyAxisTick,
+} from "@/lib/salesPlanChartFormat";
 import {
   MPL_PREMIUM_CHART_SHELL,
   MPL_PREMIUM_FILTER_SELECT_10,
@@ -427,12 +431,13 @@ export function SalesPlanSegmentPlanFactBarChart({
             />
             <YAxis
               domain={yDomain}
+              allowDecimals={false}
               tick={{ fill: axisColor, fontSize: 10 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => {
                 const n = Number(v);
-                return Number.isFinite(n) ? formatCompactMoneyAxis(n) : "";
+                return Number.isFinite(n) ? formatCompactMoneyAxisTick(n) : "";
               }}
               width={56}
             />

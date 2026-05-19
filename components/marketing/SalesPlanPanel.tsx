@@ -2498,7 +2498,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     return "#FF4D4F";
   };
 
-  const yTickDeals = (v: number) => `${numFmt.format(v)}`;
+  const yTickDeals = (v: number) => `${numFmt.format(Math.round(v))}`;
   const cumulativeExecTone: "green" | "yellow" | "red" =
     forecastPercentAdjusted >= 100 ? "green" : forecastPercentAdjusted >= 90 ? "yellow" : "red";
   const monthExecTone: "green" | "yellow" | "red" = monthExecPct >= 100 ? "green" : monthExecPct >= 95 ? "yellow" : "red";
@@ -4819,7 +4819,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickCashM} domain={[0, "auto"]} />
+                    <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickCashM} domain={[0, "auto"]} />
                     <Tooltip
                       cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                       content={
@@ -4918,7 +4918,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={presDark ? "rgba(254,202,202,0.1)" : "rgba(185,28,28,0.1)"} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: presDark ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={{ stroke: presDark ? "rgba(254,202,202,0.2)" : "rgba(127,29,29,0.25)" }} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis tick={{ fill: presDark ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickGapBar} domain={[0, "auto"]} />
+                    <YAxis allowDecimals={false} tick={{ fill: presDark ? "#fecaca" : "#7f1d1d", fontSize: 8 }} axisLine={false} width={36} tickFormatter={yTickGapBar} domain={[0, "auto"]} />
                     <Tooltip
                       cursor={presDark ? { stroke: "rgba(254,202,202,0.35)", strokeWidth: 1 } : undefined}
                       content={
@@ -4983,7 +4983,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                   <LineChart data={financialCashFlow.chartRows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: axisColor, fontSize: 8 }} axisLine={{ stroke: gridColor }} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={32} domain={[0, financialCashFlow.execYMax]} tickFormatter={(v) => `${v}%`} />
+                    <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 8 }} axisLine={false} width={32} domain={[0, financialCashFlow.execYMax]} tickFormatter={(v) => `${Math.round(Number(v))}%`} />
                     <Tooltip
                       cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
                       content={
@@ -5339,7 +5339,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                     type="number"
                     domain={[0, inventoryLiquidationAnalysis.totalPlan]}
                     tick={{ fill: axisColor, fontSize: 9 }}
-                    tickFormatter={(v) => numFmt.format(v)}
+                    tickFormatter={(v) => numFmt.format(Math.round(Number(v)))}
                   />
                   <YAxis type="category" dataKey="name" width={68} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} />
                   <Tooltip
@@ -5468,7 +5468,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                 barCategoryGap={12}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
-                <XAxis type="number" tick={{ fill: axisColor, fontSize: 9 }} tickFormatter={(v) => numFmt.format(v)} />
+                <XAxis type="number" allowDecimals={false} tick={{ fill: axisColor, fontSize: 9 }} tickFormatter={(v) => numFmt.format(Math.round(Number(v)))} />
                 <YAxis type="category" dataKey="labelAxis" width={132} tick={{ fill: axisColor, fontSize: 9 }} axisLine={false} />
                 <Tooltip
                   cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}
@@ -5706,7 +5706,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
                 axisLine={false}
                 width={36}
                 domain={[0, 60]}
-                tickFormatter={(v) => `${v}%`}
+                tickFormatter={(v) => `${Math.round(Number(v))}%`}
               />
               <Tooltip
                 cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : undefined}

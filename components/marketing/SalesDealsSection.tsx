@@ -494,7 +494,7 @@ export function SalesDealsSection({ presentation, period, objectId }: Props) {
                 <BarChart data={dataset.monthly} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: axisTick, fontSize: 10 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
-                  <YAxis tick={{ fill: axisTick, fontSize: 10 }} axisLine={false} width={36} tickFormatter={(v) => numFmt.format(v)} />
+                  <YAxis allowDecimals={false} tick={{ fill: axisTick, fontSize: 10 }} axisLine={false} width={36} tickFormatter={(v) => numFmt.format(Math.round(Number(v)))} />
                   <Tooltip
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
@@ -538,7 +538,7 @@ export function SalesDealsSection({ presentation, period, objectId }: Props) {
                     tick={{ fill: axisTick, fontSize: 10 }}
                     axisLine={false}
                     width={40}
-                    tickFormatter={(v) => `${v}%`}
+                    tickFormatter={(v) => `${Math.round(Number(v))}%`}
                     domain={["auto", "auto"]}
                   />
                   <Tooltip

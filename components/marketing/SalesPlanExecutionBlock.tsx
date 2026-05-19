@@ -518,6 +518,7 @@ function ExecutionMacroChartsBlock({
                 <YAxis
                   domain={[0, planFactYAxis.domainMax]}
                   ticks={planFactYAxis.ticks}
+                  allowDecimals={false}
                   tick={(props) => <CumulativePlanFactYAxisTick {...props} fill={chartAxis} />}
                   axisLine={false}
                   tickLine={false}
@@ -624,7 +625,7 @@ function ExecutionMacroChartsBlock({
                     tick={{ fill: chartAxis, fontSize: 10 }}
                     axisLine={{ stroke: chartGrid }}
                     tickLine={false}
-                    tickFormatter={(v) => `${v}%`}
+                    tickFormatter={(v) => `${Math.round(Number(v))}%`}
                   />
                   <Tooltip
                     cursor={{ fill: presDark ? "rgba(148,163,184,0.06)" : "rgba(100,116,139,0.07)" }}
