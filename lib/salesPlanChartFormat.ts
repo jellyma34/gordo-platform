@@ -12,6 +12,49 @@ export function formatChartAxisTickNumber(n: number): string {
   return numFmt.format(Math.round(n));
 }
 
+export type IntegerNiceYAxisScale = {
+  domain: [number, number];
+  ticks: number[];
+};
+
+/** Верхняя граница оси с «воздухом» над данными (max столбца на графике, не KPI totals). */
+export function normalizeAxisMax(max: number): number {
+  const m = Number.isFinite(max) ? Math.max(0, max) : 0;
+  if (m <= 0) return 5;
+  if (m <= 25) return 25;
+  if (m <= 50) return 50;
+  if (m <= 100) return 100;
+  return Math.ceil(m / 25) * 25;
+}
+
+/**
+ * Целочисленная «ровная» ось (штуки, %): 0,5,10,15,20,25 или 0,10,20,30,40…
+ * {@link normalizeAxisMax} — без дробных тиков.
+ */
+export function integerNiceYAxisScale(
+  maxValue: number,
+  opts?: { cap?: number },
+): IntegerNiceYAxisScale {
+  let m = Number.isFinite(maxValue) ? Math.max(0, maxValue) : 0;
+  if (opts?.cap != null) m = Math.min(m, opts.cap);
+
+  if (m <= 0) {
+    return { domain: [0, 5], ticks: [0, 5] };
+  }
+
+  let axisMax = normalizeAxisMax(m);
+  if (opts?.cap != null) axisMax = Math.min(axisMax, opts.cap);
+
+  const step = axisMax <= 25 ? 5 : axisMax <= 50 ? 10 : 20;
+
+  const ticks: number[] = [];
+  for (let t = 0; t <= axisMax + 1e-9; t += step) {
+    ticks.push(Math.round(t));
+  }
+
+  return { domain: [0, axisMax], ticks };
+}
+
 /** Убирает лишние нули после запятой в ручной записи «2,20» → «2,2», «245,0» → «245». */
 function trimRuDecimalZeros(s: string): string {
   if (!s.includes(",")) return s;

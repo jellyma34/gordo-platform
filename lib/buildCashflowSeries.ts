@@ -1,3 +1,4 @@
+import { rubToCashflowChartUnit } from "@/lib/cashflowChartUnits";
 import { cumulativeDealCountThroughMonthMap } from "@/lib/marketingDealMonthCumulative";
 
 const RU_MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"] as const;
@@ -153,6 +154,7 @@ export type CashflowChartMode = "monthly" | "cumulative";
 /**
  * Строка для Recharts: `fact` — синяя «Факт» (полный горизонт из CSV);
  * `plan` — оранжевая «План» (после {@link cashflowPlanDisplayEndPeriodKey} — `null`, линия не рисуется).
+ * Значения `plan` / `fact` / `deviation` — в **единицах графика** (1 = 1 млн ₽), см. {@link rubToCashflowChartUnit}.
  */
 export type CashflowChartRow = {
   periodKey: string;
@@ -170,6 +172,8 @@ export type CashflowRowsForChartOptions = {
    * `null`/не задано — текущий календарный месяц. На **факт** не влияет.
    */
   factThroughPeriodKey?: string | null;
+  /** false — нет CSV плана поступлений: оранжевая серия и подписи плана скрыты. */
+  includePlanSeries?: boolean;
 };
 
 function displayedPlanOrFactNonZero(row: CashflowChartRow): boolean {
@@ -212,6 +216,7 @@ type ScaledCashflowSeriesRow = CashflowSeriesRow & { planMonthScaled: number };
 function buildMonthlyCashflowChartRows(
   scaled: readonly ScaledCashflowSeriesRow[],
   planDisplayEnd: string,
+  includePlanSeries: boolean,
 ): CashflowChartRow[] {
   let lastSourceFactIndex = -1;
   for (let i = 0; i < scaled.length; i++) {
@@ -228,14 +233,19 @@ function buildMonthlyCashflowChartRows(
     if (lastSourceFactIndex >= 0 && i > lastSourceFactIndex && raw == null) {
       factDisplayed = null;
     }
-    const planDisplayed = afterPlanEnd ? null : planFull;
+    const planDisplayed = !includePlanSeries || afterPlanEnd ? null : planFull;
+    const planUnit =
+      planDisplayed != null && Math.abs(planDisplayed) > 1e-9
+        ? rubToCashflowChartUnit(planDisplayed)
+        : null;
+    const factUnit = factDisplayed != null ? rubToCashflowChartUnit(factDisplayed) : null;
     const deviation =
-      afterPlanEnd || raw == null ? null : raw - planFull;
+      afterPlanEnd || raw == null || planUnit == null || factUnit == null ? null : factUnit - planUnit;
     return {
       periodKey: r.periodKey,
       label: r.label,
-      plan: planDisplayed,
-      fact: factDisplayed,
+      plan: planUnit,
+      fact: factUnit,
       deviation,
     };
   });
@@ -250,7 +260,7 @@ export function lastCashflowVisibleMonthIndex(
   scaled: readonly ScaledCashflowSeriesRow[],
   planDisplayEnd: string,
 ): number {
-  const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd);
+  const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd, true);
   return trimTrailingEmptyCashflowDisplayedRows(monthly).lastVisibleIndex;
 }
 
@@ -316,6 +326,7 @@ export function cashflowRowsForChart(
   options?: CashflowRowsForChartOptions,
 ): CashflowChartRow[] {
   const planDisplayEnd = cashflowPlanDisplayEndPeriodKey(options?.factThroughPeriodKey ?? null);
+  const includePlanSeries = options?.includePlanSeries === true;
   const scale = Number.isFinite(planScale) && planScale > 0 ? planScale : 1;
   const scaled = rows.map((r) => ({
     ...r,
@@ -325,7 +336,7 @@ export function cashflowRowsForChart(
   const lastVisibleIndex = lastCashflowVisibleMonthIndex(scaled, planDisplayEnd);
 
   if (mode === "monthly") {
-    const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd);
+    const monthly = buildMonthlyCashflowChartRows(scaled, planDisplayEnd, includePlanSeries);
     const trimmedMonthly = trimCashflowChartRowsToVisibleMonth(monthly, lastVisibleIndex);
     logCashflowFinalTimeline(
       mode,
@@ -346,15 +357,20 @@ export function cashflowRowsForChart(
       hadCsvFact = true;
     }
     const afterPlanEnd = r.periodKey > planDisplayEnd;
-    const planDisplayed = afterPlanEnd ? null : accPlan;
+    const planDisplayed = !includePlanSeries || afterPlanEnd ? null : accPlan;
     const factDisplayed = hadCsvFact ? accFact : null;
+    const planUnit =
+      planDisplayed != null && Math.abs(planDisplayed) > 1e-9
+        ? rubToCashflowChartUnit(planDisplayed)
+        : null;
+    const factUnit = factDisplayed != null ? rubToCashflowChartUnit(factDisplayed) : null;
     return {
       periodKey: r.periodKey,
       label: r.label,
-      plan: planDisplayed,
-      fact: factDisplayed,
+      plan: planUnit,
+      fact: factUnit,
       deviation:
-        afterPlanEnd || factDisplayed == null ? null : factDisplayed - accPlan,
+        afterPlanEnd || planUnit == null || factUnit == null ? null : factUnit - planUnit,
     };
   });
   const trimmedCum = trimCashflowChartRowsToVisibleMonth(cumulative, lastVisibleIndex);

@@ -9,9 +9,17 @@ import {
   type DealSegmentKey,
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
+import { UploadSalesSegmentsCsvButton } from "@/components/marketing/UploadSalesSegmentsCsvButton";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { aggregateSegmentAnalyticsFromDeals } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
+import {
+  segmentExecutionChartsHaveRows,
+  segmentExecutionHasSegmentPlan,
+  type SegmentExecutionChartsPayload,
+} from "@/lib/marketingSegmentExecutionCsv";
+import type { SegmentExecutionSegmentKey } from "@/lib/parseSegmentExecutionCsv";
+import { segmentExecutionChartsToBarRows } from "@/lib/segmentExecutionChartsToBarRows";
 import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
@@ -66,8 +74,8 @@ function SegmentBarTooltip({
   const row = payload[0]?.payload as SegmentPlanFactBarRow | undefined;
   if (!row) return null;
   const fact = Number.isFinite(row.fact) ? row.fact : 0;
-  const plan = Number.isFinite(row.plan) ? row.plan : 0;
-  const pct = plan > 0 ? ((fact / plan) * 100).toFixed(1) : "—";
+  const plan = Number.isFinite(row.plan) && row.plan > 0 ? row.plan : null;
+  const pct = plan != null ? ((fact / plan) * 100).toFixed(1) : "—";
   const shell = presDark
     ? "rounded-lg border border-slate-500/40 bg-[#0b1220]/95 px-3 py-2 text-xs text-slate-100 shadow-lg"
     : mplPremium
@@ -87,7 +95,7 @@ function SegmentBarTooltip({
         <div>
           <span className={presDark ? "text-slate-400" : "text-mpl-muted"}>План: </span>
           <span style={{ color: CASHFLOW_INFLOW_PLAN.label }} className="font-medium">
-            {formatCompactMoneyAxis(plan)}
+            {plan != null ? formatCompactMoneyAxis(plan) : "—"}
           </span>
         </div>
         <div
@@ -118,6 +126,13 @@ function monthKeyLabelRu(monthKey: string): string {
 
 type SegmentChartScope = "all" | DealSegmentKey;
 
+const DEAL_TO_EXEC_SEGMENT: Record<Exclude<DealSegmentKey, "other">, SegmentExecutionSegmentKey> = {
+  apartment: "apartments",
+  parking: "parking",
+  storage: "storage",
+  commercial: "commercial",
+};
+
 type Props = {
   dealsRows: NormalizedDealRow[];
   fallbackTotalPlanRub: number | null | undefined;
@@ -126,6 +141,14 @@ type Props = {
   marketingPeriod: MarketingPeriodGranularity;
   /** Дата отчёта плана (YYYY-MM-DD): якорь месяца/квартала, если в сделках нет ни одного monthKey. */
   planReportAsOfYmd?: string | null;
+  /** CSV segment_execution с сервера (не localStorage). */
+  segmentExecutionCharts?: SegmentExecutionChartsPayload | null;
+  /** Глобальный режим «Редактирование» (маршрут /edit/*), не внутренний View/Edit mode панели. */
+  isEditMode?: boolean;
+  segmentExecutionCsvLoading?: boolean;
+  hasSegmentExecutionCsv?: boolean;
+  onSegmentExecutionCsvUpload?: (file: File) => Promise<void>;
+  onSegmentExecutionCsvClear?: () => Promise<void>;
 };
 
 export function SalesPlanSegmentPlanFactBarChart({
@@ -134,9 +157,17 @@ export function SalesPlanSegmentPlanFactBarChart({
   presentation,
   marketingPeriod,
   planReportAsOfYmd,
+  segmentExecutionCharts = null,
+  isEditMode = false,
+  segmentExecutionCsvLoading = false,
+  hasSegmentExecutionCsv = false,
+  onSegmentExecutionCsvUpload,
+  onSegmentExecutionCsvClear,
 }: Props) {
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const mplLight = useMarketingPresentationLight();
+  const showCsvUploadControls =
+    isEditMode && !presentation && onSegmentExecutionCsvUpload != null && onSegmentExecutionCsvClear != null;
 
   const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>("all");
   const [segmentScope, setSegmentScope] = useState<SegmentChartScope>("all");
@@ -225,7 +256,29 @@ export function SalesPlanSegmentPlanFactBarChart({
     return null;
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
+  const csvHasRows = segmentExecutionChartsHaveRows(segmentExecutionCharts);
+  /** Накопительный CSV по сегментам — для режима «Все»; помесячный/квартальный отбор — из JSON сделок. */
+  const useCsvBarSource = csvHasRows && periodMode === "all";
+
+  const segmentBarRowsFromCsv = useMemo((): SegmentPlanFactBarRow[] | null => {
+    if (!useCsvBarSource || !segmentExecutionCharts) return null;
+    const all = segmentExecutionChartsToBarRows(segmentExecutionCharts);
+    if (!all?.length) return null;
+    if (segmentScope === "all") return all;
+    const execKey = DEAL_TO_EXEC_SEGMENT[segmentScope as Exclude<DealSegmentKey, "other">];
+    if (!execKey) return all;
+    return segmentExecutionCharts.planFactRows
+      .filter((r) => r.key === execKey)
+      .map((r) => ({ name: r.segment, fact: r.fact, plan: r.plan }));
+  }, [useCsvBarSource, segmentExecutionCharts, segmentScope]);
+
   const segmentBarRowsAll = useMemo(() => {
+    if (segmentBarRowsFromCsv) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[segment source]", { dataSource: "segment-execution-csv", rows: segmentBarRowsFromCsv });
+      }
+      return segmentBarRowsFromCsv;
+    }
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
       fallbackAsOfYmd: planReportAsOfYmd,
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
@@ -239,11 +292,9 @@ export function SalesPlanSegmentPlanFactBarChart({
     const showZeroSalesSegments =
       (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
       (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
-    const segmentExecutionRows = buildSegmentPlanFactBarDataFromDeals(
-      byPeriod,
-      showZeroSalesSegments ? null : fallbackTotalPlanRub,
-      { showZeroSalesSegments },
-    );
+    const segmentExecutionRows = buildSegmentPlanFactBarDataFromDeals(byPeriod, null, {
+      showZeroSalesSegments,
+    });
     if (process.env.NODE_ENV === "development") {
       console.table(segmentExecutionRows);
       console.log("[segment source]", {
@@ -259,19 +310,42 @@ export function SalesPlanSegmentPlanFactBarChart({
       });
     }
     return segmentExecutionRows;
-  }, [dealsRows, fallbackTotalPlanRub, periodMode, planReportAsOfYmd, monthKeyForFilter, quarterIdForFilter]);
+  }, [
+    segmentBarRowsFromCsv,
+    dealsRows,
+    fallbackTotalPlanRub,
+    periodMode,
+    planReportAsOfYmd,
+    monthKeyForFilter,
+    quarterIdForFilter,
+  ]);
 
   useEffect(() => {
     if (segmentScope === "all") return;
+    if (useCsvBarSource && segmentExecutionCharts?.planFactRows?.length) {
+      const execKey = DEAL_TO_EXEC_SEGMENT[segmentScope as Exclude<DealSegmentKey, "other">];
+      if (execKey && !segmentExecutionCharts.planFactRows.some((r) => r.key === execKey)) {
+        setSegmentScope("all");
+      }
+      return;
+    }
     const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
     if (!segmentBarRowsAll.some((r) => r.name === label)) setSegmentScope("all");
-  }, [segmentScope, segmentBarRowsAll]);
+  }, [segmentScope, segmentBarRowsAll, useCsvBarSource, segmentExecutionCharts?.planFactRows]);
+
+  const hasSegmentPlanBar = useMemo(() => {
+    if (useCsvBarSource && segmentExecutionCharts) {
+      return segmentExecutionHasSegmentPlan(segmentExecutionCharts);
+    }
+    return segmentBarRowsAll.some((r) => Math.abs(r.plan) > 1e-9);
+  }, [useCsvBarSource, segmentExecutionCharts, segmentBarRowsAll]);
 
   const rows = useMemo(() => {
+    if (useCsvBarSource) return segmentBarRowsAll;
     if (segmentScope === "all") return segmentBarRowsAll;
     const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
     return segmentBarRowsAll.filter((r) => r.name === label);
-  }, [segmentBarRowsAll, segmentScope]);
+  }, [segmentBarRowsAll, segmentScope, useCsvBarSource]);
 
   /** Плейсхолдер категорий для осей при отсутствии строк после фильтра. */
   const emptyPlaceholderRows = useMemo((): SegmentPlanFactBarRow[] => {
@@ -286,10 +360,19 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [segmentScope]);
 
   /** Нет сделок вовсе (режим «Все» / пустой JSON) — не путать с нулевым фактом за выбранный месяц. */
-  const showEmptyOverlay = rows.length === 0 && periodMode === "all";
+  const showEmptyOverlay = rows.length === 0 && periodMode === "all" && !useCsvBarSource;
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {
+    if (useCsvBarSource && segmentExecutionCharts?.planFactRows?.length) {
+      const keys = new Set(segmentExecutionCharts.planFactRows.map((r) => r.key));
+      return [
+        { value: "all" as const, label: "Все" },
+        ...DEAL_SEGMENT_KEYS.filter((k) => k !== "other")
+          .filter((k) => keys.has(DEAL_TO_EXEC_SEGMENT[k]))
+          .map((k) => ({ value: k, label: DEAL_SEGMENT_LABEL_RU[k] })),
+      ];
+    }
     const withData = new Set(segmentBarRowsAll.map((r) => r.name));
     return [
       { value: "all" as const, label: "Все" },
@@ -298,7 +381,7 @@ export function SalesPlanSegmentPlanFactBarChart({
         label: DEAL_SEGMENT_LABEL_RU[k],
       })),
     ];
-  }, [segmentBarRowsAll]);
+  }, [segmentBarRowsAll, useCsvBarSource, segmentExecutionCharts?.planFactRows]);
 
   const barCategoryGapPct = useMemo(() => {
     const n = displayRows.length;
@@ -311,12 +394,12 @@ export function SalesPlanSegmentPlanFactBarChart({
   const yDomain = useMemo((): [number, number] => {
     if (rows.length === 0) return [0, 1];
     const vals = rows
-      .flatMap((r) => [r.fact, r.plan])
+      .flatMap((r) => (hasSegmentPlanBar ? [r.fact, r.plan] : [r.fact]))
       .map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
     const max = Math.max(0, ...vals);
     const head = max > 0 ? max * 0.14 : 1;
     return [0, max + head];
-  }, [rows]);
+  }, [rows, hasSegmentPlanBar]);
 
   const gridStroke = presDark ? "rgba(148,163,184,0.12)" : "rgba(148,163,184,0.35)";
   const axisColor = presDark ? "#94a3b8" : "#64748b";
@@ -334,9 +417,31 @@ export function SalesPlanSegmentPlanFactBarChart({
       }
     >
       <div className="mb-3">
-        <h3 className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}>
-          Выполнение плана продаж по сегментам
-        </h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3
+              className={`text-sm font-semibold ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
+            >
+              Выполнение плана продаж по сегментам
+            </h3>
+          </div>
+          {showCsvUploadControls ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <UploadSalesSegmentsCsvButton
+                hasCsv={hasSegmentExecutionCsv}
+                loading={segmentExecutionCsvLoading}
+                presDark={presDark}
+                onUploadFile={onSegmentExecutionCsvUpload}
+                onClear={onSegmentExecutionCsvClear}
+              />
+            </div>
+          ) : null}
+        </div>
+        {useCsvBarSource ? (
+          <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+            Данные из CSV (накопительно). Для помесячного/квартального отбора используются сделки JSON.
+          </p>
+        ) : null}
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
             <span className={filterLabelCls}>Период графика</span>
@@ -469,25 +574,27 @@ export function SalesPlanSegmentPlanFactBarChart({
                 formatter={formatBarTopLabel}
               />
             </Bar>
-            <Bar
-              dataKey="plan"
-              name="План"
-              fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.stroke}
-              fillOpacity={showEmptyOverlay ? 0 : CASHFLOW_INFLOW_PLAN.strokeOpacity}
-              radius={[8, 8, 0, 0]}
-              maxBarSize={52}
-              isAnimationActive={false}
-            >
-              <LabelList
+            {hasSegmentPlanBar ? (
+              <Bar
                 dataKey="plan"
-                position="top"
-                fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.label}
-                fontSize={12}
-                fontWeight={500}
-                className="tabular-nums"
-                formatter={formatBarTopLabel}
-              />
-            </Bar>
+                name="План"
+                fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.stroke}
+                fillOpacity={showEmptyOverlay ? 0 : CASHFLOW_INFLOW_PLAN.strokeOpacity}
+                radius={[8, 8, 0, 0]}
+                maxBarSize={52}
+                isAnimationActive={false}
+              >
+                <LabelList
+                  dataKey="plan"
+                  position="top"
+                  fill={showEmptyOverlay ? "transparent" : CASHFLOW_INFLOW_PLAN.label}
+                  fontSize={12}
+                  fontWeight={500}
+                  className="tabular-nums"
+                  formatter={formatBarTopLabel}
+                />
+              </Bar>
+            ) : null}
           </BarChart>
         </ResponsiveContainer>
         {showEmptyOverlay ? (
@@ -511,13 +618,15 @@ export function SalesPlanSegmentPlanFactBarChart({
           <span className="inline-block h-2.5 w-4 rounded-sm bg-[#2563EB]" />
           Факт
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            className="inline-block h-2.5 w-4 rounded-sm"
-            style={{ backgroundColor: CASHFLOW_INFLOW_PLAN.stroke }}
-          />
-          План
-        </span>
+        {hasSegmentPlanBar ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-4 rounded-sm"
+              style={{ backgroundColor: CASHFLOW_INFLOW_PLAN.stroke }}
+            />
+            План
+          </span>
+        ) : null}
       </div>
     </div>
   );

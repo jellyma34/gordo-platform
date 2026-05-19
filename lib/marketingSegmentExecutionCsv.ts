@@ -70,31 +70,37 @@ export function distributeSegmentPlanByFactShare(
   }));
 }
 
-/** plan/fact с распределённым планом, если в storage plan=0, но есть planTotal. */
+/**
+ * plan/fact только из CSV segment_execution (без plan_fact, mock, distribute по факту).
+ * @deprecated planTotalFallback игнорируется — не подмешивать внешний план.
+ */
 export function resolveSegmentExecutionPlanFactRows(
   payload: SegmentExecutionChartsPayload | null | undefined,
-  planTotalFallback = 0,
+  _planTotalFallback = 0,
 ): SegmentExecutionPlanFactRow[] {
   if (!payload) return [];
   const pf = payload.planFactRows ?? [];
   if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return pf;
   const planTotal =
-    (typeof payload.planTotal === "number" && payload.planTotal > 0 ? payload.planTotal : 0) ||
-    (planTotalFallback > 0 ? planTotalFallback : 0);
+    payload.hasSegmentPlan === true &&
+    typeof payload.planTotal === "number" &&
+    payload.planTotal > 0
+      ? payload.planTotal
+      : 0;
   if (planTotal > 0 && pf.some((r) => Math.abs(r.fact) > 1e-9)) {
     return distributeSegmentPlanByFactShare(planTotal, pf);
   }
   return pf;
 }
 
-/** Показывать ли план и % выполнения (в т.ч. план из SUM «План продаж» / plan_fact). */
+/** План в UI — только если он есть в загруженном CSV сегментов (не из plan_fact / mock). */
 export function segmentExecutionHasSegmentPlan(
   payload: SegmentExecutionChartsPayload | null | undefined,
-  planTotalFallback = 0,
+  _planTotalFallback = 0,
 ): boolean {
   if (!payload) return false;
   if (payload.hasSegmentPlan === true) return true;
-  const pf = resolveSegmentExecutionPlanFactRows(payload, planTotalFallback);
+  const pf = payload.planFactRows ?? [];
   return pf.some((r) => Math.abs(r.plan) > 1e-9);
 }
 
@@ -102,12 +108,10 @@ export function segmentExecutionHasSegmentPlan(
 export function resolveSegmentExecutionCompletionRows(
   payload: SegmentExecutionChartsPayload | null | undefined,
   planFactRows?: readonly SegmentExecutionPlanFactRow[],
-  planTotalFallback = 0,
+  _planTotalFallback = 0,
 ): SegmentExecutionCompletionRow[] {
   if (!payload && (!planFactRows || planFactRows.length === 0)) return [];
-  const pf =
-    planFactRows ??
-    resolveSegmentExecutionPlanFactRows(payload ?? null, planTotalFallback);
+  const pf = planFactRows ?? resolveSegmentExecutionPlanFactRows(payload ?? null);
   if (!pf.length) return [];
   if (pf.some((r) => Math.abs(r.plan) > 1e-9)) return buildSegmentExecutionCompletionRows(pf);
   const stored = payload?.completionRows ?? [];

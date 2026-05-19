@@ -3,11 +3,16 @@
  */
 
 import { preprocessCell, stripBom } from "@/lib/salesPlanExecutionCsv";
+import { UNITS_EXECUTION_BASE_MONTH } from "@/lib/unitsExecutionMonths";
 
 export type UnitsExecutionSegmentRow = {
   key: "apartments" | "parking" | "storage" | "commercial";
   segment: string;
   planProject: number;
+  /** План на отчётный месяц (доначисление к накопительному). */
+  planReportMonth?: number;
+  /** Факт в отчётном месяце (доначисление к накопительному). */
+  factReportMonth?: number;
   planCumulative: number;
   factCumulative: number;
   deviationCumulative: number;
@@ -24,7 +29,9 @@ export type UnitsExecutionTotals = {
 
 export type ParseSalesUnitsExecutionCsvOk = {
   ok: true;
+  /** Отчётная дата из CSV; если нет — базовый месяц февраль 2026. */
   reportDateYmd: string;
+  /** Базовый срез CSV (накопительно на конец февраля 2026). */
   segments: UnitsExecutionSegmentRow[];
   totals: UnitsExecutionTotals;
   warnings: string[];
@@ -314,6 +321,8 @@ function pickCol(headers: string[], predicate: (n: string) => boolean): number |
 function buildColumnIndices(headers: string[]): {
   nameCol: number;
   planProject: number | null;
+  planReportMonth: number | null;
+  factReportMonth: number | null;
   planCumulative: number | null;
   factCumulative: number | null;
   deviation: number | null;
@@ -326,6 +335,26 @@ function buildColumnIndices(headers: string[]): {
   const planProject = pickCol(
     headers,
     (n) => n.includes("план") && n.includes("проект") && !n.includes("накопит") && !n.includes("накоп"),
+  );
+
+  const planReportMonth = pickCol(
+    headers,
+    (n) =>
+      n.includes("план") &&
+      (n.includes("отчет") || n.includes("отчёт")) &&
+      (n.includes("месяц") || n.includes("мес")) &&
+      !n.includes("накопит") &&
+      !n.includes("накоп"),
+  );
+
+  const factReportMonth = pickCol(
+    headers,
+    (n) =>
+      n.includes("факт") &&
+      (n.includes("отчет") || n.includes("отчёт") || n.includes("месяц") || n.includes("мес")) &&
+      !n.includes("накопит") &&
+      !n.includes("накоп") &&
+      !n.includes("%"),
   );
 
   /** План в штуках: «план накопит…»; fallback — план+накопит без % / выполн / проект. */
@@ -391,7 +420,17 @@ function buildColumnIndices(headers: string[]): {
 
   if (planCumulative == null || factCumulative == null) return null;
 
-  return { nameCol, planProject, planCumulative, factCumulative, deviation, completionPct, shareVol };
+  return {
+    nameCol,
+    planProject,
+    planReportMonth,
+    factReportMonth,
+    planCumulative,
+    factCumulative,
+    deviation,
+    completionPct,
+    shareVol,
+  };
 }
 
 function shouldSkipName(segmentNorm: string): boolean {
@@ -456,22 +495,13 @@ function extractReportDateYmd(lines: string[], delim: ";" | "\t" | ","): string 
   return "";
 }
 
-export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecutionCsvResult {
-  const warnings: string[] = [];
-  const delim = detectDelimiter(text);
-  const physicalMerged = mergePhysicalLinesForQuotedNewlines(splitLines(text));
-  const lines = physicalMerged.filter((l) => preprocessCell(l) !== "");
-  if (lines.length < 2) {
-    return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
-  }
-
-  const reportDateYmd = extractReportDateYmd(lines, delim);
-
-  const primaryIdx = findPrimaryHeaderRowIndex(lines, delim);
-  if (primaryIdx < 0) {
-    return { ok: false, error: "Не найдена строка заголовков (нужна колонка «Наименование»).", warnings };
-  }
-
+function parseUnitsSectionAt(
+  lines: string[],
+  delim: ";" | "\t" | ",",
+  primaryIdx: number,
+  dataEndExclusive: number,
+  warnings: string[],
+): { segments: UnitsExecutionSegmentRow[]; totals: UnitsExecutionTotals } | null {
   const primaryHeader = splitRow(lines[primaryIdx] ?? "", delim).map((c) => preprocessCell(c));
   const secondaryIdx = findSecondaryHeaderRowIndex(lines, primaryIdx, delim);
   const secondaryHeader =
@@ -482,34 +512,17 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
   const dataStartRowIndex = secondaryIdx >= 0 ? secondaryIdx + 1 : primaryIdx + 1;
 
   const col = buildColumnIndices(mergedHeaders);
-  if (!col) {
-    return {
-      ok: false,
-      error: "Не удалось сопоставить колонки: нужны «План накопит…» и «Факт накопит… по ДДУ» (или аналоги).",
-      warnings,
-    };
-  }
+  if (!col) return null;
 
   const nameCol = col.nameCol;
   const planCumIdx = col.planCumulative;
   const factCumIdx = col.factCumulative;
-  if (planCumIdx == null || factCumIdx == null) {
-    return { ok: false, error: "Не найдены колонки план/факт (накопительно).", warnings };
-  }
+  if (planCumIdx == null || factCumIdx == null) return null;
 
-  const colMap = {
-    name: nameCol,
-    plan: planCumIdx,
-    fact: factCumIdx,
-    completion: col.completionPct,
-    deviation: col.deviation,
-    share: col.shareVol,
-  };
   const byKey = new Map<UnitsExecutionSegmentRow["key"], UnitsExecutionSegmentRow>();
-  const parsedRows: { key: UnitsExecutionSegmentRow["key"]; segment: string; plan: number; fact: number; completion: number }[] = [];
   let totalsFromItogo: UnitsExecutionTotals | null = null;
 
-  for (let i = dataStartRowIndex; i < lines.length; i++) {
+  for (let i = dataStartRowIndex; i < dataEndExclusive && i < lines.length; i++) {
     const row = splitRow(lines[i] ?? "", delim);
     if (row.every((c) => preprocessCell(c) === "")) continue;
     const nameRaw = preprocessCell(row[nameCol] ?? "");
@@ -536,8 +549,9 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     const segKey = matchSegment(segmentNorm);
     if (!segKey) continue;
 
-    const planProject =
-      col.planProject != null ? normalizeUnitCell(row[col.planProject] ?? "") : 0;
+    const planProject = col.planProject != null ? normalizeUnitCell(row[col.planProject] ?? "") : 0;
+    const planReportMonth = col.planReportMonth != null ? normalizeUnitCell(row[col.planReportMonth] ?? "") : 0;
+    const factReportMonth = col.factReportMonth != null ? normalizeUnitCell(row[col.factReportMonth] ?? "") : 0;
     const planCumulative = normalizeUnitCell(row[planCumIdx] ?? "");
     const factCumulative = normalizeUnitCell(row[factCumIdx] ?? "");
     const deviationCumulative =
@@ -547,17 +561,12 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
 
     const label = SEGMENT_ORDER.find((s) => s.key === segKey)?.label ?? nameRaw;
 
-    parsedRows.push({
-      key: segKey,
-      segment: label,
-      plan: planCumulative,
-      fact: factCumulative,
-      completion: completionPct,
-    });
     byKey.set(segKey, {
       key: segKey,
       segment: label,
       planProject,
+      planReportMonth,
+      factReportMonth,
       planCumulative,
       factCumulative,
       deviationCumulative,
@@ -573,13 +582,7 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     else warnings.push(`Нет строки сегмента «${label}».`);
   }
 
-  if (segments.length === 0) {
-    return {
-      ok: false,
-      error: "Не найдено ни одной строки сегмента (Квартиры, Парковки, Кладовые, Коммерческие помещения).",
-      warnings,
-    };
-  }
+  if (segments.length === 0) return null;
 
   let planSum = 0;
   let factSum = 0;
@@ -598,13 +601,46 @@ export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecut
     completionPct: Number.isFinite(completionAgg) ? Math.max(0, completionAgg) : 0,
   };
 
-  if (!reportDateYmd) warnings.push("Не найдена отчётная дата — используйте строку «Отчетная дата» с датой ДД.ММ.ГГГГ.");
+  return { segments, totals };
+}
+
+export function parseSalesUnitsExecutionCsv(text: string): ParseSalesUnitsExecutionCsvResult {
+  const warnings: string[] = [];
+  const delim = detectDelimiter(text);
+  const physicalMerged = mergePhysicalLinesForQuotedNewlines(splitLines(text));
+  const lines = physicalMerged.filter((l) => preprocessCell(l) !== "");
+  if (lines.length < 2) {
+    return { ok: false, error: "Файл слишком короткий или пустой.", warnings };
+  }
+
+  const fileReportDateYmd = extractReportDateYmd(lines, delim);
+  const primaryIdx = findPrimaryHeaderRowIndex(lines, delim);
+  if (primaryIdx < 0) {
+    return { ok: false, error: "Не найдена строка заголовков (нужна колонка «Наименование»).", warnings };
+  }
+
+  const slice = parseUnitsSectionAt(lines, delim, primaryIdx, lines.length, warnings);
+  if (!slice) {
+    return {
+      ok: false,
+      error: "Не найдено ни одной строки сегмента (Квартиры, Парковки, Кладовые, Коммерческие помещения).",
+      warnings,
+    };
+  }
+
+  const reportDateYmd = fileReportDateYmd || `${UNITS_EXECUTION_BASE_MONTH}-01`;
+
+  if (!fileReportDateYmd) {
+    warnings.push(
+      "Не найдена отчётная дата — CSV трактуется как база февраля 2026 (накопительные значения в файле).",
+    );
+  }
 
   return {
     ok: true,
-    reportDateYmd: reportDateYmd || new Date().toISOString().slice(0, 10),
-    segments,
-    totals,
+    reportDateYmd,
+    segments: slice.segments,
+    totals: slice.totals,
     warnings,
   };
 }

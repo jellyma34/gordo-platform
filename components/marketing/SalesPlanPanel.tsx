@@ -59,17 +59,21 @@ import {
 import {
   clearMarketingSegmentExecutionCsvLocalStorage,
   MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
-  parseSegmentExecutionCsv,
   segmentExecutionChartsHaveRows,
   type MarketingSegmentExecutionStoredV1,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
+import {
+  deleteMarketingSegmentExecutionCsv,
+  uploadMarketingSegmentExecutionCsvFile,
+} from "@/lib/marketingSegmentExecutionCsvUpload";
 import {
   clearMarketingUnitsExecutionCsvLocalStorage,
   parseSalesUnitsExecutionCsv,
   reconcileUnitsExecutionDoc,
   unitsExecutionChartsHaveRows,
   unitsExecutionDocToChartsPayload,
+  buildMarketingUnitsExecutionStoredDoc,
   type MarketingUnitsExecutionStoredV1,
   type UnitsExecutionChartsPayload,
 } from "@/lib/marketingUnitsExecutionCsv";
@@ -771,6 +775,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     uploadedBy?: string;
     storageKey: string;
   } | null>(null);
+  const [segmentExecutionCsvLoading, setSegmentExecutionCsvLoading] = useState(false);
 
   const segmentExecutionHasChartRows = useMemo(
     () => segmentExecutionChartsHaveRows(segmentExecutionCharts),
@@ -1477,12 +1482,15 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         setUnitsCsvError(parsed.error);
         return;
       }
-      const clientCharts: UnitsExecutionChartsPayload = {
-        reportDateYmd: parsed.reportDateYmd,
-        segments: parsed.segments,
-        totals: parsed.totals,
-      };
-      setUnitsExecutionCharts(clientCharts);
+      setUnitsExecutionCharts(unitsExecutionDocToChartsPayload(
+        buildMarketingUnitsExecutionStoredDoc({
+          updatedAt: new Date().toISOString(),
+          fileName: file.name,
+          rawText: text,
+          parsed,
+          existing: null,
+        }),
+      ));
       setUnitsCsvError(null);
       const fd = new FormData();
       fd.append("file", file);
@@ -1505,11 +1513,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         return;
       }
       const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
-      setUnitsExecutionCharts({
-        reportDateYmd: saved.reportDateYmd,
-        segments: saved.segments,
-        totals: saved.totals,
-      });
+      setUnitsExecutionCharts(unitsExecutionDocToChartsPayload(saved));
       setUnitsCsvError(null);
       setUnitsCsvMeta({
         fileName: saved.fileName,
@@ -1762,95 +1766,70 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     if (marketingInvestorsCsvInputRef.current) marketingInvestorsCsvInputRef.current.value = "";
   };
 
+  const uploadSegmentExecutionCsvFile = async (file: File) => {
+    setSegmentExecutionCsvLoading(true);
+    setSegmentExecutionCsvError(null);
+    try {
+      const result = await uploadMarketingSegmentExecutionCsvFile(
+        file,
+        paymentPlanProjectId,
+        paymentUploadedByLabel,
+      );
+      if (!result.ok) {
+        setSegmentExecutionCharts(null);
+        setSegmentExecutionCsvError(result.error);
+        setSegmentExecutionCsvWarnings(Array.isArray(result.warnings) ? result.warnings : []);
+        throw new Error(result.error);
+      }
+      setSegmentExecutionCharts(result.charts);
+      setSegmentExecutionCsvError(null);
+      setSegmentExecutionCsvMeta(result.meta);
+      setSegmentExecutionCsvWarnings(result.warnings);
+    } catch (e) {
+      if (e instanceof Error && e.message) throw e;
+      const msg = "Не удалось прочитать CSV исполнения плана продаж.";
+      setSegmentExecutionCsvError(msg);
+      throw new Error(msg);
+    } finally {
+      setSegmentExecutionCsvLoading(false);
+    }
+  };
+
   const onMarketingSegmentExecutionCsvSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    setSegmentExecutionCsvError(null);
     try {
-      const text = await readMarketingCsvFileAsText(file);
-      const parsed = parseSegmentExecutionCsv(text);
-      if (!parsed.ok) {
-        setSegmentExecutionCharts(null);
-        setSegmentExecutionCsvError(parsed.error);
-        setSegmentExecutionCsvWarnings(Array.isArray(parsed.warnings) ? parsed.warnings : []);
-        return;
-      }
-      const clientCharts: SegmentExecutionChartsPayload = {
-        planFactRows: parsed.planFactRows,
-        completionRows: parsed.completionRows,
-        hasSegmentPlan: parsed.hasSegmentPlan,
-        planTotal: parsed.planTotal,
-        totalFact: parsed.totalFact,
-      };
-      setSegmentExecutionCharts(clientCharts);
-      setSegmentExecutionCsvError(null);
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("kind", "segment_execution");
-      fd.append("uploadedBy", paymentUploadedByLabel);
-      const res = await fetch(`/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`, {
-        method: "POST",
-        body: fd,
-      });
-      const j = (await res.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-        doc?: MarketingSegmentExecutionStoredV1;
-        warnings?: string[];
-      } | null;
-      if (!res.ok || !j?.ok || !j.doc) {
-        setSegmentExecutionCsvError(
-          typeof j?.error === "string" ? j.error : "Не удалось сохранить CSV исполнения плана на сервере.",
-        );
-        setSegmentExecutionCsvWarnings(Array.isArray(j?.warnings) ? j.warnings : []);
-        return;
-      }
-      const saved = { ...j.doc, rawText: j.doc.rawText ?? text };
-      setSegmentExecutionCharts({
-        planFactRows: saved.planFactRows,
-        completionRows: saved.completionRows,
-        hasSegmentPlan: saved.hasSegmentPlan,
-        planTotal: saved.planTotal,
-        totalFact: saved.totalFact,
-      });
-      setSegmentExecutionCsvError(null);
-      setSegmentExecutionCsvMeta({
-        fileName: saved.fileName,
-        uploadedAt: saved.updatedAt,
-        uploadedBy: saved.uploadedBy,
-        storageKey: MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
-      });
-      setSegmentExecutionCsvWarnings(Array.isArray(saved.warnings) ? saved.warnings : []);
+      await uploadSegmentExecutionCsvFile(file);
     } catch {
-      setSegmentExecutionCsvError("Не удалось прочитать CSV исполнения плана продаж.");
+      /* ошибка в state + toast в блоке графика */
     }
     if (segmentExecutionCsvInputRef.current) segmentExecutionCsvInputRef.current.value = "";
   };
 
   const clearMarketingSegmentExecutionCsv = async () => {
+    setSegmentExecutionCsvLoading(true);
     setSegmentExecutionCsvError(null);
     try {
-      const dr = await fetch(
-        `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage?kind=segment_execution`,
-        { method: "DELETE" },
-      );
+      const dr = await deleteMarketingSegmentExecutionCsv(paymentPlanProjectId);
       if (!dr.ok) {
-        setSegmentExecutionCsvError("Не удалось сбросить CSV на сервере.");
-        return;
+        setSegmentExecutionCsvError(dr.error);
+        throw new Error(dr.error);
       }
-    } catch {
-      setSegmentExecutionCsvError("Не удалось сбросить CSV исполнения плана продаж.");
-      return;
+      clearMarketingSegmentExecutionCsvLocalStorage(paymentPlanProjectId);
+      setSegmentExecutionCharts(null);
+      setSegmentExecutionCsvMeta(null);
+      setSegmentExecutionCsvWarnings([]);
+      if (segmentExecutionCsvInputRef.current) segmentExecutionCsvInputRef.current.value = "";
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message ? e.message : "Не удалось сбросить CSV исполнения плана продаж.";
+      setSegmentExecutionCsvError(msg);
+      throw new Error(msg);
+    } finally {
+      setSegmentExecutionCsvLoading(false);
     }
-    clearMarketingSegmentExecutionCsvLocalStorage(paymentPlanProjectId);
-    setSegmentExecutionCharts(null);
-    setSegmentExecutionCsvMeta(null);
-    setSegmentExecutionCsvWarnings([]);
-    if (segmentExecutionCsvInputRef.current) segmentExecutionCsvInputRef.current.value = "";
   };
-
-  const revenuePlanScale = baseRev.planCumulative > 0 ? rev.planCumulative / baseRev.planCumulative : 1;
 
   const hasPlanMonths =
     paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
@@ -1909,7 +1888,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       factRub: p.factRub,
     }));
   }, [executionDataset.planFactCsvMonthly]);
-  const cashflowPlanScale = hasPlanMonths ? 1 : revenuePlanScale;
+  const cashflowPlanScale = 1;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasAnyPaymentCsv
     ? `План — CSV графика платежей («${schedulePlanMeta?.fileName ?? "не загружен"}»): сумма по строкам сделок в колонках «План» + месяц + год. Факт — отдельный CSV поступлений («${scheduleFactMeta?.fileName ?? "не загружен"}»): колонки «зайдет …», нижняя строка итогов; без смешения с планом. Ось с ${salesStartLabel}.`
@@ -3779,6 +3758,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         <SalesPlanCashflowDynamicsChart
           rows={cashflowSeriesBase}
           planScale={cashflowPlanScale}
+          includePlanSeries={hasPlanMonths}
           planSourceNote={cashflowPlanNote}
           factThroughPeriodKey={null}
           factUnavailableMessage={
@@ -3791,10 +3771,16 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         {!dealsFeed.loading ? (
           <SalesPlanSegmentPlanFactBarChart
             dealsRows={marketingDealsFiltered}
-            fallbackTotalPlanRub={rev.planCumulative}
+            fallbackTotalPlanRub={null}
             marketingPeriod={period}
             planReportAsOfYmd={report.asOf}
             presentation={presentation}
+            segmentExecutionCharts={segmentExecutionCharts ?? null}
+            isEditMode={!presentation}
+            segmentExecutionCsvLoading={segmentExecutionCsvLoading}
+            hasSegmentExecutionCsv={segmentExecutionCsvMeta != null}
+            onSegmentExecutionCsvUpload={uploadSegmentExecutionCsvFile}
+            onSegmentExecutionCsvClear={clearMarketingSegmentExecutionCsv}
           />
         ) : null}
         {!dealsFeed.loading ? (

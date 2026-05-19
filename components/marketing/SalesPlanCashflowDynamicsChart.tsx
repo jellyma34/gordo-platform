@@ -11,12 +11,12 @@ import {
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
 import {
-  cashflowYAxisScale,
-  formatCashflowCumulativePointLabel,
-  formatCashflowMillionsChartInteger,
-  formatCashflowTooltipRub,
-  formatCashflowYAxisMlnRub,
-} from "@/lib/salesPlanChartFormat";
+  cashflowChartYAxisScale,
+  formatCashflowChartCumulativePointLabel,
+  formatCashflowChartUnitInteger,
+  formatCashflowChartUnitTooltip,
+  formatCashflowChartUnitYAxisTick,
+} from "@/lib/cashflowChartUnits";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
@@ -52,12 +52,12 @@ function snapLabelCenterY(y: number, yMin: number, yMax: number, step: number): 
   return clamp(snapped, yMin, yMax);
 }
 
-/** Постоянная подпись у точки только от 1 млн ₽; &lt; 1 млн — только тултип. */
-const CHART_LABEL_MIN_RUB = 1_000_000;
-/** Факт: выделение крупных значений (подпись у точки). */
-const CHART_LABEL_ALWAYS_SHOW_RUB = 5_000_000;
+/** Постоянная подпись у точки только от 1 млн ₽ (значения графика уже в млн). */
+const CHART_LABEL_MIN_UNIT = 1;
+/** Факт: выделение крупных значений (подпись у точки), млн. */
+const CHART_LABEL_ALWAYS_SHOW_UNIT = 5;
 /** План: нижняя полоса — значения ≥ 3 млн, пики, первый и последний месяц (≥ 1 млн). */
-const CHART_PLAN_BAND_THRESHOLD_RUB = 3_000_000;
+const CHART_PLAN_BAND_THRESHOLD_UNIT = 3;
 const CHART_MARGIN_TOP_LIGHT_LABELS = 20;
 /** Нижний отступ SVG: подписи месяцев оси X и запас под подписи значений у линий. */
 const CHART_MARGIN_BOTTOM = 64;
@@ -381,7 +381,7 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub
   const peakBefore = buildPeakBefore(peakAt);
   const out: LabelCandidate[] = [];
   const seen = new Set<string>();
-  const minRub = opts?.minRub ?? CHART_LABEL_MIN_RUB;
+  const minRub = opts?.minRub ?? CHART_LABEL_MIN_UNIT;
 
   for (let i = 0; i < n; i++) {
     const v = facts[i];
@@ -390,7 +390,7 @@ function buildFactLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub
     const peak = peakAt[i]!;
     const valley = isLocalValleySparse(facts, i);
     const dropAfterPeak = valley && peakBefore[i]!;
-    const forceHigh = v >= CHART_LABEL_ALWAYS_SHOW_RUB;
+    const forceHigh = v >= CHART_LABEL_ALWAYS_SHOW_UNIT;
     const endpoint = i === firstF || i === lastF;
 
     if (!(peak || dropAfterPeak || forceHigh || endpoint)) continue;
@@ -603,8 +603,8 @@ function CashflowPointLabelsOverlay({
   const formatLabel = useMemo(
     () =>
       mode === "cumulative"
-        ? formatCashflowCumulativePointLabel
-        : (rub: number) => formatCashflowMillionsChartInteger(rub, false),
+        ? formatCashflowChartCumulativePointLabel
+        : (unit: number) => formatCashflowChartUnitInteger(unit, false),
     [mode],
   );
 
@@ -706,7 +706,7 @@ function buildPlanLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub
   const peakAt = plans.map((_, i) => isLocalPeakSparse(plans, i));
   const out: LabelCandidate[] = [];
   const seen = new Set<string>();
-  const minRub = opts?.minRub ?? CHART_LABEL_MIN_RUB;
+  const minRub = opts?.minRub ?? CHART_LABEL_MIN_UNIT;
 
   for (let i = 0; i < n; i++) {
     const v = plans[i];
@@ -714,7 +714,7 @@ function buildPlanLabelCandidates(chartData: CashflowChartRow[], opts?: { minRub
 
     const peak = peakAt[i]!;
     const endpoint = i === 0 || i === last;
-    const meetsBand = opts?.relaxBand ? true : v >= CHART_PLAN_BAND_THRESHOLD_RUB;
+    const meetsBand = opts?.relaxBand ? true : v >= CHART_PLAN_BAND_THRESHOLD_UNIT;
     if (!(meetsBand || peak || endpoint)) continue;
 
     const key = `p-${i}`;
@@ -799,12 +799,12 @@ export function CashflowTooltip({
       <div className={`font-semibold ${darkChrome ? "text-slate-200" : "text-slate-900"}`}>{row.label}</div>
       <div className={`mt-1.5 text-[12px] font-medium leading-snug tabular-nums ${darkChrome ? "text-slate-200" : "text-slate-800"}`}>
         <span style={{ color: CASHFLOW_INFLOW_PLAN.label }}>
-          План: {row.plan != null ? formatCashflowTooltipRub(row.plan) : "—"}
+          План: {row.plan != null ? formatCashflowChartUnitTooltip(row.plan) : "—"}
         </span>
         {row.fact != null ? (
           <>
             <span className={darkChrome ? "text-slate-500" : "text-slate-400"}> / </span>
-            <span className="text-[#1d4ed8]">Факт: {formatCashflowTooltipRub(row.fact)}</span>
+            <span className="text-[#1d4ed8]">Факт: {formatCashflowChartUnitTooltip(row.fact)}</span>
           </>
         ) : null}
       </div>
@@ -813,7 +813,7 @@ export function CashflowTooltip({
           className={`mt-2 flex justify-between gap-4 border-t pt-1.5 tabular-nums ${darkChrome ? "border-slate-600/40" : mplPremium ? "border-black/[0.06]" : "border-slate-200/70"}`}
         >
           <span className={darkChrome ? "text-slate-400" : "text-mpl-muted"}>Отклонение</span>
-          <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatCashflowTooltipRub(row.deviation)}</span>
+          <span className={row.deviation >= 0 ? "text-emerald-400" : "text-rose-400"}>{formatCashflowChartUnitTooltip(row.deviation)}</span>
         </div>
       ) : null}
     </div>
@@ -854,6 +854,8 @@ export function CashflowDynamicsSvgLabels({
 type Props = {
   rows: CashflowSeriesRow[];
   planScale: number;
+  /** true — только при загруженном CSV плана поступлений. */
+  includePlanSeries?: boolean;
   presentation: boolean;
   /** Зарезервировано для совместимости; под заголовком не отображается. */
   planSourceNote?: string;
@@ -992,6 +994,7 @@ function CashflowDynamicsWorkModeCalculationExplain() {
 export function SalesPlanCashflowDynamicsChart({
   rows,
   planScale,
+  includePlanSeries = false,
   presentation,
   planSourceNote: _planSourceNote,
   factThroughPeriodKey,
@@ -1004,13 +1007,17 @@ export function SalesPlanCashflowDynamicsChart({
   const presDark = useMarketingPresVisual(presentation) === "presDark";
 
   const chartData = useMemo(
-    () => cashflowRowsForChart(rows, mode, planScale, { factThroughPeriodKey: factThroughPeriodKey ?? null }),
-    [rows, mode, planScale, factThroughPeriodKey],
+    () =>
+      cashflowRowsForChart(rows, mode, planScale, {
+        factThroughPeriodKey: factThroughPeriodKey ?? null,
+        includePlanSeries,
+      }),
+    [rows, mode, planScale, factThroughPeriodKey, includePlanSeries],
   );
 
   const { yDomainMax, yTicks } = useMemo(() => {
     const vals = chartData.flatMap((d) => [d.plan, d.fact].filter((x): x is number => x != null));
-    const { domainMax, ticks } = cashflowYAxisScale(vals, { tickStep25Mln: true });
+    const { domainMax, ticks } = cashflowChartYAxisScale(vals, { tickStep25Mln: true });
     return { yDomainMax: domainMax, yTicks: ticks };
   }, [chartData]);
 
@@ -1095,7 +1102,11 @@ export function SalesPlanCashflowDynamicsChart({
             </button>
           </div>
         </div>
-        <CashflowInflowChartLegendToolbar chrome={{ presDark, presentation }} className="mt-2" />
+        <CashflowInflowChartLegendToolbar
+          chrome={{ presDark, presentation }}
+          showPlan={includePlanSeries}
+          className="mt-2"
+        />
       </div>
 
       {factUnavailableMessage ? (
@@ -1200,7 +1211,7 @@ export function SalesPlanCashflowDynamicsChart({
               tick={{ fill: axisColor, fontSize: 10, fontWeight: 500 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => formatCashflowYAxisMlnRub(Number(v))}
+              tickFormatter={(v) => formatCashflowChartUnitYAxisTick(Number(v))}
               width={88}
               allowDataOverflow
             />
@@ -1208,7 +1219,9 @@ export function SalesPlanCashflowDynamicsChart({
               content={<CashflowTooltip darkChrome={presDark} mplPremium={mplPremium && presentation} />}
               cursor={{ stroke: presDark ? "rgba(148,163,184,0.28)" : "rgba(100,116,139,0.22)" }}
             />
-            <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
+            {includePlanSeries ? (
+              <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
+            ) : null}
             <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
             <CashflowDynamicsSvgLabels
               chartData={chartData}

@@ -108,7 +108,16 @@ function LegendRow({
 }
 
 /** Горизонтальная легенда для тулбара над графиком поступлений. */
-export function CashflowInflowChartLegendToolbar({ chrome, className }: { chrome: Chrome; className?: string }) {
+export function CashflowInflowChartLegendToolbar({
+  chrome,
+  className,
+  showPlan = true,
+}: {
+  chrome: Chrome;
+  className?: string;
+  /** false — серия плана не загружена (CSV плана поступлений). */
+  showPlan?: boolean;
+}) {
   const wrap = legendMutedWrapClass(chrome);
   return (
     <div
@@ -116,7 +125,9 @@ export function CashflowInflowChartLegendToolbar({ chrome, className }: { chrome
       aria-label="Легенда серий"
     >
       <LegendRow chrome={chrome} swatch={<CashflowInflowLegendSwatchFact presDark={chrome.presDark} />} label="Факт" />
-      <LegendRow chrome={chrome} swatch={<CashflowInflowLegendSwatchPlan presDark={chrome.presDark} />} label="План" />
+      {showPlan ? (
+        <LegendRow chrome={chrome} swatch={<CashflowInflowLegendSwatchPlan presDark={chrome.presDark} />} label="План" />
+      ) : null}
     </div>
   );
 }

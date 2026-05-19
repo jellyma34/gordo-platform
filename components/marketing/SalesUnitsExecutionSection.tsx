@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   Bar,
@@ -13,9 +13,20 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
-import { MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
-import type { UnitsExecutionChartsPayload, UnitsExecutionSegmentRow } from "@/lib/marketingUnitsExecutionCsv";
-import { dec1Fmt } from "@/lib/salesPlanChartFormat";
+import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
+import { MPL_PREMIUM_FILTER_SELECT_12, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
+import {
+  resolveUnitsExecutionMonthSlice,
+  unitsExecutionChartsHaveAnyMonth,
+  type UnitsExecutionChartsPayload,
+  type UnitsExecutionSegmentRow,
+} from "@/lib/marketingUnitsExecutionCsv";
+import { dec1Fmt, integerNiceYAxisScale } from "@/lib/salesPlanChartFormat";
+import {
+  DEFAULT_UNITS_EXECUTION_MONTH,
+  executionMonths,
+  unitsExecutionMonthLabelRu,
+} from "@/lib/unitsExecutionMonths";
 
 export type UnitsPlanFactChartRow = { key: string; segment: string; plan: number; fact: number };
 export type UnitsCompletionChartRow = {
@@ -67,8 +78,6 @@ type Props = {
   mplPremium: boolean;
   /** `undefined` — гидратация; `null` — нет файла; объект — метаданные и KPI. */
   data: UnitsExecutionChartsPayload | null | undefined;
-  planFactChartRows: UnitsPlanFactChartRow[];
-  completionChartRows: UnitsCompletionChartRow[];
   /** Stale parse error — не показывать, если rows уже есть. */
   unitsCsvError?: string | null;
 };
@@ -127,33 +136,72 @@ export function SalesUnitsExecutionSection({
   presDark,
   mplPremium,
   data,
-  planFactChartRows,
-  completionChartRows,
   unitsCsvError = null,
 }: Props) {
-  const hydrating = data === undefined;
+  const mplLight = useMarketingPresentationLight();
 
-  const hasData = planFactChartRows.length > 0 || completionChartRows.length > 0;
-  const showPlaceholder = !hydrating && !hasData;
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>(DEFAULT_UNITS_EXECUTION_MONTH);
+
+  const hydrating = data === undefined;
+  const hasFileData = unitsExecutionChartsHaveAnyMonth(data);
+  const showUploadPlaceholder = !hydrating && !hasFileData;
   const unitsErr = unitsCsvError?.trim() ?? "";
+
+  const monthSlice = useMemo(
+    () => resolveUnitsExecutionMonthSlice(data, selectedMonthKey),
+    [data, selectedMonthKey],
+  );
+
+  const planFactChartRows = useMemo(
+    () => buildUnitsPlanFactChartRows(monthSlice?.segments ?? []),
+    [monthSlice],
+  );
+  const completionChartRows = useMemo(
+    () => buildUnitsCompletionChartRows(monthSlice?.segments ?? []),
+    [monthSlice],
+  );
+
+  const hasMonthData = monthSlice != null && planFactChartRows.length > 0;
+  const showNoMonthData = !hydrating && hasFileData && !hasMonthData;
 
   if (process.env.NODE_ENV === "development") {
     console.log("[units execution state]", {
       error: unitsCsvError,
+      selectedMonthKey,
       planFactLen: planFactChartRows.length,
       completionLen: completionChartRows.length,
-      hasRows: hasData,
+      hasFileData,
+      hasMonthData,
     });
   }
 
-  const yDomain = useMemo((): [number, number] => {
-    let m = 0;
-    for (const r of planFactChartRows) {
-      m = Math.max(m, r.plan, r.fact);
-    }
-    if (m <= 0 || !Number.isFinite(m)) return [0, 1];
-    return [0, Math.ceil(m * 1.08)];
+  const planFactYScale = useMemo(() => {
+    const chartMax =
+      planFactChartRows.length > 0
+        ? Math.max(...planFactChartRows.flatMap((r) => [r.plan, r.fact]))
+        : 0;
+    return integerNiceYAxisScale(chartMax);
   }, [planFactChartRows]);
+
+  const completionXScale = useMemo(() => {
+    let m = 0;
+    for (const r of completionChartRows) {
+      m = Math.max(m, r.pct, r.completion);
+    }
+    return integerNiceYAxisScale(Math.max(m, 100), { cap: 100 });
+  }, [completionChartRows]);
+
+  const monthSelectCls = presentation
+    ? mplPremium && mplLight
+      ? MPL_PREMIUM_FILTER_SELECT_12
+      : "h-8 min-w-[12rem] max-w-full rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+    : "h-9 min-w-[12rem] max-w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-900";
+
+  const filterLabelCls = presentation
+    ? mplPremium && mplLight
+      ? "text-[11px] font-medium uppercase tracking-wide text-mpl-muted"
+      : "text-[11px] font-medium uppercase tracking-wide text-slate-500"
+    : "text-xs font-medium text-slate-600";
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
@@ -197,18 +245,39 @@ export function SalesUnitsExecutionSection({
         presDark ? "border-white/10" : presentation ? "border-mpl-border/70" : "border-slate-200/70"
       }`}
     >
-      <div className="mb-3">
-        <h3 className={`text-sm font-semibold tracking-tight sm:text-base ${titleCls}`}>Исполнение плана продаж (штуки)</h3>
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <h3 className={`min-w-0 text-sm font-semibold tracking-tight sm:text-base ${titleCls}`}>
+          Исполнение плана продаж (штуки) накопительным итогом
+        </h3>
+        {!hydrating && hasFileData ? (
+          <label className="flex shrink-0 flex-col gap-1 sm:items-end">
+            <span className={filterLabelCls}>Месяц</span>
+            <select
+              value={selectedMonthKey}
+              onChange={(e) => setSelectedMonthKey(e.target.value)}
+              className={monthSelectCls}
+              aria-label="Месяц исполнения плана в штуках"
+            >
+              {executionMonths.map((mk) => (
+                <option key={mk} value={mk}>
+                  {unitsExecutionMonthLabelRu(mk)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {hydrating ? (
         placeholder("Загрузка…")
-      ) : showPlaceholder ? (
+      ) : showUploadPlaceholder ? (
         placeholder(
-          unitsErr && !hasData
+          unitsErr && !hasFileData
             ? unitsErr
             : "Загрузите CSV исполнения в штуках, чтобы увидеть графики и показатели.",
         )
+      ) : showNoMonthData ? (
+        placeholder("Нет данных")
       ) : (
         <>
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4" aria-label="Исполнение в штуках">
@@ -232,7 +301,8 @@ export function SalesUnitsExecutionSection({
                       height={36}
                     />
                     <YAxis
-                      domain={yDomain}
+                      domain={planFactYScale.domain}
+                      ticks={planFactYScale.ticks}
                       allowDecimals={false}
                       tick={{ fill: chartAxis, fontSize: 10 }}
                       axisLine={false}
@@ -309,7 +379,9 @@ export function SalesUnitsExecutionSection({
                     />
                     <XAxis
                       type="number"
-                      domain={[0, 108]}
+                      domain={completionXScale.domain}
+                      ticks={completionXScale.ticks}
+                      allowDecimals={false}
                       tick={{ fill: chartAxis, fontSize: 10 }}
                       axisLine={{ stroke: chartGrid }}
                       tickLine={false}
@@ -355,21 +427,21 @@ export function SalesUnitsExecutionSection({
             </div>
           </div>
 
-          {!presentation && data != null ? (
+          {!presentation && monthSlice != null ? (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>План накопительно</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(data.totals.planCumulative)}</div>
+              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(monthSlice.totals.planCumulative)}</div>
             </div>
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>Факт накопительно</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(data.totals.factCumulative)}</div>
+              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{formatUnits(monthSlice.totals.factCumulative)}</div>
             </div>
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>Отклонение</div>
               <div
                 className={`mt-1 text-lg font-bold tabular-nums ${
-                  data.totals.deviationCumulative < 0
+                  monthSlice.totals.deviationCumulative < 0
                     ? presDark
                       ? "text-rose-300"
                       : "text-rose-700"
@@ -378,13 +450,13 @@ export function SalesUnitsExecutionSection({
                       : "text-emerald-700"
                 }`}
               >
-                {data.totals.deviationCumulative >= 0 ? "+" : "−"}
-                {formatUnits(Math.abs(data.totals.deviationCumulative))}
+                {monthSlice.totals.deviationCumulative >= 0 ? "+" : "−"}
+                {formatUnits(Math.abs(monthSlice.totals.deviationCumulative))}
               </div>
             </div>
             <div className={kpiCard}>
               <div className={`text-[10px] font-semibold uppercase tracking-wide ${mutedCls}`}>Выполнение %</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{dec1Fmt.format(data.totals.completionPct)}%</div>
+              <div className={`mt-1 text-lg font-bold tabular-nums ${titleCls}`}>{dec1Fmt.format(monthSlice.totals.completionPct)}%</div>
             </div>
           </div>
           ) : null}

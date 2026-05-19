@@ -25,7 +25,6 @@ import {
   resolveSegmentExecutionCompletionRows,
   resolveSegmentExecutionPlanFactRows,
   segmentExecutionHasSegmentPlan,
-  sumPlanTotalFromMonthlyPlanVsFact,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
 import type {
@@ -33,11 +32,7 @@ import type {
   SegmentExecutionPlanFactRow,
 } from "@/lib/parseSegmentExecutionCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
-import {
-  buildUnitsCompletionChartRows,
-  buildUnitsPlanFactChartRows,
-  SalesUnitsExecutionSection,
-} from "@/components/marketing/SalesUnitsExecutionSection";
+import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import {
   cashflowYAxisScale,
   compactRub,
@@ -216,43 +211,18 @@ export function SalesPlanExecutionBlock({
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
-    const planTotalFb = sumPlanTotalFromMonthlyPlanVsFact(monthlyPlanVsFact);
-    const pf = resolveSegmentExecutionPlanFactRows(segmentExecutionCharts, planTotalFb);
+    const pf = resolveSegmentExecutionPlanFactRows(segmentExecutionCharts);
     console.log("[segment execution state]", {
       store: "marketingSegmentExecutionCsv",
       error: segmentExecutionCsvError,
       planFactRows: pf,
-      completionRows: resolveSegmentExecutionCompletionRows(segmentExecutionCharts, pf, planTotalFb),
-      planTotal: segmentExecutionCharts?.planTotal ?? planTotalFb,
+      completionRows: resolveSegmentExecutionCompletionRows(segmentExecutionCharts, pf),
+      planTotal: segmentExecutionCharts?.planTotal ?? 0,
       totalFact:
         segmentExecutionCharts?.totalFact ?? pf.reduce((s, r) => s + Math.max(0, r.fact), 0),
-      hasSegmentPlan: segmentExecutionHasSegmentPlan(segmentExecutionCharts, planTotalFb),
+      hasSegmentPlan: segmentExecutionHasSegmentPlan(segmentExecutionCharts),
     });
-  }, [segmentExecutionCsvError, segmentExecutionCharts, hasSegmentExecutionChartRows, monthlyPlanVsFact]);
-
-  const unitsPlanFactChartRows = useMemo(
-    () => buildUnitsPlanFactChartRows(unitsExecutionCharts?.segments ?? []),
-    [unitsExecutionCharts],
-  );
-  const unitsCompletionChartRows = useMemo(
-    () => buildUnitsCompletionChartRows(unitsExecutionCharts?.segments ?? []),
-    [unitsExecutionCharts],
-  );
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    console.log("[UNITS CHART DATA]", {
-      planFact: unitsPlanFactChartRows,
-      completion: unitsCompletionChartRows,
-      segments: unitsExecutionCharts?.segments?.map((s) => ({
-        key: s.key,
-        segment: s.segment,
-        planCumulative: s.planCumulative,
-        factCumulative: s.factCumulative,
-        completionPct: s.completionPct,
-      })),
-    });
-  }, [unitsPlanFactChartRows, unitsCompletionChartRows, unitsExecutionCharts]);
+  }, [segmentExecutionCsvError, segmentExecutionCharts, hasSegmentExecutionChartRows]);
 
   const toggleComment = (id: string) => {
     setOpenComments((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -277,7 +247,6 @@ export function SalesPlanExecutionBlock({
           mplPremium={mplPremium}
           mutedCls={mutedCls}
           segmentExecutionCharts={segmentExecutionCharts}
-          monthlyPlanVsFact={monthlyPlanVsFact}
           macroChartPlaceholder={macroChartPlaceholderResolved}
         />
 
@@ -295,8 +264,6 @@ export function SalesPlanExecutionBlock({
           presDark={presDark}
           mplPremium={mplPremium}
           data={unitsExecutionCharts}
-          planFactChartRows={unitsPlanFactChartRows}
-          completionChartRows={unitsCompletionChartRows}
           unitsCsvError={unitsCsvError}
         />
       </div>
@@ -375,7 +342,6 @@ function ExecutionMacroChartsBlock({
   mplPremium,
   mutedCls,
   segmentExecutionCharts,
-  monthlyPlanVsFact,
   macroChartPlaceholder,
 }: {
   presDark: boolean;
@@ -383,27 +349,21 @@ function ExecutionMacroChartsBlock({
   mplPremium: boolean;
   mutedCls: string;
   segmentExecutionCharts: SegmentExecutionChartsPayload | null | undefined;
-  monthlyPlanVsFact: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
   /** Текст пустого состояния, если нет строк для соответствующего графика (загрузка / нет файла / пустой CSV). */
   macroChartPlaceholder: string | null;
 }) {
-  const planTotalFallback = useMemo(
-    () => sumPlanTotalFromMonthlyPlanVsFact(monthlyPlanVsFact),
-    [monthlyPlanVsFact],
-  );
-
   const planFactRows = useMemo(
     (): SegmentExecutionPlanFactRow[] =>
-      resolveSegmentExecutionPlanFactRows(segmentExecutionCharts, planTotalFallback),
-    [segmentExecutionCharts, planTotalFallback],
+      resolveSegmentExecutionPlanFactRows(segmentExecutionCharts),
+    [segmentExecutionCharts],
   );
 
-  const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts, planTotalFallback);
+  const hasSegmentPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts);
 
   const completionRows = useMemo(
     (): SegmentExecutionCompletionRow[] =>
-      resolveSegmentExecutionCompletionRows(segmentExecutionCharts, planFactRows, planTotalFallback),
-    [segmentExecutionCharts, planFactRows, planTotalFallback],
+      resolveSegmentExecutionCompletionRows(segmentExecutionCharts, planFactRows),
+    [segmentExecutionCharts, planFactRows],
   );
 
   const planFactYAxis = useMemo(() => {
@@ -450,8 +410,7 @@ function ExecutionMacroChartsBlock({
     if (process.env.NODE_ENV !== "development") return;
     if (planFactRows.length === 0) return;
 
-    const planTotal =
-      segmentExecutionCharts?.planTotal ?? planTotalFallback;
+    const planTotal = segmentExecutionCharts?.planTotal ?? 0;
     const totalFact =
       segmentExecutionCharts?.totalFact ??
       planFactRows.reduce((s, r) => s + Math.max(0, r.fact), 0);
@@ -482,7 +441,7 @@ function ExecutionMacroChartsBlock({
         pct: row.pct,
       });
     }
-  }, [planFactRows, completionRows, planTotalFallback, segmentExecutionCharts]);
+  }, [planFactRows, completionRows, segmentExecutionCharts]);
 
   return (
     <div
@@ -536,26 +495,24 @@ function ExecutionMacroChartsBlock({
                       <>
                         <div className={`font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>{row.segment}</div>
                         <div className={`mt-1.5 space-y-1 tabular-nums ${presDark ? "text-slate-200" : "text-slate-800"}`}>
-                          {hasSegmentPlan ? (
                           <div>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>План: </span>
                             <span style={{ color: "#F97316" }} className="font-medium">
-                              {formatCompactMoneyAxis(row.plan)}
+                              {hasSegmentPlan && row.plan > 0
+                                ? formatCompactMoneyAxis(row.plan)
+                                : "—"}
                             </span>
                           </div>
-                          ) : null}
                           <div>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>Факт: </span>
                             <span style={{ color: "#2563EB" }} className="font-medium">
                               {formatCompactMoneyAxis(row.fact)}
                             </span>
                           </div>
-                          {hasSegmentPlan ? (
                           <div className={`border-t pt-1.5 ${presDark ? "border-slate-600/50" : "border-slate-200"}`}>
                             <span className={presDark ? "text-slate-400" : "text-slate-500"}>Выполнение: </span>
                             <span className="font-semibold">{pct === "—" ? pct : `${pct}%`}</span>
                           </div>
-                          ) : null}
                         </div>
                       </>,
                     );
@@ -600,7 +557,7 @@ function ExecutionMacroChartsBlock({
           <div className="relative h-[220px] w-full min-w-0 sm:h-[252px]">
             {!showCompletionChart ? (
               <p className={`flex h-[200px] items-center justify-center px-2 text-center text-xs ${mutedCls}`}>
-                Добавьте колонку «План продаж» в CSV сегментов или загрузите plan_fact.csv для расчёта %
+                Добавьте колонку «План продаж» в CSV исполнения по сегментам для расчёта %
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%" minHeight={200}>

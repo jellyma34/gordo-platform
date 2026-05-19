@@ -25,6 +25,7 @@ import {
   parseStoredMarketingStoragesCsv,
 } from "@/lib/marketingStoragesCsv";
 import {
+  buildMarketingUnitsExecutionStoredDoc,
   parseSalesUnitsExecutionCsv,
   parseStoredMarketingUnitsExecutionCsv,
   reconcileUnitsExecutionDoc,
@@ -333,17 +334,15 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       if (!parsed.ok) {
         return NextResponse.json({ ok: false, error: parsed.error, warnings: parsed.warnings ?? [] }, { status: 400 });
       }
-      const doc = {
-        v: 1 as const,
+      const existing = await readJsonUnitsDoc(safeProjectId);
+      const doc = buildMarketingUnitsExecutionStoredDoc({
         updatedAt,
         uploadedBy,
         fileName,
         rawText: text,
-        reportDateYmd: parsed.reportDateYmd,
-        segments: parsed.segments,
-        totals: parsed.totals,
-        warnings: parsed.warnings,
-      };
+        parsed,
+        existing,
+      });
       await writeFile(marketingProjectUnitsExecutionJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectUnitsExecutionRawCsvPath(safeProjectId), text, "utf-8");
       const presence = await computePresence(safeProjectId);

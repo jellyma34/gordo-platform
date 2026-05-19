@@ -113,6 +113,21 @@ export function shouldSilentlySkipInvestorsCsvMonthLabel(monthRaw: string): bool
  * Нормализация числа для графиков и агрегации: только `number` или строка вида «39 314 694,00», «26,5».
  * Объекты и прочие типы — 0 (см. {@link parseRuNumber} для ячеек CSV).
  */
+function normalizeRuMoneyToken(raw: string): string {
+  let s = raw
+    .replace(/[\s\u00a0\u202f\u2009\u2007\u2008\u200a\u200b]+/g, "")
+    .replace(/руб\.?/giu, "")
+    .replace(/₽/g, "");
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  if (hasComma && hasDot) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (hasComma) {
+    s = s.replace(",", ".");
+  }
+  return s.replace(/[^\d.-]/g, "");
+}
+
 export function toNumber(value: unknown): number {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
@@ -120,12 +135,9 @@ export function toNumber(value: unknown): number {
   if (typeof value !== "string") {
     return 0;
   }
-  const n = Number(
-    value
-      .replace(/[\s\u00a0\u202f\u2009]+/g, "")
-      .replace(",", ".")
-      .replace(/[^\d.-]/g, ""),
-  );
+  const token = normalizeRuMoneyToken(value.trim());
+  if (!token || token === "-" || token === ".") return 0;
+  const n = Number(token);
   return Number.isFinite(n) ? n : 0;
 }
 

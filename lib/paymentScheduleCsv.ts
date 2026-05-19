@@ -1,5 +1,7 @@
 import Papa from "papaparse";
 
+import { parseRuNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
+
 /** Сообщение UI, если не удалось автоматически найти помесячные колонки факта. */
 export const PAYMENT_CSV_FACT_MAPPING_REQUIRED_RU =
   "Не удалось выделить колонки месяцев по шаблонам дат (например «апрель 2026», «май 2026», «июн.26») в верхней части таблицы.";
@@ -124,18 +126,7 @@ export function parseMoneyRu(raw: unknown): number {
   if (raw == null || raw === "") return 0;
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
 
-  const s0 = String(raw).trim();
-  if (!s0) return 0;
-
-  const cleaned = s0
-    .replace(/\s/g, "")
-    .replace(/\u00a0/g, "")
-    .replace(",", ".")
-    .replace(/[^\d.-]/g, "");
-  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
-
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+  return parseRuNumber(raw);
 }
 
 function buildZaydetMonthVerifyRows(

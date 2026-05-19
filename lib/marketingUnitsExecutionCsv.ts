@@ -6,6 +6,12 @@ import {
   type UnitsExecutionSegmentRow,
   type UnitsExecutionTotals,
 } from "@/lib/parseSalesUnitsExecutionCsv";
+import {
+  buildUnitsExecutionByMonthFromBase,
+  buildUnitsExecutionSliceForMonth,
+  resolveCumulativeFactByMonth,
+} from "@/lib/unitsExecutionCumulative";
+import { UNITS_EXECUTION_BASE_MONTH } from "@/lib/unitsExecutionMonths";
 
 export { normalizeSegmentName, normalizeUnitCell, parseSalesUnitsExecutionCsv };
 export type { ParseSalesUnitsExecutionCsvResult, UnitsExecutionSegmentRow, UnitsExecutionTotals };
@@ -18,6 +24,13 @@ export function marketingUnitsExecutionCsvLocalStorageKey(projectId: string): st
   return `${MARKETING_UNITS_EXECUTION_CSV_STORAGE_KEY}:v1:${safe}`;
 }
 
+export type UnitsExecutionMonthSlice = {
+  segments: UnitsExecutionSegmentRow[];
+  totals: UnitsExecutionTotals;
+};
+
+export type UnitsExecutionByMonth = Partial<Record<string, UnitsExecutionMonthSlice>>;
+
 export type MarketingUnitsExecutionStoredV1 = {
   v: 1;
   updatedAt: string;
@@ -28,6 +41,8 @@ export type MarketingUnitsExecutionStoredV1 = {
   reportDateYmd: string;
   segments: UnitsExecutionSegmentRow[];
   totals: UnitsExecutionTotals;
+  /** Срезы по месяцам YYYY-MM (накопительно). */
+  byMonth?: UnitsExecutionByMonth;
   warnings: string[];
 };
 
@@ -35,12 +50,45 @@ export type UnitsExecutionChartsPayload = {
   reportDateYmd: string;
   segments: UnitsExecutionSegmentRow[];
   totals: UnitsExecutionTotals;
+  byMonth?: UnitsExecutionByMonth;
 };
+
+function normalizeByMonth(raw: unknown): UnitsExecutionByMonth | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: UnitsExecutionByMonth = {};
+  for (const [key, val] of Object.entries(o)) {
+    if (!val || typeof val !== "object") continue;
+    const slice = val as Record<string, unknown>;
+    if (!Array.isArray(slice.segments)) continue;
+    out[key] = {
+      segments: slice.segments.map((row: unknown) => normalizeSegmentRow(row)),
+      totals: normalizeTotals(slice.totals),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Базовые строки CSV (февраль 2026) → накопительные срезы по месяцам фильтра. */
+export function resolveUnitsExecutionMonthSlice(
+  payload: UnitsExecutionChartsPayload | null | undefined,
+  monthKey: string,
+): UnitsExecutionMonthSlice | null {
+  if (!payload?.segments?.length) return null;
+  const factByMonth = resolveCumulativeFactByMonth(payload.segments);
+  return buildUnitsExecutionSliceForMonth(payload.segments, monthKey, factByMonth);
+}
+
+export function unitsExecutionChartsHaveAnyMonth(
+  payload: UnitsExecutionChartsPayload | null | undefined,
+): boolean {
+  return (payload?.segments?.length ?? 0) > 0;
+}
 
 export function unitsExecutionChartsHaveRows(
   payload: UnitsExecutionChartsPayload | null | undefined,
 ): boolean {
-  return (payload?.segments?.length ?? 0) > 0;
+  return unitsExecutionChartsHaveAnyMonth(payload);
 }
 
 export function unitsExecutionDocHasApartments(
@@ -58,21 +106,54 @@ export function reconcileUnitsExecutionDoc(
   if (!text) return doc;
   const parsed = parseSalesUnitsExecutionCsv(text);
   if (!parsed.ok || parsed.segments.length === 0) return doc;
+  const byMonth = buildUnitsExecutionByMonthFromBase(parsed.segments);
+  const feb = byMonth[UNITS_EXECUTION_BASE_MONTH] ?? { segments: parsed.segments, totals: parsed.totals };
   return {
     ...doc,
     rawText: text,
     reportDateYmd: parsed.reportDateYmd,
     segments: parsed.segments,
-    totals: parsed.totals,
+    totals: feb.totals,
+    byMonth,
     warnings: parsed.warnings,
   };
 }
 
 export function unitsExecutionDocToChartsPayload(doc: MarketingUnitsExecutionStoredV1): UnitsExecutionChartsPayload {
+  const byMonth =
+    doc.segments.length > 0
+      ? buildUnitsExecutionByMonthFromBase(doc.segments)
+      : (doc.byMonth ?? {});
+  const feb = byMonth[UNITS_EXECUTION_BASE_MONTH];
   return {
     reportDateYmd: doc.reportDateYmd,
     segments: doc.segments,
-    totals: doc.totals,
+    totals: feb?.totals ?? doc.totals,
+    byMonth: Object.keys(byMonth).length > 0 ? byMonth : undefined,
+  };
+}
+
+export function buildMarketingUnitsExecutionStoredDoc(params: {
+  updatedAt: string;
+  fileName: string;
+  uploadedBy?: string;
+  rawText?: string;
+  parsed: Extract<ParseSalesUnitsExecutionCsvResult, { ok: true }>;
+  existing?: MarketingUnitsExecutionStoredV1 | null;
+}): MarketingUnitsExecutionStoredV1 {
+  const byMonth = buildUnitsExecutionByMonthFromBase(params.parsed.segments);
+  const feb = byMonth[UNITS_EXECUTION_BASE_MONTH] ?? { segments: params.parsed.segments, totals: params.parsed.totals };
+  return {
+    v: 1,
+    updatedAt: params.updatedAt,
+    fileName: params.fileName,
+    uploadedBy: params.uploadedBy,
+    rawText: params.rawText,
+    reportDateYmd: params.parsed.reportDateYmd,
+    segments: params.parsed.segments,
+    totals: feb.totals,
+    byMonth,
+    warnings: params.parsed.warnings,
   };
 }
 
@@ -97,6 +178,8 @@ function normalizeSegmentRow(raw: unknown): UnitsExecutionSegmentRow {
     key: safeKey,
     segment: String(o.segment ?? ""),
     planProject: normalizeUnitCell(o.planProject),
+    planReportMonth: normalizeUnitCell(o.planReportMonth),
+    factReportMonth: normalizeUnitCell(o.factReportMonth),
     planCumulative: normalizeUnitCell(o.planCumulative),
     factCumulative: normalizeUnitCell(o.factCumulative),
     deviationCumulative: normalizeUnitCell(o.deviationCumulative),
@@ -128,6 +211,7 @@ export function parseStoredMarketingUnitsExecutionCsv(raw: unknown): MarketingUn
   const warnings = Array.isArray(o.warnings) ? (o.warnings.filter((w) => typeof w === "string") as string[]) : [];
   const segments = o.segments.map((row: unknown) => normalizeSegmentRow(row));
   const totals = normalizeTotals(o.totals);
+  const byMonth = normalizeByMonth(o.byMonth);
   return {
     v: 1,
     updatedAt: o.updatedAt,
@@ -137,6 +221,7 @@ export function parseStoredMarketingUnitsExecutionCsv(raw: unknown): MarketingUn
     reportDateYmd: o.reportDateYmd,
     segments,
     totals,
+    byMonth,
     warnings,
   };
 }
