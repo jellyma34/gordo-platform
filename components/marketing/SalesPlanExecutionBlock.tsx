@@ -182,7 +182,7 @@ export function SalesPlanExecutionBlock({
   hasPlanFactCsv = false,
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
-  marketingLeadsCharts = { adSpend: [], leads: [], deals: [] },
+  marketingLeadsCharts = { monthKeys: [], adSpend: [], leads: [], costPerLead: [] },
   marketingLeadsCsvHydrated = true,
   marketingLeadsCsvLoading = false,
   hasMarketingLeadsCsv = false,

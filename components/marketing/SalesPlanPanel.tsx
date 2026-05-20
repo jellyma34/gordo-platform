@@ -59,6 +59,7 @@ import {
 import {
   clearMarketingSegmentExecutionCsvLocalStorage,
   MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
+  reconcileSegmentExecutionDoc,
   segmentExecutionChartsHaveRows,
   type MarketingSegmentExecutionStoredV1,
   type SegmentExecutionChartsPayload,
@@ -809,9 +810,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [receiptsPlanFactLoading, setReceiptsPlanFactLoading] = useState(false);
 
   const [marketingLeadsCharts, setMarketingLeadsCharts] = useState<MarketingLeadsCsvChartBundle>({
+    monthKeys: [],
     adSpend: [],
     leads: [],
-    deals: [],
+    costPerLead: [],
   });
   const [marketingLeadsMeta, setMarketingLeadsMeta] = useState<{
     fileName: string;
@@ -1216,12 +1218,14 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setInvestorsCsvWarnings(Array.isArray(doc.warnings) ? doc.warnings : []);
     };
     const applyFromSegmentExecutionDoc = (doc: MarketingSegmentExecutionStoredV1) => {
+      const segDoc = reconcileSegmentExecutionDoc(doc);
       setSegmentExecutionCharts({
-        planFactRows: doc.planFactRows,
-        completionRows: doc.completionRows,
-        hasSegmentPlan: doc.hasSegmentPlan,
-        planTotal: doc.planTotal,
-        totalFact: doc.totalFact,
+        planFactRows: segDoc.planFactRows,
+        completionRows: segDoc.completionRows,
+        monthlyByPeriodKey: segDoc.monthlyByPeriodKey,
+        hasSegmentPlan: segDoc.hasSegmentPlan,
+        planTotal: segDoc.planTotal,
+        totalFact: segDoc.totalFact,
       });
       setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta({
@@ -1278,7 +1282,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       });
     };
     const resetMarketingLeadsUi = () => {
-      setMarketingLeadsCharts({ adSpend: [], leads: [], deals: [] });
+      setMarketingLeadsCharts({ monthKeys: [], adSpend: [], leads: [], costPerLead: [] });
       setMarketingLeadsMeta(null);
       setMarketingLeadsError(null);
     };
@@ -1507,7 +1511,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setMarketingLeadsError(result.error);
       throw new Error(result.error);
     }
-    setMarketingLeadsCharts({ adSpend: [], leads: [], deals: [] });
+    setMarketingLeadsCharts({ monthKeys: [], adSpend: [], leads: [], costPerLead: [] });
     setMarketingLeadsMeta(null);
   }, [paymentPlanProjectId]);
 

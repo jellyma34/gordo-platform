@@ -16,7 +16,11 @@ import {
   parseReceiptsPlanFactCsv,
   parseStoredMarketingReceiptsPlanFactCsv,
 } from "@/lib/marketingReceiptsPlanFactCsv";
-import { parseMarketingLeadsCsv, parseStoredMarketingLeadsCsv } from "@/lib/marketingLeadsCsv";
+import {
+  parseMarketingLeadsCsv,
+  parseStoredMarketingLeadsCsv,
+  reconcileMarketingLeadsDoc,
+} from "@/lib/marketingLeadsCsv";
 import {
   parseApartmentsCsv,
   parseStoredMarketingApartmentsCsv,
@@ -177,7 +181,17 @@ async function readJsonMarketingLeadsDoc(
 ): Promise<ReturnType<typeof parseStoredMarketingLeadsCsv>> {
   try {
     const raw = await readFile(marketingProjectLeadsCsvJsonPath(projectId), "utf-8");
-    return parseStoredMarketingLeadsCsv(JSON.parse(raw) as unknown);
+    const doc = parseStoredMarketingLeadsCsv(JSON.parse(raw) as unknown);
+    if (!doc) return null;
+    let csvText = doc.rawText?.trim() ?? "";
+    if (!csvText) {
+      try {
+        csvText = (await readFile(marketingProjectLeadsCsvRawPath(projectId), "utf-8")).trim();
+      } catch {
+        csvText = "";
+      }
+    }
+    return reconcileMarketingLeadsDoc({ ...doc, rawText: csvText || doc.rawText });
   } catch {
     return null;
   }
@@ -353,6 +367,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         rawText: text,
         planFactRows: parsed.planFactRows,
         completionRows: parsed.completionRows,
+        monthlyByPeriodKey: parsed.monthlyByPeriodKey,
         hasSegmentPlan: parsed.hasSegmentPlan,
         planTotal: parsed.planTotal,
         totalFact: parsed.totalFact,
@@ -389,7 +404,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         rawText: text,
         adSpend: parsed.tables.adSpend,
         leads: parsed.tables.leads,
-        deals: parsed.tables.deals,
+        costPerLead: parsed.tables.costPerLead,
         warnings: parsed.warnings,
       };
       await writeFile(marketingProjectLeadsCsvJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");

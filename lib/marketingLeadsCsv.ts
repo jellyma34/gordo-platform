@@ -12,15 +12,28 @@ export type MarketingLeadsCsvStoredV1 = {
   rawText?: string;
   adSpend: PlanFactCsvMonthlyRow[];
   leads: PlanFactCsvMonthlyRow[];
-  deals: PlanFactCsvMonthlyRow[];
+  costPerLead: PlanFactCsvMonthlyRow[];
   warnings?: string[];
 };
 
 export type MarketingLeadsCsvChartBundle = {
+  /** Уникальные YYYY-MM из CSV (все секции), без автодобавления месяцев. */
+  monthKeys: string[];
   adSpend: PlanVsFactMonthlyRubPoint[];
   leads: PlanVsFactMonthlyRubPoint[];
-  deals: PlanVsFactMonthlyRubPoint[];
+  /** Секция «Стоимость лида» из CSV (не расчёт расходы/лиды). */
+  costPerLead: PlanVsFactMonthlyRubPoint[];
 };
+
+function collectSortedMonthKeys(...series: readonly PlanVsFactMonthlyRubPoint[][]): string[] {
+  const keys = new Set<string>();
+  for (const rows of series) {
+    for (const r of rows) {
+      if (/^\d{4}-\d{2}$/.test(r.periodKey)) keys.add(r.periodKey);
+    }
+  }
+  return [...keys].sort((a, b) => a.localeCompare(b));
+}
 
 function rowsToChartPoints(rows: PlanFactCsvMonthlyRow[]): PlanVsFactMonthlyRubPoint[] {
   return rows.map((r) => ({
@@ -30,16 +43,37 @@ function rowsToChartPoints(rows: PlanFactCsvMonthlyRow[]): PlanVsFactMonthlyRubP
   }));
 }
 
+/** Пересобрать месяцы из raw CSV (исправляет устаревшие periodKey в JSON). */
+export function reconcileMarketingLeadsDoc(doc: MarketingLeadsCsvStoredV1): MarketingLeadsCsvStoredV1 {
+  const raw = doc.rawText?.trim();
+  if (!raw) return doc;
+  const parsed = parseMarketingLeadsCsv(raw);
+  if (!parsed.ok) return doc;
+  return {
+    ...doc,
+    adSpend: parsed.tables.adSpend,
+    leads: parsed.tables.leads,
+    costPerLead: parsed.tables.costPerLead,
+    warnings: [...(doc.warnings ?? []), ...parsed.warnings],
+  };
+}
+
 export function marketingLeadsDocToChartBundle(
   doc: MarketingLeadsCsvStoredV1 | null | undefined,
 ): MarketingLeadsCsvChartBundle {
   if (!doc) {
-    return { adSpend: [], leads: [], deals: [] };
+    return { monthKeys: [], adSpend: [], leads: [], costPerLead: [] };
   }
+  const reconciled = reconcileMarketingLeadsDoc(doc);
+  const adSpend = rowsToChartPoints(reconciled.adSpend ?? []);
+  const leads = rowsToChartPoints(reconciled.leads ?? []);
+  const costPerLead = rowsToChartPoints(reconciled.costPerLead ?? []);
+  const monthKeys = collectSortedMonthKeys(adSpend, leads, costPerLead);
   return {
-    adSpend: rowsToChartPoints(doc.adSpend ?? []),
-    leads: rowsToChartPoints(doc.leads ?? []),
-    deals: rowsToChartPoints(doc.deals ?? []),
+    monthKeys,
+    adSpend,
+    leads,
+    costPerLead,
   };
 }
 
@@ -69,8 +103,8 @@ export function parseStoredMarketingLeadsCsv(raw: unknown): MarketingLeadsCsvSto
 
   const adSpend = parseMonthlyRows(o.adSpend);
   const leads = parseMonthlyRows(o.leads);
-  const deals = parseMonthlyRows(o.deals);
-  if (adSpend.length === 0 && leads.length === 0 && deals.length === 0) return null;
+  const costPerLead = parseMonthlyRows(o.costPerLead);
+  if (adSpend.length === 0 && leads.length === 0 && costPerLead.length === 0) return null;
 
   return {
     v: 1,
@@ -80,13 +114,13 @@ export function parseStoredMarketingLeadsCsv(raw: unknown): MarketingLeadsCsvSto
     rawText: typeof o.rawText === "string" ? o.rawText : undefined,
     adSpend,
     leads,
-    deals,
+    costPerLead,
     warnings: Array.isArray(o.warnings) ? o.warnings.map(String) : undefined,
   };
 }
 
 export function marketingLeadsCsvDocIsValid(doc: MarketingLeadsCsvStoredV1): boolean {
-  return doc.adSpend.length > 0 || doc.leads.length > 0 || doc.deals.length > 0;
+  return doc.adSpend.length > 0 || doc.leads.length > 0 || doc.costPerLead.length > 0;
 }
 
 export { parseMarketingLeadsCsv };

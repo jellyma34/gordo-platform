@@ -15,11 +15,13 @@ import { aggregateSegmentAnalyticsFromDeals } from "@/lib/buildDealsSegmentMonth
 import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
 import {
   segmentExecutionChartsHaveRows,
-  segmentExecutionHasSegmentPlan,
+  segmentExecutionCumulativePlanForChartPeriod,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
 import type { SegmentExecutionSegmentKey } from "@/lib/parseSegmentExecutionCsv";
-import { segmentExecutionChartsToBarRows } from "@/lib/segmentExecutionChartsToBarRows";
+import {
+  DEALS_ANALYTICS_SEGMENT_KEYS,
+} from "@/lib/buildDealsSegmentMonthAnalytics";
 import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
@@ -257,28 +259,20 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
   const csvHasRows = segmentExecutionChartsHaveRows(segmentExecutionCharts);
-  /** Накопительный CSV по сегментам — для режима «Все»; помесячный/квартальный отбор — из JSON сделок. */
-  const useCsvBarSource = csvHasRows && periodMode === "all";
+  const hasCsvMonthly =
+    segmentExecutionCharts?.monthlyByPeriodKey != null &&
+    Object.keys(segmentExecutionCharts.monthlyByPeriodKey).length > 0;
 
-  const segmentBarRowsFromCsv = useMemo((): SegmentPlanFactBarRow[] | null => {
-    if (!useCsvBarSource || !segmentExecutionCharts) return null;
-    const all = segmentExecutionChartsToBarRows(segmentExecutionCharts);
-    if (!all?.length) return null;
-    if (segmentScope === "all") return all;
-    const execKey = DEAL_TO_EXEC_SEGMENT[segmentScope as Exclude<DealSegmentKey, "other">];
-    if (!execKey) return all;
-    return segmentExecutionCharts.planFactRows
-      .filter((r) => r.key === execKey)
-      .map((r) => ({ name: r.segment, fact: r.fact, plan: r.plan }));
-  }, [useCsvBarSource, segmentExecutionCharts, segmentScope]);
+  const planRowsFromCsv = useMemo(() => {
+    if (!hasCsvMonthly || !segmentExecutionCharts) return null;
+    return segmentExecutionCumulativePlanForChartPeriod(segmentExecutionCharts, {
+      periodMode,
+      monthKey: periodMode === "month" ? monthKeyForFilter : null,
+      quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
+    });
+  }, [hasCsvMonthly, segmentExecutionCharts, periodMode, monthKeyForFilter, quarterIdForFilter]);
 
   const segmentBarRowsAll = useMemo(() => {
-    if (segmentBarRowsFromCsv) {
-      if (process.env.NODE_ENV === "development") {
-        console.log("[segment source]", { dataSource: "segment-execution-csv", rows: segmentBarRowsFromCsv });
-      }
-      return segmentBarRowsFromCsv;
-    }
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
       fallbackAsOfYmd: planReportAsOfYmd,
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
@@ -292,13 +286,32 @@ export function SalesPlanSegmentPlanFactBarChart({
     const showZeroSalesSegments =
       (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
       (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
-    const segmentExecutionRows = buildSegmentPlanFactBarDataFromDeals(byPeriod, null, {
+    const factRows = buildSegmentPlanFactBarDataFromDeals(byPeriod, null, {
       showZeroSalesSegments,
     });
+
+    const planBySegment = new Map(
+      (planRowsFromCsv ?? []).map((r) => [r.segment, Number.isFinite(r.plan) ? r.plan : 0]),
+    );
+
+    const merged: SegmentPlanFactBarRow[] = DEALS_ANALYTICS_SEGMENT_KEYS.map((key) => {
+      const name = DEAL_SEGMENT_LABEL_RU[key];
+      const factRow = factRows.find((r) => r.name === name);
+      return {
+        name,
+        fact: factRow?.fact ?? 0,
+        plan: planBySegment.get(name) ?? 0,
+      };
+    }).filter(
+      (row) =>
+        showZeroSalesSegments || Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9,
+    );
+
     if (process.env.NODE_ENV === "development") {
-      console.table(segmentExecutionRows);
+      console.table(merged);
       console.log("[segment source]", {
-        dataSource: "deals-json",
+        factSource: "deals-json",
+        planSource: hasCsvMonthly ? "segment-execution-csv-cumulative" : "none",
         periodMode,
         selectedMonthKey: periodMode === "month" ? monthKeyForFilter : null,
         selectedQuarterId: periodMode === "quarter" ? quarterIdForFilter : null,
@@ -309,43 +322,33 @@ export function SalesPlanSegmentPlanFactBarChart({
         commercial: segmentSource.commercial,
       });
     }
-    return segmentExecutionRows;
+    return merged;
   }, [
-    segmentBarRowsFromCsv,
     dealsRows,
-    fallbackTotalPlanRub,
     periodMode,
     planReportAsOfYmd,
     monthKeyForFilter,
     quarterIdForFilter,
+    planRowsFromCsv,
+    hasCsvMonthly,
   ]);
 
   useEffect(() => {
     if (segmentScope === "all") return;
-    if (useCsvBarSource && segmentExecutionCharts?.planFactRows?.length) {
-      const execKey = DEAL_TO_EXEC_SEGMENT[segmentScope as Exclude<DealSegmentKey, "other">];
-      if (execKey && !segmentExecutionCharts.planFactRows.some((r) => r.key === execKey)) {
-        setSegmentScope("all");
-      }
-      return;
-    }
     const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
     if (!segmentBarRowsAll.some((r) => r.name === label)) setSegmentScope("all");
-  }, [segmentScope, segmentBarRowsAll, useCsvBarSource, segmentExecutionCharts?.planFactRows]);
+  }, [segmentScope, segmentBarRowsAll]);
 
-  const hasSegmentPlanBar = useMemo(() => {
-    if (useCsvBarSource && segmentExecutionCharts) {
-      return segmentExecutionHasSegmentPlan(segmentExecutionCharts);
-    }
-    return segmentBarRowsAll.some((r) => Math.abs(r.plan) > 1e-9);
-  }, [useCsvBarSource, segmentExecutionCharts, segmentBarRowsAll]);
+  const hasSegmentPlanBar = useMemo(
+    () => segmentBarRowsAll.some((r) => Math.abs(r.plan) > 1e-9),
+    [segmentBarRowsAll],
+  );
 
   const rows = useMemo(() => {
-    if (useCsvBarSource) return segmentBarRowsAll;
     if (segmentScope === "all") return segmentBarRowsAll;
     const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
     return segmentBarRowsAll.filter((r) => r.name === label);
-  }, [segmentBarRowsAll, segmentScope, useCsvBarSource]);
+  }, [segmentBarRowsAll, segmentScope]);
 
   /** Плейсхолдер категорий для осей при отсутствии строк после фильтра. */
   const emptyPlaceholderRows = useMemo((): SegmentPlanFactBarRow[] => {
@@ -360,19 +363,10 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [segmentScope]);
 
   /** Нет сделок вовсе (режим «Все» / пустой JSON) — не путать с нулевым фактом за выбранный месяц. */
-  const showEmptyOverlay = rows.length === 0 && periodMode === "all" && !useCsvBarSource;
+  const showEmptyOverlay = rows.length === 0 && dealsRows.length === 0 && !hasCsvMonthly;
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {
-    if (useCsvBarSource && segmentExecutionCharts?.planFactRows?.length) {
-      const keys = new Set(segmentExecutionCharts.planFactRows.map((r) => r.key));
-      return [
-        { value: "all" as const, label: "Все" },
-        ...DEAL_SEGMENT_KEYS.filter((k) => k !== "other")
-          .filter((k) => keys.has(DEAL_TO_EXEC_SEGMENT[k]))
-          .map((k) => ({ value: k, label: DEAL_SEGMENT_LABEL_RU[k] })),
-      ];
-    }
     const withData = new Set(segmentBarRowsAll.map((r) => r.name));
     return [
       { value: "all" as const, label: "Все" },
@@ -381,7 +375,7 @@ export function SalesPlanSegmentPlanFactBarChart({
         label: DEAL_SEGMENT_LABEL_RU[k],
       })),
     ];
-  }, [segmentBarRowsAll, useCsvBarSource, segmentExecutionCharts?.planFactRows]);
+  }, [segmentBarRowsAll]);
 
   const barCategoryGapPct = useMemo(() => {
     const n = displayRows.length;
@@ -437,9 +431,9 @@ export function SalesPlanSegmentPlanFactBarChart({
             </div>
           ) : null}
         </div>
-        {useCsvBarSource ? (
+        {csvHasRows ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
-            Данные из CSV (накопительно). Для помесячного/квартального отбора используются сделки JSON.
+            Факт — сделки JSON; план — накопительно из CSV («квартиры сумма», «паркинг сумма», «кладовые сумма»).
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap items-end gap-3">

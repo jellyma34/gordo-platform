@@ -217,14 +217,9 @@ function SegmentMonthBarChart({
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
         tickCount: n,
-        isTickMuted: (i) => {
-          const row = rows[i];
-          if (!row) return true;
-          const v = dataKey === "deals" ? row.deals : row.revenueRub;
-          return !(Number.isFinite(v) && v > 0);
-        },
+        ...(!presDark ? { tickFill: "#111111" } : {}),
       }),
-    [presDark, n, rows, dataKey],
+    [presDark, n],
   );
 
   const barTopLabel = useMemo(

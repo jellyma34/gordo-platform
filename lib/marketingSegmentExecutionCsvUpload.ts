@@ -1,6 +1,7 @@
 import {
   MARKETING_SEGMENT_EXECUTION_CSV_STORAGE_KEY,
   parseSegmentExecutionCsv,
+  reconcileSegmentExecutionDoc,
   type MarketingSegmentExecutionStoredV1,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
@@ -27,12 +28,14 @@ export type SegmentExecutionCsvUploadFail = {
 export type SegmentExecutionCsvUploadResult = SegmentExecutionCsvUploadOk | SegmentExecutionCsvUploadFail;
 
 function chartsFromDoc(doc: MarketingSegmentExecutionStoredV1): SegmentExecutionChartsPayload {
+  const reconciled = reconcileSegmentExecutionDoc(doc);
   return {
-    planFactRows: doc.planFactRows,
-    completionRows: doc.completionRows,
-    hasSegmentPlan: doc.hasSegmentPlan,
-    planTotal: doc.planTotal,
-    totalFact: doc.totalFact,
+    planFactRows: reconciled.planFactRows,
+    completionRows: reconciled.completionRows,
+    monthlyByPeriodKey: reconciled.monthlyByPeriodKey,
+    hasSegmentPlan: reconciled.hasSegmentPlan,
+    planTotal: reconciled.planTotal,
+    totalFact: reconciled.totalFact,
   };
 }
 

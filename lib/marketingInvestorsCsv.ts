@@ -1,3 +1,4 @@
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 import { preprocessCell, stripBom } from "@/lib/salesPlanExecutionCsv";
 import {
@@ -106,6 +107,12 @@ function monthKeyRu(monthRaw: string, year: string): string {
   return `${m} ${year}`.trim();
 }
 
+/** Канонический ключ месяца `YYYY-MM` из колонок «год» + «месяц». */
+export function investorsCsvRowPeriodKey(monthRaw: string, year: string): string | null {
+  const label = monthKeyRu(monthRaw, year);
+  return normalizeMonthKey(label) ?? normalizeMonthKey(`${monthRaw} ${year}`);
+}
+
 type ColIdx = {
   year: number;
   month: number;
@@ -184,7 +191,25 @@ function pickRowWithMaxFactTotals(rows: readonly InvestorsParsedMonthRow[]): Inv
   });
 }
 
-/** План по сегменту, если в CSV есть отдельные колонки (не «… сумма»). */
+function pickLastRowWithSalesActivity(rows: readonly InvestorsParsedMonthRow[]): InvestorsParsedMonthRow {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]!;
+    const t = r.apartmentsFact + r.parkingFact + r.storageFact + r.commercialFact;
+    if (t > 1e-9) return r;
+  }
+  return rows[rows.length - 1]!;
+}
+
+function monthRowHasAnyFact(r: InvestorsParsedMonthRow): boolean {
+  return (
+    Math.abs(r.apartmentsFact) > 1e-9 ||
+    Math.abs(r.parkingFact) > 1e-9 ||
+    Math.abs(r.storageFact) > 1e-9 ||
+    Math.abs(r.commercialFact) > 1e-9
+  );
+}
+
+/** План по сегменту, если в CSV есть отдельные колонки «… план» (не «… сумма»). */
 function pickSegmentPlanColumn(headers: string[], categoryMatch: (n: string) => boolean): number | null {
   let best: { i: number; s: number } | null = null;
   for (let i = 0; i < headers.length; i++) {
@@ -326,21 +351,60 @@ export type ParseMarketingInvestorsCsvResult =
       hasSegmentPlan: boolean;
       planTotal: number;
       totalFact: number;
+      /** План/факт по сегментам для каждого `YYYY-MM`. */
+      monthlyByPeriodKey: Record<string, InvestorsPlanFactChartRow[]>;
+      parsedMonthRows: InvestorsParsedMonthRow[];
       warnings: string[];
     }
   | { ok: false; error: string; warnings?: string[] };
 
 export type InvestorsParsedMonthRow = {
   rowIndex1: number;
+  /** «декабрь 2025» — для отладки. */
   monthKey: string;
+  /** `YYYY-MM` — для фильтров графика. */
+  periodKey: string;
   year: string;
   month: string;
+  apartmentsPlan: number;
+  parkingPlan: number;
+  storagePlan: number;
+  commercialPlan: number;
   apartmentsFact: number;
   parkingFact: number;
   storageFact: number;
   commercialFact: number;
   salesPlan: number;
 };
+
+export function investorsParsedMonthRowToPlanFactChartRows(
+  row: InvestorsParsedMonthRow,
+): InvestorsPlanFactChartRow[] {
+  const byKey: Record<MacroCategoryKey, { plan: number; fact: number }> = {
+    apartments: { plan: row.apartmentsPlan, fact: row.apartmentsFact },
+    parking: { plan: row.parkingPlan, fact: row.parkingFact },
+    storage: { plan: row.storagePlan, fact: row.storageFact },
+    commercial: { plan: row.commercialPlan, fact: row.commercialFact },
+  };
+  return MACRO_ORDER.map(({ key, name }) => ({
+    key,
+    name,
+    segment: name,
+    plan: toNumber(byKey[key].plan as unknown),
+    fact: toNumber(byKey[key].fact as unknown),
+  }));
+}
+
+export function buildInvestorsMonthlyByPeriodKey(
+  rows: readonly InvestorsParsedMonthRow[],
+): Record<string, InvestorsPlanFactChartRow[]> {
+  const out: Record<string, InvestorsPlanFactChartRow[]> = {};
+  for (const row of rows) {
+    if (!row.periodKey || !/^\d{4}-\d{2}$/.test(row.periodKey)) continue;
+    out[row.periodKey] = investorsParsedMonthRowToPlanFactChartRows(row);
+  }
+  return out;
+}
 
 export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestorsCsvResult {
   const warnings: string[] = [];
@@ -384,6 +448,11 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     commercial: pickSegmentPlanColumn(headerRow, matchCommercial),
   };
   const hasPerSegmentPlanCols = Object.values(segmentPlanCols).some((idx) => idx != null);
+  const hasSumPlanCols =
+    colMap.apartmentsFactSum != null ||
+    colMap.parkingFactSum != null ||
+    colMap.storageFactSum != null ||
+    colMap.commercialFactSum != null;
 
   console.log("[Investors CSV] header row", headerLineIdx + 1, headerRow);
   console.log("[Investors CSV] column map", colMap, { segmentPlanCols, hasPerSegmentPlanCols });
@@ -393,9 +462,13 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     normalized:
       colMap.salesPlan != null ? normalizeCsvHeaderLabel(headerRow[colMap.salesPlan] ?? "") : null,
   });
-  if (colMap.salesPlan == null && !hasPerSegmentPlanCols) {
+  if (colMap.salesPlan == null && !hasPerSegmentPlanCols && !hasSumPlanCols) {
     warnings.push(
-      "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или план по сегментам.",
+      "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или «… сумма» по сегментам.",
+    );
+  } else if (!hasPerSegmentPlanCols && hasSumPlanCols) {
+    warnings.push(
+      "План по сегментам: «квартиры сумма», «паркинг сумма», «кладовые сумма», «коммерция сумма» (₽).",
     );
   }
 
@@ -414,11 +487,23 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     if (!year || !month) continue;
     if (shouldSilentlySkipInvestorsCsvMonthLabel(month)) continue;
 
+    const periodKey = investorsCsvRowPeriodKey(month, year);
+    if (!periodKey) continue;
+
+    /** План (₽): явные колонки «… план» или «квартиры сумма» / «паркинг сумма» / «кладовые сумма». */
+    const planAtSum = (explicit: number | null, sumCol: number | null) =>
+      explicit != null ? numAt(row, explicit) : numAtFact(row, sumCol);
+
     parsedRows.push({
       rowIndex1: lineIdx + 1,
       monthKey: monthKeyRu(month, year),
+      periodKey,
       year,
       month,
+      apartmentsPlan: planAtSum(segmentPlanCols.apartments, colMap.apartmentsFactSum),
+      parkingPlan: planAtSum(segmentPlanCols.parking, colMap.parkingFactSum),
+      storagePlan: planAtSum(segmentPlanCols.storage, colMap.storageFactSum),
+      commercialPlan: planAtSum(segmentPlanCols.commercial, colMap.commercialFactSum),
       apartmentsFact: numAtFact(row, colMap.apartmentsFactSum),
       parkingFact: numAtFact(row, colMap.parkingFactSum),
       storageFact: numAtFact(row, colMap.storageFactSum),
@@ -438,13 +523,17 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     };
   }
 
-  /** Факт: накопительные «… сумма» — последняя строка месяца; план: SUM(«План продаж») по месяцам. */
-  const factRow = pickRowWithMaxFactTotals(parsedRows);
+  const monthlyByPeriodKey = buildInvestorsMonthlyByPeriodKey(parsedRows);
+
+  /** Режим «Все»: последний месяц с ненулевым фактом (план + факт этого месяца). */
+  const sortedRows = [...parsedRows].sort((a, b) => a.periodKey.localeCompare(b.periodKey));
+  const reportRow = pickLastRowWithSalesActivity(sortedRows);
+  const factRow = reportRow;
   const factsAtReport: Record<MacroCategoryKey, number> = {
-    apartments: toNumber(factRow.apartmentsFact as unknown),
-    parking: toNumber(factRow.parkingFact as unknown),
-    storage: toNumber(factRow.storageFact as unknown),
-    commercial: toNumber(factRow.commercialFact as unknown),
+    apartments: toNumber(reportRow.apartmentsFact as unknown),
+    parking: toNumber(reportRow.parkingFact as unknown),
+    storage: toNumber(reportRow.storageFact as unknown),
+    commercial: toNumber(reportRow.commercialFact as unknown),
   };
   const planTotal = sumNumericColumnAfterHeader(lines, headerLineIdx, colMap.salesPlan);
   const totalFact = MACRO_ORDER.reduce((s, { key }) => s + factsAtReport[key], 0);
@@ -455,26 +544,16 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   let plansBySegment: Record<MacroCategoryKey, number>;
   let hasSegmentPlan = false;
 
-  if (hasPerSegmentPlanCols) {
-    let lastDataRow: string[] | null = null;
-    for (let lineIdx = headerLineIdx + 1; lineIdx < lines.length; lineIdx++) {
-      const line = lines[lineIdx] ?? "";
-      if (line.trim() === "") continue;
-      const row = line.split(DELIM).map((c) => preprocessCell(c));
-      if (!row.some((c) => c !== "")) continue;
-      if (isSkippableDataRow(row)) continue;
-      if (!isYearMonthDataRow(row)) continue;
-      const month = preprocessCell(row[colMap.month] ?? "");
-      if (shouldSilentlySkipInvestorsCsvMonthLabel(month)) continue;
-      lastDataRow = row;
-    }
+  if (hasPerSegmentPlanCols || hasSumPlanCols) {
     plansBySegment = {
-      apartments: lastDataRow ? numAt(lastDataRow, segmentPlanCols.apartments) : 0,
-      parking: lastDataRow ? numAt(lastDataRow, segmentPlanCols.parking) : 0,
-      storage: lastDataRow ? numAt(lastDataRow, segmentPlanCols.storage) : 0,
-      commercial: lastDataRow ? numAt(lastDataRow, segmentPlanCols.commercial) : 0,
+      apartments: reportRow.apartmentsPlan,
+      parking: reportRow.parkingPlan,
+      storage: reportRow.storagePlan,
+      commercial: reportRow.commercialPlan,
     };
-    warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
+    if (hasPerSegmentPlanCols) {
+      warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
+    }
     hasSegmentPlan = plansHaveValues(plansBySegment);
   } else if (planTotal > 0 && totalFact > 0) {
     plansBySegment = distributeSalesPlanByFactShare(planTotal, factsAtReport);
@@ -491,7 +570,7 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     }
   }
 
-  const hasAnyFact = Object.values(factsAtReport).some((v) => Math.abs(v) > 1e-9);
+  const hasAnyFact = parsedRows.some(monthRowHasAnyFact);
   if (!hasAnyFact) {
     return {
       ok: false,
@@ -554,6 +633,8 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     hasSegmentPlan,
     planTotal,
     totalFact,
+    monthlyByPeriodKey,
+    parsedMonthRows: parsedRows,
     warnings,
   };
 }

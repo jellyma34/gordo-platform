@@ -411,6 +411,8 @@ export type ParseSegmentExecutionCsvOk = {
   /** SUM(«План продаж») по месяцам — для пересчёта при загрузке из storage. */
   planTotal?: number;
   totalFact?: number;
+  /** План/факт по сегментам для каждого `YYYY-MM` (помесячный CSV). */
+  monthlyByPeriodKey?: Record<string, SegmentExecutionPlanFactRow[]>;
   warnings: string[];
 };
 
@@ -427,6 +429,44 @@ function toSegmentKey(key: string): SegmentExecutionSegmentKey {
   return "apartments";
 }
 
+const SEGMENT_KEYS_ORDER: SegmentExecutionSegmentKey[] = [
+  "apartments",
+  "parking",
+  "storage",
+  "commercial",
+];
+
+/** Накопительный plan/fact по всем месяцам CSV (для хранения и карточек исполнения). */
+function cumulativePlanFactFromMonthly(
+  monthly: Record<string, SegmentExecutionPlanFactRow[]>,
+): SegmentExecutionPlanFactRow[] {
+  const keys = Object.keys(monthly)
+    .filter((k) => /^\d{4}-\d{2}$/.test(k))
+    .sort((a, b) => a.localeCompare(b));
+  if (keys.length === 0) return [];
+
+  const byKey = new Map<SegmentExecutionSegmentKey, { segment: string; plan: number; fact: number }>();
+  for (const pk of keys) {
+    for (const r of monthly[pk] ?? []) {
+      const k = toSegmentKey(r.key);
+      const cur = byKey.get(k) ?? { segment: r.segment, plan: 0, fact: 0 };
+      cur.plan += Number.isFinite(r.plan) ? r.plan : 0;
+      cur.fact += Number.isFinite(r.fact) ? r.fact : 0;
+      byKey.set(k, cur);
+    }
+  }
+
+  return SEGMENT_KEYS_ORDER.map((key) => {
+    const cell = byKey.get(key);
+    return {
+      key,
+      segment: cell?.segment ?? key,
+      plan: cell?.plan ?? 0,
+      fact: cell?.fact ?? 0,
+    };
+  });
+}
+
 /** Помесячный CSV (год / месяц / квартиры…) → bar charts по сегментам. */
 function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExecutionCsvResult {
   const parsed = parseMarketingInvestorsCsv(text);
@@ -434,15 +474,30 @@ function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExe
     return { ok: false, error: parsed.error, warnings: parsed.warnings };
   }
 
-  const planFactRows: SegmentExecutionPlanFactRow[] = parsed.planFactChartRows.map((r) => ({
-    key: toSegmentKey(r.key),
-    segment: r.segment || r.name,
-    plan: r.plan,
-    fact: r.fact,
-  }));
+  const monthlyByPeriodKey: Record<string, SegmentExecutionPlanFactRow[]> = {};
+  for (const [pk, rows] of Object.entries(parsed.monthlyByPeriodKey ?? {})) {
+    monthlyByPeriodKey[pk] = rows.map((r) => ({
+      key: toSegmentKey(r.key),
+      segment: r.segment || r.name,
+      plan: r.plan,
+      fact: r.fact,
+    }));
+  }
+
+  const planFactRows: SegmentExecutionPlanFactRow[] =
+    Object.keys(monthlyByPeriodKey).length > 0
+      ? cumulativePlanFactFromMonthly(monthlyByPeriodKey)
+      : parsed.planFactChartRows.map((r) => ({
+          key: toSegmentKey(r.key),
+          segment: r.segment || r.name,
+          plan: r.plan,
+          fact: r.fact,
+        }));
 
   const hasSegmentPlan =
-    parsed.hasSegmentPlan || planFactRows.some((r) => Math.abs(r.plan) > 1e-9);
+    parsed.hasSegmentPlan ||
+    planFactRows.some((r) => Math.abs(r.plan) > 1e-9) ||
+    Object.values(monthlyByPeriodKey).some((rows) => rows.some((r) => Math.abs(r.plan) > 1e-9));
   const completionRows = buildSegmentExecutionCompletionRows(planFactRows);
 
   const warnings = [
@@ -465,6 +520,7 @@ function parseSegmentExecutionFromInvestorsFormat(text: string): ParseSegmentExe
     hasSegmentPlan,
     planTotal: parsed.planTotal,
     totalFact: parsed.totalFact,
+    monthlyByPeriodKey,
     warnings,
   };
 }
