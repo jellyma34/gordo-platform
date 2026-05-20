@@ -98,6 +98,19 @@ export function getCumulativePlanForMonth(monthKey: string): CumulativeExecution
   return sumMonthlyPlanThroughMonth(monthKey);
 }
 
+/** Сумма помесячных планов (шт.) по всем месяцам горизонта — для графика «Период = Все». */
+export function sumAllMonthlyPlanUnits(): CumulativeExecutionSegmentCounts {
+  const acc = emptyCounts();
+  for (const mk of Object.keys(monthlyPlanByMonth).sort()) {
+    if (mk < UNITS_EXECUTION_START_ACCUMULATION_MONTH) continue;
+    const m = getMonthlyPlanForMonth(mk);
+    for (const k of SEGMENT_KEYS) {
+      acc[k] += Number.isFinite(m[k]) ? m[k] : 0;
+    }
+  }
+  return acc;
+}
+
 /** @deprecated Используйте {@link monthlyPlanByMonth} + {@link getCumulativePlanForMonth}. */
 export const cumulativePlanByMonth: Record<string, CumulativeExecutionSegmentCounts> = (() => {
   const out: Record<string, CumulativeExecutionSegmentCounts> = {};

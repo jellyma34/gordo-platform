@@ -107,7 +107,7 @@ export function MarketingLeadsCsvSection({
               emptyMessage="Нет данных по расходам на рекламу"
             />
             <MarketingLeadsPlanFactChartCard
-              title="Лиды"
+              title="Лиды, шт"
               monthly={charts.leads}
               valueMode="integer"
               presDark={presDark}

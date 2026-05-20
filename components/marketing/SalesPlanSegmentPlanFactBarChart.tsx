@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import {
@@ -11,17 +11,15 @@ import {
 } from "@/components/marketing/DealsSection";
 import { UploadSalesSegmentsCsvButton } from "@/components/marketing/UploadSalesSegmentsCsvButton";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
-import { aggregateSegmentAnalyticsFromDeals } from "@/lib/buildDealsSegmentMonthAnalytics";
-import { buildSegmentPlanFactBarDataFromDeals } from "@/lib/buildSegmentPlanFactFromDeals";
-import {
-  segmentExecutionChartsHaveRows,
-  segmentExecutionCumulativePlanForChartPeriod,
-  type SegmentExecutionChartsPayload,
-} from "@/lib/marketingSegmentExecutionCsv";
+import { DEALS_ANALYTICS_SEGMENT_KEYS, type DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
+import { buildSegmentFactSeriesFromDeals } from "@/lib/buildSegmentFactSeriesFromDeals";
+import { buildSegmentPlanRubByExecKeyFromUnits } from "@/lib/buildSegmentPlanRubFromUnitsExecution";
+import type { SegmentExecutionChartsPayload } from "@/lib/marketingSegmentExecutionCsv";
 import type { SegmentExecutionSegmentKey } from "@/lib/parseSegmentExecutionCsv";
 import {
-  DEALS_ANALYTICS_SEGMENT_KEYS,
-} from "@/lib/buildDealsSegmentMonthAnalytics";
+  unitsExecutionChartsHaveRows,
+  type UnitsExecutionChartsPayload,
+} from "@/lib/marketingUnitsExecutionCsv";
 import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
@@ -128,7 +126,12 @@ function monthKeyLabelRu(monthKey: string): string {
 
 type SegmentChartScope = "all" | DealSegmentKey;
 
-const DEAL_TO_EXEC_SEGMENT: Record<Exclude<DealSegmentKey, "other">, SegmentExecutionSegmentKey> = {
+/** Дефолт фильтров графика (не «последний месяц» из данных). */
+const SEGMENT_CHART_DEFAULT_PERIOD: SegmentChartPeriodMode = "month";
+const SEGMENT_CHART_DEFAULT_MONTH = "2026-02";
+const SEGMENT_CHART_DEFAULT_SCOPE: SegmentChartScope = "all";
+
+const DEAL_TO_EXEC_SEGMENT: Record<DealsAnalyticsSegmentKey, SegmentExecutionSegmentKey> = {
   apartment: "apartments",
   parking: "parking",
   storage: "storage",
@@ -143,6 +146,8 @@ type Props = {
   marketingPeriod: MarketingPeriodGranularity;
   /** Дата отчёта плана (YYYY-MM-DD): якорь месяца/квартала, если в сделках нет ни одного monthKey. */
   planReportAsOfYmd?: string | null;
+  /** Исполнение плана в штуках — источник планового количества для расчёта PLAN (₽). */
+  unitsExecutionCharts?: UnitsExecutionChartsPayload | null;
   /** CSV segment_execution с сервера (не localStorage). */
   segmentExecutionCharts?: SegmentExecutionChartsPayload | null;
   /** Глобальный режим «Редактирование» (маршрут /edit/*), не внутренний View/Edit mode панели. */
@@ -159,6 +164,7 @@ export function SalesPlanSegmentPlanFactBarChart({
   presentation,
   marketingPeriod,
   planReportAsOfYmd,
+  unitsExecutionCharts = null,
   segmentExecutionCharts = null,
   isEditMode = false,
   segmentExecutionCsvLoading = false,
@@ -171,19 +177,41 @@ export function SalesPlanSegmentPlanFactBarChart({
   const showCsvUploadControls =
     isEditMode && !presentation && onSegmentExecutionCsvUpload != null && onSegmentExecutionCsvClear != null;
 
-  const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>("all");
-  const [segmentScope, setSegmentScope] = useState<SegmentChartScope>("all");
+  const [periodMode, setPeriodMode] = useState<SegmentChartPeriodMode>(SEGMENT_CHART_DEFAULT_PERIOD);
+  const [segmentScope, setSegmentScope] = useState<SegmentChartScope>(SEGMENT_CHART_DEFAULT_SCOPE);
   /** Явный выбор месяца YYYY-MM (совпадает с колонками «Сделки по месяцам»). */
-  const [userMonthKey, setUserMonthKey] = useState<string | null>(null);
+  const [userMonthKey, setUserMonthKey] = useState<string | null>(SEGMENT_CHART_DEFAULT_MONTH);
   /** Явный выбор квартала `YYYY-q`, q = 0…3. */
   const [userQuarterId, setUserQuarterId] = useState<string | null>(null);
 
+  const applyDefaultChartFilters = useCallback(() => {
+    setPeriodMode(SEGMENT_CHART_DEFAULT_PERIOD);
+    setUserMonthKey(SEGMENT_CHART_DEFAULT_MONTH);
+    setUserQuarterId(null);
+    setSegmentScope(SEGMENT_CHART_DEFAULT_SCOPE);
+  }, []);
+
   useEffect(() => {
-    setPeriodMode((prev) => {
-      if (prev === "all") return prev;
-      return marketingPeriod === "quarter" ? "quarter" : "month";
-    });
-  }, [marketingPeriod]);
+    applyDefaultChartFilters();
+  }, [applyDefaultChartFilters]);
+
+  const handleSegmentExecutionCsvUpload = useCallback(
+    async (file: File) => {
+      if (!onSegmentExecutionCsvUpload) return;
+      await onSegmentExecutionCsvUpload(file);
+      applyDefaultChartFilters();
+    },
+    [onSegmentExecutionCsvUpload, applyDefaultChartFilters],
+  );
+
+  const handleSegmentExecutionCsvClear = useCallback(
+    async () => {
+      if (!onSegmentExecutionCsvClear) return;
+      await onSegmentExecutionCsvClear();
+      applyDefaultChartFilters();
+    },
+    [onSegmentExecutionCsvClear, applyDefaultChartFilters],
+  );
 
   const selectCls = presentation
     ? mplLight
@@ -210,6 +238,7 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const monthOptionsForSelect = useMemo(() => {
     const out = new Set(sortedMonthKeys);
+    out.add(SEGMENT_CHART_DEFAULT_MONTH);
     if (anchorMonthKey) out.add(anchorMonthKey);
     return [...out].sort();
   }, [sortedMonthKeys, anchorMonthKey]);
@@ -235,14 +264,8 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const monthKeyForFilter = useMemo(() => {
     if (periodMode !== "month") return null;
-    if (userMonthKey) {
-      const canon = normalizeMonthKey(userMonthKey) ?? userMonthKey;
-      if (monthOptionsForSelect.includes(canon)) return canon;
-    }
-    if (monthOptionsForSelect.length > 0) return monthOptionsForSelect[monthOptionsForSelect.length - 1]!;
-    if (anchorMonthKey) return anchorMonthKey;
-    return null;
-  }, [periodMode, userMonthKey, monthOptionsForSelect, anchorMonthKey]);
+    return normalizeMonthKey(userMonthKey ?? SEGMENT_CHART_DEFAULT_MONTH) ?? SEGMENT_CHART_DEFAULT_MONTH;
+  }, [periodMode, userMonthKey]);
 
   const quarterIdForFilter = useMemo(() => {
     if (periodMode !== "quarter") return null;
@@ -258,27 +281,41 @@ export function SalesPlanSegmentPlanFactBarChart({
     return null;
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
-  const csvHasRows = segmentExecutionChartsHaveRows(segmentExecutionCharts);
-  const hasCsvMonthly =
-    segmentExecutionCharts?.monthlyByPeriodKey != null &&
-    Object.keys(segmentExecutionCharts.monthlyByPeriodKey).length > 0;
+  const hasUnitsPlanSource = unitsExecutionChartsHaveRows(unitsExecutionCharts);
 
-  const planRowsFromCsv = useMemo(() => {
-    if (!hasCsvMonthly || !segmentExecutionCharts) return null;
-    return segmentExecutionCumulativePlanForChartPeriod(segmentExecutionCharts, {
-      periodMode,
-      monthKey: periodMode === "month" ? monthKeyForFilter : null,
-      quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
-    });
-  }, [hasCsvMonthly, segmentExecutionCharts, periodMode, monthKeyForFilter, quarterIdForFilter]);
-
-  const segmentBarRowsAll = useMemo(() => {
-    const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, {
+  const periodFilterOptions = useMemo(
+    () => ({
       fallbackAsOfYmd: planReportAsOfYmd,
       ...(periodMode === "month" && monthKeyForFilter ? { selectedMonthKey: monthKeyForFilter } : {}),
       ...(periodMode === "quarter" && quarterIdForFilter ? { selectedQuarterId: quarterIdForFilter } : {}),
-    });
-    const segmentSource = aggregateSegmentAnalyticsFromDeals(byPeriod);
+    }),
+    [periodMode, planReportAsOfYmd, monthKeyForFilter, quarterIdForFilter],
+  );
+
+  /** Факт — только `/api/deals` (sumRub по сегменту). */
+  const factSeries = useMemo(
+    () => buildSegmentFactSeriesFromDeals(dealsRows, periodMode, periodFilterOptions),
+    [dealsRows, periodMode, periodFilterOptions],
+  );
+
+  /** План — только штуки × средняя цена; без сделок и без факта. */
+  const planSeries = useMemo(
+    () =>
+      buildSegmentPlanRubByExecKeyFromUnits(
+        unitsExecutionCharts,
+        {
+          periodMode,
+          monthKey: periodMode === "month" ? monthKeyForFilter : null,
+          quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
+          fallbackAsOfYmd: planReportAsOfYmd,
+        },
+        sortedMonthKeys,
+      ),
+    [unitsExecutionCharts, periodMode, monthKeyForFilter, quarterIdForFilter, planReportAsOfYmd, sortedMonthKeys],
+  );
+
+  const segmentBarRowsAll = useMemo(() => {
+    const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, periodFilterOptions);
     const stagnantMonth =
       periodMode === "month" && monthKeyForFilter != null
         ? isStagnantDealMonthNoNewSales(dealsRows, monthKeyForFilter)
@@ -286,21 +323,13 @@ export function SalesPlanSegmentPlanFactBarChart({
     const showZeroSalesSegments =
       (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
       (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
-    const factRows = buildSegmentPlanFactBarDataFromDeals(byPeriod, null, {
-      showZeroSalesSegments,
-    });
-
-    const planBySegment = new Map(
-      (planRowsFromCsv ?? []).map((r) => [r.segment, Number.isFinite(r.plan) ? r.plan : 0]),
-    );
 
     const merged: SegmentPlanFactBarRow[] = DEALS_ANALYTICS_SEGMENT_KEYS.map((key) => {
-      const name = DEAL_SEGMENT_LABEL_RU[key];
-      const factRow = factRows.find((r) => r.name === name);
+      const execKey = DEAL_TO_EXEC_SEGMENT[key];
       return {
-        name,
-        fact: factRow?.fact ?? 0,
-        plan: planBySegment.get(name) ?? 0,
+        name: DEAL_SEGMENT_LABEL_RU[key],
+        fact: factSeries[key],
+        plan: planSeries?.get(execKey) ?? 0,
       };
     }).filter(
       (row) =>
@@ -309,28 +338,27 @@ export function SalesPlanSegmentPlanFactBarChart({
 
     if (process.env.NODE_ENV === "development") {
       console.table(merged);
-      console.log("[segment source]", {
-        factSource: "deals-json",
-        planSource: hasCsvMonthly ? "segment-execution-csv-cumulative" : "none",
+      console.log("[segment chart datasets]", {
+        factSource: "deals-json-aggregateSegmentAnalyticsFromDeals",
+        planSource: hasUnitsPlanSource ? "units-plan-cumulative-x-avg-price" : "none",
         periodMode,
         selectedMonthKey: periodMode === "month" ? monthKeyForFilter : null,
         selectedQuarterId: periodMode === "quarter" ? quarterIdForFilter : null,
         filteredDealsCount: byPeriod.length,
-        apartments: segmentSource.apartment,
-        parking: segmentSource.parking,
-        storage: segmentSource.storage,
-        commercial: segmentSource.commercial,
+        factSeries,
+        planSeries: planSeries ? Object.fromEntries(planSeries) : null,
       });
     }
     return merged;
   }, [
     dealsRows,
     periodMode,
-    planReportAsOfYmd,
+    periodFilterOptions,
     monthKeyForFilter,
     quarterIdForFilter,
-    planRowsFromCsv,
-    hasCsvMonthly,
+    factSeries,
+    planSeries,
+    hasUnitsPlanSource,
   ]);
 
   useEffect(() => {
@@ -363,7 +391,7 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [segmentScope]);
 
   /** Нет сделок вовсе (режим «Все» / пустой JSON) — не путать с нулевым фактом за выбранный месяц. */
-  const showEmptyOverlay = rows.length === 0 && dealsRows.length === 0 && !hasCsvMonthly;
+  const showEmptyOverlay = rows.length === 0 && dealsRows.length === 0 && !hasUnitsPlanSource;
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {
@@ -425,15 +453,15 @@ export function SalesPlanSegmentPlanFactBarChart({
                 hasCsv={hasSegmentExecutionCsv}
                 loading={segmentExecutionCsvLoading}
                 presDark={presDark}
-                onUploadFile={onSegmentExecutionCsvUpload}
-                onClear={onSegmentExecutionCsvClear}
+                onUploadFile={handleSegmentExecutionCsvUpload}
+                onClear={handleSegmentExecutionCsvClear}
               />
             </div>
           ) : null}
         </div>
-        {csvHasRows ? (
+        {hasUnitsPlanSource ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
-            Факт — сделки JSON; план — накопительно из CSV («квартиры сумма», «паркинг сумма», «кладовые сумма»).
+            Факт — сделки JSON; план — накопительный план в штуках × средняя стоимость сегмента.
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -451,12 +479,12 @@ export function SalesPlanSegmentPlanFactBarChart({
               <option value="all">Все</option>
             </select>
           </label>
-          {periodMode === "month" && monthOptionsForSelect.length > 0 ? (
+          {periodMode === "month" ? (
             <label className="flex flex-col gap-1">
               <span className={filterLabelCls}>Месяц</span>
               <select
-                value={monthKeyForFilter ?? ""}
-                onChange={(e) => setUserMonthKey(e.target.value || null)}
+                value={userMonthKey ?? SEGMENT_CHART_DEFAULT_MONTH}
+                onChange={(e) => setUserMonthKey(e.target.value || SEGMENT_CHART_DEFAULT_MONTH)}
                 className={
                   presentation
                     ? mplLight

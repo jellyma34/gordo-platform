@@ -3889,6 +3889,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             marketingPeriod={period}
             planReportAsOfYmd={report.asOf}
             presentation={presentation}
+            unitsExecutionCharts={unitsExecutionCharts ?? null}
             segmentExecutionCharts={segmentExecutionCharts ?? null}
             isEditMode={!presentation}
             segmentExecutionCsvLoading={segmentExecutionCsvLoading}

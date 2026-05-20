@@ -522,6 +522,7 @@ export function SalesPlanSegmentStructure({
                       {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
                     </div>
                   </div>
+                  {!presentation ? (
                   <div className="mt-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className={`text-[10px] font-medium tracking-normal ${vs.tertiary}`}>Доля выручки</span>
@@ -543,6 +544,7 @@ export function SalesPlanSegmentStructure({
                       />
                     </div>
                   </div>
+                  ) : null}
                 </div>
               </div>
             </div>
