@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 
+import { ApartmentRoomTypeAnalyticsSection } from "@/components/marketing/ApartmentRoomTypeAnalyticsSection";
+import { ApartmentTypeKpiMiniCard } from "@/components/marketing/ApartmentTypeKpiMiniCard";
 import type { ApartmentKpiHue, ApartmentPlanKpiPlanCalcDebug, ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
@@ -967,6 +969,7 @@ export function ApartmentPlanPeriodKpiBlock({
   const totalVolDen = hasPlanKpi ? debouncedData.totalVolume : null;
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
+  const sectionLabelCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-gray-900";
   const dashCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-400";
 
   const pctMonth = apartmentKpiExecutionPercent(debouncedData.factMonth, planMonthDen);
@@ -975,7 +978,10 @@ export function ApartmentPlanPeriodKpiBlock({
 
   const spctT = useSmoothScalar(pctTotal ?? 0);
 
-  const factExceedsTotalVolume = hasPlanKpi && debouncedData.factCumulative > debouncedData.totalVolume;
+  const factExceedsTotalVolume =
+    debouncedData.hasCsvPlan && debouncedData.factCumulative > debouncedData.totalVolume;
+  const typeBreakdown = debouncedData.typeBreakdown;
+  const showTypeBreakdown = (typeBreakdown?.items.length ?? 0) > 0;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -1068,6 +1074,9 @@ export function ApartmentPlanPeriodKpiBlock({
           <h2 className={`text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`}>
             Выполнение плана отчетного периода
           </h2>
+          <p className={`mt-2 text-xl font-bold leading-tight tracking-tight sm:text-2xl ${sectionLabelCls}`}>
+            Квартиры
+          </p>
         </div>
         {isEditMode && onCsvUpload ? (
           <div className="flex w-full min-w-0 flex-col gap-2 md:w-auto md:flex-row md:items-center md:justify-end">
@@ -1307,6 +1316,37 @@ export function ApartmentPlanPeriodKpiBlock({
           </KpiCardShell>
         </div>
       </div>
+
+      {showTypeBreakdown ? (
+        <div
+          className="mt-6 min-w-0 border-t pt-5 md:mt-7 md:pt-6"
+          style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
+        >
+          <p
+            className={`mb-4 text-[13px] font-semibold uppercase tracking-[0.06em] ${
+              presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
+            }`}
+          >
+            По типам квартир
+          </p>
+          <div className="grid min-w-0 auto-rows-fr grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
+            {typeBreakdown!.items.map((slice) => (
+              <ApartmentTypeKpiMiniCard
+                key={slice.key}
+                slice={slice}
+                hasPlan={typeBreakdown!.hasCsvPlan}
+                presDark={presDark}
+                presentation={presentation}
+              />
+            ))}
+          </div>
+          <ApartmentRoomTypeAnalyticsSection
+            breakdown={typeBreakdown!}
+            presDark={presDark}
+            presentation={presentation}
+          />
+        </div>
+      ) : null}
       </div>
     </div>
   );

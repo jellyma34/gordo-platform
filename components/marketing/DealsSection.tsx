@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as parseDealsEnvelopeShape } from "@/lib/marketingDealsInputShape";
+import { extractApartmentRoomCountFromObject } from "@/lib/apartmentDealRoomCount";
 import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
 import {
   buyerEntityPickNum,
@@ -308,6 +309,8 @@ export type NormalizedDealRow = {
   objectCategoryCode: string | null;
   /** Номер / ID объекта из JSON (см. {@link extractObjectUnitLabel}). */
   objectUnitLabel: string | null;
+  /** Комнатность квартиры из `object.estate_rooms` (для KPI по типам). */
+  apartmentRoomCount: number | null;
   /** Профиль покупателя из JSON (см. {@link extractDealBuyerProfile}). */
   buyerProfile: DealBuyerProfile;
 };
@@ -1714,6 +1717,13 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       return String(raw).trim().toLowerCase();
     })();
 
+    const apartmentRoomCount =
+      dealType === "apartment"
+        ? extractApartmentRoomCountFromObject(
+            row.object != null && typeof row.object === "object" ? (row.object as Record<string, unknown>) : null,
+          )
+        : null;
+
     out.push({
       dealDate: n.dateStr,
       dealDateMs: n.dateMs,
@@ -1734,6 +1744,7 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       objectParams: extractDealObjectParams(row),
       objectCategoryCode,
       objectUnitLabel: extractObjectUnitLabel(row),
+      apartmentRoomCount,
       buyerProfile: extractDealBuyerProfile(row),
     });
   }

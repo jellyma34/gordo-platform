@@ -257,6 +257,17 @@ export function parseApartmentPlanBiReportFromGrid(
     };
   }
 
+  if (apartmentsSummary) {
+    out.push({
+      segmentNorm: normalizeMatchKey(apartmentsSummary.rawLabel),
+      apartmentTypeNorm: null,
+      monthKey,
+      planMonth: apartmentsSummary.planMonth,
+      planCumulative: apartmentsSummary.planCumulative,
+      totalVolume: apartmentsSummary.planProject,
+    });
+  }
+
   const summaryPlanProject = apartmentsSummary?.planProject ?? null;
 
   return {

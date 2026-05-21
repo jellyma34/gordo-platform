@@ -1,6 +1,7 @@
 import {
   APARTMENT_KPI_ENTITY,
   isApartmentPlanKpiDetailSegment,
+  isBiApartmentsSummaryRow,
   isNonApartmentPropertyRow,
   type ApartmentPlanKpiEntityType,
   type BiApartmentsSummarySlice,
@@ -62,8 +63,63 @@ function sumPlanMonthRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): numbe
   }, 0);
 }
 
+/** Сумма колонки «План накопит. итогом» по строкам сегментов (BI-отчёт). */
+function sumPlanCumulativeRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): number {
+  return rows.reduce((s, r) => {
+    const v = r.planCumulative;
+    return s + (Number.isFinite(v) && v > 0 ? v : 0);
+  }, 0);
+}
+
 const maxTotalVolume = (list: readonly ApartmentPlanCsvNormalizedRow[]) =>
   list.reduce((m, r) => Math.max(m, r.totalVolume), 0);
+
+/** «План проекта» для KPI квартир: только свод «Квартиры», не max по сегментам (парковки/ИТОГО). */
+function resolveApartmentsProjectPlanVolume(
+  summary: BiApartmentsSummarySlice | null,
+  apartmentRows: readonly ApartmentPlanCsvNormalizedRow[],
+  preferRows: readonly ApartmentPlanCsvNormalizedRow[],
+  biSummaryPlanProject?: number | null,
+): number {
+  const fromSummary = summary?.planProject ?? biSummaryPlanProject ?? 0;
+  if (fromSummary > 0) return fromSummary;
+  const pool = preferRows.length ? preferRows : apartmentRows;
+  return maxTotalVolume(pool);
+}
+
+/** Свод «Квартиры» из BI meta или из импортированных строк. */
+function resolveApartmentsSummarySlice(
+  rows: readonly ApartmentPlanCsvNormalizedRow[],
+  explicit?: BiApartmentsSummarySlice | null,
+): BiApartmentsSummarySlice | null {
+  if (explicit) return explicit;
+  for (const r of rows) {
+    const raw = r.segmentNorm;
+    if (isBiApartmentsSummaryRow(r.segmentNorm, raw)) {
+      return {
+        planMonth: r.planMonth,
+        planCumulative: r.planCumulative,
+        planProject: r.totalVolume,
+        rawLabel: raw,
+      };
+    }
+  }
+  return null;
+}
+
+function resolveCumulativePlan(
+  summary: BiApartmentsSummarySlice | null,
+  cumulativeMode: ReturnType<typeof getPlanCalculationStrategy>["cumulativeMode"],
+  throughMonthRows: readonly ApartmentPlanCsvNormalizedRow[],
+  monthRows: readonly ApartmentPlanCsvNormalizedRow[],
+): number {
+  if (summary) return summary.planCumulative;
+  if (cumulativeMode === "bi_report_ready_column") {
+    const snap = monthRows.length ? monthRows : throughMonthRows;
+    return sumPlanCumulativeRows(snap);
+  }
+  return sumPlanMonthRows(throughMonthRows);
+}
 
 function selectedMonthLabel(period: "month" | "quarter", currentPeriodKey: string, endMonthKey: string): string {
   if (period === "quarter") {
@@ -107,11 +163,13 @@ export function selectPlanSliceForKpi(
 
   const filteredByObj = rows.filter((r) => segmentMatchesObject(r, opts.objectId, opts.objects));
   const apartmentRows = filterApartmentKpiEntityRows(filteredByObj);
-  const summary = opts.biApartmentsSummary ?? null;
+  const summary = resolveApartmentsSummarySlice(filteredByObj, opts.biApartmentsSummary ?? null);
 
   if (!apartmentRows.length && !summary) return null;
 
-  const { cumulativeMode } = getPlanCalculationStrategy(opts.csvType);
+  const csvTypeForStrategy =
+    opts.csvType ?? (summary ? ("bi_report" as const) : undefined);
+  const { cumulativeMode } = getPlanCalculationStrategy(csvTypeForStrategy);
 
   const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
   const endMonthKey =
@@ -125,21 +183,19 @@ export function selectPlanSliceForKpi(
     const planMonthFromDetails = sumPlanMonthRows(monthRows);
     const planMonth = summary && summary.planMonth > 0 ? summary.planMonth : planMonthFromDetails;
 
-    let planCumulative: number;
-    let planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"];
-    if (cumulativeMode === "bi_report_ready_column" && summary) {
-      planCumulative = summary.planCumulative;
-      planMonthSource = summary.planMonth > 0 ? "apartments_summary" : "detail_segments_sum";
-    } else {
-      const throughMonth = apartmentRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
-      planCumulative = sumPlanMonthRows(throughMonth);
-      planMonthSource = "detail_segments_sum";
-    }
+    const throughMonth = apartmentRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
+    const planCumulative = resolveCumulativePlan(summary, cumulativeMode, throughMonth, monthRows);
+    const planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"] = summary
+      ? summary.planMonth > 0
+        ? "apartments_summary"
+        : "detail_segments_sum"
+      : "detail_segments_sum";
 
-    const totalVolume = Math.max(
-      summary?.planProject ?? 0,
-      maxTotalVolume(monthRows.length ? monthRows : apartmentRows),
-      opts.biSummaryPlanProject ?? 0,
+    const totalVolume = resolveApartmentsProjectPlanVolume(
+      summary,
+      apartmentRows,
+      monthRows.length ? monthRows : apartmentRows,
+      opts.biSummaryPlanProject,
     );
 
     return {
@@ -165,21 +221,17 @@ export function selectPlanSliceForKpi(
   const planMonthFromDetails = sumPlanMonthRows(inQuarter);
   const planMonth = planMonthFromDetails;
 
-  let planCumulative: number;
-  let planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"];
-  if (cumulativeMode === "bi_report_ready_column" && summary) {
-    planCumulative = summary.planCumulative;
-    planMonthSource = "apartments_summary";
-  } else {
-    const throughMonth = apartmentRows.filter((r) => r.monthKey <= endMonthKey);
-    planCumulative = sumPlanMonthRows(throughMonth);
-    planMonthSource = "detail_segments_sum";
-  }
+  const throughMonth = apartmentRows.filter((r) => r.monthKey <= endMonthKey);
+  const planCumulative = resolveCumulativePlan(summary, cumulativeMode, throughMonth, inQuarter);
+  const planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"] = summary
+    ? "apartments_summary"
+    : "detail_segments_sum";
 
-  const totalVolume = Math.max(
-    summary?.planProject ?? 0,
-    maxTotalVolume(inQuarter.length ? inQuarter : apartmentRows),
-    opts.biSummaryPlanProject ?? 0,
+  const totalVolume = resolveApartmentsProjectPlanVolume(
+    summary,
+    apartmentRows,
+    inQuarter.length ? inQuarter : apartmentRows,
+    opts.biSummaryPlanProject,
   );
 
   return {

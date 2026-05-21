@@ -1,4 +1,5 @@
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
+import type { ApartmentPlanTypeKpiBreakdown } from "@/lib/apartmentPlanTypeKpi";
 import type { ApartmentPlanKpiPlanSlice } from "@/lib/planDataSource/types";
 
 /** Лимит квартир по умолчанию, если в CSV нет total_volume или файл не загружен. */
@@ -37,7 +38,10 @@ export type ApartmentPlanPeriodKpiFactsOnly = {
   factCumulative: number;
   dealFactDebug?: ApartmentPlanKpiDealFactDebug | null;
 };
-export type ApartmentPlanPeriodKpiUiData = ApartmentPlanPeriodKpiWithCsv | ApartmentPlanPeriodKpiFactsOnly;
+export type ApartmentPlanPeriodKpiUiData = (ApartmentPlanPeriodKpiWithCsv | ApartmentPlanPeriodKpiFactsOnly) & {
+  /** Разбивка по типам квартир (1–4+ ком.); не дублирует сводные KPI. */
+  typeBreakdown?: ApartmentPlanTypeKpiBreakdown;
+};
 
 function safeNonNeg(n: number): number {
   if (!Number.isFinite(n) || n < 0) return 0;

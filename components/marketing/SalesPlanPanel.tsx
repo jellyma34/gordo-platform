@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { apartmentPlanFactsFromDealsForKpi } from "@/lib/apartmentPlanFactsFromDeals";
+import { buildApartmentPlanTypeKpiBreakdown } from "@/lib/apartmentPlanTypeKpi";
 import {
   APARTMENT_PROJECT_TOTAL_UNITS,
   mergeApartmentPlanCsvWithFacts,
@@ -2245,8 +2246,21 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       const facts = { factMonth: dealFacts.factMonth, factCumulative: dealFacts.factCumulative };
 
       const rows = apartmentPlanKpiDoc?.rows;
-      if (Array.isArray(rows) && rows.length > 0) {
-        const planCsvType = apartmentPlanKpiDoc.diagnostics?.csvType;
+      const planCsvType =
+        apartmentPlanKpiDoc?.diagnostics?.csvType ??
+        (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
+      const typeBreakdown = buildApartmentPlanTypeKpiBreakdown({
+        rows,
+        hasCsvPlan: Array.isArray(rows) && rows.length > 0,
+        csvType: planCsvType,
+        period,
+        currentPeriodKey: currentKey,
+        objectId: objectId ?? "all",
+        objects: marketingMockData.objects,
+        dealRows: dealRowsForFact,
+      });
+
+      if (Array.isArray(rows) && rows.length > 0 && apartmentPlanKpiDoc) {
         const planStrategy = getPlanCalculationStrategy(planCsvType);
         const slice =
           typeof selectPlanSliceForKpi === "function"
@@ -2285,21 +2299,30 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             ...mergeApartmentPlanCsvWithFacts(planSlice, facts),
             dealFactDebug: dealFacts.debug,
             planCalcDebug,
+            typeBreakdown,
           };
         }
-        const fallbackVol = Math.max(
-          APARTMENT_PROJECT_TOTAL_UNITS,
-          ...rows.map((r) => (Number.isFinite(r.totalVolume) ? r.totalVolume : 0)),
-        );
+        const summaryPlanProject =
+          apartmentPlanKpiDoc.biReportMeta?.apartmentsSummary?.planProject ??
+          apartmentPlanKpiDoc.biReportMeta?.summaryPlanProject ??
+          0;
+        const fallbackVol =
+          summaryPlanProject > 0
+            ? summaryPlanProject
+            : Math.max(
+                APARTMENT_PROJECT_TOTAL_UNITS,
+                ...rows.map((r) => (Number.isFinite(r.totalVolume) ? r.totalVolume : 0)),
+              );
         return {
           hasCsvPlan: true as const,
           ...mergeApartmentPlanCsvWithFacts({ planMonth: 0, planCumulative: 0, totalVolume: fallbackVol }, facts),
           dealFactDebug: dealFacts.debug,
           planCalcDebug,
+          typeBreakdown,
         };
       }
 
-      return { hasCsvPlan: false as const, ...facts, dealFactDebug: dealFacts.debug };
+      return { hasCsvPlan: false as const, ...facts, dealFactDebug: dealFacts.debug, typeBreakdown };
     } catch (e) {
       console.error("apartmentPlanPeriodKpi:", e);
       return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0, dealFactDebug: null };
