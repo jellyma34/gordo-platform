@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { marketingMockData } from "@/lib/marketingMockData";
+import { useAppMode } from "@/components/mode/ModeProvider";
 import { MarketingDealsFeedProvider } from "./marketingDealsFeedContext";
 import { InstallmentDduPanel } from "./InstallmentDduPanel";
 import { MarketingFilters, type MarketingPeriodGranularity } from "./MarketingFilters";
@@ -41,6 +42,7 @@ export function MarketingWorkspace({
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
+  const { setMode } = useAppMode();
   const mplLight = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const editCtx = useMarketingEditTabOptional();
@@ -57,6 +59,10 @@ export function MarketingWorkspace({
     [modeLabel, presentation, onBackToBlocks],
   );
   useRegisterMarketingLayoutChrome(chromeRegistration);
+
+  useEffect(() => {
+    if (!presentation) setMode("edit");
+  }, [presentation, setMode]);
 
   useEffect(() => {
     if (!presentation) return;

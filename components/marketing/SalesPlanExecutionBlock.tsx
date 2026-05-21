@@ -33,7 +33,10 @@ import type {
 } from "@/lib/parseSegmentExecutionCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { ApartmentPlanPeriodKpiBlock } from "@/components/marketing/ApartmentPlanPeriodKpiBlock";
 import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
+import type { ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
+import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
 import {
@@ -148,13 +151,24 @@ type Props = {
   unitsExecutionDealsRows?: readonly NormalizedDealRow[];
   /** Ошибка загрузки CSV штук (показывается только без строк на графиках). */
   unitsCsvError?: string | null;
-  /** Загрузка plan_fact.csv — только маршрут «Редактирование» (`!presentation`), не презентация. */
+  /** Загрузка CSV и кнопки внутри блока: `!presentation` и глобальный/локальный режим редактирования (см. SalesPlanPanel). */
   isEditMode?: boolean;
   planFactCsvHydrated?: boolean;
   planFactCsvLoading?: boolean;
   hasPlanFactCsv?: boolean;
   onPlanFactCsvUpload?: (file: File) => Promise<void>;
   onPlanFactCsvClear?: () => Promise<void>;
+  /** KPI квартир: факт из отчёта/сделок; план и % выполнения — только при загруженном CSV плана. */
+  apartmentPlanPeriodKpi: ApartmentPlanPeriodKpiUiData;
+  apartmentPlanKpiCsvHydrated?: boolean;
+  apartmentPlanKpiCsvLoading?: boolean;
+  apartmentPlanKpiCsvError?: string | null;
+  apartmentPlanKpiCsvMeta?: { fileName: string; updatedAt: string } | null;
+  hasApartmentPlanKpiCsv?: boolean;
+  onApartmentPlanKpiCsvUpload?: (file: File) => Promise<void>;
+  onApartmentPlanKpiCsvClear?: () => Promise<void>;
+  /** Диагностика CSV KPI (последняя удачная или неудачная попытка) */
+  apartmentPlanKpiCsvDiagnostics?: ApartmentPlanCsvParseDiagnostics | null;
   /** Блок «Маркетинг» (лиды.csv): три графика план/факт. */
   marketingLeadsCharts?: MarketingLeadsCsvChartBundle;
   marketingLeadsCsvHydrated?: boolean;
@@ -182,6 +196,15 @@ export function SalesPlanExecutionBlock({
   hasPlanFactCsv = false,
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
+  apartmentPlanPeriodKpi,
+  apartmentPlanKpiCsvHydrated = true,
+  apartmentPlanKpiCsvLoading = false,
+  apartmentPlanKpiCsvError = null,
+  apartmentPlanKpiCsvMeta = null,
+  hasApartmentPlanKpiCsv = false,
+  onApartmentPlanKpiCsvUpload,
+  onApartmentPlanKpiCsvClear,
+  apartmentPlanKpiCsvDiagnostics = null,
   marketingLeadsCharts = { monthKeys: [], adSpend: [], leads: [], costPerLead: [] },
   marketingLeadsCsvHydrated = true,
   marketingLeadsCsvLoading = false,
@@ -307,6 +330,24 @@ export function SalesPlanExecutionBlock({
           dealsRows={unitsExecutionDealsRows}
           unitsCsvError={unitsCsvError}
         />
+
+        {apartmentPlanPeriodKpi ? (
+          <ApartmentPlanPeriodKpiBlock
+            data={apartmentPlanPeriodKpi}
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            isEditMode={isEditMode}
+            csvHydrated={apartmentPlanKpiCsvHydrated}
+            csvLoading={apartmentPlanKpiCsvLoading}
+            csvError={apartmentPlanKpiCsvError}
+            csvMeta={apartmentPlanKpiCsvMeta}
+            hasCsv={hasApartmentPlanKpiCsv}
+            onCsvUpload={onApartmentPlanKpiCsvUpload}
+            onCsvClear={onApartmentPlanKpiCsvClear}
+            csvDiagnostics={apartmentPlanKpiCsvDiagnostics}
+          />
+        ) : null}
 
         <MarketingLeadsCsvSection
           presentation={presentation}
