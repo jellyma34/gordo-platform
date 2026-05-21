@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
 
 import {
   groupDealsBySegment,
@@ -27,6 +27,13 @@ import {
 } from "@/lib/storagesCsvMetrics";
 import type { MarketingApartmentsCsvStoredV1 } from "@/lib/marketingApartmentsCsv";
 import { marketingMockData } from "@/lib/marketingMockData";
+import type { DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
+import {
+  revenueFactCsvDocIsValid,
+  type MarketingRevenueFactCsvStoredV1,
+} from "@/lib/marketingRevenueFactCsv";
+import { resolveFactRevenueBySegmentForStructure } from "@/lib/resolveFactRevenueForSalesStructure";
+import { uploadMarketingRevenueFactCsvFile } from "@/lib/marketingRevenueFactCsvUpload";
 import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
@@ -252,6 +259,12 @@ type Props = {
   commercialInventoryUnits?: number | null;
   /** Предупреждение об отсутствии колонки стоимости — только режим редактирования. */
   showApartmentsShareWarning?: boolean;
+  /** CSV факта поступлений (сервер), приоритет над JSON сделок для KPI «Факт поступлений». */
+  revenueFactCsv?: MarketingRevenueFactCsvStoredV1 | null;
+  onRevenueFactCsvDocChange?: (doc: MarketingRevenueFactCsvStoredV1 | null) => void;
+  /** Проект для POST `/api/projects/.../marketing/storage` (edit mode). */
+  csvUploadProjectId?: string;
+  csvUploadedBy?: string;
 };
 
 type SegmentStructurePrimaryKpiProps = {
@@ -324,6 +337,93 @@ function resolveSegmentInventoryTotal(
   return null;
 }
 
+function SalesStructureBlockHeader({
+  titleClass,
+  presentation,
+  presDark,
+  revenueFactCsv,
+  revenueFactUploadError,
+  revenueFactUploading,
+  onUploadClick,
+  csvInputRef,
+  onCsvSelected,
+}: {
+  titleClass: string;
+  presentation: boolean;
+  presDark: boolean;
+  revenueFactCsv: MarketingRevenueFactCsvStoredV1 | null | undefined;
+  revenueFactUploadError: string | null;
+  revenueFactUploading: boolean;
+  onUploadClick: () => void;
+  csvInputRef: RefObject<HTMLInputElement | null>;
+  onCsvSelected: (e: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const csvLoaded = revenueFactCsvDocIsValid(revenueFactCsv);
+  return (
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <h2 className={`text-sm font-semibold ${titleClass}`}>Структура продаж</h2>
+      {!presentation ? (
+        <div className="flex min-w-0 flex-col items-end gap-1">
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={onCsvSelected}
+          />
+          <button
+            type="button"
+            onClick={onUploadClick}
+            disabled={revenueFactUploading}
+            className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              presDark
+                ? "border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700/90 disabled:opacity-50"
+                : "border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            }`}
+          >
+            {revenueFactUploading ? "Загрузка…" : "Подгрузить CSV"}
+          </button>
+          {csvLoaded ? (
+            <span className={`text-[10px] font-medium ${presDark ? "text-emerald-300/90" : "text-emerald-700"}`}>
+              Файл поступлений загружен
+            </span>
+          ) : null}
+          {revenueFactUploadError ? (
+            <span className={`max-w-[220px] text-right text-[10px] font-medium ${presDark ? "text-rose-300" : "text-rose-600"}`}>
+              {revenueFactUploadError}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RevenueFactCsvDiagnostics({
+  doc,
+  presDark,
+}: {
+  doc: MarketingRevenueFactCsvStoredV1;
+  presDark: boolean;
+}) {
+  const s = doc.summary;
+  const box = presDark
+    ? "rounded-lg border border-slate-600/50 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-300"
+    : "rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-[11px] text-slate-700";
+  return (
+    <div className={`mb-3 space-y-0.5 tabular-nums ${box}`}>
+      <div>Найдено строк: {numFmt.format(doc.rows.length)}</div>
+      <div>Квартиры: {compactRub(s.bySegment.apartment)}</div>
+      <div>Парковки: {compactRub(s.bySegment.parking)}</div>
+      <div>Кладовые: {compactRub(s.bySegment.storage)}</div>
+      <div>Коммерция: {compactRub(s.bySegment.commercial)}</div>
+      {doc.warnings?.length ? (
+        <div className={presDark ? "text-amber-300/90" : "text-amber-800"}>{doc.warnings.join(" ")}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SalesPlanSegmentStructure({
   presentation,
   objectId,
@@ -333,6 +433,10 @@ export function SalesPlanSegmentStructure({
   storagesCsv = null,
   commercialInventoryUnits = null,
   showApartmentsShareWarning = false,
+  revenueFactCsv = null,
+  onRevenueFactCsvDocChange,
+  csvUploadProjectId,
+  csvUploadedBy = "—",
 }: Props) {
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
@@ -367,6 +471,60 @@ export function SalesPlanSegmentStructure({
     return APARTMENTS_PRICE_COLUMN_WARNING;
   }, [apartmentsCsv, apartmentsRevenuePool?.priceColumnIndex, showApartmentsShareWarning]);
 
+  const revenueFactCsvInputRef = useRef<HTMLInputElement>(null);
+  const [revenueFactUploadError, setRevenueFactUploadError] = useState<string | null>(null);
+  const [revenueFactUploading, setRevenueFactUploading] = useState(false);
+
+  const titleClass = presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800";
+
+  const onRevenueFactCsvUploadClick = useCallback(() => {
+    revenueFactCsvInputRef.current?.click();
+  }, []);
+
+  const onRevenueFactCsvSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || !csvUploadProjectId || !onRevenueFactCsvDocChange) return;
+      setRevenueFactUploadError(null);
+      setRevenueFactUploading(true);
+      try {
+        const result = await uploadMarketingRevenueFactCsvFile(file, csvUploadProjectId, csvUploadedBy);
+        if (!result.ok) {
+          setRevenueFactUploadError(result.error);
+          return;
+        }
+        onRevenueFactCsvDocChange(result.doc);
+        if (result.localOnly) {
+          setRevenueFactUploadError(null);
+        }
+      } catch (e) {
+        console.error("[SalesPlanSegmentStructure] revenue fact CSV upload", e);
+        setRevenueFactUploadError("Не удалось обработать CSV поступлений.");
+      } finally {
+        setRevenueFactUploading(false);
+      }
+    },
+    [csvUploadProjectId, csvUploadedBy, onRevenueFactCsvDocChange],
+  );
+
+  const factRevenueBySegment = useMemo(
+    () => resolveFactRevenueBySegmentForStructure(filteredRows, revenueFactCsv),
+    [filteredRows, revenueFactCsv],
+  );
+
+  const headerProps = {
+    titleClass,
+    presentation,
+    presDark,
+    revenueFactCsv,
+    revenueFactUploadError,
+    revenueFactUploading,
+    onUploadClick: onRevenueFactCsvUploadClick,
+    csvInputRef: revenueFactCsvInputRef,
+    onCsvSelected: onRevenueFactCsvSelected,
+  };
+
   const cards = useMemo(() => {
     const totalSum = filteredRows.reduce((s, r) => s + r.sumRub, 0);
     const grouped = groupDealsBySegment(filteredRows);
@@ -374,6 +532,7 @@ export function SalesPlanSegmentStructure({
       key: DealSegmentKey;
       count: number;
       sum: number;
+      factRevenue: number;
       avg: number;
       share: number;
       soldAreaM2: number;
@@ -400,22 +559,25 @@ export function SalesPlanSegmentStructure({
         const fromCsvPool = storageRevenueShareFromCsvPool(sum, storagesRevenuePool);
         if (fromCsvPool != null) share = fromCsvPool;
       }
+      const factRevenue = key === "other" ? 0 : factRevenueBySegment[key as DealsAnalyticsSegmentKey];
+
       out.push({
         key,
         count,
         sum,
+        factRevenue,
         avg: count > 0 ? sum / count : 0,
         share,
         soldAreaM2,
       });
     }
     return out;
-  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool]);
+  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool, factRevenueBySegment]);
 
   if (loadingDeals) {
     return (
       <div className="mb-7 w-full min-w-0 max-w-none">
-        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <SalesStructureBlockHeader {...headerProps} />
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>Загрузка сделок…</p>
       </div>
     );
@@ -424,7 +586,7 @@ export function SalesPlanSegmentStructure({
   if (loadError) {
     return (
       <div className="mb-7 w-full min-w-0 max-w-none">
-        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <SalesStructureBlockHeader {...headerProps} />
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>{loadError}</p>
       </div>
     );
@@ -433,7 +595,10 @@ export function SalesPlanSegmentStructure({
   if (cards.length === 0) {
     return (
       <div className="mb-7 w-full min-w-0 max-w-none">
-        <h2 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+        <SalesStructureBlockHeader {...headerProps} />
+        {!presentation && revenueFactCsvDocIsValid(revenueFactCsv) ? (
+          <RevenueFactCsvDiagnostics doc={revenueFactCsv!} presDark={presDark} />
+        ) : null}
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>
           Нет сделок по сегментам в текущем срезе (загрузите выгрузку или смените фильтр объекта).
         </p>
@@ -445,7 +610,10 @@ export function SalesPlanSegmentStructure({
 
   return (
     <div className="mb-7 w-full min-w-0 max-w-none">
-      <h2 className={`mb-4 text-sm font-semibold ${presDark ? "text-slate-300" : presentation ? "text-mpl-text" : "text-slate-800"}`}>Структура продаж</h2>
+      <SalesStructureBlockHeader {...headerProps} />
+      {!presentation && revenueFactCsvDocIsValid(revenueFactCsv) ? (
+        <RevenueFactCsvDiagnostics doc={revenueFactCsv!} presDark={presDark} />
+      ) : null}
       {apartmentsShareWarning ? (
         <p className={`mb-3 text-xs font-medium ${presDark ? "text-amber-300/90" : "text-amber-800"}`}>{apartmentsShareWarning}</p>
       ) : null}
@@ -506,6 +674,16 @@ export function SalesPlanSegmentStructure({
                     valueClass={vs.value}
                     presDark={presDark}
                   />
+                  <div className="mt-1.5 tabular-nums leading-snug">
+                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>
+                      Факт поступлений
+                    </div>
+                    <div
+                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                    >
+                      {compactRub(c.factRevenue)}
+                    </div>
+                  </div>
                   <div className="mt-1.5 tabular-nums leading-snug">
                     <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
                     <div

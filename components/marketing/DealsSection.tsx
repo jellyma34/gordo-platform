@@ -277,6 +277,11 @@ export type NormalizedDealRow = {
   dealDateMs: number;
   monthKey: string;
   sumRub: number;
+  /**
+   * Фактические поступления по сделке (₽) из JSON: paid / fact_revenue / payments[].
+   * Не включает deal_sum, plan и цену объекта — см. {@link extractDealFactRevenueRub}.
+   */
+  factRevenueRub: number;
   /** План в ₽ из полей выгрузки (plan_sum / planned_revenue / plan_amount), иначе 0. */
   planRub: number;
   /** Сегмент по `object` (category + при необходимости category_name). */
@@ -527,6 +532,101 @@ export function normalizeDeal(row: DealExportRow): NormalizedDealFields | null {
     client,
     dealKind,
   };
+}
+
+/** Скалярные поля фактических поступлений (без deal_sum / plan / price). */
+const DEAL_FACT_REVENUE_SCALAR_KEYS = [
+  "fact_revenue",
+  "factRevenue",
+  "fact_sum",
+  "factSum",
+  "fact_amount",
+  "factAmount",
+  "paid_sum",
+  "paidSum",
+  "paid_amount",
+  "paidAmount",
+  "payed_sum",
+  "payedSum",
+  "deal_payed_sum",
+  "dealPayedSum",
+  "received_sum",
+  "receivedSum",
+  "collected_sum",
+  "collectedSum",
+  "inflow_sum",
+  "inflowSum",
+  "payments_received",
+  "paymentsReceived",
+  "actual_revenue",
+  "actualRevenue",
+  "cash_received",
+  "cashReceived",
+  "revenue",
+  "revenue_rub",
+  "revenueRub",
+] as const;
+
+const DEAL_FACT_REVENUE_SCALAR_PATHS = [
+  "deal.fact_revenue",
+  "deal.fact_sum",
+  "deal.paid_sum",
+  "deal.paid_amount",
+  "deal.payed_sum",
+  "deal.revenue",
+  "deal.revenue_rub",
+  "deal.actual_revenue",
+  "deal.cash_received",
+] as const;
+
+const DEAL_PAYMENTS_ARRAY_KEYS = ["payments", "payment_items", "deal_payments", "payment_schedule", "inflows"] as const;
+
+const DEAL_PAYMENT_ITEM_AMOUNT_KEYS = [
+  "amount",
+  "sum",
+  "value",
+  "paid",
+  "paid_sum",
+  "payment_sum",
+  "revenue",
+  "fact",
+  "fact_sum",
+  "fact_revenue",
+] as const;
+
+function sumDealPaymentItems(raw: unknown): number {
+  if (!Array.isArray(raw)) return 0;
+  let total = 0;
+  for (const item of raw) {
+    if (!isPlainObject(item)) continue;
+    const n = pickNumFromMerged(item, [...DEAL_PAYMENT_ITEM_AMOUNT_KEYS]);
+    if (n != null && n > 0) total += n;
+  }
+  return total;
+}
+
+/**
+ * Фактические поступления по одной строке JSON сделок (не сумма договора и не план).
+ * Если полей оплат нет — 0.
+ */
+export function extractDealFactRevenueRub(row: DealExportRow): number {
+  const scalar = universalPickNum(row, [...DEAL_FACT_REVENUE_SCALAR_KEYS], [...DEAL_FACT_REVENUE_SCALAR_PATHS]);
+  if (scalar != null && scalar > 0) return scalar;
+
+  for (const src of collectDealSearchRoots(row)) {
+    for (const k of DEAL_PAYMENTS_ARRAY_KEYS) {
+      if (!(k in src)) continue;
+      const sum = sumDealPaymentItems(src[k]);
+      if (sum > 0) return sum;
+    }
+  }
+
+  for (const p of ["payments", "deal.payments", "payment_items", "deal.payment_items"] as const) {
+    const sum = sumDealPaymentItems(deepPick(row, p));
+    if (sum > 0) return sum;
+  }
+
+  return 0;
 }
 
 /**
@@ -1619,6 +1719,7 @@ export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
       dealDateMs: n.dateMs,
       monthKey: n.monthKey,
       sumRub: n.amount,
+      factRevenueRub: extractDealFactRevenueRub(row),
       planRub: n.planRub,
       normalizedType,
       dealType,

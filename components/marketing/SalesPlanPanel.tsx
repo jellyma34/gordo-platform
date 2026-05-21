@@ -46,6 +46,7 @@ import {
   segmentExecutionCsvDocIsValid,
   storagesCsvDocIsValid,
   unitsExecutionCsvDocIsValid,
+  revenueFactCsvDocIsValid,
 } from "@/lib/marketingCsvHydrateHelpers";
 import { marketingPaymentPlanProjectIdFromEnv, type MarketingPaymentPlanFileV2, type MarketingPaymentPlanMeta } from "@/lib/marketingPaymentPlanStore";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
@@ -134,6 +135,7 @@ import {
   type MarketingStoragesCsvMetaV1,
   type MarketingStoragesCsvStoredV1,
 } from "@/lib/marketingStoragesCsv";
+import type { MarketingRevenueFactCsvStoredV1 } from "@/lib/marketingRevenueFactCsv";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
@@ -892,6 +894,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [storagesCsvDoc, setStoragesCsvDoc] = useState<MarketingStoragesCsvStoredV1 | null>(null);
   const [storagesCsvError, setStoragesCsvError] = useState<string | null>(null);
   const [storagesCsvWarnings, setStoragesCsvWarnings] = useState<string[]>([]);
+  const [revenueFactCsvDoc, setRevenueFactCsvDoc] = useState<MarketingRevenueFactCsvStoredV1 | null>(null);
 
   const unitsHasChartRows = useMemo(
     () => unitsExecutionChartsHaveRows(unitsExecutionCharts),
@@ -1380,6 +1383,12 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setStoragesCsvError(null);
       setStoragesCsvWarnings([]);
     };
+    const applyFromRevenueFactDoc = (doc: MarketingRevenueFactCsvStoredV1) => {
+      setRevenueFactCsvDoc(doc);
+    };
+    const resetRevenueFactUi = () => {
+      setRevenueFactCsvDoc(null);
+    };
     (async () => {
       let serverDatasets: {
         investors: MarketingInvestorsCsvStoredV1 | null;
@@ -1390,6 +1399,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         storages: MarketingStoragesCsvStoredV1 | null;
         receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
         marketingLeads: MarketingLeadsCsvStoredV1 | null;
+        revenueFact: MarketingRevenueFactCsvStoredV1 | null;
       } | null = null;
       let presence: MarketingCsvServerPresence = {
         hasPlan: false,
@@ -1421,6 +1431,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             storages: MarketingStoragesCsvStoredV1 | null;
             receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
             marketingLeads: MarketingLeadsCsvStoredV1 | null;
+            revenueFact: MarketingRevenueFactCsvStoredV1 | null;
           };
         };
         if (cancelled) return;
@@ -1492,6 +1503,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       const ml = mergeMarketingDataset(serverDatasets?.marketingLeads, null, marketingLeadsCsvDocIsValid);
       if (ml) applyFromMarketingLeadsDoc(ml);
       else resetMarketingLeadsUi();
+
+      const rf = mergeMarketingDataset(serverDatasets?.revenueFact, null, revenueFactCsvDocIsValid);
+      if (rf) applyFromRevenueFactDoc(rf);
+      else resetRevenueFactUi();
     })()
       .catch(() => {
         /* handled in merge path */
@@ -3554,6 +3569,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         storagesCsv={storagesCsvDoc}
         commercialInventoryUnits={commercialInventoryUnits}
         showApartmentsShareWarning={!presentation}
+        revenueFactCsv={revenueFactCsvDoc}
+        onRevenueFactCsvDocChange={setRevenueFactCsvDoc}
+        csvUploadProjectId={paymentPlanProjectId}
+        csvUploadedBy={paymentUploadedByLabel}
       />
 
       {!presentation ? (

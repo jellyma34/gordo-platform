@@ -7,6 +7,8 @@ import type { MarketingSegmentExecutionStoredV1 } from "@/lib/marketingSegmentEx
 import type { MarketingStoragesCsvStoredV1 } from "@/lib/marketingStoragesCsv";
 import { storagesCsvHasData } from "@/lib/marketingStoragesCsv";
 import type { MarketingUnitsExecutionStoredV1 } from "@/lib/marketingUnitsExecutionCsv";
+import type { MarketingRevenueFactCsvStoredV1 } from "@/lib/marketingRevenueFactCsv";
+import { revenueFactCsvDocIsValid as revenueFactDocIsValid } from "@/lib/marketingRevenueFactCsv";
 
 export function investorsCsvDocIsValid(doc: MarketingInvestorsCsvStoredV1): boolean {
   return (doc.planFactChartRows?.length ?? 0) > 0 || (doc.completionChartRows?.length ?? 0) > 0;
@@ -30,4 +32,8 @@ export function parkingCsvDocIsValid(doc: MarketingParkingCsvStoredV1): boolean 
 
 export function storagesCsvDocIsValid(doc: MarketingStoragesCsvStoredV1): boolean {
   return storagesCsvHasData(doc);
+}
+
+export function revenueFactCsvDocIsValid(doc: MarketingRevenueFactCsvStoredV1): boolean {
+  return revenueFactDocIsValid(doc);
 }

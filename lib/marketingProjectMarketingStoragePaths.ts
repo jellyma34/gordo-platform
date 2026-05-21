@@ -71,3 +71,11 @@ export function marketingProjectLeadsCsvJsonPath(projectId: string): string {
 export function marketingProjectLeadsCsvRawPath(projectId: string): string {
   return path.join(marketingProjectMarketingDir(projectId), "лиды.raw.csv");
 }
+
+export function marketingProjectRevenueFactJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "revenue-fact.json");
+}
+
+export function marketingProjectRevenueFactRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "revenue-fact.raw.csv");
+}

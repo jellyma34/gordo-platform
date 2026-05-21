@@ -6,12 +6,65 @@ import { Loader2, Upload } from "lucide-react";
 import type { ApartmentKpiHue, ApartmentPlanKpiPlanCalcDebug, ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
-import { apartmentKpiExecutionHue, apartmentKpiExecutionPercent } from "@/lib/apartmentsPlanPeriodKpi";
+import {
+  apartmentKpiExecutionHue,
+  apartmentKpiExecutionPercent,
+  apartmentKpiProgressWidthPercent,
+} from "@/lib/apartmentsPlanPeriodKpi";
 import { dec1Fmt, numFmt } from "@/lib/salesPlanChartFormat";
 
-const KPI_FACT_BAR_COLOR = "#2563EB";
-const KPI_PLAN_BAR_COLOR = "#F97316";
-const MINI_CHART_MAX_BAR_PX = 88;
+/** Premium KPI dashboard UI tokens (~17% lighter than previous compact pass). */
+const KPI_UI = {
+  planGradient: "linear-gradient(180deg, #FFB257 0%, #FF7A00 100%)",
+  factGradient: "linear-gradient(180deg, #5EA0FF 0%, #2563EB 100%)",
+  dashboardBg: "#F7F8FA",
+  cardBg: "#FFFFFF",
+  cardMinHeight: 400,
+  cardPadding: 24,
+  cardRadius: 20,
+  cardBorder: "1px solid rgba(226,232,240,0.55)",
+  cardShadow: "0 4px 18px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.03)",
+  cardShadowHover: "0 8px 24px rgba(15,23,42,0.05), 0 2px 6px rgba(15,23,42,0.04)",
+  chartAreaHeight: 150,
+  chartMarginY: 24,
+  barMaxHeight: 96,
+  barWidth: 44,
+  barGap: 32,
+  barRadius: "12px 12px 3px 3px",
+  barValueSize: 20,
+  barValueGap: 4,
+  barValueLineHeight: 1,
+  barLabelSize: 11,
+  baselineColor: "rgba(226,232,240,0.55)",
+  dividerColor: "rgba(226,232,240,0.55)",
+  dividerMarginY: 18,
+  mutedLabel: "#64748B",
+  titleSize: 14,
+  titleTracking: "0.03em",
+  deviationLabelSize: 14,
+  deviationValueSize: 26,
+  fulfillmentLabelSize: 14,
+  fulfillmentValueSize: 34,
+  runnerHeight: 6,
+  runnerKnob: 14,
+  runnerTrack: "#E9EDF5",
+  ringSize: 196,
+  ringStroke: 9,
+  ringPercentSize: 50,
+  ringSubtitleSize: 15,
+} as const;
+
+const KPI_PLAN_GRADIENT = KPI_UI.planGradient;
+const KPI_FACT_GRADIENT = KPI_UI.factGradient;
+const KPI_RUNNER_TRACK = KPI_UI.runnerTrack;
+const KPI_MUTED_LABEL = KPI_UI.mutedLabel;
+const KPI_CARD_SHADOW = KPI_UI.cardShadow;
+const KPI_CARD_SHADOW_HOVER = KPI_UI.cardShadowHover;
+const KPI_RUNNER_COLORS: Record<ApartmentKpiHue, string> = {
+  green: "#10B981",
+  yellow: "#F59E0B",
+  red: "#E11D48",
+};
 
 function useSmoothScalar(target: number, durationMs = 480) {
   const [display, setDisplay] = useState(target);
@@ -45,20 +98,13 @@ function useDebouncedValue<T>(value: T, ms: number): T {
   return debounced;
 }
 
-function pctToneClasses(hue: ApartmentKpiHue, presDark: boolean, presentation: boolean): string {
+function pctToneStyle(hue: ApartmentKpiHue, presDark: boolean): { color: string } {
   if (presDark) {
-    if (hue === "green") return "text-emerald-300";
-    if (hue === "yellow") return "text-amber-300";
-    return "text-rose-300";
+    if (hue === "green") return { color: "#34d399" };
+    if (hue === "yellow") return { color: "#fbbf24" };
+    return { color: "#fb7185" };
   }
-  if (presentation) {
-    if (hue === "green") return "text-emerald-700";
-    if (hue === "yellow") return "text-amber-700";
-    return "text-rose-700";
-  }
-  if (hue === "green") return "text-emerald-700";
-  if (hue === "yellow") return "text-amber-700";
-  return "text-rose-700";
+  return { color: KPI_RUNNER_COLORS[hue] };
 }
 
 function deviationToneClass(dev: number, presDark: boolean, presentation: boolean): string {
@@ -68,8 +114,138 @@ function deviationToneClass(dev: number, presDark: boolean, presentation: boolea
   return presDark ? "text-rose-300" : presentation ? "text-rose-700" : "text-rose-700";
 }
 
+function runnerFillColor(hue: ApartmentKpiHue, presDark: boolean): string {
+  if (presDark) {
+    if (hue === "green") return "#34d399";
+    if (hue === "yellow") return "#fbbf24";
+    return "#fb7185";
+  }
+  return KPI_RUNNER_COLORS[hue];
+}
+
+function KpiSectionDivider({ presDark }: { presDark: boolean }) {
+  return (
+    <div
+      className="w-full shrink-0"
+      style={{
+        borderTop: presDark ? "1px solid rgba(255,255,255,0.1)" : `1px solid ${KPI_UI.dividerColor}`,
+        margin: `${KPI_UI.dividerMarginY}px 0`,
+      }}
+      aria-hidden
+    />
+  );
+}
+
+function KpiExecutionRunner({
+  widthPercent,
+  hue,
+  presDark,
+}: {
+  widthPercent: number;
+  hue: ApartmentKpiHue;
+  presDark: boolean;
+}) {
+  const animW = useSmoothScalar(widthPercent, 600);
+  const w = Math.min(100, Math.max(0, animW));
+  const fill = runnerFillColor(hue, presDark);
+  const showKnob = w > 1.5;
+
+  return (
+    <div
+      className="relative w-full shrink-0 overflow-visible rounded-full"
+      style={{
+        height: KPI_UI.runnerHeight,
+        backgroundColor: presDark ? "rgba(255,255,255,0.12)" : KPI_RUNNER_TRACK,
+        borderRadius: 999,
+      }}
+      role="progressbar"
+      aria-valuenow={Math.round(w)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className="relative h-full rounded-[inherit]"
+        style={{
+          width: `${w}%`,
+          backgroundColor: fill,
+          borderRadius: "inherit",
+          transition: "width 0.6s ease",
+        }}
+      >
+        {showKnob ? (
+          <span
+            className="absolute right-0 top-1/2 z-[1] -translate-y-1/2 translate-x-1/2 rounded-full bg-white"
+            style={{
+              width: KPI_UI.runnerKnob,
+              height: KPI_UI.runnerKnob,
+              boxShadow: "0 0 0 2px rgba(255,255,255,0.95), 0 2px 6px rgba(15,23,42,0.08)",
+            }}
+            aria-hidden
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function formatKpiCount(n: number): string {
   return numFmt.format(Math.round(n));
+}
+
+/** Column height = bar track + value label sitting on bar top. */
+function kpiBarColumnHeightPx(): number {
+  return KPI_UI.barMaxHeight + KPI_UI.barValueSize + KPI_UI.barValueGap;
+}
+
+type KpiBarColumnProps = {
+  value: string;
+  barHeightPx: number;
+  valueColor: string;
+  barFill?: { background: string; boxShadow: string };
+  presDark: boolean;
+  emptyBar?: boolean;
+};
+
+function KpiBarColumn({ value, barHeightPx, valueColor, barFill, presDark, emptyBar }: KpiBarColumnProps) {
+  const h = Math.max(4, barHeightPx);
+  const labelBottom = h + KPI_UI.barValueGap;
+
+  return (
+    <div
+      className="relative flex shrink-0 items-end justify-center"
+      style={{ width: KPI_UI.barWidth, height: kpiBarColumnHeightPx() }}
+    >
+      <span
+        className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 whitespace-nowrap tabular-nums"
+        style={{
+          bottom: labelBottom,
+          color: valueColor,
+          fontSize: KPI_UI.barValueSize,
+          fontWeight: 600,
+          lineHeight: KPI_UI.barValueLineHeight,
+          transition: "bottom 0.5s ease-out",
+        }}
+      >
+        {value}
+      </span>
+      {emptyBar || !barFill ? (
+        <div
+          className={`w-full ${presDark ? "bg-white/10" : "bg-slate-200"}`}
+          style={{ height: h, borderRadius: KPI_UI.barRadius }}
+        />
+      ) : (
+        <div
+          className="w-full transition-[height] duration-500 ease-out"
+          style={{
+            height: h,
+            background: barFill.background,
+            borderRadius: KPI_UI.barRadius,
+            boxShadow: barFill.boxShadow,
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 type MiniFactPlanColumnChartProps = {
@@ -105,34 +281,36 @@ function MiniFactPlanColumnChart({
       : "border border-slate-200 bg-white text-slate-900 shadow-lg";
 
   const mutedTip = presDark ? "text-slate-400" : "text-slate-500";
-  const axisLabel = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-500";
+  const valueColor = presDark ? "#f1f5f9" : "#0f172a";
+  const labelColor = presDark ? "#94a3b8" : KPI_MUTED_LABEL;
+
+  const planBarPx = Math.max(4, (animPlanH / 100) * KPI_UI.barMaxHeight);
+  const factBarPx = Math.max(4, (animFactH / 100) * KPI_UI.barMaxHeight);
 
   return (
     <div
-      className="relative shrink-0"
+      className="relative mx-auto w-full max-w-[200px] sm:max-w-[220px]"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}
       onBlur={() => setHovered(false)}
       tabIndex={0}
       role="img"
-      aria-label={`Факт ${formatKpiCount(fact)}, план ${hasPlan && plan != null ? formatKpiCount(plan) : "—"}`}
+      aria-label={`План ${hasPlan && plan != null ? formatKpiCount(plan) : "—"}, факт ${formatKpiCount(fact)}`}
     >
       {hovered ? (
         <div
-          className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-max min-w-[9.5rem] -translate-x-1/2 rounded-lg px-3 py-2 text-xs ${tooltipShell}`}
+          className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 w-max min-w-[10rem] -translate-x-1/2 rounded-xl px-4 py-2.5 text-sm ${tooltipShell}`}
           role="tooltip"
         >
           <div className="space-y-1 tabular-nums">
             <div>
               <span className={mutedTip}>Факт: </span>
-              <span className="font-semibold" style={{ color: KPI_FACT_BAR_COLOR }}>
-                {formatKpiCount(fact)}
-              </span>
+              <span className="font-semibold text-[#1D4ED8]">{formatKpiCount(fact)}</span>
             </div>
             <div>
               <span className={mutedTip}>План: </span>
-              <span className="font-semibold" style={{ color: KPI_PLAN_BAR_COLOR }}>
+              <span className="font-semibold text-[#FF6A00]">
                 {hasPlan && plan != null ? formatKpiCount(planVal) : "—"}
               </span>
             </div>
@@ -150,53 +328,71 @@ function MiniFactPlanColumnChart({
         </div>
       ) : null}
 
-      <div className="flex items-end justify-center gap-3 sm:gap-4">
-        <div className="flex flex-col items-center">
-          <span
-            className="mb-1 text-xs font-bold tabular-nums leading-none"
-            style={{ color: KPI_FACT_BAR_COLOR }}
-          >
-            {formatKpiCount(fact)}
-          </span>
-          <div
-            className="flex w-9 items-end justify-center sm:w-10"
-            style={{ height: MINI_CHART_MAX_BAR_PX }}
-          >
-            <div
-              className="w-full min-h-[2px] rounded-t-md transition-[height] duration-500 ease-out will-change-[height]"
-              style={{
-                height: `${Math.max(2, (animFactH / 100) * MINI_CHART_MAX_BAR_PX)}px`,
-                backgroundColor: KPI_FACT_BAR_COLOR,
-              }}
-            />
-          </div>
-          <span className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wide ${axisLabel}`}>Факт</span>
+      <div
+        className="mx-auto flex w-full flex-col items-center justify-end"
+        style={{ minHeight: KPI_UI.chartAreaHeight }}
+      >
+        <div
+          className="flex items-end justify-center"
+          style={{ height: kpiBarColumnHeightPx(), gap: KPI_UI.barGap }}
+        >
+          <KpiBarColumn
+            value={hasPlan && plan != null ? formatKpiCount(plan) : "—"}
+            barHeightPx={hasPlan && plan != null ? planBarPx : 4}
+            valueColor={valueColor}
+            presDark={presDark}
+            emptyBar={!(hasPlan && plan != null)}
+            barFill={
+              hasPlan && plan != null
+                ? {
+                    background: KPI_PLAN_GRADIENT,
+                    boxShadow: "0 3px 10px rgba(255,122,0,0.1)",
+                  }
+                : undefined
+            }
+          />
+          <KpiBarColumn
+            value={formatKpiCount(fact)}
+            barHeightPx={factBarPx}
+            valueColor={valueColor}
+            presDark={presDark}
+            barFill={{
+              background: KPI_FACT_GRADIENT,
+              boxShadow: "0 3px 10px rgba(37,99,235,0.1)",
+            }}
+          />
         </div>
 
-        <div className="flex flex-col items-center">
+        <div
+          className="mx-auto mt-1 w-full max-w-[200px]"
+          style={{ borderBottom: `1px solid ${presDark ? "rgba(255,255,255,0.12)" : KPI_UI.baselineColor}` }}
+        />
+
+        <div className="mt-2.5 flex justify-center" style={{ gap: KPI_UI.barGap }}>
           <span
-            className="mb-1 text-xs font-bold tabular-nums leading-none"
-            style={{ color: KPI_PLAN_BAR_COLOR }}
+            className="text-center uppercase"
+            style={{
+              width: KPI_UI.barWidth,
+              color: labelColor,
+              fontSize: KPI_UI.barLabelSize,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+            }}
           >
-            {hasPlan && plan != null ? formatKpiCount(plan) : "—"}
+            План
           </span>
-          <div
-            className="flex w-9 items-end justify-center sm:w-10"
-            style={{ height: MINI_CHART_MAX_BAR_PX }}
+          <span
+            className="text-center uppercase"
+            style={{
+              width: KPI_UI.barWidth,
+              color: labelColor,
+              fontSize: KPI_UI.barLabelSize,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+            }}
           >
-            {hasPlan && plan != null ? (
-              <div
-                className="w-full min-h-[2px] rounded-t-md transition-[height] duration-500 ease-out will-change-[height]"
-                style={{
-                  height: `${Math.max(2, (animPlanH / 100) * MINI_CHART_MAX_BAR_PX)}px`,
-                  backgroundColor: KPI_PLAN_BAR_COLOR,
-                }}
-              />
-            ) : (
-              <div className={`h-[2px] w-full rounded-t-md ${presDark ? "bg-white/10" : "bg-slate-200"}`} />
-            )}
-          </div>
-          <span className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wide ${axisLabel}`}>План</span>
+            Факт
+          </span>
         </div>
       </div>
     </div>
@@ -208,12 +404,9 @@ type KpiFactPlanCardBodyProps = {
   plan: number | null;
   hasPlan: boolean;
   executionPct: number | null;
-  factLabel: string;
-  planLabel: string;
   presDark: boolean;
   presentation: boolean;
   mplPremium: boolean;
-  labelCls: string;
   dashCls: string;
 };
 
@@ -222,21 +415,35 @@ function KpiFactPlanCardBody({
   plan,
   hasPlan,
   executionPct,
-  factLabel,
-  planLabel,
   presDark,
   presentation,
   mplPremium,
-  labelCls,
   dashCls,
 }: KpiFactPlanCardBodyProps) {
   const hue = executionPct != null ? apartmentKpiExecutionHue(executionPct) : null;
   const deviation = hasPlan && plan != null ? fact - plan : null;
-  const rowValue = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
+  const runnerW =
+    executionPct != null ? apartmentKpiProgressWidthPercent(executionPct) : 0;
+
+  const runnerHue = hue ?? "red";
+
+  const deviationLabelStyle = presDark
+    ? { color: "#94a3b8", fontSize: KPI_UI.deviationLabelSize, fontWeight: 500 }
+    : { color: KPI_MUTED_LABEL, fontSize: KPI_UI.deviationLabelSize, fontWeight: 500 };
+  const fulfillmentLabelStyle = deviationLabelStyle;
+  const deviationValueStyle = presDark
+    ? { fontSize: "clamp(20px, 4vw, 26px)", fontWeight: 600, lineHeight: 1 }
+    : { fontSize: KPI_UI.deviationValueSize, fontWeight: 600, lineHeight: 1 };
+  const fulfillmentValueStyle = presDark
+    ? { fontSize: "clamp(26px, 5vw, 34px)", fontWeight: 700, lineHeight: 1 }
+    : { fontSize: KPI_UI.fulfillmentValueSize, fontWeight: 700, lineHeight: 1 };
 
   return (
-    <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
-      <div className="flex justify-center sm:min-w-[7.5rem] sm:justify-start">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-visible">
+      <div
+        className="flex flex-1 flex-col items-center justify-center py-1"
+        style={{ marginTop: KPI_UI.chartMarginY, marginBottom: KPI_UI.chartMarginY }}
+      >
         <MiniFactPlanColumnChart
           fact={fact}
           plan={plan}
@@ -246,41 +453,47 @@ function KpiFactPlanCardBody({
           mplPremium={mplPremium}
         />
       </div>
-      <div className="min-w-0 flex-1 space-y-2.5">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className={`text-[11px] font-medium ${labelCls}`}>{factLabel}</span>
-          <span className={`text-sm font-bold tabular-nums sm:text-base ${rowValue}`}>{formatKpiCount(fact)}</span>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <span className={`text-[11px] font-medium ${labelCls}`}>{planLabel}</span>
-          <span className={`text-sm font-bold tabular-nums sm:text-base ${rowValue}`}>
-            {hasPlan && plan != null ? formatKpiCount(plan) : <span className={dashCls}>—</span>}
+
+      <KpiSectionDivider presDark={presDark} />
+
+      <div className="flex w-full items-center justify-between gap-3 whitespace-nowrap py-0.5">
+        <span className="shrink-0" style={deviationLabelStyle}>
+          Отклонение
+        </span>
+        <span
+          className={`shrink-0 tabular-nums leading-none ${
+            deviation != null ? deviationToneClass(deviation, presDark, presentation) : dashCls
+          }`}
+          style={deviationValueStyle}
+        >
+          {deviation != null ? formatKpiCount(deviation) : "—"}
+        </span>
+      </div>
+
+      <KpiSectionDivider presDark={presDark} />
+
+      <div className="mt-auto w-full shrink-0 space-y-2.5 pb-0.5">
+        <div className="flex w-full items-start justify-between gap-3">
+          <span className="shrink-0 pt-0.5" style={fulfillmentLabelStyle}>
+            Выполнение
           </span>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <span className={`text-[11px] font-medium ${labelCls}`}>Отклонение</span>
-          <span
-            className={`text-sm font-bold tabular-nums sm:text-base ${
-              deviation != null ? deviationToneClass(deviation, presDark, presentation) : dashCls
-            }`}
-          >
-            {deviation != null ? (
-              formatKpiCount(deviation)
-            ) : (
-              <span className={dashCls}>—</span>
-            )}
-          </span>
-        </div>
-        <div className="flex items-baseline justify-between gap-3 border-t border-slate-200/70 pt-2.5 dark:border-white/10">
-          <span className={`text-[11px] font-semibold ${labelCls}`}>Выполнение</span>
           {executionPct != null && hue != null ? (
-            <span className={`text-base font-extrabold tabular-nums sm:text-lg ${pctToneClasses(hue, presDark, presentation)}`}>
+            <span
+              className="shrink-0 tabular-nums leading-none"
+              style={{
+                ...fulfillmentValueStyle,
+                ...pctToneStyle(hue, presDark),
+              }}
+            >
               {dec1Fmt.format(Math.round(executionPct * 10) / 10)}%
             </span>
           ) : (
-            <span className={`text-base font-extrabold ${dashCls}`}>—</span>
+            <span className={`shrink-0 leading-none ${dashCls}`} style={fulfillmentValueStyle}>
+              —
+            </span>
           )}
         </div>
+        <KpiExecutionRunner widthPercent={runnerW} hue={runnerHue} presDark={presDark} />
       </div>
     </div>
   );
@@ -296,30 +509,147 @@ type CardShellProps = {
   centered?: boolean;
 };
 
-function KpiCardShell({ title, children, presDark, presentation, mplPremium, skeleton, centered }: CardShellProps) {
-  const surface = presDark
-    ? "rounded-2xl border border-white/10 bg-slate-900/40 p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-7"
-    : mplPremium && presentation
-      ? "rounded-2xl border border-white/45 bg-gradient-to-br from-white/95 via-white/75 to-slate-50/85 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm sm:p-7"
-      : presentation
-        ? "rounded-2xl border border-mpl-border bg-mpl-card p-6 shadow-[0_10px_36px_rgba(15,23,42,0.07)] sm:p-7"
-        : "rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-slate-50/95 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.07)] sm:p-7";
-
-  const titleCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
-  const hoverLift = skeleton
-    ? ""
-    : presDark
-      ? "hover:-translate-y-1 hover:border-white/[0.14] hover:shadow-[0_18px_48px_rgba(0,0,0,0.4)]"
-      : "hover:-translate-y-1 hover:border-slate-300/80 hover:shadow-[0_20px_48px_rgba(15,23,42,0.11)]";
+function KpiCircularProgressRing({
+  percent,
+  presDark,
+}: {
+  percent: number;
+  presDark: boolean;
+}) {
+  const size = KPI_UI.ringSize;
+  const strokeWidth = KPI_UI.ringStroke;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const animPct = useSmoothScalar(Math.min(100, Math.max(0, percent)));
+  const offset = circumference - (animPct / 100) * circumference;
+  const gradientId = "kpiBlueGradient";
 
   return (
     <div
-      className={`group flex h-full min-h-0 min-w-0 w-full flex-col ${surface} ${hoverLift} transition-all duration-300 ease-out`}
+      className="relative mx-auto flex items-center justify-center"
+      style={{ width: KPI_UI.ringSize, height: KPI_UI.ringSize }}
     >
-      <div className={`text-[11px] font-semibold uppercase tracking-wider ${titleCls}`}>{title}</div>
+      <svg
+        className="h-full w-full overflow-visible"
+        viewBox={`0 0 ${size} ${size}`}
+        aria-hidden
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#5EA0FF" />
+            <stop offset="100%" stopColor="#2563EB" />
+          </linearGradient>
+        </defs>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={presDark ? "rgba(255,255,255,0.1)" : "#EEF2FF"}
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={presDark ? "#3B82F6" : `url(#${gradientId})`}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dashoffset 0.6s ease" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center">
+        <span
+          className={`tabular-nums leading-none ${presDark ? "text-slate-100" : "text-slate-900"}`}
+          style={{ fontSize: KPI_UI.ringPercentSize, fontWeight: 700, lineHeight: 1 }}
+        >
+          {dec1Fmt.format(Math.round(animPct * 10) / 10)}%
+        </span>
+        <span
+          className="mt-1.5 uppercase"
+          style={{
+            fontSize: KPI_UI.ringSubtitleSize,
+            fontWeight: 600,
+            letterSpacing: "0.06em",
+            color: presDark ? "#94a3b8" : KPI_MUTED_LABEL,
+          }}
+        >
+          Реализовано
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function KpiCardShell({ title, children, presDark, presentation, mplPremium, skeleton, centered }: CardShellProps) {
+  void mplPremium;
+
+  const hoverLift = skeleton
+    ? ""
+    : "transition-all duration-[250ms] ease hover:-translate-y-[2px]";
+
+  const lightCardStyle = presDark
+    ? undefined
+    : {
+        background: KPI_UI.cardBg,
+        border: KPI_UI.cardBorder,
+        borderRadius: KPI_UI.cardRadius,
+        boxShadow: KPI_CARD_SHADOW,
+        minHeight: KPI_UI.cardMinHeight,
+        padding: KPI_UI.cardPadding,
+      };
+
+  const surface = presDark
+    ? "rounded-[20px] border border-white/10 bg-slate-900/50 shadow-[0_8px_28px_rgba(0,0,0,0.28)]"
+    : "rounded-[20px]";
+
+  const titleStyle = presDark
+    ? undefined
+    : {
+        fontSize: KPI_UI.titleSize,
+        fontWeight: 600,
+        letterSpacing: KPI_UI.titleTracking,
+        color: KPI_MUTED_LABEL,
+        textTransform: "uppercase" as const,
+      };
+
+  const titleCls = presDark
+    ? "text-[13px] font-semibold uppercase tracking-[0.12em] text-slate-400"
+    : "";
+
+  return (
+    <div
+      className={`group flex h-full w-full min-w-0 flex-col overflow-visible ${surface} ${hoverLift}`}
+      style={
+        presDark
+          ? { minHeight: KPI_UI.cardMinHeight, padding: KPI_UI.cardPadding }
+          : lightCardStyle
+      }
+      onMouseEnter={
+        presDark || skeleton
+          ? undefined
+          : (e) => {
+              (e.currentTarget as HTMLDivElement).style.boxShadow = KPI_CARD_SHADOW_HOVER;
+            }
+      }
+      onMouseLeave={
+        presDark || skeleton
+          ? undefined
+          : (e) => {
+              (e.currentTarget as HTMLDivElement).style.boxShadow = KPI_CARD_SHADOW;
+            }
+      }
+    >
+      <div className={`shrink-0 ${titleCls}`} style={titleStyle}>
+        {title}
+      </div>
       <div
-        className={`mt-auto flex min-w-0 flex-1 flex-col pt-5 ${
-          centered ? "items-center justify-center" : "justify-end"
+        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-visible ${
+          centered ? "items-center justify-center pt-2" : "pt-4"
         }`}
       >
         {children}
@@ -637,8 +967,6 @@ export function ApartmentPlanPeriodKpiBlock({
   const totalVolDen = hasPlanKpi ? debouncedData.totalVolume : null;
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
-  const labelCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-500";
-  const valueLight = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const dashCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-400";
 
   const pctMonth = apartmentKpiExecutionPercent(debouncedData.factMonth, planMonthDen);
@@ -714,18 +1042,28 @@ export function ApartmentPlanPeriodKpiBlock({
 
   const showSkeleton = busy && isEditMode;
 
+  const sectionPad = presDark ? "px-0 py-5" : presentation ? "px-0 py-6" : "px-1 py-6 sm:px-2 sm:py-7";
+  const sectionSurfaceStyle =
+    presDark || presentation ? undefined : { background: KPI_UI.dashboardBg };
+
   return (
     <div
-      className={`relative z-0 mt-6 w-full min-w-0 overflow-visible border-t pt-6 ${
-        presDark ? "border-white/10" : presentation ? "border-mpl-border/70" : "border-slate-200/70"
+      className={`relative z-0 mt-6 w-full min-w-0 border-t pt-6 ${
+        presDark
+          ? "border-white/10"
+          : presentation
+            ? "border-slate-200/40"
+            : "border-slate-200/50"
       } ${dragOver && isEditMode ? (presDark ? "ring-2 ring-sky-500/40 ring-offset-2 ring-offset-slate-900" : "ring-2 ring-sky-400/50 ring-offset-2") : ""}`}
+      style={sectionSurfaceStyle}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       {isEditMode && onCsvUpload ? <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onInputChange} /> : null}
 
-      <div className="relative z-[1] mb-4 flex min-w-0 flex-col gap-3 md:mb-5 md:flex-row md:items-center md:justify-between">
+      <div className={`relative z-[1] ${sectionPad}`}>
+      <div className="relative z-[1] mb-5 flex min-w-0 flex-col gap-3 md:mb-6 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0 flex-1">
           <h2 className={`text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`}>
             Выполнение плана отчетного периода
@@ -847,7 +1185,7 @@ export function ApartmentPlanPeriodKpiBlock({
         <CsvKpiDiagnosticsPanel diagnostics={csvDiagnostics} presDark={presDark} presentation={presentation} />
       ) : null}
 
-      {csvHydrated ? (
+      {csvHydrated && isEditMode && !presentation ? (
         <div
           className={`mb-4 rounded-xl border px-4 py-2.5 text-xs ${
             presDark ? "border-white/10 bg-slate-900/30 text-slate-400" : "border-slate-200/90 bg-slate-50/80 text-slate-600"
@@ -874,8 +1212,8 @@ export function ApartmentPlanPeriodKpiBlock({
         </div>
       ) : null}
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3 md:gap-5">
-        <div className="flex min-h-[220px] min-w-0 md:min-h-[240px]">
+      <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
+        <div className="flex min-w-0 overflow-visible">
           <KpiCardShell
             title="План на отчетный месяц"
             presDark={presDark}
@@ -891,19 +1229,16 @@ export function ApartmentPlanPeriodKpiBlock({
                 plan={planMonthDen}
                 hasPlan={hasPlanKpi}
                 executionPct={pctMonth}
-                factLabel="Факт"
-                planLabel="План"
                 presDark={presDark}
                 presentation={presentation}
                 mplPremium={mplPremium}
-                labelCls={labelCls}
                 dashCls={dashCls}
               />
             )}
           </KpiCardShell>
         </div>
 
-        <div className="flex min-h-[220px] min-w-0 md:min-h-[240px]">
+        <div className="flex min-w-0 overflow-visible">
           <KpiCardShell
             title="План накопительно итогом"
             presDark={presDark}
@@ -919,19 +1254,16 @@ export function ApartmentPlanPeriodKpiBlock({
                 plan={planCumDen}
                 hasPlan={hasPlanKpi}
                 executionPct={pctCum}
-                factLabel="Факт накопительно"
-                planLabel="План накопительно"
                 presDark={presDark}
                 presentation={presentation}
                 mplPremium={mplPremium}
-                labelCls={labelCls}
                 dashCls={dashCls}
               />
             )}
           </KpiCardShell>
         </div>
 
-        <div className="flex min-h-[220px] min-w-0 md:min-h-[240px]">
+        <div className="flex min-w-0 overflow-visible">
           <KpiCardShell
             title="% выполнения от общего объема"
             presDark={presDark}
@@ -942,22 +1274,39 @@ export function ApartmentPlanPeriodKpiBlock({
           >
             {showSkeleton ? (
               <KpiSkeletonLine presDark={presDark} />
+            ) : pctTotal != null ? (
+              <div className="relative flex w-full flex-col items-center justify-center py-3">
+                <KpiCircularProgressRing percent={spctT} presDark={presDark} />
+              </div>
             ) : (
-              <div className="flex w-full flex-col items-center justify-center px-2 py-3 text-center">
-                <div className={`text-[11px] font-medium uppercase tracking-wide ${labelCls}`}>Реализовано</div>
-                {pctTotal != null ? (
-                  <div
-                    className={`mt-2 text-4xl font-extrabold tabular-nums leading-none tracking-tight transition-opacity duration-500 sm:text-[2.75rem] ${valueLight}`}
+              <div className="flex h-full w-full flex-col items-center justify-center px-2 py-3 text-center">
+                <div
+                  className="mx-auto flex items-center justify-center rounded-full border-[9px] border-[#EEF2FF]"
+                  style={{ width: KPI_UI.ringSize, height: KPI_UI.ringSize }}
+                >
+                  <span
+                    className={`tabular-nums leading-none ${dashCls}`}
+                    style={{ fontSize: KPI_UI.ringPercentSize, fontWeight: 700 }}
                   >
-                    {dec1Fmt.format(Math.round(spctT * 10) / 10)}%
-                  </div>
-                ) : (
-                  <div className={`mt-2 text-4xl font-extrabold tabular-nums sm:text-[2.75rem] ${dashCls}`}>—</div>
-                )}
+                    —
+                  </span>
+                </div>
+                <span
+                  className="mt-1.5 uppercase"
+                  style={{
+                    fontSize: KPI_UI.ringSubtitleSize,
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    color: KPI_MUTED_LABEL,
+                  }}
+                >
+                  Реализовано
+                </span>
               </div>
             )}
           </KpiCardShell>
         </div>
+      </div>
       </div>
     </div>
   );
