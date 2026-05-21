@@ -6,7 +6,12 @@ import {
   type ApartmentPlanKpiEntityType,
   type BiApartmentsSummarySlice,
 } from "@/lib/planDataSource/apartmentPlanKpiEntity";
+import {
+  entityKpiCumulativePlanFromSummary,
+  mergeEntitySummaryWithCsvRow,
+} from "@/lib/planDataSource/entitySummaryPlanSlice";
 import { getPlanCalculationStrategy } from "@/lib/planDataSource/apartmentPlanKpiStrategy";
+import { isRuColumnarPlanCsvType } from "@/lib/planDataSource/apartmentPlanCsvPipeline";
 import { formatMonthKeyShortRuYY } from "@/lib/normalizeMonthKey";
 import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import type { ApartmentPlanCsvNormalizedRow } from "@/lib/planDataSource/types";
@@ -63,62 +68,34 @@ function sumPlanMonthRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): numbe
   }, 0);
 }
 
-/** Сумма колонки «План накопит. итогом» по строкам сегментов (BI-отчёт). */
-function sumPlanCumulativeRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): number {
-  return rows.reduce((s, r) => {
-    const v = r.planCumulative;
-    return s + (Number.isFinite(v) && v > 0 ? v : 0);
-  }, 0);
+function biSliceToEntitySummary(slice: BiApartmentsSummarySlice | null | undefined) {
+  if (!slice) return null;
+  return {
+    planMonth: slice.planMonth,
+    planCumulative: slice.planCumulative,
+    planProject: slice.planProject,
+    rawLabel: slice.rawLabel,
+  };
 }
 
-const maxTotalVolume = (list: readonly ApartmentPlanCsvNormalizedRow[]) =>
-  list.reduce((m, r) => Math.max(m, r.totalVolume), 0);
-
-/** «План проекта» для KPI квартир: только свод «Квартиры», не max по сегментам (парковки/ИТОГО). */
-function resolveApartmentsProjectPlanVolume(
-  summary: BiApartmentsSummarySlice | null,
-  apartmentRows: readonly ApartmentPlanCsvNormalizedRow[],
-  preferRows: readonly ApartmentPlanCsvNormalizedRow[],
-  biSummaryPlanProject?: number | null,
-): number {
-  const fromSummary = summary?.planProject ?? biSummaryPlanProject ?? 0;
-  if (fromSummary > 0) return fromSummary;
-  const pool = preferRows.length ? preferRows : apartmentRows;
-  return maxTotalVolume(pool);
-}
-
-/** Свод «Квартиры» из BI meta или из импортированных строк. */
-function resolveApartmentsSummarySlice(
+/** «План проекта» для KPI квартир: только строка «Квартиры» (колонка «План проекта»). */
+export function resolveApartmentsPlanProjectVolume(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
-  explicit?: BiApartmentsSummarySlice | null,
-): BiApartmentsSummarySlice | null {
-  if (explicit) return explicit;
-  for (const r of rows) {
-    const raw = r.segmentNorm;
-    if (isBiApartmentsSummaryRow(r.segmentNorm, raw)) {
-      return {
-        planMonth: r.planMonth,
-        planCumulative: r.planCumulative,
-        planProject: r.totalVolume,
-        rawLabel: raw,
-      };
-    }
-  }
-  return null;
-}
-
-function resolveCumulativePlan(
-  summary: BiApartmentsSummarySlice | null,
-  cumulativeMode: ReturnType<typeof getPlanCalculationStrategy>["cumulativeMode"],
-  throughMonthRows: readonly ApartmentPlanCsvNormalizedRow[],
-  monthRows: readonly ApartmentPlanCsvNormalizedRow[],
+  opts: {
+    objectId: string;
+    objects: readonly { id: string; name: string }[];
+    biApartmentsSummary?: BiApartmentsSummarySlice | null;
+    monthKey?: string;
+  },
 ): number {
-  if (summary) return summary.planCumulative;
-  if (cumulativeMode === "bi_report_ready_column") {
-    const snap = monthRows.length ? monthRows : throughMonthRows;
-    return sumPlanCumulativeRows(snap);
-  }
-  return sumPlanMonthRows(throughMonthRows);
+  const summary = mergeEntitySummaryWithCsvRow(
+    rows,
+    biSliceToEntitySummary(opts.biApartmentsSummary),
+    isBiApartmentsSummaryRow,
+    opts.monthKey,
+  );
+  if (summary && summary.planProject > 0) return summary.planProject;
+  return 0;
 }
 
 function selectedMonthLabel(period: "month" | "quarter", currentPeriodKey: string, endMonthKey: string): string {
@@ -141,7 +118,7 @@ export type ApartmentPlanKpiPlanDebugMeta = {
 
 /**
  * План KPI квартир: entity = apartments.
- * BI: накопительно из строки «Квартиры»; wide: сумма plan_month ≤ выбранный месяц.
+ * Накопительно — только «Квартиры» / plan_cumulative сводной строки (не сумма комнатностей).
  */
 export function selectPlanSliceForKpi(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
@@ -151,7 +128,6 @@ export function selectPlanSliceForKpi(
     objectId: string;
     objects: readonly { id: string; name: string }[];
     biApartmentsSummary?: BiApartmentsSummarySlice | null;
-    biSummaryPlanProject?: number | null;
     csvType?: ApartmentPlanCsvParseDiagnostics["csvType"];
     entityType?: ApartmentPlanKpiEntityType;
   },
@@ -163,40 +139,53 @@ export function selectPlanSliceForKpi(
 
   const filteredByObj = rows.filter((r) => segmentMatchesObject(r, opts.objectId, opts.objects));
   const apartmentRows = filterApartmentKpiEntityRows(filteredByObj);
-  const summary = resolveApartmentsSummarySlice(filteredByObj, opts.biApartmentsSummary ?? null);
+
+  const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
+  const endMonthKey =
+    opts.period === "quarter" && qMonths?.length ? qMonths[qMonths.length - 1]! : opts.currentPeriodKey;
+  const summaryMonthKey = opts.period === "month" ? opts.currentPeriodKey : endMonthKey;
+
+  const summary = mergeEntitySummaryWithCsvRow(
+    rows,
+    biSliceToEntitySummary(opts.biApartmentsSummary),
+    isBiApartmentsSummaryRow,
+    isRuColumnarPlanCsvType(opts.csvType) ? undefined : summaryMonthKey,
+  );
 
   if (!apartmentRows.length && !summary) return null;
 
   const csvTypeForStrategy =
     opts.csvType ?? (summary ? ("bi_report" as const) : undefined);
   const { cumulativeMode } = getPlanCalculationStrategy(csvTypeForStrategy);
-
-  const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
-  const endMonthKey =
-    opts.period === "quarter" && qMonths?.length ? qMonths[qMonths.length - 1]! : opts.currentPeriodKey;
+  const isColumnarCsv = isRuColumnarPlanCsvType(opts.csvType);
 
   const monthLabel = selectedMonthLabel(opts.period, opts.currentPeriodKey, endMonthKey);
   const csvSummaryRow = summary?.rawLabel?.trim() || "Квартиры";
 
   if (opts.period === "month") {
-    const monthRows = apartmentRows.filter((r) => r.monthKey === opts.currentPeriodKey);
+    const monthRows = isColumnarCsv
+      ? apartmentRows
+      : apartmentRows.filter((r) => r.monthKey === opts.currentPeriodKey);
     const planMonthFromDetails = sumPlanMonthRows(monthRows);
-    const planMonth = summary && summary.planMonth > 0 ? summary.planMonth : planMonthFromDetails;
+    const planMonth =
+      summary && summary.planMonth > 0 ? summary.planMonth : planMonthFromDetails;
 
-    const throughMonth = apartmentRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
-    const planCumulative = resolveCumulativePlan(summary, cumulativeMode, throughMonth, monthRows);
+    const throughMonth = isColumnarCsv
+      ? apartmentRows
+      : apartmentRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
+    const planCumulative = entityKpiCumulativePlanFromSummary(summary, cumulativeMode, throughMonth);
     const planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"] = summary
       ? summary.planMonth > 0
         ? "apartments_summary"
         : "detail_segments_sum"
       : "detail_segments_sum";
 
-    const totalVolume = resolveApartmentsProjectPlanVolume(
-      summary,
-      apartmentRows,
-      monthRows.length ? monthRows : apartmentRows,
-      opts.biSummaryPlanProject,
-    );
+    const totalVolume = resolveApartmentsPlanProjectVolume(rows, {
+      objectId: opts.objectId,
+      objects: opts.objects,
+      biApartmentsSummary: opts.biApartmentsSummary,
+      monthKey: isColumnarCsv ? undefined : summaryMonthKey,
+    });
 
     return {
       planMonth,
@@ -213,26 +202,32 @@ export function selectPlanSliceForKpi(
     };
   }
 
-  const inQuarter =
-    qMonths != null
+  const inQuarter = isColumnarCsv
+    ? apartmentRows
+    : qMonths != null
       ? apartmentRows.filter((r) => qMonths.includes(r.monthKey))
       : apartmentRows.filter((r) => r.monthKey === opts.currentPeriodKey);
 
   const planMonthFromDetails = sumPlanMonthRows(inQuarter);
-  const planMonth = planMonthFromDetails;
+  const planMonth =
+    summary && summary.planMonth > 0 ? summary.planMonth : planMonthFromDetails;
 
-  const throughMonth = apartmentRows.filter((r) => r.monthKey <= endMonthKey);
-  const planCumulative = resolveCumulativePlan(summary, cumulativeMode, throughMonth, inQuarter);
+  const throughMonth = isColumnarCsv
+    ? apartmentRows
+    : apartmentRows.filter((r) => r.monthKey <= endMonthKey);
+  const planCumulative = entityKpiCumulativePlanFromSummary(summary, cumulativeMode, throughMonth);
   const planMonthSource: ApartmentPlanKpiPlanDebugMeta["planMonthSource"] = summary
-    ? "apartments_summary"
+    ? summary.planMonth > 0
+      ? "apartments_summary"
+      : "detail_segments_sum"
     : "detail_segments_sum";
 
-  const totalVolume = resolveApartmentsProjectPlanVolume(
-    summary,
-    apartmentRows,
-    inQuarter.length ? inQuarter : apartmentRows,
-    opts.biSummaryPlanProject,
-  );
+  const totalVolume = resolveApartmentsPlanProjectVolume(rows, {
+    objectId: opts.objectId,
+    objects: opts.objects,
+    biApartmentsSummary: opts.biApartmentsSummary,
+    monthKey: isColumnarCsv ? undefined : summaryMonthKey,
+  });
 
   return {
     planMonth,

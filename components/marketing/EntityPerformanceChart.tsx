@@ -27,6 +27,8 @@ type Props = {
   presDark: boolean;
   presentation: boolean;
   emptyMessage?: string;
+  /** Суффикс в тултипе, напр. «кв.м» или «шт». */
+  unitSuffix?: string;
 };
 
 export function EntityPerformanceChart({
@@ -35,6 +37,7 @@ export function EntityPerformanceChart({
   presDark,
   presentation,
   emptyMessage = "Нет данных для графика",
+  unitSuffix = "шт",
 }: Props) {
   const axisColor = presDark ? "#94a3b8" : "#64748b";
   const gridColor = presDark ? "rgba(148,163,184,0.2)" : "rgba(226,232,240,0.9)";
@@ -89,7 +92,7 @@ export function EntityPerformanceChart({
             cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : { fill: "rgba(148,163,184,0.08)" }}
             content={
               presDark || presentation
-                ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} шт`)
+                ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} ${unitSuffix}`)
                 : undefined
             }
             formatter={
@@ -97,7 +100,7 @@ export function EntityPerformanceChart({
                 ? undefined
                 : (v, name) => {
                     const lab = String(name) === "plan" ? "План (накоп.)" : "Факт (накоп.)";
-                    return [`${numFmt.format(Number(v))} шт`, lab];
+                    return [`${numFmt.format(Number(v))} ${unitSuffix}`, lab];
                   }
             }
             contentStyle={

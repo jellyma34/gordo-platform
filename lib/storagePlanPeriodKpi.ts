@@ -6,63 +6,63 @@ import {
   type ApartmentKpiHue,
 } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiPlanSlice } from "@/lib/planDataSource/types";
-import type { ParkingPlanAnalyticsBreakdown } from "@/lib/parkingPlanAnalytics";
+import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
 
-export const PARKING_PROJECT_TOTAL_UNITS_DEFAULT = 50;
+export const STORAGE_PROJECT_TOTAL_UNITS_DEFAULT = 40;
 
-/** Подпись объёма проекта машино-мест (52 машино-мест). */
-export function parkingProjectVolumeUnit(_count: number): string {
-  return "машино-мест";
+/** Подпись объёма проекта кладовых (35 кладовых). */
+export function storageProjectVolumeUnit(_count: number): string {
+  return "кладовых";
 }
 
-/** Общий объём проекта из KPI-данных (root «Парковки» / planProject), без KPI-дефолта. */
-export function parkingProjectVolumeFromKpiData(data: ParkingPlanPeriodKpiUiData): number | null {
+/** Общий объём проекта из KPI-данных (root «Кладовые» / planProject), без KPI-дефолта. */
+export function storageProjectVolumeFromKpiData(data: StoragePlanPeriodKpiUiData): number | null {
   if (!data.hasCsvPlan) return null;
   const vol = data.csvPlanProjectVolume ?? 0;
   if (!Number.isFinite(vol) || vol <= 0) return null;
   return Math.round(vol);
 }
 
-export type ParkingPlanPeriodKpiInputs = {
+export type StoragePlanPeriodKpiInputs = {
   planMonth: number;
   factMonth: number;
   planCumulative: number;
   factCumulative: number;
   totalVolume: number;
   totalProjectPlan: number;
-  /** planProject из root «Парковки» (только отображение, не дефолт KPI). */
+  /** planProject из root «Кладовые» (только отображение, не дефолт KPI). */
   csvPlanProjectVolume?: number | null;
 };
 
-export type ParkingPlanPeriodKpiWithCsv = ParkingPlanPeriodKpiInputs & { hasCsvPlan: true };
-export type ParkingPlanPeriodKpiFactsOnly = {
+export type StoragePlanPeriodKpiWithCsv = StoragePlanPeriodKpiInputs & { hasCsvPlan: true };
+export type StoragePlanPeriodKpiFactsOnly = {
   hasCsvPlan: false;
   factMonth: number;
   factCumulative: number;
 };
-export type ParkingPlanPeriodKpiUiData = ParkingPlanPeriodKpiWithCsv | ParkingPlanPeriodKpiFactsOnly;
+export type StoragePlanPeriodKpiUiData = StoragePlanPeriodKpiWithCsv | StoragePlanPeriodKpiFactsOnly;
 
-export { apartmentKpiExecutionPercent as parkingKpiExecutionPercent };
-export { apartmentKpiExecutionHue as parkingKpiExecutionHue };
-export { apartmentKpiProgressWidthPercent as parkingKpiProgressWidthPercent };
-export type { ApartmentKpiHue as ParkingKpiHue };
+export { apartmentKpiExecutionPercent as storageKpiExecutionPercent };
+export { apartmentKpiExecutionHue as storageKpiExecutionHue };
+export { apartmentKpiProgressWidthPercent as storageKpiProgressWidthPercent };
+export type { ApartmentKpiHue as StorageKpiHue };
 
-export function mergeParkingPlanCsvWithFacts(
+export function mergeStoragePlanCsvWithFacts(
   plan: ApartmentPlanKpiPlanSlice,
-  facts: Pick<ParkingPlanPeriodKpiInputs, "factMonth" | "factCumulative">,
+  facts: Pick<StoragePlanPeriodKpiInputs, "factMonth" | "factCumulative">,
   opts?: { totalProjectPlan?: number | null },
-): ParkingPlanPeriodKpiInputs {
+): StoragePlanPeriodKpiInputs {
   const projectPlan = (() => {
     const explicit = opts?.totalProjectPlan;
     if (explicit != null && explicit > 0) return explicit;
-    return plan.totalVolume > 0 ? plan.totalVolume : PARKING_PROJECT_TOTAL_UNITS_DEFAULT;
+    return plan.totalVolume > 0 ? plan.totalVolume : STORAGE_PROJECT_TOTAL_UNITS_DEFAULT;
   })();
 
   const capForPlans = Math.max(
     projectPlan,
     plan.planMonth > 0 ? plan.planMonth : 0,
     plan.planCumulative > 0 ? plan.planCumulative : 0,
-    PARKING_PROJECT_TOTAL_UNITS_DEFAULT,
+    STORAGE_PROJECT_TOTAL_UNITS_DEFAULT,
   );
 
   const capped = capPlanFields(
@@ -89,7 +89,7 @@ export function mergeParkingPlanCsvWithFacts(
   };
 }
 
-export function parkingKpiVolumeCompletionPercent(data: ParkingPlanPeriodKpiUiData): number | null {
+export function storageKpiVolumeCompletionPercent(data: StoragePlanPeriodKpiUiData): number | null {
   if (!data.hasCsvPlan) return null;
   const denom =
     data.totalProjectPlan > 0
@@ -100,10 +100,9 @@ export function parkingKpiVolumeCompletionPercent(data: ParkingPlanPeriodKpiUiDa
   return apartmentKpiExecutionPercent(data.factCumulative, denom);
 }
 
-/** Есть ли хоть какие-то данные для отображения parking KPI. */
-export function parkingPlanPeriodKpiHasAnyData(
-  data: ParkingPlanPeriodKpiUiData | null | undefined,
-  breakdown: ParkingPlanAnalyticsBreakdown | null | undefined,
+export function storagePlanPeriodKpiHasAnyData(
+  data: StoragePlanPeriodKpiUiData | null | undefined,
+  breakdown: StoragePlanAnalyticsBreakdown | null | undefined,
 ): boolean {
   if (!data) return false;
   if (data.factCumulative > 0 || data.factMonth > 0) return true;

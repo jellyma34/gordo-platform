@@ -14,8 +14,10 @@ export type { RevenueFactRow, RevenueFactSummary };
 export {
   buildRevenueFactSummary,
   mapRevenueFactNameToSegment,
+  parseFactRevenueCsv,
   parseRevenueFactAmountCell,
   parseRevenueFactCsv,
+  parseRuMoney,
 } from "@/lib/parseRevenueFactCsv";
 
 export type MarketingRevenueFactCsvStoredV1 = {
@@ -24,6 +26,8 @@ export type MarketingRevenueFactCsvStoredV1 = {
   uploadedBy?: string;
   fileName: string;
   rawText?: string;
+  csvType?: "fact_revenue_csv";
+  encoding?: "utf-8" | "utf-8-sig" | "cp1251";
   rows: RevenueFactRow[];
   summary: RevenueFactSummary;
   warnings?: string[];
@@ -159,6 +163,8 @@ export function buildMarketingRevenueFactDocFromParse(
     uploadedBy,
     fileName: file.name?.trim() || "upload.csv",
     rawText: text,
+    csvType: "fact_revenue_csv",
+    encoding: parsed.encoding,
     rows: parsed.rows,
     summary: parsed.summary,
     warnings: parsed.warnings,

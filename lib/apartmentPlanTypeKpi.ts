@@ -5,6 +5,7 @@ import {
   isApartmentPlanKpiDetailSegment,
   isNonApartmentPropertyRow,
 } from "@/lib/planDataSource/apartmentPlanKpiEntity";
+import { isRuColumnarPlanCsvType } from "@/lib/planDataSource/apartmentPlanCsvPipeline";
 import { getPlanCalculationStrategy } from "@/lib/planDataSource/apartmentPlanKpiStrategy";
 import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
@@ -24,6 +25,14 @@ export const APARTMENT_PLAN_TYPE_KPI_ORDER: readonly ApartmentPlanTypeKpiMeta[] 
   { key: "apt-2", label: "2-комнатные" },
   { key: "apt-3", label: "3-комнатные" },
   { key: "apt-4", label: "4-комнатные+" },
+] as const;
+
+/** Подписи сегментов в legacy CSV (не root / не ИТОГО). */
+export const APARTMENT_PLAN_TYPE_CSV_SEGMENT_LABELS = [
+  "1-ком. квартира",
+  "2-ком. квартира",
+  "3-ком. квартира",
+  "4-ком. и более квар",
 ] as const;
 
 export type ApartmentPlanTypeKpiSlice = ApartmentPlanPeriodKpiInputs & ApartmentPlanTypeKpiMeta;
@@ -136,19 +145,24 @@ export function selectPlanSliceForApartmentTypeKpi(
   if (!typeRows.length) return null;
 
   const { cumulativeMode } = getPlanCalculationStrategy(opts.csvType);
+  const isColumnarCsv = isRuColumnarPlanCsvType(opts.csvType);
   const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
   const endMonthKey =
     opts.period === "quarter" && qMonths?.length ? qMonths[qMonths.length - 1]! : opts.currentPeriodKey;
 
   if (opts.period === "month") {
-    const monthRows = typeRows.filter((r) => r.monthKey === opts.currentPeriodKey);
+    const monthRows = isColumnarCsv
+      ? typeRows
+      : typeRows.filter((r) => r.monthKey === opts.currentPeriodKey);
     const planMonth = sumPlanMonthRows(monthRows);
 
     let planCumulative: number;
     if (cumulativeMode === "bi_report_ready_column") {
       planCumulative = maxPlanCumulative(monthRows.length ? monthRows : typeRows);
     } else {
-      const throughMonth = typeRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
+      const throughMonth = isColumnarCsv
+        ? typeRows
+        : typeRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
       planCumulative = sumPlanMonthRows(throughMonth);
     }
 
@@ -156,8 +170,9 @@ export function selectPlanSliceForApartmentTypeKpi(
     return { planMonth, planCumulative, totalVolume, cumulativeMode };
   }
 
-  const inQuarter =
-    qMonths != null
+  const inQuarter = isColumnarCsv
+    ? typeRows
+    : qMonths != null
       ? typeRows.filter((r) => qMonths.includes(r.monthKey))
       : typeRows.filter((r) => r.monthKey === opts.currentPeriodKey);
 
@@ -167,7 +182,9 @@ export function selectPlanSliceForApartmentTypeKpi(
   if (cumulativeMode === "bi_report_ready_column") {
     planCumulative = maxPlanCumulative(inQuarter.length ? inQuarter : typeRows);
   } else {
-    const throughMonth = typeRows.filter((r) => r.monthKey <= endMonthKey);
+    const throughMonth = isColumnarCsv
+      ? typeRows
+      : typeRows.filter((r) => r.monthKey <= endMonthKey);
     planCumulative = sumPlanMonthRows(throughMonth);
   }
 

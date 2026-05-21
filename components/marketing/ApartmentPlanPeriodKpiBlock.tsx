@@ -4,14 +4,18 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEv
 import { Loader2, Upload } from "lucide-react";
 
 import { ApartmentRoomTypeAnalyticsSection } from "@/components/marketing/ApartmentRoomTypeAnalyticsSection";
-import { ApartmentTypeKpiMiniCard } from "@/components/marketing/ApartmentTypeKpiMiniCard";
+import { ApartmentRoomTypeKpiGrid } from "@/components/marketing/ApartmentRoomTypeKpiGrid";
+import { EntityProjectVolumeMeta } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumeMeta";
 import type { ApartmentKpiHue, ApartmentPlanKpiPlanCalcDebug, ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
+import { csvTypeLabelRu, planSourceLabelForCsvType } from "@/lib/planDataSource/apartmentPlanCsvPipeline";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import {
   apartmentKpiExecutionHue,
   apartmentKpiExecutionPercent,
   apartmentKpiProgressWidthPercent,
+  apartmentKpiVolumeCompletionPercent,
+  apartmentProjectVolumeUnit,
 } from "@/lib/apartmentsPlanPeriodKpi";
 import { dec1Fmt, numFmt } from "@/lib/salesPlanChartFormat";
 
@@ -669,10 +673,12 @@ type CsvMeta = { fileName: string; updatedAt: string };
 
 function CsvKpiDiagnosticsPanel({
   diagnostics,
+  planLoaded = false,
   presDark,
   presentation,
 }: {
   diagnostics: ApartmentPlanCsvParseDiagnostics;
+  planLoaded?: boolean;
   presDark: boolean;
   presentation: boolean;
 }) {
@@ -690,12 +696,16 @@ function CsvKpiDiagnosticsPanel({
   return (
     <div className={`mb-4 ${box} p-4 text-left`}>
       <div className={`text-xs font-semibold uppercase tracking-wide ${mutedCls}`}>Разбор CSV (отладка)</div>
+      <p className={`mt-2 text-xs ${mutedCls}`}>
+        Plan source:{" "}
+        <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">
+          {planSourceLabelForCsvType(diagnostics.csvType, planLoaded)}
+        </span>
+      </p>
       {diagnostics.csvType ? (
-        <p className={`mt-2 text-xs ${mutedCls}`}>
+        <p className={`mt-1 text-xs ${mutedCls}`}>
           Тип CSV:{" "}
-          <span className="font-semibold text-slate-800 dark:text-slate-100">
-            {diagnostics.csvType === "bi_report" ? "BI Report" : "Широкая таблица (сырые строки)"}
-          </span>
+          <span className="font-semibold text-slate-800 dark:text-slate-100">{csvTypeLabelRu(diagnostics.csvType)}</span>
           {diagnostics.monthKeyUsed ? (
             <>
               {" "}
@@ -967,6 +977,8 @@ export function ApartmentPlanPeriodKpiBlock({
   const planMonthDen = hasPlanKpi ? debouncedData.planMonth : null;
   const planCumDen = hasPlanKpi ? debouncedData.planCumulative : null;
   const totalVolDen = hasPlanKpi ? debouncedData.totalVolume : null;
+  const projectApartmentTotal =
+    hasPlanKpi && totalVolDen != null && totalVolDen > 0 ? Math.round(totalVolDen) : null;
 
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const sectionLabelCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-gray-900";
@@ -974,7 +986,9 @@ export function ApartmentPlanPeriodKpiBlock({
 
   const pctMonth = apartmentKpiExecutionPercent(debouncedData.factMonth, planMonthDen);
   const pctCum = apartmentKpiExecutionPercent(debouncedData.factCumulative, planCumDen);
-  const pctTotal = apartmentKpiExecutionPercent(debouncedData.factCumulative, totalVolDen);
+  const pctTotal = debouncedData.hasCsvPlan
+    ? apartmentKpiVolumeCompletionPercent(debouncedData)
+    : apartmentKpiExecutionPercent(debouncedData.factCumulative, totalVolDen);
 
   const spctT = useSmoothScalar(pctTotal ?? 0);
 
@@ -1191,7 +1205,12 @@ export function ApartmentPlanPeriodKpiBlock({
       ) : null}
 
       {isEditMode && csvDiagnostics && (csvDiagnostics.rawHeaders.length > 0 || (csvDiagnostics.previewRows?.length ?? 0) > 0) ? (
-        <CsvKpiDiagnosticsPanel diagnostics={csvDiagnostics} presDark={presDark} presentation={presentation} />
+        <CsvKpiDiagnosticsPanel
+          diagnostics={csvDiagnostics}
+          planLoaded={hasCsv}
+          presDark={presDark}
+          presentation={presentation}
+        />
       ) : null}
 
       {csvHydrated && isEditMode && !presentation ? (
@@ -1221,7 +1240,16 @@ export function ApartmentPlanPeriodKpiBlock({
         </div>
       ) : null}
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
+      <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-stretch md:gap-5">
+        {projectApartmentTotal != null ? (
+          <EntityProjectVolumeMeta
+            count={projectApartmentTotal}
+            unit={apartmentProjectVolumeUnit(projectApartmentTotal)}
+            presDark={presDark}
+            presentation={presentation}
+          />
+        ) : null}
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
         <div className="flex min-w-0 overflow-visible">
           <KpiCardShell
             title="План на отчетный месяц"
@@ -1315,37 +1343,23 @@ export function ApartmentPlanPeriodKpiBlock({
             )}
           </KpiCardShell>
         </div>
+        </div>
       </div>
 
       {showTypeBreakdown ? (
-        <div
-          className="mt-6 min-w-0 border-t pt-5 md:mt-7 md:pt-6"
-          style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
-        >
-          <p
-            className={`mb-4 text-[13px] font-semibold uppercase tracking-[0.06em] ${
-              presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
-            }`}
-          >
-            По типам квартир
-          </p>
-          <div className="grid min-w-0 auto-rows-fr grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
-            {typeBreakdown!.items.map((slice) => (
-              <ApartmentTypeKpiMiniCard
-                key={slice.key}
-                slice={slice}
-                hasPlan={typeBreakdown!.hasCsvPlan}
-                presDark={presDark}
-                presentation={presentation}
-              />
-            ))}
-          </div>
+        <>
+          <ApartmentRoomTypeKpiGrid
+            breakdown={typeBreakdown!}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+          />
           <ApartmentRoomTypeAnalyticsSection
             breakdown={typeBreakdown!}
             presDark={presDark}
             presentation={presentation}
           />
-        </div>
+        </>
       ) : null}
       </div>
     </div>

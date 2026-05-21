@@ -22,3 +22,8 @@ export function useMarketingDealsFeed(): MarketingDealsJsonFeed {
   }
   return v;
 }
+
+/** Без провайдера — `null` (режим редактирования вне MarketingWorkspace). */
+export function useMarketingDealsFeedOptional(): MarketingDealsJsonFeed | null {
+  return useContext(Ctx);
+}

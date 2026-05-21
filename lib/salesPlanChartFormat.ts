@@ -5,6 +5,16 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
 });
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 export const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+export const dec2Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** RU-число с фиксированным числом знаков после запятой (для площади и т.п.). */
+export function formatRuNumber(n: number, fractionDigits = 2): string {
+  if (!Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(n);
+}
 
 /** Целое для подписей осей и меток на графике (не tooltip). */
 export function formatChartAxisTickNumber(n: number): string {

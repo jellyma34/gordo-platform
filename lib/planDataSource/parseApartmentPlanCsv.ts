@@ -1,19 +1,26 @@
-import Papa from "papaparse";
-
 import {
   columnMappingForDiagnostics,
   resolveApartmentPlanHeaders,
 } from "@/lib/planDataSource/apartmentPlanCsvColumns";
 import {
+  detectApartmentPlanCsvType,
+  diagnosticsColumnMappingForType,
+} from "@/lib/planDataSource/apartmentPlanCsvPipeline";
+import { detectLegacyWideTableCsv } from "@/lib/planDataSource/legacyWideTableCsv";
+import {
+  isApartmentPlanKpiDetailSegment,
   isBiApartmentsSummaryRow,
   isBiGrandTotalRow,
+  isNonApartmentPropertyRow,
+  type BiApartmentsSummarySlice,
 } from "@/lib/planDataSource/apartmentPlanKpiEntity";
+import { parseLegacyWideTableFromGrid } from "@/lib/planDataSource/legacyWideTableCsv";
+import { parseRuPlanCsvToGrid } from "@/lib/planDataSource/ruPlanCsvParse";
 import {
-  detectApartmentPlanBiReportCsv,
   parseApartmentPlanBiReportFromGrid,
   resolveBiReportMonthKey,
 } from "@/lib/planDataSource/parseApartmentPlanBiReportCsv";
-import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
+import { normalizeEntityLabel, normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import type {
   ApartmentPlanCsvNormalizedRow,
   ApartmentPlanCsvParseDiagnostics,
@@ -121,20 +128,231 @@ function emptyDiagnostics(
   rawHeaders: string[],
   delimiter: string | null,
   previewRows: Record<string, string>[],
+  csvType?: ApartmentPlanCsvParseDiagnostics["csvType"],
 ): ApartmentPlanCsvParseDiagnostics {
   return {
     rawHeaders,
     columnMapping: null,
     previewRows,
     delimiter,
+    csvType,
     factSource: "system_json",
+  };
+}
+
+function parseColumnarPlan(
+  metaFields: string[],
+  rowsIn: Record<string, unknown>[],
+  monthKey: string,
+  csvType: "legacy_wide_table" | "bi_report",
+): ApartmentPlanCsvParseResult {
+  const parsed =
+    csvType === "legacy_wide_table"
+      ? parseLegacyWideTableFromGrid(metaFields, rowsIn, monthKey)
+      : parseApartmentPlanBiReportFromGrid(metaFields, rowsIn, monthKey);
+
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      error: parsed.error,
+      warnings: [],
+      diagnostics: emptyDiagnostics(metaFields, null, [], csvType),
+    };
+  }
+
+  const r = parsed.result;
+  return {
+    ok: true,
+    rows: r.rows,
+    warnings: r.warnings,
+    biReportMeta: {
+      monthKey,
+      apartmentsSummary: r.apartmentsSummary,
+      summaryPlanProject: r.summaryPlanProject,
+    },
+    diagnostics: {
+      rawHeaders: metaFields,
+      columnMapping: r.columnMapping,
+      previewRows: [],
+      delimiter: null,
+      csvType,
+      importedSegmentRows: r.importedSegmentRows,
+      ignoredSummaryRows: r.ignoredSummaryRows,
+      monthKeyUsed: monthKey,
+      factSource: "system_json",
+    },
+  };
+}
+
+function parseNormalizedWideTable(
+  metaFields: string[],
+  rowsIn: Record<string, unknown>[],
+  previewRows: Record<string, string>[],
+  delimiter: string | null,
+  effectiveMonthKey?: string | null,
+): ApartmentPlanCsvParseResult {
+  const resolved = resolveApartmentPlanHeaders(metaFields);
+  if ("error" in resolved) {
+    return {
+      ok: false,
+      error: resolved.error,
+      warnings: [],
+      diagnostics: {
+        rawHeaders: metaFields,
+        columnMapping: null,
+        previewRows,
+        delimiter,
+        csvType: "wide_table",
+        factSource: "system_json",
+      },
+    };
+  }
+
+  const { map } = resolved;
+  const columnMapping = columnMappingForDiagnostics(map);
+
+  if (!rowsIn.length) {
+    return {
+      ok: false,
+      error: "Нет ни одной строки данных после заголовка.",
+      warnings: [],
+      diagnostics: {
+        rawHeaders: metaFields,
+        columnMapping,
+        previewRows,
+        delimiter,
+        csvType: "wide_table",
+        factSource: "system_json",
+      },
+    };
+  }
+
+  const warnings: string[] = [];
+  const rows: ApartmentPlanCsvNormalizedRow[] = [];
+  let apartmentsSummaryWide: BiApartmentsSummarySlice | null = null;
+
+  for (let i = 0; i < rowsIn.length; i++) {
+    const rec = rowsIn[i] ?? {};
+    const segRaw = rec[map.segment];
+    const monthRaw = rec[map.month];
+    const pmRaw = rec[map.planMonth];
+    const pcRaw = rec[map.planCumulative];
+    const tvRaw = rec[map.totalVolume];
+    const atRaw = map.apartmentType ? rec[map.apartmentType] : undefined;
+
+    const rawSeg = segRaw != null ? String(segRaw).trim() : "";
+    const segmentNorm = normalizeEntityLabel(rawSeg);
+    if (!segmentNorm) {
+      warnings.push(`Строка ${i + 2}: пропущена (пустой segment).`);
+      continue;
+    }
+
+    if (isBiGrandTotalRow(segmentNorm, rawSeg)) {
+      warnings.push(`Строка ${i + 2}: пропущена (ИТОГО — не для KPI квартир).`);
+      continue;
+    }
+
+    let monthKey = parseMonthKeyCell(monthRaw != null ? String(monthRaw) : "");
+    if (!monthKey && effectiveMonthKey) {
+      monthKey = effectiveMonthKey;
+    }
+    if (!monthKey) {
+      warnings.push(`Строка ${i + 2}: пропущена (некорректный month: "${monthRaw}").`);
+      continue;
+    }
+
+    const planMonthN = parseNumberCell(pmRaw != null ? String(pmRaw) : "");
+    const planCumulativeN = parseNumberCell(pcRaw != null ? String(pcRaw) : "");
+    const totalVolumeN = parseNumberCell(tvRaw != null ? String(tvRaw) : "");
+
+    if (planMonthN == null || planCumulativeN == null || totalVolumeN == null) {
+      warnings.push(`Строка ${i + 2}: пропущена (ожидаются числа в plan_month / plan_cumulative / total_volume).`);
+      continue;
+    }
+
+    if (isBiApartmentsSummaryRow(segmentNorm, rawSeg)) {
+      apartmentsSummaryWide = {
+        planMonth: Math.max(0, planMonthN),
+        planCumulative: Math.max(0, planCumulativeN),
+        planProject: Math.max(0, totalVolumeN),
+        rawLabel: rawSeg.trim() || segmentNorm,
+      };
+      rows.push({
+        segmentNorm: normalizeEntityLabel(apartmentsSummaryWide.rawLabel),
+        apartmentTypeNorm: null,
+        monthKey,
+        planMonth: apartmentsSummaryWide.planMonth,
+        planCumulative: apartmentsSummaryWide.planCumulative,
+        totalVolume: apartmentsSummaryWide.planProject,
+      });
+      continue;
+    }
+
+    if (isNonApartmentPropertyRow(segmentNorm, rawSeg)) {
+      warnings.push(`Строка ${i + 2} («${rawSeg}»): пропущена (не квартиры).`);
+      continue;
+    }
+
+    if (!isApartmentPlanKpiDetailSegment(segmentNorm, rawSeg)) {
+      warnings.push(`Строка ${i + 2} («${rawSeg}»): пропущена (не сегмент квартир для KPI).`);
+      continue;
+    }
+
+    rows.push({
+      segmentNorm,
+      apartmentTypeNorm: atRaw != null && String(atRaw).trim() ? normalizeMatchKey(atRaw) : null,
+      monthKey,
+      planMonth: Math.max(0, planMonthN),
+      planCumulative: Math.max(0, planCumulativeN),
+      totalVolume: Math.max(0, totalVolumeN),
+    });
+  }
+
+  if (!rows.length) {
+    return {
+      ok: false,
+      error:
+        "Не удалось импортировать ни одной строки: проверьте сегмент, месяц (формат YYYY-MM или 01.2024) и числовые поля.",
+      warnings,
+      diagnostics: {
+        rawHeaders: metaFields,
+        columnMapping,
+        previewRows,
+        delimiter,
+        csvType: "wide_table",
+        factSource: "system_json",
+      },
+    };
+  }
+
+  const firstMonthKey = rows[0]?.monthKey ?? "";
+  return {
+    ok: true,
+    rows,
+    warnings,
+    ...(apartmentsSummaryWide && firstMonthKey
+      ? {
+          biReportMeta: {
+            monthKey: firstMonthKey,
+            apartmentsSummary: apartmentsSummaryWide,
+            summaryPlanProject: apartmentsSummaryWide.planProject,
+          },
+        }
+      : {}),
+    diagnostics: {
+      rawHeaders: metaFields,
+      columnMapping,
+      previewRows,
+      delimiter,
+      csvType: "wide_table",
+      factSource: "system_json",
+    },
   };
 }
 
 /**
  * Асинхронный разбор CSV плана (только план; факт — из API).
- * Сначала определяется BI-отчёт (показатели в колонках); иначе — «сырая» таблица с колонкой месяца.
- * Для BI задайте {@link ParseApartmentPlanCsvOptions} (период дашборда, asOf, имя файла).
+ * Порядок: detectCsvType → switch (legacy / bi / wide). Wide-table validate НЕ вызывается для legacy.
  */
 export function parseApartmentPlanCsvAsync(
   text: string,
@@ -150,244 +368,185 @@ export function parseApartmentPlanCsvAsync(
     });
   }
 
-  return new Promise((resolve) => {
-    Papa.parse<Record<string, unknown>>(stripped, {
-      header: true,
-      skipEmptyLines: "greedy",
-      delimitersToGuess: [";", ",", "\t", "|"],
-      transformHeader: (h) => preprocessCell(h),
-      complete: (results) => {
-        const warnings: string[] = [];
-        const metaFields = results.meta.fields ?? [];
-        const delimiter =
-          results.meta.delimiter && results.meta.delimiter.length ? results.meta.delimiter : null;
+  try {
+    const grid = parseRuPlanCsvToGrid(stripped);
+    const warnings: string[] = [];
+    const rawHeaders = grid.rawHeaders;
+    const normalizedHeaders = grid.normalizedHeaders;
+    const delimiter = grid.delimiter;
+    const rowsIn = grid.rows;
 
-        if (!metaFields.length) {
-          resolve({
-            ok: false,
-            error: "Не удалось прочитать заголовок CSV.",
-            warnings,
-            diagnostics: emptyDiagnostics([], delimiter, []),
-          });
-          return;
-        }
+    console.log("RAW HEADERS", rawHeaders);
+    console.log("NORMALIZED HEADERS", normalizedHeaders);
 
-        const rawHeaders = [...metaFields];
-        const rowsIn = results.data ?? [];
-        const previewRows = buildPreviewRows(rowsIn, metaFields, PREVIEW_ROW_LIMIT);
+    if (!rawHeaders.length) {
+      return Promise.resolve({
+        ok: false,
+        error: "Не удалось прочитать заголовок CSV.",
+        warnings,
+        diagnostics: emptyDiagnostics([], delimiter, []),
+      });
+    }
 
-        if (detectApartmentPlanBiReportCsv(metaFields)) {
-          if (!options) {
-            resolve({
-              ok: false,
-              error:
-                "Обнаружен BI-отчёт (показатели плана в колонках). Задайте контекст: период дашборда, дата отчёта или месяц в имени файла.",
-              warnings,
-              diagnostics: {
-                rawHeaders,
-                columnMapping: null,
-                previewRows,
-                delimiter,
-                csvType: "bi_report",
-                factSource: "system_json",
-              },
-            });
-            return;
-          }
-          const monthKey = resolveBiReportMonthKey(options);
-          if (!monthKey) {
-            resolve({
-              ok: false,
-              error:
-                "BI-отчёт: не удалось определить месяц (YYYY-MM). Укажите месяц на дашборде, корректную дату отчёта или имя файла с месяцем/годом.",
-              warnings,
-              diagnostics: {
-                rawHeaders,
-                columnMapping: null,
-                previewRows,
-                delimiter,
-                csvType: "bi_report",
-                factSource: "system_json",
-              },
-            });
-            return;
-          }
+    const previewRows = buildPreviewRows(rowsIn, rawHeaders, PREVIEW_ROW_LIMIT);
+    const csvType = detectApartmentPlanCsvType(rawHeaders);
+    console.log("CSV TYPE", csvType);
 
-          const bi = parseApartmentPlanBiReportFromGrid(metaFields, rowsIn, monthKey);
-          if (!bi.ok) {
-            resolve({
-              ok: false,
-              error: bi.error,
-              warnings,
-              diagnostics: {
-                rawHeaders,
-                columnMapping: null,
-                previewRows,
-                delimiter,
-                csvType: "bi_report",
-                monthKeyUsed: monthKey,
-                importedSegmentRows: 0,
-                ignoredSummaryRows: 0,
-                factSource: "system_json",
-              },
-            });
-            return;
-          }
-
-          const r = bi.result;
-          resolve({
-            ok: true,
-            rows: r.rows,
-            warnings: r.warnings,
-            biReportMeta: {
-              monthKey,
-              apartmentsSummary: r.apartmentsSummary,
-              summaryPlanProject: r.summaryPlanProject,
-            },
-            diagnostics: {
-              rawHeaders,
-              columnMapping: r.columnMapping,
-              previewRows,
-              delimiter,
-              csvType: "bi_report",
-              importedSegmentRows: r.importedSegmentRows,
-              ignoredSummaryRows: r.ignoredSummaryRows,
-              monthKeyUsed: monthKey,
-              factSource: "system_json",
-            },
-          });
-          return;
-        }
-
-        const resolved = resolveApartmentPlanHeaders(metaFields);
-
-        if ("error" in resolved) {
-          resolve({
-            ok: false,
-            error: resolved.error,
-            warnings,
-            diagnostics: {
-              rawHeaders,
-              columnMapping: null,
-              previewRows,
-              delimiter,
-              csvType: "wide_table",
-              factSource: "system_json",
-            },
-          });
-          return;
-        }
-
-        const { map } = resolved;
-        const columnMapping = columnMappingForDiagnostics(map);
-
-        if (!rowsIn.length) {
-          resolve({
-            ok: false,
-            error: "Нет ни одной строки данных после заголовка.",
-            warnings,
-            diagnostics: {
-              rawHeaders,
-              columnMapping,
-              previewRows,
-              delimiter,
-              csvType: "wide_table",
-              factSource: "system_json",
-            },
-          });
-          return;
-        }
-
-        const rows: ApartmentPlanCsvNormalizedRow[] = [];
-
-        for (let i = 0; i < rowsIn.length; i++) {
-          const rec = rowsIn[i] ?? {};
-          const segRaw = rec[map.segment];
-          const monthRaw = rec[map.month];
-          const pmRaw = rec[map.planMonth];
-          const pcRaw = rec[map.planCumulative];
-          const tvRaw = rec[map.totalVolume];
-          const atRaw = map.apartmentType ? rec[map.apartmentType] : undefined;
-
-          const segmentNorm = normalizeMatchKey(segRaw);
-          if (!segmentNorm) {
-            warnings.push(`Строка ${i + 2}: пропущена (пустой segment).`);
-            continue;
-          }
-
-          const rawSeg = segRaw != null ? String(segRaw) : "";
-          if (isBiGrandTotalRow(segmentNorm, rawSeg) || isBiApartmentsSummaryRow(segmentNorm, rawSeg)) {
-            warnings.push(
-              `Строка ${i + 2}: пропущена (свод «Квартиры» или ИТОГО — не строка сегмента).`,
-            );
-            continue;
-          }
-
-          const monthKey = parseMonthKeyCell(monthRaw != null ? String(monthRaw) : "");
-          if (!monthKey) {
-            warnings.push(`Строка ${i + 2}: пропущена (некорректный month: "${monthRaw}").`);
-            continue;
-          }
-
-          const planMonthN = parseNumberCell(pmRaw != null ? String(pmRaw) : "");
-          const planCumulativeN = parseNumberCell(pcRaw != null ? String(pcRaw) : "");
-          const totalVolumeN = parseNumberCell(tvRaw != null ? String(tvRaw) : "");
-
-          if (planMonthN == null || planCumulativeN == null || totalVolumeN == null) {
-            warnings.push(`Строка ${i + 2}: пропущена (ожидаются числа в plan_month / plan_cumulative / total_volume).`);
-            continue;
-          }
-
-          rows.push({
-            segmentNorm,
-            apartmentTypeNorm: atRaw != null && String(atRaw).trim() ? normalizeMatchKey(atRaw) : null,
-            monthKey,
-            planMonth: Math.max(0, planMonthN),
-            planCumulative: Math.max(0, planCumulativeN),
-            totalVolume: Math.max(0, totalVolumeN),
-          });
-        }
-
-        if (!rows.length) {
-          resolve({
-            ok: false,
-            error:
-              "Не удалось импортировать ни одной строки: проверьте сегмент, месяц (формат YYYY-MM или 01.2024) и числовые поля.",
-            warnings,
-            diagnostics: {
-              rawHeaders,
-              columnMapping,
-              previewRows,
-              delimiter,
-              csvType: "wide_table",
-              factSource: "system_json",
-            },
-          });
-          return;
-        }
-
-        resolve({
-          ok: true,
-          rows,
+    switch (csvType) {
+      case "fact_revenue_csv":
+        return Promise.resolve({
+          ok: false,
+          error:
+            "Это CSV факта поступлений (Наименование + Факт поступлений). Загрузите его в «Структура продаж» → «Подгрузить CSV», а не в план KPI квартир.",
           warnings,
           diagnostics: {
             rawHeaders,
-            columnMapping,
+            columnMapping: null,
             previewRows,
             delimiter,
-            csvType: "wide_table",
+            csvType: "fact_revenue_csv",
             factSource: "system_json",
           },
         });
-      },
-      error: (err: Error) => {
-        resolve({
-          ok: false,
-          error: err.message || "Ошибка разбора CSV.",
-          warnings: [],
-          diagnostics: emptyDiagnostics([], null, []),
+
+      case "legacy_wide_table":
+      case "bi_report": {
+        if (!options) {
+          return Promise.resolve({
+            ok: false,
+            error:
+              "Обнаружена таблица плана (колонки «Наименование», «План проекта», …). Задайте контекст: период дашборда, дата отчёта или месяц в имени файла.",
+            warnings,
+            diagnostics: {
+              rawHeaders,
+              columnMapping: diagnosticsColumnMappingForType(csvType, rawHeaders),
+              previewRows,
+              delimiter,
+              csvType,
+              factSource: "system_json",
+            },
+          });
+        }
+        const monthKey = resolveBiReportMonthKey(options);
+        if (!monthKey) {
+          return Promise.resolve({
+            ok: false,
+            error:
+              "Таблица плана: не удалось определить месяц (YYYY-MM). Укажите месяц на дашборде, корректную дату отчёта или имя файла с месяцем/годом.",
+            warnings,
+            diagnostics: {
+              rawHeaders,
+              columnMapping: diagnosticsColumnMappingForType(csvType, rawHeaders),
+              previewRows,
+              delimiter,
+              csvType,
+              factSource: "system_json",
+            },
+          });
+        }
+
+        const columnarResult = parseColumnarPlan(rawHeaders, rowsIn, monthKey, csvType);
+        if (!columnarResult.ok) {
+          return Promise.resolve({
+            ...columnarResult,
+            warnings,
+            diagnostics: {
+              ...columnarResult.diagnostics,
+              rawHeaders,
+              previewRows,
+              delimiter,
+              csvType,
+            },
+          });
+        }
+
+        return Promise.resolve({
+          ...columnarResult,
+          diagnostics: {
+            ...columnarResult.diagnostics,
+            rawHeaders,
+            previewRows,
+            delimiter,
+          },
         });
-      },
+      }
+
+      case "wide_table": {
+        if (detectLegacyWideTableCsv(rawHeaders)) {
+          if (!options) {
+            return Promise.resolve({
+              ok: false,
+              error:
+                "Обнаружена legacy-таблица плана (колонки «Наименование», «План проекта», …). Задайте контекст: период дашборда, дата отчёта или месяц в имени файла.",
+              warnings,
+              diagnostics: {
+                rawHeaders,
+                columnMapping: diagnosticsColumnMappingForType("legacy_wide_table", rawHeaders),
+                previewRows,
+                delimiter,
+                csvType: "legacy_wide_table",
+                factSource: "system_json",
+              },
+            });
+          }
+          const legacyMonthKey = resolveBiReportMonthKey(options);
+          if (!legacyMonthKey) {
+            return Promise.resolve({
+              ok: false,
+              error:
+                "Таблица плана: не удалось определить месяц (YYYY-MM). Укажите месяц на дашборде, корректную дату отчёта или имя файла с месяцем/годом.",
+              warnings,
+              diagnostics: {
+                rawHeaders,
+                columnMapping: diagnosticsColumnMappingForType("legacy_wide_table", rawHeaders),
+                previewRows,
+                delimiter,
+                csvType: "legacy_wide_table",
+                factSource: "system_json",
+              },
+            });
+          }
+          const legacyResult = parseColumnarPlan(rawHeaders, rowsIn, legacyMonthKey, "legacy_wide_table");
+          return Promise.resolve({
+            ...legacyResult,
+            warnings: [...warnings, ...legacyResult.warnings],
+            diagnostics: {
+              ...legacyResult.diagnostics,
+              rawHeaders,
+              previewRows,
+              delimiter,
+              csvType: "legacy_wide_table",
+            },
+          });
+        }
+        const wideMonthKey = options ? resolveBiReportMonthKey(options) : null;
+        return Promise.resolve(
+          parseNormalizedWideTable(rawHeaders, rowsIn, previewRows, delimiter, wideMonthKey),
+        );
+      }
+
+      default:
+        return Promise.resolve({
+          ok: false,
+          error:
+            "Не удалось распознать формат CSV плана. Ожидается legacy-таблица (Наименование, План проекта, …) или нормализованная таблица с колонкой месяца.",
+          warnings,
+          diagnostics: {
+            rawHeaders,
+            columnMapping: null,
+            previewRows,
+            delimiter,
+            factSource: "system_json",
+          },
+        });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Ошибка разбора CSV.";
+    return Promise.resolve({
+      ok: false,
+      error: msg,
+      warnings: [],
+      diagnostics: emptyDiagnostics([], null, []),
     });
-  });
+  }
 }

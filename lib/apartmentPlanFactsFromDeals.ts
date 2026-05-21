@@ -22,7 +22,7 @@ export type ApartmentPlanKpiDealFacts = {
   debug: ApartmentPlanKpiDealFactDebug | null;
 };
 
-function canonicalMonthKey(row: NormalizedDealRow): string | null {
+export function canonicalMonthKey(row: NormalizedDealRow): string | null {
   const mk = normalizeMonthKey(row.monthKey) ?? normalizeMonthKey(row.dealDate);
   if (mk && /^\d{4}-\d{2}$/.test(mk)) return mk;
   const head = String(row.dealDate ?? "").trim().slice(0, 7);

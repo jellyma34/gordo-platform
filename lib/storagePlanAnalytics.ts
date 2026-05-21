@@ -11,103 +11,117 @@ import {
   entityKpiCumulativePlanFromSummary,
   mergeEntitySummaryWithCsvRow,
 } from "@/lib/planDataSource/entitySummaryPlanSlice";
-import { isParkingRootSummaryRow } from "@/lib/planDataSource/entityRowMatchers";
+import { isStorageRootSummaryRow } from "@/lib/planDataSource/entityRowMatchers";
 import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
 import type { ApartmentPlanCsvNormalizedRow } from "@/lib/planDataSource/types";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import type { ApartmentPlanKpiPlanSlice } from "@/lib/planDataSource/types";
-export type ParkingPlanCategoryKey = "underground" | "surface" | "family" | "moto" | "guest" | "total";
 
-export type ParkingPlanCategoryMeta = {
-  key: ParkingPlanCategoryKey;
+export type StoragePlanCategoryKey = "small" | "medium" | "large" | "premium" | "basement" | "total";
+
+export type StoragePlanCategoryMeta = {
+  key: StoragePlanCategoryKey;
   label: string;
   shortLabel: string;
 };
 
-export const PARKING_PLAN_CATEGORY_ORDER: readonly ParkingPlanCategoryMeta[] = [
-  { key: "underground", label: "Подземные", shortLabel: "Подзем." },
-  { key: "surface", label: "Наземные", shortLabel: "Назем." },
-  { key: "family", label: "Семейные", shortLabel: "Семейн." },
-  { key: "moto", label: "Мото", shortLabel: "Мото" },
-  { key: "guest", label: "Гостевые", shortLabel: "Гостев." },
+export const STORAGE_PLAN_CATEGORY_ORDER: readonly StoragePlanCategoryMeta[] = [
+  { key: "small", label: "Маленькие", shortLabel: "Мал." },
+  { key: "medium", label: "Средние", shortLabel: "Сред." },
+  { key: "large", label: "Большие", shortLabel: "Бол." },
+  { key: "premium", label: "Premium", shortLabel: "Prem." },
+  { key: "basement", label: "Подвал", shortLabel: "Подв." },
 ] as const;
 
-const TOTAL_PARKING_META: ParkingPlanCategoryMeta = {
+const TOTAL_STORAGE_META: StoragePlanCategoryMeta = {
   key: "total",
-  label: "Машино-места",
-  shortLabel: "ММ",
+  label: "Кладовые",
+  shortLabel: "Клд.",
 };
 
 function segmentBlob(segmentNorm: string, rawLabel: string): string {
   return `${segmentNorm} ${rawLabel}`.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ");
 }
 
-function isStorageOrCommercial(blob: string): boolean {
-  return (
-    blob.includes("кладов") ||
-    blob.includes("коммерц") ||
-    blob.includes("нежил") ||
-    blob.includes("офис") ||
-    blob.includes("ритейл") ||
-    (blob.includes("storage") && !blob.includes("parking"))
-  );
-}
-
-/** Строка CSV относится к парковкам / машино-местам (не квартиры, не кладовые, не коммерция). */
-export function isParkingPropertyRow(segmentNorm: string, rawLabel = segmentNorm): boolean {
-  if (isBiGrandTotalRow(segmentNorm, rawLabel) || isBiApartmentsSummaryRow(segmentNorm, rawLabel)) {
-    return false;
-  }
-  const blob = segmentBlob(segmentNorm, rawLabel);
-  if (isStorageOrCommercial(blob)) return false;
-  if (/[1-4]\s*[-–]?\s*ком/.test(blob) || (blob.includes("квартир") && !blob.includes("парков"))) {
-    return false;
-  }
+function isParkingBlob(blob: string): boolean {
   return (
     blob.includes("парков") ||
     blob.includes("машиномест") ||
     blob.includes("машино-мест") ||
-    blob.includes("мм ") ||
     blob.includes("parking") ||
     blob.includes("паркинг") ||
     blob.includes("гараж")
   );
 }
 
-/** Свод «Парковки» / «Машино-места» в BI-отчёте. */
-export function isBiParkingSummaryRow(segmentNorm: string, rawLabel = segmentNorm): boolean {
-  if (!isParkingPropertyRow(segmentNorm, rawLabel)) return false;
-  return isParkingRootSummaryRow(segmentNorm, rawLabel);
+function isCommercialBlob(blob: string): boolean {
+  return (
+    blob.includes("коммерц") ||
+    blob.includes("нежил") ||
+    blob.includes("офис") ||
+    blob.includes("ритейл") ||
+    blob.includes("commercial")
+  );
 }
 
-/** Детальная строка типа парковки (подземные, наземные, …). */
-export function isParkingDetailSegment(segmentNorm: string, rawLabel = segmentNorm): boolean {
-  if (!isParkingPropertyRow(segmentNorm, rawLabel)) return false;
-  if (isBiParkingSummaryRow(segmentNorm, rawLabel)) return false;
-  return matchParkingCategoryKey(segmentNorm, rawLabel) != null;
+function isApartmentBlob(blob: string): boolean {
+  return (
+    /[1-4]\s*[-–]?\s*ком/.test(blob) ||
+    (blob.includes("квартир") && !blob.includes("парков")) ||
+    blob.includes("студи")
+  );
 }
 
-export function matchParkingCategoryKey(
+/** Строка CSV: только кладовые (не квартиры, parking, коммерция). */
+export function isStoragePropertyRow(segmentNorm: string, rawLabel = segmentNorm): boolean {
+  if (isBiGrandTotalRow(segmentNorm, rawLabel) || isBiApartmentsSummaryRow(segmentNorm, rawLabel)) {
+    return false;
+  }
+  const blob = segmentBlob(segmentNorm, rawLabel);
+  if (isParkingBlob(blob)) return false;
+  if (isCommercialBlob(blob)) return false;
+  if (isApartmentBlob(blob)) return false;
+  return (
+    blob.includes("кладов") ||
+    blob.includes("кладовк") ||
+    blob.includes("storage") ||
+    blob.includes("storages")
+  );
+}
+
+/** Свод «Кладовые» в BI-отчёте. */
+export function isBiStorageSummaryRow(segmentNorm: string, rawLabel = segmentNorm): boolean {
+  if (!isStoragePropertyRow(segmentNorm, rawLabel)) return false;
+  return isStorageRootSummaryRow(segmentNorm, rawLabel);
+}
+
+export function isStorageDetailSegment(segmentNorm: string, rawLabel = segmentNorm): boolean {
+  if (!isStoragePropertyRow(segmentNorm, rawLabel)) return false;
+  if (isBiStorageSummaryRow(segmentNorm, rawLabel)) return false;
+  return matchStorageCategoryKey(segmentNorm, rawLabel) != null;
+}
+
+export function matchStorageCategoryKey(
   segmentNorm: string,
   rawLabel = segmentNorm,
-): ParkingPlanCategoryKey | null {
+): StoragePlanCategoryKey | null {
   const blob = segmentBlob(segmentNorm, rawLabel);
-  if (!isParkingPropertyRow(segmentNorm, rawLabel)) return null;
-  if (/подзем|underground|under\s*ground/.test(blob)) return "underground";
-  if (/назем|надзем|надземн|surface|на\s*земл/.test(blob)) return "surface";
-  if (/семейн|family/.test(blob)) return "family";
-  if (/мото|moto|байк|bike/.test(blob)) return "moto";
-  if (/гостев|guest/.test(blob)) return "guest";
+  if (!isStoragePropertyRow(segmentNorm, rawLabel)) return null;
+  if (/маленьк|small/.test(blob)) return "small";
+  if (/средн|medium/.test(blob)) return "medium";
+  if (/больш|large/.test(blob)) return "large";
+  if (/premium|премиум/.test(blob)) return "premium";
+  if (/подвал|basement|цоколь/.test(blob)) return "basement";
   return null;
 }
 
-export function inferParkingCategoryFromDeal(row: NormalizedDealRow): ParkingPlanCategoryKey | null {
-  if (row.dealType !== "parking") return null;
+export function inferStorageCategoryFromDeal(row: NormalizedDealRow): StoragePlanCategoryKey | null {
+  if (row.dealType !== "storage") return null;
   const hints = [row.objectParams.type, row.objectLabel, row.objectUnitLabel, row.typeLabel]
     .filter((s) => s != null && String(s).trim() !== "")
     .join(" ");
-  const fromHints = matchParkingCategoryKey(normalizeMatchKey(hints), hints);
+  const fromHints = matchStorageCategoryKey(normalizeMatchKey(hints), hints);
   if (fromHints) return fromHints;
   return "total";
 }
@@ -137,18 +151,18 @@ function segmentMatchesObject(
 
 function filterCategoryRows(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
-  categoryKey: ParkingPlanCategoryKey,
+  categoryKey: StoragePlanCategoryKey,
   objectId: string,
   objects: readonly { id: string; name: string }[],
 ): ApartmentPlanCsvNormalizedRow[] {
   return rows.filter((r) => {
     const raw = r.segmentNorm;
     if (!segmentMatchesObject(r, objectId, objects)) return false;
-    if (!isParkingPropertyRow(r.segmentNorm, raw)) return false;
+    if (!isStoragePropertyRow(r.segmentNorm, raw)) return false;
     if (categoryKey === "total") {
-      return isBiParkingSummaryRow(r.segmentNorm, raw);
+      return isBiStorageSummaryRow(r.segmentNorm, raw);
     }
-    return matchParkingCategoryKey(r.segmentNorm, raw) === categoryKey;
+    return matchStorageCategoryKey(r.segmentNorm, raw) === categoryKey;
   });
 }
 
@@ -163,21 +177,21 @@ function maxPlanCumulative(rows: readonly ApartmentPlanCsvNormalizedRow[]): numb
   return rows.reduce((m, r) => Math.max(m, Number.isFinite(r.planCumulative) ? r.planCumulative : 0), 0);
 }
 
-function selectPlanSliceForParkingCategory(
+function selectPlanSliceForStorageCategory(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
-  categoryKey: ParkingPlanCategoryKey,
+  categoryKey: StoragePlanCategoryKey,
   opts: {
     period: "month" | "quarter";
     currentPeriodKey: string;
     objectId: string;
     objects: readonly { id: string; name: string }[];
     csvType?: ApartmentPlanCsvParseDiagnostics["csvType"];
-    parkingSummary?: { planCumulative: number; planMonth: number } | null;
+    storageSummary?: { planCumulative: number; planMonth: number } | null;
   },
 ): ApartmentPlanKpiPlanSlice | null {
   const typeRows = filterCategoryRows(rows, categoryKey, opts.objectId, opts.objects);
 
-  if (!typeRows.length && !opts.parkingSummary) return null;
+  if (!typeRows.length && !opts.storageSummary) return null;
 
   const { cumulativeMode } = getPlanCalculationStrategy(opts.csvType);
   const isColumnarCsv = isRuColumnarPlanCsvType(opts.csvType);
@@ -188,9 +202,9 @@ function selectPlanSliceForParkingCategory(
   let planMonth = 0;
   let planCumulative = 0;
 
-  if (categoryKey === "total" && opts.parkingSummary && opts.parkingSummary.planCumulative > 0) {
-    planMonth = opts.parkingSummary.planMonth;
-    planCumulative = opts.parkingSummary.planCumulative;
+  if (categoryKey === "total" && opts.storageSummary && opts.storageSummary.planCumulative > 0) {
+    planMonth = opts.storageSummary.planMonth;
+    planCumulative = opts.storageSummary.planCumulative;
   } else if (typeRows.length) {
     if (opts.period === "month") {
       const monthRows = isColumnarCsv
@@ -227,7 +241,7 @@ function selectPlanSliceForParkingCategory(
   return { planMonth, planCumulative, totalVolume: 0, cumulativeMode };
 }
 
-function filterParkingKpiRows(
+function filterStorageKpiRows(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
   objectId: string,
   objects: readonly { id: string; name: string }[],
@@ -235,26 +249,26 @@ function filterParkingKpiRows(
   return rows.filter((r) => {
     const raw = r.segmentNorm;
     if (!segmentMatchesObject(r, objectId, objects)) return false;
-    return isParkingPropertyRow(r.segmentNorm, raw);
+    return isStoragePropertyRow(r.segmentNorm, raw);
   });
 }
 
-function sumParkingPlanMonthRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): number {
+function sumStoragePlanMonthRows(rows: readonly ApartmentPlanCsvNormalizedRow[]): number {
   return rows.reduce((s, r) => {
     const v = r.planMonth;
     return s + (Number.isFinite(v) && v > 0 ? v : 0);
   }, 0);
 }
 
-function resolveParkingProjectPlanVolume(
+function resolveStorageProjectPlanVolume(
   summary: ReturnType<typeof mergeEntitySummaryWithCsvRow>,
 ): number {
   if (summary && summary.planProject > 0) return summary.planProject;
   return 0;
 }
 
-/** Свод KPI машино-мест (план месяца / накопительно / объём проекта). */
-export function selectPlanSliceForParkingKpi(
+/** Свод KPI кладовых (план месяца / накопительно / объём проекта). */
+export function selectPlanSliceForStorageKpi(
   rows: readonly ApartmentPlanCsvNormalizedRow[],
   opts: {
     period: "month" | "quarter";
@@ -267,7 +281,7 @@ export function selectPlanSliceForParkingKpi(
   if (!rows.length) return null;
 
   const filteredByObj = rows.filter((r) => segmentMatchesObject(r, opts.objectId, opts.objects));
-  const parkingRows = filterParkingKpiRows(rows, opts.objectId, opts.objects);
+  const storageRows = filterStorageKpiRows(rows, opts.objectId, opts.objects);
 
   const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
   const endMonthKey =
@@ -279,94 +293,94 @@ export function selectPlanSliceForParkingKpi(
   const summary = mergeEntitySummaryWithCsvRow(
     rows,
     null,
-    isBiParkingSummaryRow,
+    isBiStorageSummaryRow,
     isColumnarCsv ? undefined : summaryMonthKey,
   );
 
-  if (!parkingRows.length && !summary) return null;
+  if (!storageRows.length && !summary) return null;
 
   const { cumulativeMode } = getPlanCalculationStrategy(opts.csvType);
 
   if (opts.period === "month") {
     const monthRows = isColumnarCsv
-      ? parkingRows
-      : parkingRows.filter((r) => r.monthKey === opts.currentPeriodKey);
+      ? storageRows
+      : storageRows.filter((r) => r.monthKey === opts.currentPeriodKey);
     const planMonth =
-      summary && summary.planMonth > 0 ? summary.planMonth : sumParkingPlanMonthRows(monthRows);
+      summary && summary.planMonth > 0 ? summary.planMonth : sumStoragePlanMonthRows(monthRows);
     const throughMonth = isColumnarCsv
-      ? parkingRows
-      : parkingRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
+      ? storageRows
+      : storageRows.filter((r) => r.monthKey <= opts.currentPeriodKey);
     const planCumulative = entityKpiCumulativePlanFromSummary(summary, cumulativeMode, throughMonth);
-    const totalVolume = resolveParkingProjectPlanVolume(summary);
+    const totalVolume = resolveStorageProjectPlanVolume(summary);
     return { planMonth, planCumulative, totalVolume, cumulativeMode };
   }
 
   const inQuarter = isColumnarCsv
-    ? parkingRows
+    ? storageRows
     : qMonths != null
-      ? parkingRows.filter((r) => qMonths.includes(r.monthKey))
-      : parkingRows.filter((r) => r.monthKey === opts.currentPeriodKey);
+      ? storageRows.filter((r) => qMonths.includes(r.monthKey))
+      : storageRows.filter((r) => r.monthKey === opts.currentPeriodKey);
 
-  const planMonth = summary && summary.planMonth > 0 ? summary.planMonth : sumParkingPlanMonthRows(inQuarter);
+  const planMonth = summary && summary.planMonth > 0 ? summary.planMonth : sumStoragePlanMonthRows(inQuarter);
   const throughMonth = isColumnarCsv
-    ? parkingRows
-    : parkingRows.filter((r) => r.monthKey <= endMonthKey);
+    ? storageRows
+    : storageRows.filter((r) => r.monthKey <= endMonthKey);
   const planCumulative = entityKpiCumulativePlanFromSummary(summary, cumulativeMode, throughMonth);
-  const totalVolume = resolveParkingProjectPlanVolume(summary);
+  const totalVolume = resolveStorageProjectPlanVolume(summary);
 
   return { planMonth, planCumulative, totalVolume, cumulativeMode };
 }
 
-function resolveParkingChartCategories(
+function resolveStorageChartCategories(
   rows: readonly ApartmentPlanCsvNormalizedRow[] | null | undefined,
   dealRows: readonly NormalizedDealRow[],
-): readonly ParkingPlanCategoryMeta[] {
-  const detailKeys = new Set<ParkingPlanCategoryKey>();
+): readonly StoragePlanCategoryMeta[] {
+  const detailKeys = new Set<StoragePlanCategoryKey>();
   if (Array.isArray(rows)) {
     for (const r of rows) {
-      if (!isParkingDetailSegment(r.segmentNorm, r.segmentNorm)) continue;
-      const k = matchParkingCategoryKey(r.segmentNorm, r.segmentNorm);
+      if (!isStorageDetailSegment(r.segmentNorm, r.segmentNorm)) continue;
+      const k = matchStorageCategoryKey(r.segmentNorm, r.segmentNorm);
       if (k) detailKeys.add(k);
     }
   }
   if (detailKeys.size > 0) {
-    return PARKING_PLAN_CATEGORY_ORDER.filter((m) => detailKeys.has(m.key));
+    return STORAGE_PLAN_CATEGORY_ORDER.filter((m) => detailKeys.has(m.key));
   }
 
-  const hasParkingCsv = Array.isArray(rows) && rows.some((r) => isParkingPropertyRow(r.segmentNorm, r.segmentNorm));
-  if (hasParkingCsv) return [TOTAL_PARKING_META];
+  const hasStorageCsv = Array.isArray(rows) && rows.some((r) => isStoragePropertyRow(r.segmentNorm, r.segmentNorm));
+  if (hasStorageCsv) return [TOTAL_STORAGE_META];
 
-  const dealCats = new Set<ParkingPlanCategoryKey>();
+  const dealCats = new Set<StoragePlanCategoryKey>();
   for (const r of dealRows) {
-    if (r.dealType !== "parking") continue;
+    if (r.dealType !== "storage") continue;
     if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
-    const k = inferParkingCategoryFromDeal(r);
+    const k = inferStorageCategoryFromDeal(r);
     if (k && k !== "total") dealCats.add(k);
   }
   if (dealCats.size > 0) {
-    return PARKING_PLAN_CATEGORY_ORDER.filter((m) => dealCats.has(m.key));
+    return STORAGE_PLAN_CATEGORY_ORDER.filter((m) => dealCats.has(m.key));
   }
 
-  const hasParkingDeals = dealRows.some(
-    (r) => r.dealType === "parking" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel),
+  const hasStorageDeals = dealRows.some(
+    (r) => r.dealType === "storage" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel),
   );
-  if (hasParkingDeals) return [TOTAL_PARKING_META];
+  if (hasStorageDeals) return [TOTAL_STORAGE_META];
 
   return [];
 }
 
-export function parkingPlanFactsFromDealsByCategory(
+export function storagePlanFactsFromDealsByCategory(
   rows: readonly NormalizedDealRow[],
   _opts: { period: "month" | "quarter"; currentPeriodKey: string },
-  categories: readonly ParkingPlanCategoryMeta[],
-): Record<ParkingPlanCategoryKey, number> {
-  const result = Object.fromEntries(categories.map((c) => [c.key, 0])) as Record<ParkingPlanCategoryKey, number>;
+  categories: readonly StoragePlanCategoryMeta[],
+): Record<StoragePlanCategoryKey, number> {
+  const result = Object.fromEntries(categories.map((c) => [c.key, 0])) as Record<StoragePlanCategoryKey, number>;
   const useTotalOnly = categories.length === 1 && categories[0]!.key === "total";
 
   for (const r of rows) {
-    if (r.dealType !== "parking") continue;
+    if (r.dealType !== "storage") continue;
     if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
-    const cat = useTotalOnly ? "total" : inferParkingCategoryFromDeal(r);
+    const cat = useTotalOnly ? "total" : inferStorageCategoryFromDeal(r);
     if (!cat || !(cat in result)) continue;
     result[cat] += 1;
   }
@@ -374,17 +388,17 @@ export function parkingPlanFactsFromDealsByCategory(
   return result;
 }
 
-export type ParkingPlanAnalyticsItem = ParkingPlanCategoryMeta & {
+export type StoragePlanAnalyticsItem = StoragePlanCategoryMeta & {
   planCumulative: number;
   factCumulative: number;
 };
 
-export type ParkingPlanAnalyticsBreakdown = {
+export type StoragePlanAnalyticsBreakdown = {
   hasCsvPlan: boolean;
-  items: ParkingPlanAnalyticsItem[];
+  items: StoragePlanAnalyticsItem[];
 };
 
-export function buildParkingPlanAnalyticsBreakdown(args: {
+export function buildStoragePlanAnalyticsBreakdown(args: {
   rows: readonly ApartmentPlanCsvNormalizedRow[] | null | undefined;
   hasCsvPlan: boolean;
   csvType?: ApartmentPlanCsvParseDiagnostics["csvType"];
@@ -393,8 +407,8 @@ export function buildParkingPlanAnalyticsBreakdown(args: {
   objectId: string;
   objects: readonly { id: string; name: string }[];
   dealRows: readonly NormalizedDealRow[];
-}): ParkingPlanAnalyticsBreakdown {
-  const categories = resolveParkingChartCategories(args.rows, args.dealRows);
+}): StoragePlanAnalyticsBreakdown {
+  const categories = resolveStorageChartCategories(args.rows, args.dealRows);
   const qMonths = quarterKeyToMonthKeys(args.currentPeriodKey);
   const endMonthKey =
     args.period === "quarter" && qMonths?.length ? qMonths[qMonths.length - 1]! : args.currentPeriodKey;
@@ -402,27 +416,31 @@ export function buildParkingPlanAnalyticsBreakdown(args: {
   const summaryEntity = mergeEntitySummaryWithCsvRow(
     args.rows ?? [],
     null,
-    isBiParkingSummaryRow,
+    isBiStorageSummaryRow,
     summaryMonthKey,
   );
-  const parkingSummary = summaryEntity
+  const storageSummary = summaryEntity
     ? { planMonth: summaryEntity.planMonth, planCumulative: summaryEntity.planCumulative }
     : null;
-  const factsByCat = parkingPlanFactsFromDealsByCategory(args.dealRows, {
-    period: args.period,
-    currentPeriodKey: args.currentPeriodKey,
-  }, categories);
+  const factsByCat = storagePlanFactsFromDealsByCategory(
+    args.dealRows,
+    {
+      period: args.period,
+      currentPeriodKey: args.currentPeriodKey,
+    },
+    categories,
+  );
 
-  const items: ParkingPlanAnalyticsItem[] = categories.map((meta) => {
+  const items: StoragePlanAnalyticsItem[] = categories.map((meta) => {
     let planCumulative = 0;
     if (args.hasCsvPlan && Array.isArray(args.rows) && args.rows.length > 0) {
-      const slice = selectPlanSliceForParkingCategory(args.rows, meta.key, {
+      const slice = selectPlanSliceForStorageCategory(args.rows, meta.key, {
         period: args.period,
         currentPeriodKey: args.currentPeriodKey,
         objectId: args.objectId,
         objects: args.objects,
         csvType: args.csvType,
-        parkingSummary: meta.key === "total" ? parkingSummary : null,
+        storageSummary: meta.key === "total" ? storageSummary : null,
       });
       planCumulative = slice?.planCumulative ?? 0;
     }
@@ -436,8 +454,8 @@ export function buildParkingPlanAnalyticsBreakdown(args: {
   return { hasCsvPlan: args.hasCsvPlan, items };
 }
 
-export function buildParkingPerformanceChartRows(
-  breakdown: ParkingPlanAnalyticsBreakdown | null | undefined,
+export function buildStoragePerformanceChartRows(
+  breakdown: StoragePlanAnalyticsBreakdown | null | undefined,
 ): PerformanceChartRow[] {
   if (!breakdown?.items?.length) return [];
   return buildPerformanceChartRows(

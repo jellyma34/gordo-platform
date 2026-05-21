@@ -35,10 +35,13 @@ import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionC
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import { ApartmentPlanPeriodKpiBlock } from "@/components/marketing/ApartmentPlanPeriodKpiBlock";
 import { ParkingPlanPeriodKpiSection } from "@/components/marketing/ParkingPlanPeriodKpiSection";
+import { StoragePlanPeriodKpiSection } from "@/components/marketing/StoragePlanPeriodKpiSection";
 import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
 import type { ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ParkingPlanAnalyticsBreakdown } from "@/lib/parkingPlanAnalytics";
 import type { ParkingPlanPeriodKpiUiData } from "@/lib/parkingPlanPeriodKpi";
+import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
+import type { StoragePlanPeriodKpiUiData } from "@/lib/storagePlanPeriodKpi";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
@@ -176,6 +179,10 @@ type Props = {
   parkingPlanPeriodKpi?: ParkingPlanPeriodKpiUiData | null;
   /** Аналитика машино-мест (план CSV + факт JSON). */
   parkingPlanAnalyticsBreakdown?: ParkingPlanAnalyticsBreakdown | null;
+  /** KPI кладовых: факт из сделок; план — из CSV (строки storage). */
+  storagePlanPeriodKpi?: StoragePlanPeriodKpiUiData | null;
+  /** Аналитика кладовых (план CSV + факт JSON). */
+  storagePlanAnalyticsBreakdown?: StoragePlanAnalyticsBreakdown | null;
   /** Блок «Маркетинг» (лиды.csv): три графика план/факт. */
   marketingLeadsCharts?: MarketingLeadsCsvChartBundle;
   marketingLeadsCsvHydrated?: boolean;
@@ -214,6 +221,8 @@ export function SalesPlanExecutionBlock({
   apartmentPlanKpiCsvDiagnostics = null,
   parkingPlanPeriodKpi = null,
   parkingPlanAnalyticsBreakdown = null,
+  storagePlanPeriodKpi = null,
+  storagePlanAnalyticsBreakdown = null,
   marketingLeadsCharts = { monthKeys: [], adSpend: [], leads: [], costPerLead: [] },
   marketingLeadsCsvHydrated = true,
   marketingLeadsCsvLoading = false,
@@ -361,6 +370,15 @@ export function SalesPlanExecutionBlock({
         <ParkingPlanPeriodKpiSection
           data={parkingPlanPeriodKpi}
           analyticsBreakdown={parkingPlanAnalyticsBreakdown}
+          presDark={presDark}
+          presentation={presentation}
+          mplPremium={mplPremium}
+          csvLoading={apartmentPlanKpiCsvLoading}
+        />
+
+        <StoragePlanPeriodKpiSection
+          data={storagePlanPeriodKpi}
+          analyticsBreakdown={storagePlanAnalyticsBreakdown}
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}

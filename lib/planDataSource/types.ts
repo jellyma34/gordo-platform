@@ -15,7 +15,9 @@ export type ApartmentPlanCsvParseDiagnostics = {
   previewRows: Record<string, string>[];
   delimiter: string | null;
   /** Тип распознанного шаблона CSV */
-  csvType?: "wide_table" | "bi_report";
+  csvType?: "wide_table" | "bi_report" | "legacy_wide_table" | "fact_revenue_csv";
+  /** Кодировка при разборе (факт поступлений / RU CSV). */
+  encoding?: "utf-8" | "utf-8-sig" | "cp1251";
   /** Сколько строк-сегментов импортировано (без агрегата) */
   importedSegmentRows?: number;
   /** Строки-агрегаты (например «Квартиры»), не импортированы как сегменты */

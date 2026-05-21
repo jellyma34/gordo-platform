@@ -1,10 +1,10 @@
 import {
   buildMarketingRevenueFactDocFromParse,
-  parseRevenueFactCsv,
   reconcileMarketingRevenueFactDoc,
   type MarketingRevenueFactCsvStoredV1,
 } from "@/lib/marketingRevenueFactCsv";
-import { readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
+import { parseFactRevenueCsv } from "@/lib/parseRevenueFactCsv";
+import { readMarketingCsvFileDecoded } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 export type RevenueFactCsvUploadOk = {
   ok: true;
@@ -31,16 +31,19 @@ export async function uploadMarketingRevenueFactCsvFile(
   uploadedBy: string,
 ): Promise<RevenueFactCsvUploadResult> {
   let text: string;
+  let encoding: "utf-8" | "utf-8-sig" | "cp1251" = "utf-8";
   try {
-    text = await readMarketingCsvFileAsText(file);
+    const decoded = await readMarketingCsvFileDecoded(file);
+    text = decoded.text;
+    encoding = decoded.encoding;
   } catch (e) {
     console.error("[revenueFactCsv] read file failed", e);
     return { ok: false, error: "Не удалось прочитать CSV поступлений." };
   }
 
-  let parsed: ReturnType<typeof parseRevenueFactCsv>;
+  let parsed: ReturnType<typeof parseFactRevenueCsv>;
   try {
-    parsed = parseRevenueFactCsv(text);
+    parsed = parseFactRevenueCsv(text, { encoding });
   } catch (e) {
     console.error("[revenueFactCsv] parse failed", e);
     return { ok: false, error: "Ошибка разбора CSV поступлений." };

@@ -19,7 +19,7 @@ export type ApartmentPlanKpiCalculationStrategy = {
 export function getPlanCalculationStrategy(
   csvType: ApartmentPlanCsvParseDiagnostics["csvType"],
 ): ApartmentPlanKpiCalculationStrategy {
-  if (csvType === "bi_report") {
+  if (csvType === "bi_report" || csvType === "legacy_wide_table") {
     return {
       cumulativeMode: "bi_report_ready_column",
       calculationStrategyLabel: "BI_REPORT_MODE",

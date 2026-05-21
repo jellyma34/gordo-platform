@@ -3,6 +3,8 @@
  * Реальные файлы: RU-названия, регистр, пробелы, BOM обрабатываются на уровне текста и {@link normalizeApartmentPlanHeader}.
  */
 
+import { normalizeCsvHeader } from "@/lib/csvHeaderNormalize";
+
 export type ApartmentPlanCanonicalKey =
   | "segment"
   | "month"
@@ -22,6 +24,7 @@ export const COLUMN_ALIASES: Record<Exclude<ApartmentPlanCanonicalKey, "apartmen
     "номенклатура",
     "категория",
     "объект",
+    "наименование",
     "наименование сегмента",
     "показатель",
   ],
@@ -113,14 +116,12 @@ function stripBom(s: string): string {
 }
 
 /**
- * Нормализация заголовка для сравнения: lowercase, trim, ё→е, _/- → пробел,
- * убрать «лишние» символы (кроме букв/цифр/пробела и точки в составе слова).
+ * Нормализация заголовка для сравнения: multiline/CRLF/кавычки, lowercase, trim, ё→е.
  */
-export function normalizeApartmentPlanHeader(value: string): string {
-  return stripBom(String(value ?? ""))
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[\u00a0\u202f\u2009\u2007\u2008]/g, " ")
+export function normalizeApartmentPlanHeader(value: unknown): string {
+  const base = normalizeCsvHeader(stripBom(String(value ?? "")));
+  return base
+    .replace(/[\u202f\u2009\u2007\u2008]/g, " ")
     .replace(/[_\-–—]+/g, " ")
     .replace(/[^\p{L}\p{N}\s.]+/gu, " ")
     .replace(/\s+/g, " ")

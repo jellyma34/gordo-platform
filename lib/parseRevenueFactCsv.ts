@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 
+import { normalizeCsvHeader } from "@/lib/csvHeaderNormalize";
 import type { DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
 import type { FactRevenueBySegment } from "@/lib/getFactRevenueBySegment";
 import { parseSalesExecutionMoneyCell } from "@/lib/transformSalesExecutionCsv";
@@ -35,10 +36,7 @@ function preprocessCell(raw: string | undefined | null): string {
 }
 
 function normalizeHeaderKey(raw: string): string {
-  return preprocessCell(raw)
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/_/g, " ");
+  return normalizeCsvHeader(preprocessCell(raw)).replace(/_/g, " ");
 }
 
 function normalizeNameLabel(raw: string): string {
@@ -81,10 +79,24 @@ function isFooterOrTechnicalRow(firstCell: string): boolean {
   return t.startsWith("итого") || t.startsWith("всего") || t.includes("примечан") || t.includes("технич");
 }
 
+/** Парсинг суммы «100 000,00» → 100000. */
+export function parseRuMoney(value: string | undefined | null): number {
+  const s = preprocessCell(value)
+    .replace(/\s/g, "")
+    .replace(/руб\.?/giu, "")
+    .replace(/₽/g, "")
+    .replace(",", ".");
+  if (!s) return 0;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Парсинг суммы из колонки «Факт поступлений»: пробелы, ₽, запятая как десятичный разделитель. */
 export function parseRevenueFactAmountCell(raw: string | undefined | null): number {
-  const n = parseSalesExecutionMoneyCell(raw);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const n = parseRuMoney(raw);
+  if (n > 0) return n;
+  const legacy = parseSalesExecutionMoneyCell(raw);
+  return Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
 }
 
 /**
@@ -157,11 +169,15 @@ export function buildRevenueFactSummary(rows: RevenueFactRow[]): RevenueFactSumm
   return { rowCount, skippedCount, bySegment, unmappedRub };
 }
 
+export type FactRevenueCsvType = "fact_revenue_csv";
+
 export type ParseRevenueFactCsvOk = {
   ok: true;
+  csvType: FactRevenueCsvType;
   rows: RevenueFactRow[];
   summary: RevenueFactSummary;
   warnings: string[];
+  encoding?: "utf-8" | "utf-8-sig" | "cp1251";
 };
 
 export type ParseRevenueFactCsvFail = {
@@ -173,9 +189,29 @@ export type ParseRevenueFactCsvFail = {
 export type ParseRevenueFactCsvResult = ParseRevenueFactCsvOk | ParseRevenueFactCsvFail;
 
 /**
- * Парсер CSV факта поступлений для «Структура продаж»:
- * колонки «Наименование», «Факт поступлений».
+ * Парсер CSV факта поступлений (отдельный pipeline, не KPI / BI plan).
+ * Колонки: «Наименование», «Факт поступлений».
  */
+export function parseFactRevenueCsv(
+  text: string,
+  opts?: { encoding?: "utf-8" | "utf-8-sig" | "cp1251" },
+): ParseRevenueFactCsvResult {
+  console.log("CSV TYPE", "fact_revenue_csv");
+  if (opts?.encoding) console.log("ENCODING", opts.encoding);
+
+  const result = parseRevenueFactCsv(text);
+  if (result.ok) {
+    console.log("FACT REVENUE ROWS", result.rows.length);
+    console.log("APARTMENTS REVENUE", result.summary.bySegment.apartment);
+    console.log("PARKING REVENUE", result.summary.bySegment.parking);
+    console.log("STORAGES REVENUE", result.summary.bySegment.storage);
+    console.log("COMMERCIAL REVENUE", result.summary.bySegment.commercial);
+    return { ...result, encoding: opts?.encoding };
+  }
+  return result;
+}
+
+/** @deprecated Используйте {@link parseFactRevenueCsv}. */
 export function parseRevenueFactCsv(text: string): ParseRevenueFactCsvResult {
   const trimmed = stripBom(String(text ?? "").trim());
   if (!trimmed) {
@@ -254,5 +290,5 @@ export function parseRevenueFactCsv(text: string): ParseRevenueFactCsvResult {
     );
   }
 
-  return { ok: true, rows, summary, warnings };
+  return { ok: true, csvType: "fact_revenue_csv", rows, summary, warnings };
 }

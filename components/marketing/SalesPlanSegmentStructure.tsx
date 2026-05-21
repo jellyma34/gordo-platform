@@ -412,6 +412,18 @@ function RevenueFactCsvDiagnostics({
     : "rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-[11px] text-slate-700";
   return (
     <div className={`mb-3 space-y-0.5 tabular-nums ${box}`}>
+      <div>
+        CSV TYPE: <span className="font-mono font-semibold">{doc.csvType ?? "fact_revenue_csv"}</span>
+        {doc.encoding ? (
+          <>
+            {" "}
+            · ENCODING: <span className="font-mono font-semibold">{doc.encoding}</span>
+          </>
+        ) : null}
+      </div>
+      <div>
+        FACT SOURCE: <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">CSV</span>
+      </div>
       <div>Найдено строк: {numFmt.format(doc.rows.length)}</div>
       <div>Квартиры: {compactRub(s.bySegment.apartment)}</div>
       <div>Парковки: {compactRub(s.bySegment.parking)}</div>

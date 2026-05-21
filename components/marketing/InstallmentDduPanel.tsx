@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import { InstallmentAreaSection } from "@/components/marketing/installmentArea/InstallmentAreaSection";
+import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
 import {
   filterByObjectAndDealType,
   marketingMockData,
@@ -44,6 +46,8 @@ type Props = {
 };
 
 export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
+  const mplLight = useMarketingPresentationLight();
+  const presDark = presentation && !mplLight;
   const card = presentation ? CARD : CARD_EDIT;
   const h4 = presentation ? "text-sm font-semibold text-slate-100" : "text-sm font-semibold text-slate-900";
   const sub = presentation ? "text-[11px] text-slate-500" : "text-[11px] text-slate-600";
@@ -66,6 +70,15 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
+      <InstallmentAreaSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplLight}
+        isEditMode={!presentation}
+        period={period}
+        objectId={objectId}
+      />
+
       <div className={`${card} grid gap-4 sm:grid-cols-2`}>
         <div>
           <div className={`${sub} mb-1 uppercase tracking-wide`}>Сделки по ДДУ</div>

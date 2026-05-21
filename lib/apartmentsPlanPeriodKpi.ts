@@ -48,6 +48,16 @@ function safeNonNeg(n: number): number {
   return n;
 }
 
+/** Склонение «квартира» для метки объёма проекта (79 квартир). */
+export function apartmentProjectVolumeUnit(count: number): string {
+  const abs = Math.max(0, Math.round(count));
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return "квартира";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "квартиры";
+  return "квартир";
+}
+
 /** Ограничение планов сверху величиной объёма проекта (из CSV или дефолт). */
 export function capPlanFields(
   raw: Pick<ApartmentPlanPeriodKpiInputs, "planMonth" | "factMonth" | "planCumulative" | "factCumulative">,
@@ -68,8 +78,15 @@ export function capPlanFields(
 export function mergeApartmentPlanCsvWithFacts(
   plan: ApartmentPlanKpiPlanSlice,
   facts: Pick<ApartmentPlanPeriodKpiInputs, "factMonth" | "factCumulative">,
+  opts?: { apartmentsPlanProject?: number | null },
 ): ApartmentPlanPeriodKpiInputs {
-  const baseVol = plan.totalVolume > 0 ? plan.totalVolume : APARTMENT_PROJECT_TOTAL_UNITS;
+  const apartmentsProjectVol =
+    opts?.apartmentsPlanProject != null && opts.apartmentsPlanProject > 0
+      ? safeNonNeg(opts.apartmentsPlanProject)
+      : plan.totalVolume > 0
+        ? safeNonNeg(plan.totalVolume)
+        : APARTMENT_PROJECT_TOTAL_UNITS;
+  const baseVol = apartmentsProjectVol;
   /** Потолок для плановых полей: не режем план из‑за заниженного total_volume в одной строке. */
   const capForPlans = Math.max(
     baseVol,
@@ -86,10 +103,16 @@ export function mergeApartmentPlanCsvWithFacts(
     },
     Math.min(capForPlans, 1_000_000),
   );
-  /** KPI 3: знаменатель — объём из CSV (total_volume), не «раздутый» cap для планов. */
-  const totalVolumeFromCsv =
-    plan.totalVolume > 0 ? safeNonNeg(plan.totalVolume) : APARTMENT_PROJECT_TOTAL_UNITS;
-  return { ...capped, totalVolume: totalVolumeFromCsv };
+  /** KPI 3 и метка «N квартир»: только план проекта строки «Квартиры», не ИТОГО / max по CSV. */
+  return { ...capped, totalVolume: apartmentsProjectVol };
+}
+
+/** % реализации от объёма проекта квартир (factCumulative / apartmentsPlanProject). */
+export function apartmentKpiVolumeCompletionPercent(
+  data: Pick<ApartmentPlanPeriodKpiInputs, "factCumulative" | "totalVolume"> & { hasCsvPlan?: boolean },
+): number | null {
+  if (data.hasCsvPlan === false) return null;
+  return apartmentKpiExecutionPercent(data.factCumulative, data.totalVolume);
 }
 
 /** Доля в % к плану; без плана из CSV или при невалидном знаменателе — null (в UI показывать «—», не 0%). */

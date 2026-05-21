@@ -1,3 +1,5 @@
+import { isApartmentRootSummaryRow } from "@/lib/planDataSource/entityRowMatchers";
+
 /** Сущность KPI блока «Выполнение плана отчётного периода» (только квартиры). */
 export const APARTMENT_KPI_ENTITY = "apartments" as const;
 export type ApartmentPlanKpiEntityType = typeof APARTMENT_KPI_ENTITY;
@@ -31,12 +33,7 @@ export function isBiGrandTotalRow(segmentNorm: string, rawLabel: string): boolea
 
 /** Сводная строка «Квартиры» — источник накопительного плана и объёма для KPI квартир. */
 export function isBiApartmentsSummaryRow(segmentNorm: string, rawLabel: string): boolean {
-  if (isBiGrandTotalRow(segmentNorm, rawLabel)) return false;
-  const { raw, n, compact } = normLabel(rawLabel, segmentNorm);
-  if (n === "квартиры" || n === "квартира" || n.startsWith("квартиры")) return true;
-  if (compact === "квартиры" || compact.startsWith("квартиры")) return true;
-  if (/^квартиры\b/i.test(raw)) return true;
-  return false;
+  return isApartmentRootSummaryRow(segmentNorm, rawLabel);
 }
 
 /** Парковки, кладовые, коммерция — не входят в KPI квартир. */

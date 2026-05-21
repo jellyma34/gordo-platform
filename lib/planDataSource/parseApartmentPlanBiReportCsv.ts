@@ -1,6 +1,12 @@
 import type { ApartmentPlanCsvNormalizedRow } from "@/lib/planDataSource/types";
 import type { ParseApartmentPlanCsvOptions } from "@/lib/planDataSource/types";
-import { normalizeApartmentPlanHeader } from "@/lib/planDataSource/apartmentPlanCsvColumns";
+import { compactNorm, normalizeApartmentPlanHeader } from "@/lib/planDataSource/apartmentPlanCsvColumns";
+import { compactCsvHeader } from "@/lib/csvHeaderNormalize";
+import {
+  detectLegacyWideTableCsv,
+  resolveColumnarPlanHeaders,
+  type ColumnarPlanHeaderMap,
+} from "@/lib/planDataSource/legacyWideTableCsv";
 import {
   isApartmentPlanKpiDetailSegment,
   isBiApartmentsSummaryRow,
@@ -8,14 +14,20 @@ import {
   isNonApartmentPropertyRow,
   type BiApartmentsSummarySlice,
 } from "@/lib/planDataSource/apartmentPlanKpiEntity";
-import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
+import {
+  isCommercialRootSummaryRow,
+  isParkingRootSummaryRow,
+  isStorageRootSummaryRow,
+} from "@/lib/planDataSource/entityRowMatchers";
+import { normalizeEntityLabel, normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
 
 /** Маркеры заголовков BI-отчёта «Выполнение плана отчётного периода» (колонки факта не используются в KPI). */
 const BIO_PLAN_CUM_MARKERS = ["план", "накопит", "итог"];
 
-function normHeaderIncludesAll(n: string, parts: string[]): boolean {
-  return parts.every((p) => n.includes(p));
+function normHeaderIncludesAll(n: unknown, parts: string[]): boolean {
+  const s = normalizeApartmentPlanHeader(n);
+  return parts.every((p) => s.includes(p));
 }
 
 /**
@@ -23,13 +35,17 @@ function normHeaderIncludesAll(n: string, parts: string[]): boolean {
  * Факт из CSV не используется; признак факта в заголовках не обязателен.
  */
 export function detectApartmentPlanBiReportCsv(metaFields: string[]): boolean {
+  if (detectLegacyWideTableCsv(metaFields)) return true;
+
   const norms = metaFields.map((h) => normalizeApartmentPlanHeader(String(h ?? "")));
-  const hasPlanCum = norms.some((n) => normHeaderIncludesAll(n, BIO_PLAN_CUM_MARKERS));
+  const hasPlanCum = norms.some(
+    (n) => normHeaderIncludesAll(n, BIO_PLAN_CUM_MARKERS) || (n.includes("план") && n.includes("накопит")),
+  );
   const hasPlanMonth = norms.some(
     (n) =>
       n.includes("план") &&
       (n.includes("отчет") || n.includes("отчёт")) &&
-      n.includes("месяц") &&
+      (n.includes("месяц") || n.includes("отчет") || n.includes("отчёт")) &&
       !n.includes("накопит"),
   );
   const hasSegment = norms.some((n) => n.includes("наименован"));
@@ -101,27 +117,56 @@ export function resolveBiReportMonthKey(opts: ParseApartmentPlanCsvOptions): str
   return asOfToMonthKey(opts.reportAsOfYmd);
 }
 
-type BiColumnPick = {
-  segment: string;
-  planProject: string;
-  planMonth: string;
-  planCumulative: string;
-};
+type BiColumnPick = ColumnarPlanHeaderMap;
 
 function pickBiColumns(metaFields: string[]): { map: BiColumnPick } | { error: string } {
+  if (detectLegacyWideTableCsv(metaFields)) {
+    return resolveColumnarPlanHeaders(metaFields);
+  }
+
   const originals = metaFields.map((h) => String(h ?? "").trim());
   const norms = originals.map((h) => normalizeApartmentPlanHeader(h));
+  const compacts = originals.map((h) => compactNorm(h));
+  const planProjectCompact = compactCsvHeader("план проекта");
 
-  const isSegment = (n: string) => n.includes("наименован") || n === "наименование";
-  const isPlanProject = (n: string) =>
-    n.includes("план") && n.includes("проект") && !n.includes("накопит") && !n.includes("отчет") && !n.includes("отчёт");
-  const isPlanMonth = (n: string) =>
-    n.includes("план") && (n.includes("отчет") || n.includes("отчёт")) && n.includes("месяц") && !n.includes("накопит");
-  const isPlanCum = (n: string) => normHeaderIncludesAll(n, BIO_PLAN_CUM_MARKERS);
+  const isSegment = (i: number) => {
+    const s = norms[i]!;
+    const c = compacts[i]!;
+    return s.includes("наименован") || c === "наименование";
+  };
+  const isPlanProject = (i: number) => {
+    const s = norms[i]!;
+    const c = compacts[i]!;
+    if (c === planProjectCompact || c.startsWith("планпроект")) return true;
+    return (
+      s.includes("план") &&
+      (s.includes("проект") || c.includes("проект")) &&
+      !s.includes("накопит") &&
+      !c.includes("накопит") &&
+      !s.includes("отчет") &&
+      !s.includes("отчёт")
+    );
+  };
+  const isPlanMonth = (i: number) => {
+    const s = norms[i]!;
+    const c = compacts[i]!;
+    return (
+      (s.includes("план") || c.includes("план")) &&
+      (s.includes("отчет") || s.includes("отчёт") || c.includes("отчет") || c.includes("месяц")) &&
+      !s.includes("накопит") &&
+      !c.includes("накопит") &&
+      !c.includes("проект")
+    );
+  };
+  const isPlanCum = (i: number) => {
+    const s = norms[i]!;
+    const c = compacts[i]!;
+    return normHeaderIncludesAll(s, BIO_PLAN_CUM_MARKERS) || (s.includes("план") && s.includes("накопит")) || c.includes("накопит");
+  };
 
-  const pickOne = (pred: (n: string) => boolean): string | null => {
+  const pickOne = (pred: (i: number) => boolean): string | null => {
     for (let i = 0; i < norms.length; i++) {
-      if (pred(norms[i]!)) return originals[i]!;
+      if (pred(i)) return originals[i]!;
     }
     return null;
   };
@@ -193,8 +238,8 @@ export function parseApartmentPlanBiReportFromGrid(
   for (let i = 0; i < rowsIn.length; i++) {
     const rec = rowsIn[i] ?? {};
     const segRaw = rec[map.segment];
-    const segmentNorm = normalizeMatchKey(segRaw);
-    const rawLabel = segRaw != null ? String(segRaw) : "";
+    const rawLabel = segRaw != null ? String(segRaw).trim() : "";
+    const segmentNorm = normalizeEntityLabel(rawLabel);
     if (!segmentNorm) {
       warnings.push(`Строка ${i + 2}: пропущена (пустое наименование).`);
       continue;
@@ -205,6 +250,17 @@ export function parseApartmentPlanBiReportFromGrid(
       continue;
     }
 
+    const pushRootSummaryRow = (planM: number | null, planC: number | null, tv: number | null) => {
+      out.push({
+        segmentNorm,
+        apartmentTypeNorm: null,
+        monthKey,
+        planMonth: Math.max(0, planM ?? 0),
+        planCumulative: Math.max(0, planC ?? 0),
+        totalVolume: Math.max(0, tv ?? 0),
+      });
+    };
+
     if (isBiApartmentsSummaryRow(segmentNorm, rawLabel)) {
       ignoredSummaryRows += 1;
       const planM = parseNum(rec[map.planMonth]);
@@ -214,8 +270,38 @@ export function parseApartmentPlanBiReportFromGrid(
         planMonth: Math.max(0, planM ?? 0),
         planCumulative: Math.max(0, planC ?? 0),
         planProject: Math.max(0, tv ?? 0),
-        rawLabel: rawLabel.trim() || segmentNorm,
+        rawLabel: rawLabel || segmentNorm,
       };
+      continue;
+    }
+
+    if (isParkingRootSummaryRow(segmentNorm, rawLabel)) {
+      ignoredSummaryRows += 1;
+      pushRootSummaryRow(
+        parseNum(rec[map.planMonth]),
+        parseNum(rec[map.planCumulative]),
+        parseNum(rec[map.planProject]),
+      );
+      continue;
+    }
+
+    if (isStorageRootSummaryRow(segmentNorm, rawLabel)) {
+      ignoredSummaryRows += 1;
+      pushRootSummaryRow(
+        parseNum(rec[map.planMonth]),
+        parseNum(rec[map.planCumulative]),
+        parseNum(rec[map.planProject]),
+      );
+      continue;
+    }
+
+    if (isCommercialRootSummaryRow(segmentNorm, rawLabel)) {
+      ignoredSummaryRows += 1;
+      pushRootSummaryRow(
+        parseNum(rec[map.planMonth]),
+        parseNum(rec[map.planCumulative]),
+        parseNum(rec[map.planProject]),
+      );
       continue;
     }
 
@@ -259,7 +345,7 @@ export function parseApartmentPlanBiReportFromGrid(
 
   if (apartmentsSummary) {
     out.push({
-      segmentNorm: normalizeMatchKey(apartmentsSummary.rawLabel),
+      segmentNorm: normalizeEntityLabel(apartmentsSummary.rawLabel),
       apartmentTypeNorm: null,
       monthKey,
       planMonth: apartmentsSummary.planMonth,

@@ -2,29 +2,29 @@
 
 import { useMemo } from "react";
 
-import { ParkingPerformanceAnalyticsSection } from "@/components/marketing/ParkingPerformanceAnalyticsSection";
+import { StoragePerformanceAnalyticsSection } from "@/components/marketing/StoragePerformanceAnalyticsSection";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
-import { PARKING_KPI_THEME } from "@/lib/entityKpiTheme";
-import type { ParkingPlanAnalyticsBreakdown } from "@/lib/parkingPlanAnalytics";
+import { STORAGE_KPI_THEME } from "@/lib/entityKpiTheme";
+import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
 import {
-  parkingKpiExecutionPercent,
-  parkingKpiVolumeCompletionPercent,
-  parkingPlanPeriodKpiHasAnyData,
-  parkingProjectVolumeFromKpiData,
-  parkingProjectVolumeUnit,
-  type ParkingPlanPeriodKpiUiData,
-} from "@/lib/parkingPlanPeriodKpi";
+  storageKpiExecutionPercent,
+  storageKpiVolumeCompletionPercent,
+  storagePlanPeriodKpiHasAnyData,
+  storageProjectVolumeFromKpiData,
+  storageProjectVolumeUnit,
+  type StoragePlanPeriodKpiUiData,
+} from "@/lib/storagePlanPeriodKpi";
 
 type Props = {
-  data: ParkingPlanPeriodKpiUiData | null | undefined;
-  analyticsBreakdown: ParkingPlanAnalyticsBreakdown | null | undefined;
+  data: StoragePlanPeriodKpiUiData | null | undefined;
+  analyticsBreakdown: StoragePlanAnalyticsBreakdown | null | undefined;
   presDark: boolean;
   presentation: boolean;
   mplPremium: boolean;
   csvLoading?: boolean;
 };
 
-export function ParkingPlanPeriodKpiSection({
+export function StoragePlanPeriodKpiSection({
   data,
   analyticsBreakdown,
   presDark,
@@ -32,8 +32,8 @@ export function ParkingPlanPeriodKpiSection({
   mplPremium,
   csvLoading = false,
 }: Props) {
-  const safeData: ParkingPlanPeriodKpiUiData = data ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 };
-  const hasAnyData = parkingPlanPeriodKpiHasAnyData(safeData, analyticsBreakdown);
+  const safeData: StoragePlanPeriodKpiUiData = data ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 };
+  const hasAnyData = storagePlanPeriodKpiHasAnyData(safeData, analyticsBreakdown);
 
   const cardsData = useMemo(() => {
     const hasPlan = safeData.hasCsvPlan;
@@ -42,10 +42,10 @@ export function ParkingPlanPeriodKpiSection({
     const totalProjectPlan = hasPlan ? safeData.totalProjectPlan : null;
     const pctMonth =
       hasPlan && planMonth != null
-        ? parkingKpiExecutionPercent(safeData.factMonth, planMonth)
+        ? storageKpiExecutionPercent(safeData.factMonth, planMonth)
         : null;
     const pctCum =
-      hasPlan && planCum != null ? parkingKpiExecutionPercent(safeData.factCumulative, planCum) : null;
+      hasPlan && planCum != null ? storageKpiExecutionPercent(safeData.factCumulative, planCum) : null;
     return {
       hasCsvPlan: hasPlan,
       factMonth: safeData.factMonth,
@@ -62,37 +62,37 @@ export function ParkingPlanPeriodKpiSection({
   const cardsDataWithVolume = useMemo(
     () => ({
       ...cardsData,
-      pctVolume: safeData.hasCsvPlan ? parkingKpiVolumeCompletionPercent(safeData) : null,
+      pctVolume: safeData.hasCsvPlan ? storageKpiVolumeCompletionPercent(safeData) : null,
     }),
     [cardsData, safeData],
   );
 
   const projectVolumeUnits = useMemo(() => {
-    const count = parkingProjectVolumeFromKpiData(safeData);
+    const count = storageProjectVolumeFromKpiData(safeData);
     if (count == null) return null;
-    return { count, unit: parkingProjectVolumeUnit(count) };
+    return { count, unit: storageProjectVolumeUnit(count) };
   }, [safeData]);
 
   if (!hasAnyData && !csvLoading) {
     return (
       <EntityPlanPeriodKpiSection
-        entityLabel="Машино-места"
-        theme={PARKING_KPI_THEME}
+        entityLabel="Кладовые"
+        theme={STORAGE_KPI_THEME}
         cardsData={cardsDataWithVolume}
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
         projectVolumeUnits={projectVolumeUnits}
         showEmpty
-        emptyMessage="Нет данных по машино-местам"
+        emptyMessage="Нет данных по кладовым"
       />
     );
   }
 
   return (
     <EntityPlanPeriodKpiSection
-      entityLabel="Машино-места"
-      theme={PARKING_KPI_THEME}
+      entityLabel="Кладовые"
+      theme={STORAGE_KPI_THEME}
       cardsData={cardsDataWithVolume}
       presDark={presDark}
       presentation={presentation}
@@ -100,7 +100,7 @@ export function ParkingPlanPeriodKpiSection({
       projectVolumeUnits={projectVolumeUnits}
       skeleton={csvLoading}
     >
-      <ParkingPerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
+      <StoragePerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
     </EntityPlanPeriodKpiSection>
   );
 }
