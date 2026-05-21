@@ -9,24 +9,22 @@ import {
   isStorageRootSummaryRow,
 } from "@/lib/planDataSource/entityRowMatchers";
 import {
-  detectLegacyAreaWideTableCsv,
-  installmentAreaCsvTypeLabel,
-  legacyAreaColumnMappingForDiagnostics,
-  resolveLegacyAreaWideHeaders,
-} from "@/lib/planDataSource/installmentArea/legacyAreaWideTableCsv";
+  dduRevenueCsvTypeLabel,
+  legacyRevenueColumnMappingForDiagnostics,
+  resolveLegacyRevenueWideHeaders,
+} from "@/lib/planDataSource/dduRevenue/legacyRevenueWideTableCsv";
 import { parseRuNumber } from "@/lib/parseRuNumber";
 import type {
-  InstallmentAreaApartmentsSummary,
-  InstallmentAreaCsvNormalizedRow,
-  InstallmentAreaCsvParseResult,
-  InstallmentAreaEntitySummary,
-  ParseInstallmentAreaCsvOptions,
-} from "@/lib/planDataSource/installmentArea/types";
+  DduRevenueCsvParseResult,
+  DduRevenueEntitySummary,
+  DduRevenueNormalizedRow,
+  ParseDduRevenueCsvOptions,
+} from "@/lib/planDataSource/dduRevenue/types";
 import { normalizeEntityLabel } from "@/lib/planDataSource/normalize";
 import { resolveBiReportMonthKey } from "@/lib/planDataSource/parseApartmentPlanBiReportCsv";
 import { parseRuCsvToGrid, ruAreaWideTableHeaderMatcher } from "@/lib/planDataSource/ruPlanCsvParse";
 
-export const INSTALLMENT_AREA_CSV_MAX_BYTES = 10 * 1024 * 1024;
+export const DDU_REVENUE_CSV_MAX_BYTES = 10 * 1024 * 1024;
 
 function stripBom(s: string): string {
   return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
@@ -50,25 +48,24 @@ function isRootSummaryRow(segmentNorm: string, rawLabel: string): boolean {
   );
 }
 
-/** Строки 1–4-ком. квартир (площадь по комнатности). */
-function isInstallmentAreaRoomTypeRow(segmentNorm: string, rawLabel: string): boolean {
+function isDduRevenueRoomTypeRow(segmentNorm: string, rawLabel: string): boolean {
   if (isGrandTotalRow(segmentNorm, rawLabel)) return false;
   if (isApartmentRootSummaryRow(segmentNorm, rawLabel)) return false;
   if (isNonApartmentPropertyRow(segmentNorm, rawLabel)) return false;
   return matchApartmentPlanTypeKey(segmentNorm, rawLabel) != null;
 }
 
-function isInstallmentAreaEntityDetailRow(segmentNorm: string, rawLabel: string): boolean {
+function isDduRevenueEntityDetailRow(segmentNorm: string, rawLabel: string): boolean {
   if (isGrandTotalRow(segmentNorm, rawLabel)) return false;
   return isParkingDetailSegment(segmentNorm, rawLabel) || isStorageDetailSegment(segmentNorm, rawLabel);
 }
 
-function parseLegacyAreaGrid(
+function parseLegacyRevenueGrid(
   metaFields: string[],
   rowsIn: Record<string, unknown>[],
   monthKey: string,
-): InstallmentAreaCsvParseResult {
-  const picked = resolveLegacyAreaWideHeaders(metaFields);
+): DduRevenueCsvParseResult {
+  const picked = resolveLegacyRevenueWideHeaders(metaFields);
   if ("error" in picked) {
     return {
       ok: false,
@@ -86,10 +83,10 @@ function parseLegacyAreaGrid(
 
   const { map } = picked;
   const warnings: string[] = [];
-  const out: InstallmentAreaCsvNormalizedRow[] = [];
-  let apartmentsSummary: InstallmentAreaApartmentsSummary | null = null;
-  let parkingSummary: InstallmentAreaEntitySummary | null = null;
-  let storageSummary: InstallmentAreaEntitySummary | null = null;
+  const out: DduRevenueNormalizedRow[] = [];
+  let apartmentsSummary: DduRevenueEntitySummary | null = null;
+  let parkingSummary: DduRevenueEntitySummary | null = null;
+  let storageSummary: DduRevenueEntitySummary | null = null;
   let importedRootRows = 0;
 
   for (let i = 0; i < rowsIn.length; i++) {
@@ -100,57 +97,57 @@ function parseLegacyAreaGrid(
 
     if (
       !isRootSummaryRow(segmentNorm, rawLabel) &&
-      !isInstallmentAreaRoomTypeRow(segmentNorm, rawLabel) &&
-      !isInstallmentAreaEntityDetailRow(segmentNorm, rawLabel)
+      !isDduRevenueRoomTypeRow(segmentNorm, rawLabel) &&
+      !isDduRevenueEntityDetailRow(segmentNorm, rawLabel)
     ) {
       continue;
     }
 
-    const projectArea = parseNum(rec[map.projectArea]) ?? 0;
-    const planMonthArea = parseNum(rec[map.planMonth]) ?? 0;
-    const planCumulativeArea = parseNum(rec[map.planCumulative]) ?? 0;
-    const factMonthArea = map.factMonth ? parseNum(rec[map.factMonth]) ?? 0 : 0;
-    const factCumulativeArea = map.factCumulative ? parseNum(rec[map.factCumulative]) ?? 0 : 0;
+    const planProject = parseNum(rec[map.planProject]) ?? 0;
+    const planMonth = parseNum(rec[map.planMonth]) ?? 0;
+    const planCumulative = parseNum(rec[map.planCumulative]) ?? 0;
+    const factMonth = map.factMonth ? parseNum(rec[map.factMonth]) ?? 0 : 0;
+    const factCumulative = map.factCumulative ? parseNum(rec[map.factCumulative]) ?? 0 : 0;
 
     importedRootRows += 1;
-    const row: InstallmentAreaCsvNormalizedRow = {
+    const row: DduRevenueNormalizedRow = {
       segmentNorm,
       monthKey,
-      projectArea: Math.max(0, projectArea),
-      planMonthArea: Math.max(0, planMonthArea),
-      planCumulativeArea: Math.max(0, planCumulativeArea),
-      factMonthArea: Math.max(0, factMonthArea),
-      factCumulativeArea: Math.max(0, factCumulativeArea),
+      planProject: Math.max(0, planProject),
+      planMonth: Math.max(0, planMonth),
+      planCumulative: Math.max(0, planCumulative),
+      factMonth: Math.max(0, factMonth),
+      factCumulative: Math.max(0, factCumulative),
     };
     out.push(row);
 
     if (isApartmentRootSummaryRow(segmentNorm, rawLabel)) {
       apartmentsSummary = {
-        planMonthArea: row.planMonthArea,
-        planCumulativeArea: row.planCumulativeArea,
-        projectArea: row.projectArea,
-        factMonthArea: row.factMonthArea,
-        factCumulativeArea: row.factCumulativeArea,
+        planMonth: row.planMonth,
+        planCumulative: row.planCumulative,
+        planProject: row.planProject,
+        factMonth: row.factMonth,
+        factCumulative: row.factCumulative,
         rawLabel: rawLabel || segmentNorm,
       };
     }
     if (isParkingRootSummaryRow(segmentNorm, rawLabel)) {
       parkingSummary = {
-        planMonthArea: row.planMonthArea,
-        planCumulativeArea: row.planCumulativeArea,
-        projectArea: row.projectArea,
-        factMonthArea: row.factMonthArea,
-        factCumulativeArea: row.factCumulativeArea,
+        planMonth: row.planMonth,
+        planCumulative: row.planCumulative,
+        planProject: row.planProject,
+        factMonth: row.factMonth,
+        factCumulative: row.factCumulative,
         rawLabel: rawLabel || segmentNorm,
       };
     }
     if (isStorageRootSummaryRow(segmentNorm, rawLabel)) {
       storageSummary = {
-        planMonthArea: row.planMonthArea,
-        planCumulativeArea: row.planCumulativeArea,
-        projectArea: row.projectArea,
-        factMonthArea: row.factMonthArea,
-        factCumulativeArea: row.factCumulativeArea,
+        planMonth: row.planMonth,
+        planCumulative: row.planCumulative,
+        planProject: row.planProject,
+        factMonth: row.factMonth,
+        factCumulative: row.factCumulative,
         rawLabel: rawLabel || segmentNorm,
       };
     }
@@ -160,13 +157,13 @@ function parseLegacyAreaGrid(
     return {
       ok: false,
       error:
-        "Не удалось импортировать строки площади: нужны root-строки (Квартиры, Парковки, Кладовые, Коммерческие помещения, ИТОГО).",
+        "Не удалось импортировать строки выручки ДДУ: нужны root-строки (Квартиры, Парковки, Кладовые, Коммерческие помещения, ИТОГО) и строки комнатности.",
       warnings,
       diagnostics: {
         rawHeaders: metaFields,
-        columnMapping: legacyAreaColumnMappingForDiagnostics(map),
+        columnMapping: legacyRevenueColumnMappingForDiagnostics(map),
         delimiter: null,
-        csvType: installmentAreaCsvTypeLabel(metaFields),
+        csvType: dduRevenueCsvTypeLabel(metaFields),
         monthKeyUsed: monthKey,
         importedRootRows: 0,
       },
@@ -179,11 +176,11 @@ function parseLegacyAreaGrid(
       out.unshift({
         segmentNorm: aptNorm,
         monthKey,
-        projectArea: apartmentsSummary.projectArea,
-        planMonthArea: apartmentsSummary.planMonthArea,
-        planCumulativeArea: apartmentsSummary.planCumulativeArea,
-        factMonthArea: apartmentsSummary.factMonthArea,
-        factCumulativeArea: apartmentsSummary.factCumulativeArea,
+        planProject: apartmentsSummary.planProject,
+        planMonth: apartmentsSummary.planMonth,
+        planCumulative: apartmentsSummary.planCumulative,
+        factMonth: apartmentsSummary.factMonth,
+        factCumulative: apartmentsSummary.factCumulative,
       });
     }
   }
@@ -197,19 +194,19 @@ function parseLegacyAreaGrid(
     storageSummary,
     diagnostics: {
       rawHeaders: metaFields,
-      columnMapping: legacyAreaColumnMappingForDiagnostics(map),
+      columnMapping: legacyRevenueColumnMappingForDiagnostics(map),
       delimiter: null,
-      csvType: installmentAreaCsvTypeLabel(metaFields),
+      csvType: dduRevenueCsvTypeLabel(metaFields),
       monthKeyUsed: monthKey,
       importedRootRows,
     },
   };
 }
 
-export function parseInstallmentAreaCsvAsync(
+export function parseDduRevenueCsvAsync(
   text: string,
-  options?: ParseInstallmentAreaCsvOptions,
-): Promise<InstallmentAreaCsvParseResult> {
+  options?: ParseDduRevenueCsvOptions,
+): Promise<DduRevenueCsvParseResult> {
   const stripped = stripBom(text).trim();
   if (!stripped) {
     return Promise.resolve({
@@ -245,12 +242,12 @@ export function parseInstallmentAreaCsvAsync(
       });
     }
 
-    const csvType = installmentAreaCsvTypeLabel(rawHeaders);
+    const csvType = dduRevenueCsvTypeLabel(rawHeaders);
     if (csvType === "unknown") {
       return Promise.resolve({
         ok: false,
         error:
-          "Не распознан формат CSV площади. Ожидается legacy-таблица: «Наименование», «Площадь проекта», «Площадь на отчётный месяц», «Площадь накопит. итогом».",
+          "Не распознан формат CSV выручки ДДУ. Ожидается legacy-таблица: «Наименование», «План проекта», план/факт по заключённым ДДУ.",
         warnings: [],
         diagnostics: {
           rawHeaders,
@@ -295,7 +292,7 @@ export function parseInstallmentAreaCsvAsync(
       });
     }
 
-    const parsed = parseLegacyAreaGrid(rawHeaders, grid.rows, monthKey);
+    const parsed = parseLegacyRevenueGrid(rawHeaders, grid.rows, monthKey);
     if (!parsed.ok) {
       return Promise.resolve({
         ...parsed,

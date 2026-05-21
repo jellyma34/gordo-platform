@@ -11,9 +11,9 @@ import {
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
 
-export type InstallmentAreaDealFacts = {
-  factMonthArea: number;
-  factCumulativeArea: number;
+export type DduRevenueDealFacts = {
+  factMonth: number;
+  factCumulative: number;
 };
 
 function resolveKpiMonthWindow(
@@ -36,20 +36,16 @@ function resolveKpiMonthWindow(
   };
 }
 
-function dealAreaM2(row: NormalizedDealRow): number {
-  const a = row.objectParams.areaTotal;
-  if (a == null || !Number.isFinite(a) || a <= 0) return 0;
-  return a;
+function dealRevenueRub(row: NormalizedDealRow): number {
+  const v = row.factRevenueRub;
+  if (v == null || !Number.isFinite(v) || v <= 0) return 0;
+  return v;
 }
 
-/**
- * Факт площади квартир из JSON сделок (без CSV плана).
- * Дедупликация по лоту; накопительно — сумма площадей с monthKey ≤ конец периода.
- */
-export function installmentAreaFactsFromDealsForKpi(
+export function dduRevenueFactsFromDealsForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-): InstallmentAreaDealFacts {
+): DduRevenueDealFacts {
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
 
   const apartmentRows = rows.filter((r) => r.dealType === "apartment");
@@ -63,35 +59,34 @@ export function installmentAreaFactsFromDealsForKpi(
     return d !== 0 ? d : apartmentPlanKpiDedupKey(a).localeCompare(apartmentPlanKpiDedupKey(b));
   });
 
-  const firstByKey = new Map<string, { monthKey: string; area: number }>();
+  const firstByKey = new Map<string, { monthKey: string; revenue: number }>();
 
   for (const r of sorted) {
     const mk = canonicalMonthKey(r)!;
     const k = apartmentPlanKpiDedupKey(r);
     if (firstByKey.has(k)) continue;
-    firstByKey.set(k, { monthKey: mk, area: dealAreaM2(r) });
+    firstByKey.set(k, { monthKey: mk, revenue: dealRevenueRub(r) });
   }
 
-  let factMonthArea = 0;
-  let factCumulativeArea = 0;
+  let factMonth = 0;
+  let factCumulative = 0;
   for (const u of firstByKey.values()) {
-    if (u.monthKey <= endMonthKey) factCumulativeArea += u.area;
-    if (monthKeysInPeriod.has(u.monthKey)) factMonthArea += u.area;
+    if (u.monthKey <= endMonthKey) factCumulative += u.revenue;
+    if (monthKeysInPeriod.has(u.monthKey)) factMonth += u.revenue;
   }
 
-  return { factMonthArea, factCumulativeArea };
+  return { factMonth, factCumulative };
 }
 
-/** Факт площади по комнатности из JSON сделок. */
-export function installmentAreaFactsFromDealsByTypeForKpi(
+export function dduRevenueFactsFromDealsByTypeForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-): Record<ApartmentPlanTypeKey, InstallmentAreaDealFacts> {
-  const empty = (): Record<ApartmentPlanTypeKey, InstallmentAreaDealFacts> => ({
-    "apt-1": { factMonthArea: 0, factCumulativeArea: 0 },
-    "apt-2": { factMonthArea: 0, factCumulativeArea: 0 },
-    "apt-3": { factMonthArea: 0, factCumulativeArea: 0 },
-    "apt-4": { factMonthArea: 0, factCumulativeArea: 0 },
+): Record<ApartmentPlanTypeKey, DduRevenueDealFacts> {
+  const empty = (): Record<ApartmentPlanTypeKey, DduRevenueDealFacts> => ({
+    "apt-1": { factMonth: 0, factCumulative: 0 },
+    "apt-2": { factMonth: 0, factCumulative: 0 },
+    "apt-3": { factMonth: 0, factCumulative: 0 },
+    "apt-4": { factMonth: 0, factCumulative: 0 },
   });
 
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
@@ -108,7 +103,7 @@ export function installmentAreaFactsFromDealsByTypeForKpi(
     return d !== 0 ? d : apartmentPlanKpiDedupKey(a).localeCompare(apartmentPlanKpiDedupKey(b));
   });
 
-  const firstByKey = new Map<string, { monthKey: string; area: number; typeKey: ApartmentPlanTypeKey }>();
+  const firstByKey = new Map<string, { monthKey: string; revenue: number; typeKey: ApartmentPlanTypeKey }>();
 
   for (const r of sorted) {
     const typeKey = inferApartmentPlanTypeKeyFromDeal(r);
@@ -116,22 +111,22 @@ export function installmentAreaFactsFromDealsByTypeForKpi(
     const mk = canonicalMonthKey(r)!;
     const k = apartmentPlanKpiDedupKey(r);
     if (firstByKey.has(k)) continue;
-    firstByKey.set(k, { monthKey: mk, area: dealAreaM2(r), typeKey });
+    firstByKey.set(k, { monthKey: mk, revenue: dealRevenueRub(r), typeKey });
   }
 
   for (const u of firstByKey.values()) {
-    if (u.monthKey <= endMonthKey) result[u.typeKey].factCumulativeArea += u.area;
-    if (monthKeysInPeriod.has(u.monthKey)) result[u.typeKey].factMonthArea += u.area;
+    if (u.monthKey <= endMonthKey) result[u.typeKey].factCumulative += u.revenue;
+    if (monthKeysInPeriod.has(u.monthKey)) result[u.typeKey].factMonth += u.revenue;
   }
 
   return result;
 }
 
-function installmentAreaFactsForDealType(
+function dduRevenueFactsForDealType(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
   dealType: "parking" | "storage",
-): InstallmentAreaDealFacts {
+): DduRevenueDealFacts {
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
 
   const typedRows = rows.filter((r) => r.dealType === dealType);
@@ -145,35 +140,35 @@ function installmentAreaFactsForDealType(
     return d !== 0 ? d : apartmentPlanKpiDedupKey(a).localeCompare(apartmentPlanKpiDedupKey(b));
   });
 
-  const firstByKey = new Map<string, { monthKey: string; area: number }>();
+  const firstByKey = new Map<string, { monthKey: string; revenue: number }>();
 
   for (const r of sorted) {
     const mk = canonicalMonthKey(r)!;
     const k = apartmentPlanKpiDedupKey(r);
     if (firstByKey.has(k)) continue;
-    firstByKey.set(k, { monthKey: mk, area: dealAreaM2(r) });
+    firstByKey.set(k, { monthKey: mk, revenue: dealRevenueRub(r) });
   }
 
-  let factMonthArea = 0;
-  let factCumulativeArea = 0;
+  let factMonth = 0;
+  let factCumulative = 0;
   for (const u of firstByKey.values()) {
-    if (u.monthKey <= endMonthKey) factCumulativeArea += u.area;
-    if (monthKeysInPeriod.has(u.monthKey)) factMonthArea += u.area;
+    if (u.monthKey <= endMonthKey) factCumulative += u.revenue;
+    if (monthKeysInPeriod.has(u.monthKey)) factMonth += u.revenue;
   }
 
-  return { factMonthArea, factCumulativeArea };
+  return { factMonth, factCumulative };
 }
 
-export function installmentAreaParkingFactsFromDealsForKpi(
+export function dduRevenueParkingFactsFromDealsForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-): InstallmentAreaDealFacts {
-  return installmentAreaFactsForDealType(rows, opts, "parking");
+): DduRevenueDealFacts {
+  return dduRevenueFactsForDealType(rows, opts, "parking");
 }
 
-export function installmentAreaStorageFactsFromDealsForKpi(
+export function dduRevenueStorageFactsFromDealsForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-): InstallmentAreaDealFacts {
-  return installmentAreaFactsForDealType(rows, opts, "storage");
+): DduRevenueDealFacts {
+  return dduRevenueFactsForDealType(rows, opts, "storage");
 }

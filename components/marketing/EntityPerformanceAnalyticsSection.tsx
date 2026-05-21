@@ -10,6 +10,7 @@ type Props = {
   presDark: boolean;
   presentation: boolean;
   emptyMessage?: string;
+  unitSuffix?: string;
 };
 
 export function EntityPerformanceAnalyticsSection({
@@ -19,6 +20,7 @@ export function EntityPerformanceAnalyticsSection({
   presDark,
   presentation,
   emptyMessage = "Нет данных для графика",
+  unitSuffix,
 }: Props) {
   const shellCls = presDark
     ? "rounded-[20px] border border-white/10 bg-slate-900/40 shadow-[0_6px_24px_rgba(0,0,0,0.2)]"
@@ -44,6 +46,7 @@ export function EntityPerformanceAnalyticsSection({
             presDark={presDark}
             presentation={presentation}
             emptyMessage={emptyMessage}
+            unitSuffix={unitSuffix}
           />
         ) : (
           <p className={`py-10 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>

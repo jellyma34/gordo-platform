@@ -1,3 +1,5 @@
+import type { EntityPlanPeriodKpiCardsData } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
+import type { InstallmentAreaDealFacts } from "@/lib/installmentAreaFactsFromDeals";
 import type { InstallmentAreaKpiPlanSlice } from "@/lib/planDataSource/installmentArea/installmentAreaPlanSlice";
 import { dec1Fmt } from "@/lib/salesPlanChartFormat";
 
@@ -60,6 +62,59 @@ export function installmentAreaKpiHue(pct: number | null): ApartmentKpiHue {
 export function installmentAreaProgressWidthPercent(pct: number | null): number {
   if (pct == null) return 0;
   return Math.min(100, Math.max(0, pct));
+}
+
+export function mergeInstallmentAreaEntityKpiData(
+  slice: InstallmentAreaKpiPlanSlice | null,
+  dealFacts: InstallmentAreaDealFacts | null,
+): InstallmentAreaPeriodKpiUiData {
+  if (slice) {
+    return {
+      hasCsvPlan: true,
+      planMonthArea: slice.planMonthArea,
+      planCumulativeArea: slice.planCumulativeArea,
+      projectArea: slice.projectArea,
+      factMonthArea:
+        dealFacts && dealFacts.factMonthArea > 0 ? dealFacts.factMonthArea : slice.factMonthArea,
+      factCumulativeArea:
+        dealFacts && dealFacts.factCumulativeArea > 0
+          ? dealFacts.factCumulativeArea
+          : slice.factCumulativeArea,
+    };
+  }
+  if (dealFacts && (dealFacts.factMonthArea > 0 || dealFacts.factCumulativeArea > 0)) {
+    return { hasCsvPlan: false, ...dealFacts };
+  }
+  return { hasCsvPlan: false, factMonthArea: 0, factCumulativeArea: 0 };
+}
+
+export function installmentAreaSliceToCardsData(kpiData: InstallmentAreaPeriodKpiUiData): EntityPlanPeriodKpiCardsData {
+  const hasPlan = kpiData.hasCsvPlan;
+  const planMonth = hasPlan ? kpiData.planMonthArea : null;
+  const planCum = hasPlan ? kpiData.planCumulativeArea : null;
+  const totalProject = hasPlan ? kpiData.projectArea : null;
+  const factMonth = kpiData.hasCsvPlan ? kpiData.factMonthArea : kpiData.factMonthArea;
+  const factCumulative = kpiData.hasCsvPlan ? kpiData.factCumulativeArea : kpiData.factCumulativeArea;
+  return {
+    hasCsvPlan: hasPlan,
+    factMonth,
+    factCumulative,
+    planMonth,
+    planCumulative: planCum,
+    totalProjectPlan: totalProject,
+    pctMonth: installmentAreaExecutionPercent(factMonth, planMonth),
+    pctCum: installmentAreaExecutionPercent(factCumulative, planCum),
+    pctVolume: installmentAreaVolumePercent(factCumulative, totalProject, hasPlan),
+  };
+}
+
+export function installmentAreaProjectVolumeRail(
+  kpiData: InstallmentAreaPeriodKpiUiData,
+): { value: number; unit: string; caption: "Площадь проекта" } | null {
+  if (!kpiData.hasCsvPlan) return null;
+  const area = kpiData.projectArea;
+  if (!Number.isFinite(area) || area <= 0) return null;
+  return { value: area, unit: "кв.м", caption: "Площадь проекта" };
 }
 
 export function installmentAreaPeriodKpiHasData(data: InstallmentAreaPeriodKpiUiData | null | undefined): boolean {

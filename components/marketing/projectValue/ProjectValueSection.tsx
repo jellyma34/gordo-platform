@@ -4,53 +4,53 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { Loader2, Upload } from "lucide-react";
 
 import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
-import { InstallmentAreaEntityKpiSection } from "@/components/marketing/installmentArea/InstallmentAreaEntityKpiSection";
-import { InstallmentAreaRoomTypeKpiGrid } from "@/components/marketing/installmentArea/InstallmentAreaRoomTypeKpiGrid";
+import { ProjectValueEntityKpiSection } from "@/components/marketing/projectValue/ProjectValueEntityKpiSection";
+import { ProjectValueRoomTypeKpiGrid } from "@/components/marketing/projectValue/ProjectValueRoomTypeKpiGrid";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { useMarketingDealsFeedOptional } from "@/components/marketing/marketingDealsFeedContext";
+import {
+  buildProjectValueParkingAnalytics,
+  buildProjectValueStorageAnalytics,
+  projectValueEntityAnalyticsHasData,
+} from "@/lib/projectValueEntityAnalytics";
+import {
+  projectValueFactsFromDealsForKpi,
+  projectValueParkingFactsFromDealsForKpi,
+  projectValueStorageFactsFromDealsForKpi,
+} from "@/lib/projectValueFactsFromDeals";
+import {
+  buildProjectValuePlanTypeKpiBreakdown,
+  projectValuePlanTypeBreakdownHasData,
+} from "@/lib/projectValuePlanTypeKpi";
+import {
+  formatProjectValueRub,
+  mergeProjectValueEntityKpiData,
+  projectValuePeriodKpiHasData,
+  projectValueProjectVolumeRail,
+  projectValueSliceToCardsData,
+  type ProjectValuePeriodKpiUiData,
+} from "@/lib/projectValuePeriodKpi";
+import { PROJECT_VALUE_KPI_THEME } from "@/lib/entityKpiTheme";
+import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entityPerformanceChart";
 import { filterByObject } from "@/lib/marketingMockData";
 import {
-  installmentAreaFactsFromDealsForKpi,
-  installmentAreaParkingFactsFromDealsForKpi,
-  installmentAreaStorageFactsFromDealsForKpi,
-} from "@/lib/installmentAreaFactsFromDeals";
-import {
-  buildInstallmentAreaParkingAreaAnalytics,
-  buildInstallmentAreaStorageAreaAnalytics,
-  installmentAreaEntityAnalyticsHasData,
-} from "@/lib/installmentAreaEntityAreaAnalytics";
-import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entityPerformanceChart";
-import { INSTALLMENT_AREA_KPI_THEME, PARKING_KPI_THEME, STORAGE_KPI_THEME } from "@/lib/entityKpiTheme";
-import {
-  buildInstallmentAreaPlanTypeKpiBreakdown,
-  installmentAreaPlanTypeBreakdownHasData,
-} from "@/lib/installmentAreaPlanTypeKpi";
-import {
-  formatInstallmentAreaSqm,
-  installmentAreaPeriodKpiHasData,
-  installmentAreaProjectVolumeRail,
-  installmentAreaSliceToCardsData,
-  mergeInstallmentAreaEntityKpiData,
-  type InstallmentAreaPeriodKpiUiData,
-} from "@/lib/installmentAreaPeriodKpi";
-import {
-  clearMarketingInstallmentAreaCsvLocalStorage,
-  readMarketingInstallmentAreaCsvFromLocalStorage,
-  writeMarketingInstallmentAreaCsvToLocalStorage,
-  type MarketingInstallmentAreaCsvStoredV1,
-} from "@/lib/marketingInstallmentAreaCsv";
+  clearMarketingProjectValueCsvLocalStorage,
+  readMarketingProjectValueCsvFromLocalStorage,
+  writeMarketingProjectValueCsvToLocalStorage,
+  type MarketingProjectValueCsvStoredV1,
+} from "@/lib/marketingProjectValueCsv";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
-  selectInstallmentAreaParkingPlanSliceForKpi,
-  selectInstallmentAreaPlanSliceForKpi,
-  selectInstallmentAreaStoragePlanSliceForKpi,
-} from "@/lib/planDataSource/installmentArea/installmentAreaPlanSlice";
+  selectProjectValueParkingPlanSliceForKpi,
+  selectProjectValuePlanSliceForKpi,
+  selectProjectValueStoragePlanSliceForKpi,
+} from "@/lib/planDataSource/projectValue/projectValuePlanSlice";
 import {
-  INSTALLMENT_AREA_CSV_MAX_BYTES,
-  parseInstallmentAreaCsvAsync,
-} from "@/lib/planDataSource/installmentArea/parseInstallmentAreaCsv";
-import type { InstallmentAreaCsvParseDiagnostics } from "@/lib/planDataSource/installmentArea/types";
+  PROJECT_VALUE_CSV_MAX_BYTES,
+  parseProjectValueCsvAsync,
+} from "@/lib/planDataSource/projectValue/parseProjectValueCsv";
+import type { ProjectValueCsvParseDiagnostics } from "@/lib/planDataSource/projectValue/types";
 
 type Props = {
   presentation: boolean;
@@ -76,7 +76,7 @@ function defaultDashboardPeriodKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function InstallmentAreaSection({
+export function ProjectValueSection({
   presentation,
   presDark,
   mplPremium = false,
@@ -96,46 +96,47 @@ export function InstallmentAreaSection({
   }, [dealsFeed?.rows, objectId]);
 
   const periodGran = period === "quarter" ? "quarter" : "month";
-  const dealAreaFacts = useMemo(() => {
+  const dealValueFacts = useMemo(() => {
     if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
     if (!dealRowsForFact.length) return null;
-    return installmentAreaFactsFromDealsForKpi(dealRowsForFact, {
+    return projectValueFactsFromDealsForKpi(dealRowsForFact, {
       period: periodGran,
       currentPeriodKey,
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const dealParkingAreaFacts = useMemo(() => {
+  const dealParkingValueFacts = useMemo(() => {
     if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
     if (!dealRowsForFact.length) return null;
-    return installmentAreaParkingFactsFromDealsForKpi(dealRowsForFact, {
+    return projectValueParkingFactsFromDealsForKpi(dealRowsForFact, {
       period: periodGran,
       currentPeriodKey,
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const dealStorageAreaFacts = useMemo(() => {
+  const dealStorageValueFacts = useMemo(() => {
     if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
     if (!dealRowsForFact.length) return null;
-    return installmentAreaStorageFactsFromDealsForKpi(dealRowsForFact, {
+    return projectValueStorageFactsFromDealsForKpi(dealRowsForFact, {
       period: periodGran,
       currentPeriodKey,
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
-  const [doc, setDoc] = useState<MarketingInstallmentAreaCsvStoredV1 | null>(null);
+
+  const [doc, setDoc] = useState<MarketingProjectValueCsvStoredV1 | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentAreaCsvParseDiagnostics | null>(null);
+  const [failedDiagnostics, setFailedDiagnostics] = useState<ProjectValueCsvParseDiagnostics | null>(null);
 
   useEffect(() => {
-    setDoc(readMarketingInstallmentAreaCsvFromLocalStorage(projectId));
+    setDoc(readMarketingProjectValueCsvFromLocalStorage(projectId));
     setHydrated(true);
   }, [projectId]);
 
   const uploadCsv = useCallback(
     async (file: File) => {
-      if (file.size > INSTALLMENT_AREA_CSV_MAX_BYTES) {
+      if (file.size > PROJECT_VALUE_CSV_MAX_BYTES) {
         throw new Error("Размер файла не должен превышать 10 МБ.");
       }
       if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -147,7 +148,7 @@ export function InstallmentAreaSection({
       try {
         const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
         const { text } = await readMarketingCsvFileDecoded(file);
-        const parsed = await parseInstallmentAreaCsvAsync(text, {
+        const parsed = await parseProjectValueCsvAsync(text, {
           dashboardPeriodKey: defaultDashboardPeriodKey(),
           period,
           reportAsOfYmd,
@@ -158,7 +159,7 @@ export function InstallmentAreaSection({
           setFailedDiagnostics(parsed.diagnostics);
           return;
         }
-        const stored: MarketingInstallmentAreaCsvStoredV1 = {
+        const stored: MarketingProjectValueCsvStoredV1 = {
           v: 1,
           updatedAt: new Date().toISOString(),
           fileName: file.name,
@@ -169,7 +170,7 @@ export function InstallmentAreaSection({
           parkingSummary: parsed.parkingSummary ?? null,
           storageSummary: parsed.storageSummary ?? null,
         };
-        writeMarketingInstallmentAreaCsvToLocalStorage(projectId, stored);
+        writeMarketingProjectValueCsvToLocalStorage(projectId, stored);
         setDoc(stored);
       } finally {
         setLoading(false);
@@ -179,34 +180,34 @@ export function InstallmentAreaSection({
   );
 
   const clearCsv = useCallback(async () => {
-    clearMarketingInstallmentAreaCsvLocalStorage(projectId);
+    clearMarketingProjectValueCsvLocalStorage(projectId);
     setDoc(null);
     setError(null);
     setFailedDiagnostics(null);
   }, [projectId]);
 
-  const kpiData: InstallmentAreaPeriodKpiUiData = useMemo(() => {
+  const kpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
-      ? selectInstallmentAreaPlanSliceForKpi(doc.rows, doc.apartmentsSummary ?? null)
+      ? selectProjectValuePlanSliceForKpi(doc.rows, doc.apartmentsSummary ?? null)
       : null;
-    return mergeInstallmentAreaEntityKpiData(slice, dealAreaFacts);
-  }, [dealAreaFacts, doc]);
+    return mergeProjectValueEntityKpiData(slice, dealValueFacts);
+  }, [dealValueFacts, doc]);
 
-  const parkingKpiData: InstallmentAreaPeriodKpiUiData = useMemo(() => {
+  const parkingKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
-      ? selectInstallmentAreaParkingPlanSliceForKpi(doc.rows, doc.parkingSummary ?? null)
+      ? selectProjectValueParkingPlanSliceForKpi(doc.rows, doc.parkingSummary ?? null)
       : null;
-    return mergeInstallmentAreaEntityKpiData(slice, dealParkingAreaFacts);
-  }, [dealParkingAreaFacts, doc]);
+    return mergeProjectValueEntityKpiData(slice, dealParkingValueFacts);
+  }, [dealParkingValueFacts, doc]);
 
-  const storageKpiData: InstallmentAreaPeriodKpiUiData = useMemo(() => {
+  const storageKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
-      ? selectInstallmentAreaStoragePlanSliceForKpi(doc.rows, doc.storageSummary ?? null)
+      ? selectProjectValueStoragePlanSliceForKpi(doc.rows, doc.storageSummary ?? null)
       : null;
-    return mergeInstallmentAreaEntityKpiData(slice, dealStorageAreaFacts);
-  }, [dealStorageAreaFacts, doc]);
+    return mergeProjectValueEntityKpiData(slice, dealStorageValueFacts);
+  }, [dealStorageValueFacts, doc]);
 
-  const cardsData = useMemo(() => installmentAreaSliceToCardsData(kpiData), [kpiData]);
+  const cardsData = useMemo(() => projectValueSliceToCardsData(kpiData), [kpiData]);
 
   const chartRows = useMemo(() => {
     if (!doc?.rows?.length) return [];
@@ -215,19 +216,19 @@ export function InstallmentAreaSection({
         key: r.segmentNorm,
         label: r.segmentNorm,
         shortLabel: r.segmentNorm.length > 12 ? `${r.segmentNorm.slice(0, 10)}…` : r.segmentNorm,
-        planCumulative: r.planCumulativeArea,
-        factCumulative: r.factCumulativeArea,
+        planCumulative: r.planCumulative,
+        factCumulative: r.factCumulative,
       })),
     );
   }, [doc?.rows]);
 
-  const projectVolumeRail = useMemo(() => installmentAreaProjectVolumeRail(kpiData), [kpiData]);
+  const projectVolumeCompactCurrency = useMemo(() => projectValueProjectVolumeRail(kpiData), [kpiData]);
 
   const hasCsv = Boolean(doc?.rows?.length);
 
   const parkingAnalytics = useMemo(
     () =>
-      buildInstallmentAreaParkingAreaAnalytics({
+      buildProjectValueParkingAnalytics({
         rows: doc?.rows,
         hasCsvPlan: hasCsv,
         period: periodGran,
@@ -239,7 +240,7 @@ export function InstallmentAreaSection({
 
   const storageAnalytics = useMemo(
     () =>
-      buildInstallmentAreaStorageAreaAnalytics({
+      buildProjectValueStorageAnalytics({
         rows: doc?.rows,
         hasCsvPlan: hasCsv,
         period: periodGran,
@@ -250,13 +251,13 @@ export function InstallmentAreaSection({
   );
 
   const showParkingSection =
-    installmentAreaPeriodKpiHasData(parkingKpiData) || installmentAreaEntityAnalyticsHasData(parkingAnalytics);
+    projectValuePeriodKpiHasData(parkingKpiData) || projectValueEntityAnalyticsHasData(parkingAnalytics);
   const showStorageSection =
-    installmentAreaPeriodKpiHasData(storageKpiData) || installmentAreaEntityAnalyticsHasData(storageAnalytics);
+    projectValuePeriodKpiHasData(storageKpiData) || projectValueEntityAnalyticsHasData(storageAnalytics);
 
   const typeBreakdown = useMemo(
     () =>
-      buildInstallmentAreaPlanTypeKpiBreakdown({
+      buildProjectValuePlanTypeKpiBreakdown({
         rows: doc?.rows,
         hasCsvPlan: hasCsv,
         period: periodGran,
@@ -266,9 +267,9 @@ export function InstallmentAreaSection({
     [currentPeriodKey, dealRowsForFact, doc?.rows, hasCsv, period],
   );
 
-  const showTypeBreakdown = installmentAreaPlanTypeBreakdownHasData(typeBreakdown);
+  const showTypeBreakdown = projectValuePlanTypeBreakdownHasData(typeBreakdown);
 
-  const hasAnyData = installmentAreaPeriodKpiHasData(kpiData) || performanceChartHasData(chartRows);
+  const hasAnyData = projectValuePeriodKpiHasData(kpiData) || performanceChartHasData(chartRows);
   const diagnostics = doc?.diagnostics ?? failedDiagnostics;
   const showDebug = isEditMode && !presentation;
 
@@ -280,7 +281,7 @@ export function InstallmentAreaSection({
 
   const typeBreakdownSection =
     showTypeBreakdown && !busy ? (
-      <InstallmentAreaRoomTypeKpiGrid
+      <ProjectValueRoomTypeKpiGrid
         breakdown={typeBreakdown}
         presDark={presDark}
         presentation={presentation}
@@ -309,7 +310,7 @@ export function InstallmentAreaSection({
   return (
     <div
       className={`relative mt-6 min-w-0 border-t pt-6 ${presDark ? "border-white/10" : "border-slate-200/50"} ${
-        dragOver && isEditMode ? (presDark ? "ring-2 ring-teal-500/40" : "ring-2 ring-teal-400/50") : ""
+        dragOver && isEditMode ? (presDark ? "ring-2 ring-amber-500/40" : "ring-2 ring-amber-400/50") : ""
       }`}
       onDragOver={
         isEditMode
@@ -349,7 +350,8 @@ export function InstallmentAreaSection({
         <div className="min-w-0">
           {isEditMode ? (
             <p className={`text-[11px] ${mutedCls}`}>
-              CSV площади (legacy wide-table). Месяц строк привязывается к периоду дашборда / дате отчёта.
+              CSV стоимости проекта (Устав / Текущ. план продаж / …; `;`, cp1251). Месяц строк — период дашборда /
+              дата отчёта.
             </p>
           ) : null}
         </div>
@@ -379,7 +381,9 @@ export function InstallmentAreaSection({
       </div>
 
       {err ? (
-        <p className={`mb-3 rounded-lg border px-3 py-2 text-sm ${presDark ? "border-rose-500/30 bg-rose-950/30 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+        <p
+          className={`mb-3 rounded-lg border px-3 py-2 text-sm ${presDark ? "border-rose-500/30 bg-rose-950/30 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}
+        >
           {err}
         </p>
       ) : null}
@@ -387,53 +391,55 @@ export function InstallmentAreaSection({
       {!hydrated || (busy && isEditMode) ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
-          theme={INSTALLMENT_AREA_KPI_THEME}
+          theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
-          sectionTitle="Общая площадь, кв.м"
-          formatMetric={formatInstallmentAreaSqm}
-          projectVolume={projectVolumeRail}
+          sectionTitle="Общая стоимость проекта"
+          formatMetric={formatProjectValueRub}
+          projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           skeleton
         />
       ) : !hasAnyData ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
-          theme={INSTALLMENT_AREA_KPI_THEME}
+          theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
-          sectionTitle="Общая площадь, кв.м"
-          formatMetric={formatInstallmentAreaSqm}
-          projectVolume={projectVolumeRail}
+          sectionTitle="Общая стоимость проекта"
+          formatMetric={formatProjectValueRub}
+          projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           showEmpty
-          emptyMessage="Подгрузите CSV площади или дождитесь данных системы"
+          emptyMessage="Подгрузите CSV стоимости проекта или дождитесь данных системы"
         />
       ) : (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
-          theme={INSTALLMENT_AREA_KPI_THEME}
+          theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
-          sectionTitle="Общая площадь, кв.м"
-          formatMetric={formatInstallmentAreaSqm}
-          projectVolume={projectVolumeRail}
+          sectionTitle="Общая стоимость проекта"
+          formatMetric={formatProjectValueRub}
+          projectVolumeCompactCurrency={projectVolumeCompactCurrency}
         >
           {performanceChartHasData(chartRows) ? (
-            <div className={`mt-6 min-w-0 rounded-2xl border p-4 ${presDark ? "border-white/10 bg-slate-900/40" : "border-slate-200/70 bg-white"}`}>
+            <div
+              className={`mt-6 min-w-0 rounded-2xl border p-4 ${presDark ? "border-white/10 bg-slate-900/40" : "border-slate-200/70 bg-white"}`}
+            >
               <h3 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>
-                Накопительно по сегментам (кв.м)
+                Накопительно по сегментам (₽)
               </h3>
               <EntityPerformanceChart
                 rows={chartRows}
                 hasCsvPlan={cardsData.hasCsvPlan}
                 presDark={presDark}
                 presentation={presentation}
-                unitSuffix="кв.м"
+                unitSuffix="₽"
               />
             </div>
           ) : null}
@@ -443,12 +449,12 @@ export function InstallmentAreaSection({
       {typeBreakdownSection}
 
       {showParkingSection && !busy ? (
-        <InstallmentAreaEntityKpiSection
+        <ProjectValueEntityKpiSection
           entityLabel="Машино-места"
-          theme={PARKING_KPI_THEME}
+          theme={PROJECT_VALUE_KPI_THEME}
           kpiData={parkingKpiData}
           analyticsBreakdown={parkingAnalytics}
-          analyticsTitle="Аналитика выполнения плана по машино-местам"
+          analyticsTitle="Аналитика выполнения стоимости проекта по машино-местам"
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
@@ -457,12 +463,12 @@ export function InstallmentAreaSection({
       ) : null}
 
       {showStorageSection && !busy ? (
-        <InstallmentAreaEntityKpiSection
+        <ProjectValueEntityKpiSection
           entityLabel="Кладовые"
-          theme={STORAGE_KPI_THEME}
+          theme={PROJECT_VALUE_KPI_THEME}
           kpiData={storageKpiData}
           analyticsBreakdown={storageAnalytics}
-          analyticsTitle="Аналитика выполнения плана по кладовым"
+          analyticsTitle="Аналитика выполнения стоимости проекта по кладовым"
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
@@ -471,8 +477,10 @@ export function InstallmentAreaSection({
       ) : null}
 
       {showDebug && diagnostics ? (
-        <details className={`mt-4 rounded-lg border px-3 py-2 text-xs ${presDark ? "border-slate-600 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
-          <summary className="cursor-pointer font-semibold">Диагностика CSV площади</summary>
+        <details
+          className={`mt-4 rounded-lg border px-3 py-2 text-xs ${presDark ? "border-slate-600 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}
+        >
+          <summary className="cursor-pointer font-semibold">Диагностика CSV стоимости проекта</summary>
           <div className="mt-2 space-y-1 font-mono">
             <div>Тип: {diagnostics.csvType}</div>
             <div>Разделитель: {diagnostics.delimiter ?? "—"}</div>
@@ -488,7 +496,7 @@ export function InstallmentAreaSection({
 
       {showDebug ? (
         <p className={`mt-2 text-xs ${mutedCls}`}>
-          Plan source: {hasCsv ? "CSV AREA" : "NOT LOADED"} · Imported roots: {doc?.rows?.length ?? 0}
+          Plan source: {hasCsv ? "CSV PROJECT VALUE" : "NOT LOADED"} · Imported roots: {doc?.rows?.length ?? 0}
         </p>
       ) : null}
     </div>

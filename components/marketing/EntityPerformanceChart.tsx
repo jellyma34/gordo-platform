@@ -14,7 +14,7 @@ import {
 } from "@/components/charting/rechartsClient";
 import { rechartsPresentationMiniTooltip } from "@/components/marketing/salesPlanCharts";
 import type { PerformanceChartRow } from "@/lib/entityPerformanceChart";
-import { numFmt } from "@/lib/salesPlanChartFormat";
+import { formatCompactMoneyAxis, formatCompactMoneyAxisTick, numFmt } from "@/lib/salesPlanChartFormat";
 
 const PLAN_FILL = "#FFAB5C";
 const PLAN_FILL_DARK = "#fdba74";
@@ -52,6 +52,11 @@ export function EntityPerformanceChart({
 
   const planFill = presDark ? PLAN_FILL_DARK : PLAN_FILL;
   const factFill = presDark ? FACT_FILL_DARK : FACT_FILL;
+  const compactRub = unitSuffix === "₽";
+  const formatChartValue = (n: number) =>
+    compactRub ? `${formatCompactMoneyAxis(n)}` : `${numFmt.format(Math.round(n))} ${unitSuffix}`;
+  const formatAxisTick = (v: number) =>
+    compactRub ? formatCompactMoneyAxisTick(Number(v)) : numFmt.format(Math.round(Number(v)));
 
   if (!rows.length) {
     return (
@@ -76,7 +81,7 @@ export function EntityPerformanceChart({
             type="number"
             domain={[0, xMax]}
             tick={{ fill: axisColor, fontSize: 11 }}
-            tickFormatter={(v) => numFmt.format(Math.round(Number(v)))}
+            tickFormatter={formatAxisTick}
             axisLine={false}
             tickLine={false}
           />
@@ -92,7 +97,7 @@ export function EntityPerformanceChart({
             cursor={presDark ? { stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 } : { fill: "rgba(148,163,184,0.08)" }}
             content={
               presDark || presentation
-                ? rechartsPresentationMiniTooltip((n) => `${numFmt.format(n)} ${unitSuffix}`)
+                ? rechartsPresentationMiniTooltip((n) => formatChartValue(n))
                 : undefined
             }
             formatter={
@@ -100,7 +105,7 @@ export function EntityPerformanceChart({
                 ? undefined
                 : (v, name) => {
                     const lab = String(name) === "plan" ? "План (накоп.)" : "Факт (накоп.)";
-                    return [`${numFmt.format(Number(v))} ${unitSuffix}`, lab];
+                    return [formatChartValue(Number(v)), lab];
                   }
             }
             contentStyle={

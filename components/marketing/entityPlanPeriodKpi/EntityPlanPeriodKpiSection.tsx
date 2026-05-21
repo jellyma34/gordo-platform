@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 
 import {
   EntityPlanPeriodKpiCardsGrid,
+  type EntityKpiCardsDensity,
   type EntityPlanPeriodKpiCardsData,
 } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
 import { EntityProjectVolumeMeta } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumeMeta";
@@ -26,12 +27,16 @@ type Props = {
   formatMetric?: (n: number) => string;
   /** Левый rail «Площадь проекта» (десятичное значение, кв.м). */
   projectVolume?: { value: number; unit: string; caption: string } | null;
+  /** Левый rail «План проекта» (компактные рубли). */
+  projectVolumeCompactCurrency?: { rub: number; caption: string } | null;
   /** Левый rail «N квартир» (целое из «План проекта» сегмента). */
   projectVolumeUnits?: { count: number; unit: string } | null;
   /** Вложенный блок (комнатность в сетке 2×2 / 4 колонки). */
   embedded?: boolean;
   /** `room-type` — как `full`: rail объёма + 3 KPI в ряд (блок комнатности). */
   cardsLayout?: "full" | "stacked" | "room-type";
+  /** Компактная типографика KPI площади (парковки / кладовые). */
+  cardsDensity?: EntityKpiCardsDensity;
   children?: ReactNode;
 };
 
@@ -48,9 +53,11 @@ export function EntityPlanPeriodKpiSection({
   sectionTitle = "Выполнение плана отчетного периода",
   formatMetric,
   projectVolume,
+  projectVolumeCompactCurrency,
   projectVolumeUnits,
   embedded = false,
   cardsLayout = "full",
+  cardsDensity = "default",
   children,
 }: Props) {
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
@@ -109,6 +116,16 @@ export function EntityPlanPeriodKpiSection({
             presentation={presentation}
           />
         ) : null}
+        {projectVolumeCompactCurrency ? (
+          <EntityProjectVolumeMeta
+            mode="compact-currency"
+            rub={projectVolumeCompactCurrency.rub}
+            caption={projectVolumeCompactCurrency.caption}
+            railMinWidthPx={120}
+            presDark={presDark}
+            presentation={presentation}
+          />
+        ) : null}
         {projectVolume ? (
           <EntityProjectVolumeMeta
             mode="decimal"
@@ -130,6 +147,7 @@ export function EntityPlanPeriodKpiSection({
           skeleton={skeleton}
           formatMetric={formatMetric}
           layout={cardsLayout}
+          cardsDensity={cardsDensity}
         />
       </div>
 

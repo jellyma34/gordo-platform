@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
+import { formatDduRevenueRubParts } from "@/lib/dduRevenuePeriodKpi";
+import { formatProjectValueRubParts } from "@/lib/projectValuePeriodKpi";
 import { formatInstallmentAreaSqmParts } from "@/lib/installmentAreaPeriodKpi";
 import {
   apartmentKpiExecutionHue,
   apartmentKpiProgressWidthPercent,
   type ApartmentKpiHue,
 } from "@/lib/apartmentsPlanPeriodKpi";
-import { dec1Fmt, numFmt } from "@/lib/salesPlanChartFormat";
+import { dec1Fmt, dec2Fmt, numFmt } from "@/lib/salesPlanChartFormat";
 
 export const ENTITY_KPI_UI = {
   cardMinHeight: 400,
@@ -65,10 +67,61 @@ export const ROOM_TYPE_KPI_UI = {
   ringSubtitleSize: 11,
 } as const;
 
-export type EntityKpiCardsDensity = "default" | "room-type";
+/** Компактная типографика KPI площади (парковки / кладовые в Рассрочка ДДУ). */
+export const kpiValueSizeCompact = 28;
+export const kpiMetricSizeCompact = 20;
+export const kpiChartLabelSizeCompact = 14;
+export const kpiMetricUnitScale = 0.72;
+export const kpiMetricUnitOpacity = 0.9;
+
+export const INSTALLMENT_AREA_ENTITY_KPI_UI = {
+  ...ENTITY_KPI_UI,
+  barValueSize: kpiChartLabelSizeCompact,
+  deviationLabelSize: 12,
+  deviationValueSize: kpiMetricSizeCompact,
+  fulfillmentValueSize: kpiValueSizeCompact,
+} as const;
+
+export type EntityKpiCardsDensity =
+  | "default"
+  | "room-type"
+  | "installment-area-entity"
+  | "ddu-revenue-entity"
+  | "project-value-entity";
 
 function kpiUiTokens(density: EntityKpiCardsDensity) {
-  return density === "room-type" ? ROOM_TYPE_KPI_UI : ENTITY_KPI_UI;
+  if (density === "room-type") return ROOM_TYPE_KPI_UI;
+  if (
+    density === "installment-area-entity" ||
+    density === "ddu-revenue-entity" ||
+    density === "project-value-entity"
+  ) {
+    return INSTALLMENT_AREA_ENTITY_KPI_UI;
+  }
+  return ENTITY_KPI_UI;
+}
+
+function usesInstallmentAreaSqmLabels(theme: EntityKpiTheme, density: EntityKpiCardsDensity): boolean {
+  return theme.id === "installment_area" || density === "installment-area-entity";
+}
+
+function usesCompactCurrencyLabels(theme: EntityKpiTheme, density: EntityKpiCardsDensity): boolean {
+  return (
+    theme.id === "ddu_revenue" ||
+    theme.id === "project_value" ||
+    density === "ddu-revenue-entity" ||
+    density === "project-value-entity"
+  );
+}
+
+function compactCurrencyParts(theme: EntityKpiTheme, value: number) {
+  return theme.id === "project_value"
+    ? formatProjectValueRubParts(value)
+    : formatDduRevenueRubParts(value);
+}
+
+function usesSplitMetricLabels(theme: EntityKpiTheme, density: EntityKpiCardsDensity): boolean {
+  return usesInstallmentAreaSqmLabels(theme, density) || usesCompactCurrencyLabels(theme, density);
 }
 
 const RUNNER_COLORS: Record<ApartmentKpiHue, string> = {
@@ -153,13 +206,25 @@ function kpiMiniChartUi(theme: EntityKpiTheme, density: EntityKpiCardsDensity = 
       chartInnerMaxClass: "mx-auto w-full max-w-[168px]",
     };
   }
-  if (theme.id === "installment_area") {
+  if (usesSplitMetricLabels(theme, density)) {
+    const barValueSize =
+      density === "installment-area-entity" ||
+      density === "ddu-revenue-entity" ||
+      density === "project-value-entity"
+        ? kpiChartLabelSizeCompact
+        : 16;
+    const barValueExtraLine =
+      density === "installment-area-entity" ||
+      density === "ddu-revenue-entity" ||
+      density === "project-value-entity"
+        ? 10
+        : 14;
     return {
       barGap: 56,
       barColumnWidth: 120,
       barWidth: ENTITY_KPI_UI.barWidth,
-      barValueSize: 16,
-      barValueExtraLine: 14,
+      barValueSize,
+      barValueExtraLine,
       chartAreaHeight: ENTITY_KPI_UI.chartAreaHeight,
       chartShellClass: "relative mx-auto w-full min-w-[280px] max-w-[320px] sm:min-w-[296px]",
       chartInnerMaxClass: "mx-auto w-full max-w-[320px]",
@@ -190,6 +255,7 @@ function KpiBarValueLabel({
   bottomPx,
   fontSize,
   columnWidth,
+  density = "default",
 }: {
   value: number;
   hasValue: boolean;
@@ -199,6 +265,7 @@ function KpiBarValueLabel({
   bottomPx: number;
   fontSize: number;
   columnWidth: number;
+  density?: EntityKpiCardsDensity;
 }) {
   if (!hasValue) {
     return (
@@ -218,13 +285,15 @@ function KpiBarValueLabel({
     );
   }
 
-  if (theme.id === "installment_area") {
-    const parts = formatInstallmentAreaSqmParts(value);
+  if (usesSplitMetricLabels(theme, density)) {
+    const parts = usesCompactCurrencyLabels(theme, density)
+      ? compactCurrencyParts(theme, value)
+      : formatInstallmentAreaSqmParts(value);
     if (parts.value === "—") {
       return (
         <span
           className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center tabular-nums"
-          style={{ bottom: bottomPx, width: columnWidth, color, fontSize, fontWeight: 600, lineHeight: 1.1 }}
+          style={{ bottom: bottomPx, width: columnWidth, color, fontSize, fontWeight: 700, lineHeight: 1.2 }}
         >
           —
         </span>
@@ -238,14 +307,17 @@ function KpiBarValueLabel({
           width: columnWidth,
           color,
           fontSize,
-          fontWeight: 600,
-          lineHeight: 1.1,
+          fontWeight: 700,
+          lineHeight: 1.2,
           whiteSpace: "normal",
         }}
       >
         <span>{parts.value}</span>
-        <span className="font-semibold" style={{ fontSize: Math.max(11, fontSize - 2) }}>
-          {parts.unit}
+        <span
+          className="font-semibold"
+          style={{ fontSize: `${kpiMetricUnitScale}em`, opacity: kpiMetricUnitOpacity, lineHeight: 1.2 }}
+        >
+          {"unit" in parts ? parts.unit : ""}
         </span>
       </span>
     );
@@ -336,6 +408,8 @@ function ThemedMiniFactPlanColumnChart({
   theme,
   density = "default",
   formatMetric = formatKpiCount,
+  planBarLabel = "План",
+  factBarLabel = "Факт",
 }: {
   fact: number;
   plan: number | null;
@@ -346,6 +420,8 @@ function ThemedMiniFactPlanColumnChart({
   theme: EntityKpiTheme;
   density?: EntityKpiCardsDensity;
   formatMetric?: (n: number) => string;
+  planBarLabel?: string;
+  factBarLabel?: string;
 }) {
   const UI = kpiUiTokens(density);
   const [hovered, setHovered] = useState(false);
@@ -423,6 +499,7 @@ function ThemedMiniFactPlanColumnChart({
               bottomPx={planBarPx + UI.barValueGap}
               fontSize={chartUi.barValueSize}
               columnWidth={chartUi.barColumnWidth}
+              density={density}
             />
             <div
               className="w-full transition-[height] duration-500 ease-out"
@@ -448,6 +525,7 @@ function ThemedMiniFactPlanColumnChart({
               bottomPx={factBarPx + UI.barValueGap}
               fontSize={chartUi.barValueSize}
               columnWidth={chartUi.barColumnWidth}
+              density={density}
             />
             <div
               className="w-full transition-[height] duration-500 ease-out"
@@ -475,7 +553,7 @@ function ThemedMiniFactPlanColumnChart({
               fontWeight: 600,
             }}
           >
-            План
+            {planBarLabel}
           </span>
           <span
             className="text-center uppercase"
@@ -486,7 +564,7 @@ function ThemedMiniFactPlanColumnChart({
               fontWeight: 600,
             }}
           >
-            Факт
+            {factBarLabel}
           </span>
         </div>
       </div>
@@ -506,6 +584,9 @@ function ThemedKpiFactPlanCardBody({
   theme,
   density = "default",
   formatMetric = formatKpiCount,
+  planBarLabel = "План",
+  factBarLabel = "Факт",
+  hideExecutionPct = false,
 }: {
   fact: number;
   plan: number | null;
@@ -518,18 +599,29 @@ function ThemedKpiFactPlanCardBody({
   theme: EntityKpiTheme;
   density?: EntityKpiCardsDensity;
   formatMetric?: (n: number) => string;
+  planBarLabel?: string;
+  factBarLabel?: string;
+  hideExecutionPct?: boolean;
 }) {
   const UI = kpiUiTokens(density);
   const hue = executionPct != null ? apartmentKpiExecutionHue(executionPct) : null;
   const deviation = hasPlan && plan != null ? fact - plan : null;
   const runnerW = executionPct != null ? apartmentKpiProgressWidthPercent(executionPct) : 0;
   const deviationLabelStyle = { color: presDark ? "#94a3b8" : UI.mutedLabel, fontSize: UI.deviationLabelSize, fontWeight: 500 };
-  const deviationValueStyle = presDark
-    ? { fontSize: density === "room-type" ? 18 : "clamp(20px, 4vw, 26px)", fontWeight: 600, lineHeight: 1 }
-    : { fontSize: UI.deviationValueSize, fontWeight: 600, lineHeight: 1 };
-  const fulfillmentValueStyle = presDark
-    ? { fontSize: density === "room-type" ? 22 : "clamp(26px, 5vw, 34px)", fontWeight: 700, lineHeight: 1 }
-    : { fontSize: UI.fulfillmentValueSize, fontWeight: 700, lineHeight: 1 };
+  const compactTypo =
+    density === "installment-area-entity" ||
+    density === "ddu-revenue-entity" ||
+    density === "project-value-entity";
+  const deviationValueStyle = compactTypo
+    ? { fontSize: kpiMetricSizeCompact, fontWeight: 700, lineHeight: 1.2 }
+    : presDark
+      ? { fontSize: density === "room-type" ? 18 : "clamp(20px, 4vw, 26px)", fontWeight: 600, lineHeight: 1 }
+      : { fontSize: UI.deviationValueSize, fontWeight: 600, lineHeight: 1 };
+  const fulfillmentValueStyle = compactTypo
+    ? { fontSize: kpiValueSizeCompact, fontWeight: 700, lineHeight: 1 }
+    : presDark
+      ? { fontSize: density === "room-type" ? 22 : "clamp(26px, 5vw, 34px)", fontWeight: 700, lineHeight: 1 }
+      : { fontSize: UI.fulfillmentValueSize, fontWeight: 700, lineHeight: 1 };
 
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-visible">
@@ -547,33 +639,123 @@ function ThemedKpiFactPlanCardBody({
           theme={theme}
           density={density}
           formatMetric={formatMetric}
+          planBarLabel={planBarLabel}
+          factBarLabel={factBarLabel}
         />
       </div>
       <KpiSectionDivider presDark={presDark} />
       <div className="flex w-full items-center justify-between gap-3 whitespace-nowrap py-0.5">
         <span style={deviationLabelStyle}>Отклонение</span>
-        <span className={`shrink-0 tabular-nums ${deviation != null ? deviationToneClass(deviation, presDark, presentation) : dashCls}`} style={deviationValueStyle}>
-          {deviation != null ? formatMetric(deviation) : "—"}
+        <span
+          className={`shrink-0 tabular-nums ${deviation != null ? deviationToneClass(deviation, presDark, presentation) : dashCls}`}
+          style={deviationValueStyle}
+        >
+          {deviation != null ? (
+            compactTypo ? (
+              (() => {
+                const parts = usesCompactCurrencyLabels(theme, density)
+                  ? compactCurrencyParts(theme, deviation)
+                  : formatInstallmentAreaSqmParts(deviation);
+                if (parts.value === "—") return "—";
+                const unitLabel = "unit" in parts ? parts.unit : "";
+                return (
+                  <>
+                    {parts.value}{" "}
+                    <span style={{ fontSize: `${kpiMetricUnitScale}em`, opacity: kpiMetricUnitOpacity }}>{unitLabel}</span>
+                  </>
+                );
+              })()
+            ) : (
+              formatMetric(deviation)
+            )
+          ) : (
+            "—"
+          )}
         </span>
       </div>
-      <KpiSectionDivider presDark={presDark} />
-      <div className="mt-auto w-full shrink-0 space-y-2.5 pb-0.5">
-        <div className="flex w-full items-start justify-between gap-3">
-          <span className="shrink-0 pt-0.5" style={deviationLabelStyle}>
-            Выполнение
-          </span>
-          {executionPct != null && hue != null ? (
-            <span className="shrink-0 tabular-nums" style={{ ...fulfillmentValueStyle, ...pctToneStyle(hue, presDark) }}>
-              {dec1Fmt.format(Math.round(executionPct * 10) / 10)}%
+      {hideExecutionPct ? null : <KpiSectionDivider presDark={presDark} />}
+      {hideExecutionPct ? null : (
+        <div className="mt-auto w-full shrink-0 space-y-2.5 pb-0.5">
+          <div className="flex w-full items-start justify-between gap-3">
+            <span className="shrink-0 pt-0.5" style={deviationLabelStyle}>
+              Выполнение
             </span>
-          ) : (
-            <span className={`shrink-0 ${dashCls}`} style={fulfillmentValueStyle}>
-              —
-            </span>
-          )}
+            {executionPct != null && hue != null ? (
+              <span className="shrink-0 tabular-nums" style={{ ...fulfillmentValueStyle, ...pctToneStyle(hue, presDark) }}>
+                {dec1Fmt.format(Math.round(executionPct * 10) / 10)}%
+              </span>
+            ) : (
+              <span className={`shrink-0 ${dashCls}`} style={fulfillmentValueStyle}>
+                —
+              </span>
+            )}
+          </div>
+          <KpiExecutionRunner widthPercent={runnerW} hue={hue ?? "red"} presDark={presDark} />
         </div>
-        <KpiExecutionRunner widthPercent={runnerW} hue={hue ?? "red"} presDark={presDark} />
+      )}
+    </div>
+  );
+}
+
+function KpiSingleMetricCardBody({
+  value,
+  presDark,
+  theme,
+  density = "default",
+  formatMetric = formatKpiCount,
+}: {
+  value: number;
+  presDark: boolean;
+  theme: EntityKpiTheme;
+  density?: EntityKpiCardsDensity;
+  formatMetric?: (n: number) => string;
+}) {
+  const UI = kpiUiTokens(density);
+  const compactTypo =
+    density === "installment-area-entity" ||
+    density === "ddu-revenue-entity" ||
+    density === "project-value-entity";
+  const valueStyle = compactTypo
+    ? { fontSize: kpiValueSizeCompact, fontWeight: 700, lineHeight: 1.15 }
+    : { fontSize: "clamp(28px, 5vw, 36px)", fontWeight: 700, lineHeight: 1.1 };
+  const color = presDark ? theme.ringStrokeDark : "#0f172a";
+
+  if (usesCompactCurrencyLabels(theme, density)) {
+    const parts = compactCurrencyParts(theme, value);
+    if (parts.value === "—") {
+      return (
+        <div className="flex min-h-[140px] w-full flex-col items-center justify-center py-6">
+          <span className="tabular-nums" style={{ ...valueStyle, color }}>
+            —
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex min-h-[140px] w-full flex-col items-center justify-center py-6">
+        <span
+          className="flex flex-col items-center text-center tabular-nums"
+          style={{ color, fontSize: valueStyle.fontSize, fontWeight: valueStyle.fontWeight, lineHeight: 1.2 }}
+        >
+          <span>{parts.value}</span>
+          {"unit" in parts ? (
+            <span
+              className="font-semibold"
+              style={{ fontSize: `${kpiMetricUnitScale}em`, opacity: kpiMetricUnitOpacity, marginTop: 4 }}
+            >
+              {parts.unit}
+            </span>
+          ) : null}
+        </span>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-[140px] w-full flex-col items-center justify-center py-6">
+      <span className="text-center tabular-nums" style={{ ...valueStyle, color }}>
+        {formatMetric(value)}
+      </span>
     </div>
   );
 }
@@ -583,11 +765,13 @@ function ThemedKpiCircularProgressRing({
   presDark,
   theme,
   density = "default",
+  ringCaption = "Реализовано",
 }: {
   percent: number;
   presDark: boolean;
   theme: EntityKpiTheme;
   density?: EntityKpiCardsDensity;
+  ringCaption?: string;
 }) {
   const UI = kpiUiTokens(density);
   const size = UI.ringSize;
@@ -624,10 +808,12 @@ function ThemedKpiCircularProgressRing({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center">
         <span className={`tabular-nums leading-none ${presDark ? "text-slate-100" : "text-slate-900"}`} style={{ fontSize: UI.ringPercentSize, fontWeight: 700 }}>
-          {dec1Fmt.format(Math.round(animPct * 10) / 10)}%
+          {animPct < 10
+            ? `${dec2Fmt.format(Math.round(animPct * 100) / 100)}%`
+            : `${dec1Fmt.format(Math.round(animPct * 10) / 10)}%`}
         </span>
         <span className="mt-1.5 uppercase" style={{ fontSize: UI.ringSubtitleSize, fontWeight: 600, letterSpacing: "0.06em", color: presDark ? "#94a3b8" : UI.mutedLabel }}>
-          Реализовано
+          {ringCaption}
         </span>
       </div>
     </div>
@@ -722,6 +908,14 @@ export type EntityPlanPeriodKpiCardsData = {
   pctMonth: number | null;
   pctCum: number | null;
   pctVolume: number | null;
+  /** Подписи столбиков KPI «План на отчетный месяц» (устав / текущ. план). */
+  monthCardPlanLabel?: string;
+  monthCardFactLabel?: string;
+  hideMonthExecutionPct?: boolean;
+  middleCardMode?: "fact-plan" | "single-value";
+  middleCardTitle?: string;
+  volumeCardTitle?: string;
+  volumeRingCaption?: string;
 };
 
 export function EntityPlanPeriodKpiCardsGrid({
@@ -733,6 +927,7 @@ export function EntityPlanPeriodKpiCardsGrid({
   skeleton,
   formatMetric,
   layout = "full",
+  cardsDensity = "default",
 }: {
   theme: EntityKpiTheme;
   data: EntityPlanPeriodKpiCardsData;
@@ -743,9 +938,11 @@ export function EntityPlanPeriodKpiCardsGrid({
   /** По умолчанию целые шт; для площади — `formatInstallmentAreaSqm`. */
   formatMetric?: (n: number) => string;
   layout?: "full" | "stacked" | "room-type";
+  /** Компактная типографика площади (парковки / кладовые). */
+  cardsDensity?: EntityKpiCardsDensity;
 }) {
   const fmt = formatMetric ?? formatKpiCount;
-  const density: EntityKpiCardsDensity = "default";
+  const density = cardsDensity;
   const dashCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-400";
   const spctVolume = useSmoothScalar(data.pctVolume ?? 0);
   const gridCls =
@@ -772,14 +969,31 @@ export function EntityPlanPeriodKpiCardsGrid({
               theme={theme}
               density={density}
               formatMetric={fmt}
+              planBarLabel={data.monthCardPlanLabel ?? "План"}
+              factBarLabel={data.monthCardFactLabel ?? "Факт"}
+              hideExecutionPct={data.hideMonthExecutionPct}
             />
           )}
         </KpiCardShell>
       </div>
       <div className="flex min-w-0 overflow-visible">
-        <KpiCardShell title="План накопительно итогом" presDark={presDark} skeleton={skeleton} density={density}>
+        <KpiCardShell
+          title={data.middleCardTitle ?? "План накопительно итогом"}
+          presDark={presDark}
+          skeleton={skeleton}
+          density={density}
+          centered={data.middleCardMode === "single-value"}
+        >
           {skeleton ? (
             <KpiSkeletonLine presDark={presDark} />
+          ) : data.middleCardMode === "single-value" ? (
+            <KpiSingleMetricCardBody
+              value={data.factCumulative}
+              presDark={presDark}
+              theme={theme}
+              density={density}
+              formatMetric={fmt}
+            />
           ) : (
             <ThemedKpiFactPlanCardBody
               fact={data.factCumulative}
@@ -798,12 +1012,24 @@ export function EntityPlanPeriodKpiCardsGrid({
         </KpiCardShell>
       </div>
       <div className="flex min-w-0 overflow-visible">
-        <KpiCardShell title="% выполнения от общего объема" presDark={presDark} skeleton={skeleton} centered density={density}>
+        <KpiCardShell
+          title={data.volumeCardTitle ?? "% выполнения от общего объема"}
+          presDark={presDark}
+          skeleton={skeleton}
+          centered
+          density={density}
+        >
           {skeleton ? (
             <KpiSkeletonLine presDark={presDark} />
           ) : data.pctVolume != null ? (
             <div className="relative flex w-full flex-col items-center justify-center py-3">
-              <ThemedKpiCircularProgressRing percent={spctVolume} presDark={presDark} theme={theme} density={density} />
+              <ThemedKpiCircularProgressRing
+                percent={spctVolume}
+                presDark={presDark}
+                theme={theme}
+                density={density}
+                ringCaption={data.volumeRingCaption ?? "Реализовано"}
+              />
             </div>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center px-2 py-3 text-center">

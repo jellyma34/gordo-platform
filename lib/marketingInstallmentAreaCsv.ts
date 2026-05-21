@@ -1,4 +1,7 @@
-import type { InstallmentAreaApartmentsSummary } from "@/lib/planDataSource/installmentArea/types";
+import type {
+  InstallmentAreaApartmentsSummary,
+  InstallmentAreaEntitySummary,
+} from "@/lib/planDataSource/installmentArea/types";
 import type { InstallmentAreaCsvNormalizedRow } from "@/lib/planDataSource/installmentArea/types";
 import type { InstallmentAreaCsvParseDiagnostics } from "@/lib/planDataSource/installmentArea/types";
 
@@ -13,6 +16,8 @@ export type MarketingInstallmentAreaCsvStoredV1 = {
   warnings?: string[];
   diagnostics?: InstallmentAreaCsvParseDiagnostics;
   apartmentsSummary?: InstallmentAreaApartmentsSummary | null;
+  parkingSummary?: InstallmentAreaEntitySummary | null;
+  storageSummary?: InstallmentAreaEntitySummary | null;
 };
 
 function scopedKey(projectId: string): string {

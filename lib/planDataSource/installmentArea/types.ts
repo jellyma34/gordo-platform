@@ -17,6 +17,9 @@ export type InstallmentAreaApartmentsSummary = {
   rawLabel: string;
 };
 
+/** Свод root-строки сущности (Квартиры / Парковки / Кладовые). */
+export type InstallmentAreaEntitySummary = InstallmentAreaApartmentsSummary;
+
 export type InstallmentAreaCsvParseDiagnostics = {
   rawHeaders: string[];
   columnMapping: Record<string, string> | null;
@@ -33,6 +36,8 @@ export type InstallmentAreaCsvParseResult =
       warnings: string[];
       diagnostics: InstallmentAreaCsvParseDiagnostics;
       apartmentsSummary: InstallmentAreaApartmentsSummary | null;
+      parkingSummary?: InstallmentAreaEntitySummary | null;
+      storageSummary?: InstallmentAreaEntitySummary | null;
     }
   | {
       ok: false;

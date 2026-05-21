@@ -1,5 +1,11 @@
 /** Визуальная тема KPI-блока «Выполнение плана отчётного периода». */
-export type EntityKpiThemeId = "apartments" | "parking" | "storages" | "installment_area";
+export type EntityKpiThemeId =
+  | "apartments"
+  | "parking"
+  | "storages"
+  | "installment_area"
+  | "ddu_revenue"
+  | "project_value";
 
 export type EntityKpiTheme = {
   id: EntityKpiThemeId;
@@ -56,4 +62,28 @@ export const STORAGE_KPI_THEME: EntityKpiTheme = {
   ringTrackBorder: "#E0F2FE",
   ringStrokeDark: "#1E293B",
   ringGradientStops: { top: "#64748B", bottom: "#0F172A" },
+};
+
+/** Продажи по заключённым ДДУ, руб. — план orange, факт emerald, кольцо deep green. */
+export const DDU_REVENUE_KPI_THEME: EntityKpiTheme = {
+  id: "ddu_revenue",
+  planGradient: "linear-gradient(180deg, #FFB257 0%, #FF7A00 100%)",
+  factGradient: "linear-gradient(180deg, #6EE7B7 0%, #059669 100%)",
+  factTooltipColor: "#047857",
+  factBarShadow: "0 3px 10px rgba(5,150,105,0.18)",
+  ringTrackBorder: "#D1FAE5",
+  ringStrokeDark: "#047857",
+  ringGradientStops: { top: "#34D399", bottom: "#047857" },
+};
+
+/** Общая стоимость проекта — план gold/amber, факт dark emerald, кольцо deep teal. */
+export const PROJECT_VALUE_KPI_THEME: EntityKpiTheme = {
+  id: "project_value",
+  planGradient: "linear-gradient(180deg, #FCD34D 0%, #D97706 100%)",
+  factGradient: "linear-gradient(180deg, #047857 0%, #064E3B 100%)",
+  factTooltipColor: "#064E3B",
+  factBarShadow: "0 3px 10px rgba(6,78,59,0.22)",
+  ringTrackBorder: "#CCFBF1",
+  ringStrokeDark: "#0F766E",
+  ringGradientStops: { top: "#14B8A6", bottom: "#0F766E" },
 };

@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { DduRevenueSection } from "@/components/marketing/dduRevenue/DduRevenueSection";
 import { InstallmentAreaSection } from "@/components/marketing/installmentArea/InstallmentAreaSection";
+import { ProjectValueSection } from "@/components/marketing/projectValue/ProjectValueSection";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
 import {
   filterByObjectAndDealType,
@@ -71,6 +73,24 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <InstallmentAreaSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplLight}
+        isEditMode={!presentation}
+        period={period}
+        objectId={objectId}
+      />
+
+      <DduRevenueSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplLight}
+        isEditMode={!presentation}
+        period={period}
+        objectId={objectId}
+      />
+
+      <ProjectValueSection
         presentation={presentation}
         presDark={presDark}
         mplPremium={mplLight}
