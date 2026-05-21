@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { apartmentPlanFactsFromDealsForKpi } from "@/lib/apartmentPlanFactsFromDeals";
 import { buildApartmentPlanTypeKpiBreakdown } from "@/lib/apartmentPlanTypeKpi";
+import { buildParkingPlanAnalyticsBreakdown, selectPlanSliceForParkingKpi } from "@/lib/parkingPlanAnalytics";
+import { parkingPlanFactsFromDealsForKpi } from "@/lib/parkingPlanFactsFromDeals";
+import { mergeParkingPlanCsvWithFacts } from "@/lib/parkingPlanPeriodKpi";
 import {
   APARTMENT_PROJECT_TOTAL_UNITS,
   mergeApartmentPlanCsvWithFacts,
@@ -2328,6 +2331,65 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0, dealFactDebug: null };
     }
   }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
+
+  const parkingPlanPeriodKpi = useMemo(() => {
+    try {
+      const currentKey = analytics.currentPeriodKey;
+      const dealRowsForFact = marketingDealsFiltered;
+      const dealFacts =
+        dealsFeed.loading && dealRowsForFact.length === 0
+          ? { factMonth: 0, factCumulative: 0 }
+          : parkingPlanFactsFromDealsForKpi(dealRowsForFact, { period, currentPeriodKey: currentKey });
+      const facts = { factMonth: dealFacts.factMonth, factCumulative: dealFacts.factCumulative };
+
+      const rows = apartmentPlanKpiDoc?.rows;
+      const planCsvType =
+        apartmentPlanKpiDoc?.diagnostics?.csvType ??
+        (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
+
+      if (Array.isArray(rows) && rows.length > 0) {
+        const slice = selectPlanSliceForParkingKpi(rows, {
+          period,
+          currentPeriodKey: currentKey,
+          objectId: objectId ?? "all",
+          objects: marketingMockData.objects,
+          csvType: planCsvType,
+        });
+        if (slice) {
+          return { hasCsvPlan: true as const, ...mergeParkingPlanCsvWithFacts(slice, facts) };
+        }
+      }
+
+      return { hasCsvPlan: false as const, ...facts };
+    } catch (e) {
+      console.error("parkingPlanPeriodKpi:", e);
+      return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 };
+    }
+  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
+
+  const parkingPlanAnalyticsBreakdown = useMemo(() => {
+    try {
+      const currentKey = analytics.currentPeriodKey;
+      const rows = apartmentPlanKpiDoc?.rows;
+      const planCsvType =
+        apartmentPlanKpiDoc?.diagnostics?.csvType ??
+        (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
+      return buildParkingPlanAnalyticsBreakdown({
+        rows,
+        hasCsvPlan: Array.isArray(rows) && rows.length > 0,
+        csvType: planCsvType,
+        period,
+        currentPeriodKey: currentKey,
+        objectId: objectId ?? "all",
+        objects: marketingMockData.objects,
+        dealRows: marketingDealsFiltered,
+      });
+    } catch (e) {
+      console.error("parkingPlanAnalyticsBreakdown:", e);
+      return { hasCsvPlan: false, items: [] };
+    }
+  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, marketingDealsFiltered, objectId, period]);
+
   const revenueLineData = useMemo(() => seriesToLineData(seriesPoints, "revenue"), [seriesPoints]);
 
   const financialCashFlow = useMemo(() => {
@@ -4171,6 +4233,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           hasApartmentPlanKpiCsv={apartmentPlanKpiDoc != null && (apartmentPlanKpiDoc.rows?.length ?? 0) > 0}
           onApartmentPlanKpiCsvUpload={uploadApartmentPlanKpiCsv}
           onApartmentPlanKpiCsvClear={clearApartmentPlanKpiCsv}
+          parkingPlanPeriodKpi={parkingPlanPeriodKpi}
+          parkingPlanAnalyticsBreakdown={parkingPlanAnalyticsBreakdown}
           marketingLeadsCharts={marketingLeadsCharts}
           marketingLeadsCsvHydrated={marketingLeadsHydrated}
           marketingLeadsCsvLoading={marketingLeadsLoading}
