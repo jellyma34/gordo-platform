@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { DduRevenueSection } from "@/components/marketing/dduRevenue/DduRevenueSection";
 import { InstallmentAreaSection } from "@/components/marketing/installmentArea/InstallmentAreaSection";
 import { ProjectValueSection } from "@/components/marketing/projectValue/ProjectValueSection";
+import { SqmPriceDynamicsSection } from "@/components/marketing/sqmPriceDynamics/SqmPriceDynamicsSection";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
 import {
   filterByObjectAndDealType,
@@ -95,6 +96,14 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
         presDark={presDark}
         mplPremium={mplLight}
         isEditMode={!presentation}
+        period={period}
+        objectId={objectId}
+      />
+
+      <SqmPriceDynamicsSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplLight}
         period={period}
         objectId={objectId}
       />

@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 
+import { dedupeDealExportRows } from "@/lib/marketingDealsDedupe";
 import { dealsRawRowsFromJson } from "@/lib/marketingDealsInputShape";
 import {
   MARKETING_DEALS_CURRENT_FILE,
@@ -60,7 +61,7 @@ function mergeDealPayload(existing: unknown, incoming: unknown, mode: "replace" 
   if (mode === "replace") return incoming;
   const a = dealsRawRowsFromJson(existing ?? []);
   const b = dealsRawRowsFromJson(incoming ?? []);
-  return [...a, ...b];
+  return dedupeDealExportRows([...a, ...b]);
 }
 
 export const runtime = "nodejs";

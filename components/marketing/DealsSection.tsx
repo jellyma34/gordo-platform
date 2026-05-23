@@ -19,6 +19,7 @@ import {
 } from "@/lib/marketingDealBuyerEntity";
 import { logBuyerJsonDebugIfEnabled, mergeBuyerProfileWithDeepScan } from "@/lib/marketingDealBuyerDeepScan";
 import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
+import { ruDateCellToIsoOrNull } from "@/lib/gprReportCsv";
 import { formatMonthKeyShortRuYY, normalizeMonthKey } from "@/lib/normalizeMonthKey";
 
 /** Динамический импорт обязателен: иначе цикл DealsSection ↔ DealsPresentation (статический импорт даёт circular dependency). */
@@ -415,15 +416,44 @@ function firstNonEmptyValue(record: Record<string, unknown>, keys: string[]): un
 
 /**
  * Приводит сырую дату сделки к YYYY-MM-DD или null.
- * Поддержка YYYY-MM (как в помесячных выгрузках) без неоднозначного `new Date("YYYY-MM")`.
+ * Поддержка: ISO / YYYY-MM-DD, YYYY-MM, DD.MM.YYYY, MM/DD/YYYY, русские месяцы (через {@link normalizeMonthKey}).
+ * Не полагается на `Date.parse` для DD.MM.YYYY — в JS это NaN.
  */
 function normalizeDateToYmd(raw: unknown): string | null {
   if (raw == null) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
+  const s0 = String(raw).trim();
+  if (!s0) return null;
+  const s = s0.replace(/^['"]|['"]$/g, "");
+
   if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;
+
   const head = s.slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+
+  const dateToken = s.split(/\s+/)[0] ?? s;
+  const dotted = dateToken.replace(/\//g, ".");
+  const fromRuStrict = ruDateCellToIsoOrNull(dotted);
+  if (fromRuStrict) return fromRuStrict;
+
+  const ruFlex = dotted.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (ruFlex) {
+    const dd = ruFlex[1]!.padStart(2, "0");
+    const mo = ruFlex[2]!.padStart(2, "0");
+    const y = ruFlex[3]!;
+    return `${y}-${mo}-${dd}`;
+  }
+
+  const us = dateToken.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (us) {
+    const mo = us[1]!.padStart(2, "0");
+    const dd = us[2]!.padStart(2, "0");
+    const y = us[3]!;
+    return `${y}-${mo}-${dd}`;
+  }
+
+  const monthOnly = normalizeMonthKey(s);
+  if (monthOnly) return `${monthOnly}-01`;
+
   const t = Date.parse(s);
   if (!Number.isFinite(t)) return null;
   const d = new Date(t);
