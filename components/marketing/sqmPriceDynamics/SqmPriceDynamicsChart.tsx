@@ -61,12 +61,17 @@ export function SqmPriceDynamicsChart({ series, timelineMonthKeys, presDark }: P
     [presDark, timelineMonthKeys.length],
   );
 
-  const hasData = series.totalDeals > 0 && values.length > 0;
+  const hasData =
+    series.totalDeals > 0 &&
+    values.length > 0 &&
+    series.overallAvgPricePerSqmRub != null &&
+    Number.isFinite(series.overallAvgPricePerSqmRub);
   const axisColor = presDark ? "#94a3b8" : "#64748b";
   const gridStroke = presDark ? "rgba(148,163,184,0.12)" : "rgba(100,116,139,0.15)";
   const cardCls = presDark
-    ? "w-full min-w-0 rounded-xl border border-slate-700/55 bg-slate-800/40 p-4 shadow-sm sm:p-5"
-    : "w-full min-w-0 rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 shadow-sm sm:p-5";
+    ? "w-full min-w-0 rounded-xl border border-slate-700/55 bg-slate-800/40 shadow-sm"
+    : "w-full min-w-0 rounded-xl border border-slate-200/80 bg-slate-50/50 shadow-sm";
+  const cardPadCls = hasData ? "p-4 sm:p-5" : "px-4 py-3 sm:px-5 sm:py-3.5";
   const titleCls = presDark ? "text-slate-100" : "text-slate-900";
   const mutedCls = presDark ? "text-slate-400" : "text-slate-500";
   const statCls = presDark ? "text-slate-200" : "text-slate-800";
@@ -79,16 +84,35 @@ export function SqmPriceDynamicsChart({ series, timelineMonthKeys, presDark }: P
           ? "text-red-600 dark:text-red-400"
           : mutedCls;
 
+  if (!hasData) {
+    return (
+      <article
+        className={`${cardCls} ${cardPadCls}`}
+        data-sqm-chart={series.key}
+        data-sqm-compact
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: series.accentHex }}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <h4 className={`text-sm font-semibold tracking-tight ${titleCls}`}>{series.label}</h4>
+            <p className={`mt-0.5 text-xs leading-snug ${mutedCls}`}>
+              Нет сделок с ценой и площадью
+            </p>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
-    <article className={cardCls} data-sqm-chart={series.key}>
+    <article className={`${cardCls} ${cardPadCls}`} data-sqm-chart={series.key}>
       <h4 className={`mb-3 text-sm font-semibold tracking-tight ${titleCls}`}>{series.label}</h4>
 
-      {!hasData ? (
-        <p className={`flex h-[280px] w-full items-center justify-center text-sm ${mutedCls}`}>
-          Нет сделок с ценой и площадью
-        </p>
-      ) : (
-        <div className="h-[280px] w-full min-w-0 [&_svg]:overflow-visible">
+      <div className="h-[280px] w-full min-w-0 [&_svg]:overflow-visible">
           <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
             <LineChart data={chartData} margin={CHART_MARGIN}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -152,8 +176,7 @@ export function SqmPriceDynamicsChart({ series, timelineMonthKeys, presDark }: P
               />
             </LineChart>
           </ResponsiveContainer>
-        </div>
-      )}
+      </div>
 
       <dl className={`mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] ${mutedCls}`}>
         <div>

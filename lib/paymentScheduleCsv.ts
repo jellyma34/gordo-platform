@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 
+import { normalizeForecastMonth } from "@/lib/normalizeForecastMonth";
 import { parseRuNumber } from "@/src/shared/lib/csv/parseInvestorsCsv";
 
 /** Сообщение UI, если не удалось автоматически найти помесячные колонки факта. */
@@ -1232,4 +1233,154 @@ export function parseMarketingPaymentCsvStrict(text: string): MarketingPaymentCs
 /** @deprecated Используйте {@link parseMarketingPaymentCsvStrict}. */
 export function parsePaymentScheduleCsvOrVerba(text: string): MarketingPaymentCsvParseResult {
   return parseMarketingPaymentCsvStrict(text);
+}
+
+/** Колонки графика рассрочки: только «План …» / календарь без «зайдет» / факта. */
+function classifyInstallmentForecastScheduleColumn(raw: string): { periodKey: string } | null {
+  const rawHeader = String(raw ?? "").trim();
+  if (!rawHeader) return null;
+  const h = normalizeHeaderForPeriodParse(rawHeader);
+  if (/зайдет|зашло|оплачено|факт|эскроу|накопител/i.test(h)) return null;
+
+  const forecastPk = normalizeForecastMonth(rawHeader);
+  if (forecastPk) return { periodKey: forecastPk };
+
+  const planHit = matchPlanMonthCell(rawHeader);
+  if (planHit) return { periodKey: toPeriodKey(planHit.colPeriod.y, planHit.colPeriod.m) };
+
+  const abbrevPk = cellToSchedulePeriodKey(rawHeader);
+  if (abbrevPk) return { periodKey: abbrevPk };
+
+  if (/\bплан\b/.test(h)) {
+    const my = extractMonthYearFromNormalizedScheduleHeader(h);
+    if (my) return { periodKey: toPeriodKey(my.year, my.month) };
+  }
+  return null;
+}
+
+function findInstallmentMetaColumnIndices(rows: string[][], bandEnd: number): {
+  contractCol: number;
+  objectTypeCol: number;
+  segmentCol: number;
+} {
+  let contractCol = -1;
+  let objectTypeCol = -1;
+  let segmentCol = -1;
+  const scan = Math.min(rows.length, Math.max(bandEnd, 8));
+  for (let i = 0; i < scan; i++) {
+    const row = rows[i]!;
+    for (let j = 0; j < row.length; j++) {
+      const t = normalizeHeaderForPeriodParse(String(row[j] ?? ""));
+      if (!t) continue;
+      if (contractCol < 0 && /дду|договор|номер.*договор|идентификац/.test(t)) contractCol = j;
+      if (objectTypeCol < 0 && /тип\s*объекта|вид\s*объекта|тип\s*помещ|object\s*type/.test(t)) {
+        objectTypeCol = j;
+      }
+      if (segmentCol < 0 && /сегмент|segment|категор/.test(t)) segmentCol = j;
+    }
+  }
+  return { contractCol: contractCol >= 0 ? contractCol : 1, objectTypeCol, segmentCol };
+}
+
+export type InstallmentForecastMeltRow = {
+  paymentMonth: string;
+  amount: number;
+  contractId: string;
+  objectType: string;
+  segment: string;
+};
+
+/**
+ * Широкий CSV графика платежей (рассрочка ДДУ): строка = договор, колонки = «План …» по месяцам.
+ */
+export function meltPaymentScheduleInstallmentForecastRows(text: string):
+  | { ok: true; rows: InstallmentForecastMeltRow[]; warnings?: string[] }
+  | { ok: false; error: string } {
+  const parsed = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: false,
+    delimiter: "",
+  });
+  const rows = (parsed.data as string[][]).filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+  if (rows.length < 3) {
+    return { ok: false, error: "Файл слишком короткий — ожидался график платежей с помесячными колонками плана." };
+  }
+
+  const warnings: string[] = [];
+  const { idx: hi, score: hs } = findBestHeaderRowIndex(rows, classifyInstallmentForecastScheduleColumn);
+  let colToPeriod = new Map<number, string>();
+  let anchor = hi;
+  let bandEnd = 0;
+  let mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
+
+  if (hi >= 0 && hs >= 1) {
+    bandEnd = extendHeaderBandEnd(rows, hi, hs, classifyInstallmentForecastScheduleColumn);
+    mergeDepth = Math.max(HEADER_VERTICAL_MERGE_SPAN, bandEnd - hi + 6);
+    colToPeriod = buildMergedColToPeriodFromVertical(
+      rows,
+      hi,
+      mergeDepth,
+      classifyInstallmentForecastScheduleColumn,
+    );
+  }
+  if (colToPeriod.size === 0) {
+    const top = buildMergedColToPeriodFromTopRows(rows, 12, classifyInstallmentForecastScheduleColumn);
+    if (top.size > 0) {
+      colToPeriod = top;
+      anchor = 0;
+      bandEnd = Math.min(12, rows.length);
+      mergeDepth = HEADER_VERTICAL_MERGE_SPAN;
+      warnings.push("Шапка прогноза собрана из первых строк листа.");
+    }
+  }
+
+  if (anchor < 0 || colToPeriod.size === 0) {
+    return {
+      ok: false,
+      error:
+        "Не удалось найти колонки «План …» по месяцам (график рассрочки ДДУ). Загрузите CSV графика платежей или long-формат с колонкой месяца.",
+    };
+  }
+
+  const periodToCol = firstColIndexPerPeriodKey(colToPeriod);
+  const meta = findInstallmentMetaColumnIndices(rows, bandEnd);
+  const dataFirst = findFirstDataRowIndex(rows, Math.max(bandEnd, anchor + 1), periodToCol);
+  const out: InstallmentForecastMeltRow[] = [];
+
+  for (let i = dataFirst; i < rows.length; i++) {
+    const row = rows[i]!;
+    const c0 = String(row[0] ?? "").trim();
+    const c0Lower = c0.toLowerCase();
+    if (/^итого\b|^всего\b|^в\s+том\s+числе/i.test(c0Lower)) continue;
+    if (isPaymentCsvSummaryLikeRow(row) || isPaymentCsvGrandTotalRow(row)) continue;
+    if (isVerbaRepeatedTableHeaderRow(row)) continue;
+
+    const likeData =
+      looksLikeDataRowFirstCell(c0) ||
+      (rowLooksLikeNumericPlanRow(row, periodToCol) && !isPaymentCsvGrandTotalRow(row));
+    if (!likeData) continue;
+
+    const contractId = String(row[meta.contractCol] ?? "").trim() || `row-${i + 1}`;
+    const objectType =
+      meta.objectTypeCol >= 0 ? String(row[meta.objectTypeCol] ?? "").trim() : "";
+    const segment = meta.segmentCol >= 0 ? String(row[meta.segmentCol] ?? "").trim() : "";
+
+    for (const [pk, col] of periodToCol) {
+      const amount = parseMoneyRu(row[col]);
+      if (amount <= 0) continue;
+      out.push({
+        paymentMonth: pk,
+        amount,
+        contractId,
+        objectType,
+        segment,
+      });
+    }
+  }
+
+  if (out.length === 0) {
+    return { ok: false, error: "В файле нет строк с суммами в колонках плана по месяцам." };
+  }
+
+  return { ok: true, rows: out, warnings: warnings.length ? warnings : undefined };
 }

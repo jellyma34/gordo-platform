@@ -11,7 +11,7 @@ type Props = {
 
 export function SqmPriceDynamicsGrid({ rows, timelineMonthKeys, presDark }: Props) {
   return (
-    <div className="sqm-dynamics-stack flex w-full min-w-0 flex-col gap-6">
+    <div className="sqm-dynamics-stack flex w-full min-w-0 flex-col gap-4">
       {rows.map((row) => (
         <SqmPriceDynamicsChart
           key={row.key}

@@ -1,0 +1,288 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Loader2, Upload } from "lucide-react";
+
+import { InstallmentForecastChart } from "@/components/marketing/installmentForecast/InstallmentForecastChart";
+import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
+import { buildInstallmentForecastChartData } from "@/lib/buildInstallmentForecastChartData";
+import { formatCompactCurrencyRuParts } from "@/lib/formatCompactCurrencyRu";
+import {
+  clearMarketingInstallmentForecastCsvLocalStorage,
+  readMarketingInstallmentForecastCsvFromLocalStorage,
+  writeMarketingInstallmentForecastCsvToLocalStorage,
+  type MarketingInstallmentForecastCsvStoredV1,
+} from "@/lib/marketingInstallmentForecastCsv";
+import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
+import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
+import {
+  INSTALLMENT_FORECAST_CSV_MAX_BYTES,
+  parseInstallmentForecastCsvAsync,
+} from "@/lib/parseInstallmentForecastCsv";
+
+type Props = {
+  presentation: boolean;
+  presDark: boolean;
+  mplPremium?: boolean;
+  isEditMode?: boolean;
+  period?: MarketingPeriodGranularity;
+};
+
+function KpiCard({
+  title,
+  value,
+  unit,
+  presDark,
+}: {
+  title: string;
+  value: string;
+  unit?: string;
+  presDark: boolean;
+}) {
+  return (
+    <div
+      className={
+        presDark
+          ? "rounded-xl border border-slate-600/50 bg-slate-800/40 px-4 py-3"
+          : "rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3"
+      }
+    >
+      <div className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+        {title}
+      </div>
+      <div className={`mt-1 flex items-baseline gap-1 tabular-nums ${presDark ? "text-slate-50" : "text-slate-900"}`}>
+        <span className="text-xl font-bold">{value}</span>
+        {unit ? <span className={`text-sm font-medium ${presDark ? "text-slate-400" : "text-slate-500"}`}>{unit}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+export function InstallmentForecastSection({
+  presentation,
+  presDark,
+  mplPremium = false,
+  isEditMode = false,
+}: Props) {
+  const projectId = useMemo(() => marketingPaymentPlanProjectIdFromEnv(), []);
+  const [doc, setDoc] = useState<MarketingInstallmentForecastCsvStoredV1 | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDoc(readMarketingInstallmentForecastCsvFromLocalStorage(projectId));
+    setHydrated(true);
+  }, [projectId]);
+
+  const uploadCsv = useCallback(
+    async (file: File) => {
+      if (file.size > INSTALLMENT_FORECAST_CSV_MAX_BYTES) {
+        throw new Error("Размер файла не должен превышать 10 МБ.");
+      }
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        throw new Error("Допустимы только файлы .csv");
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
+        const { text } = await readMarketingCsvFileDecoded(file);
+        const parsed = await parseInstallmentForecastCsvAsync(text);
+        if (!parsed.ok) {
+          setError(parsed.error);
+          return;
+        }
+        const stored: MarketingInstallmentForecastCsvStoredV1 = {
+          v: 1,
+          updatedAt: new Date().toISOString(),
+          fileName: file.name,
+          rows: parsed.rows,
+          warnings: parsed.warnings,
+          diagnostics: parsed.diagnostics,
+        };
+        writeMarketingInstallmentForecastCsvToLocalStorage(projectId, stored);
+        setDoc(stored);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [projectId],
+  );
+
+  const clearCsv = useCallback(() => {
+    clearMarketingInstallmentForecastCsvLocalStorage(projectId);
+    setDoc(null);
+    setError(null);
+  }, [projectId]);
+
+  const { chartPoints, summary } = useMemo(
+    () => buildInstallmentForecastChartData(doc?.rows ?? []),
+    [doc?.rows],
+  );
+
+  const hasCsv = Boolean(doc?.rows?.length);
+  const hasFutureData = chartPoints.length > 0;
+
+  const totalParts = formatCompactCurrencyRuParts(summary.totalForecastRub);
+  const avgParts = formatCompactCurrencyRuParts(summary.avgMonthlyRub);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [localErr, setLocalErr] = useState<string | null>(null);
+  const busy = loading;
+  const err = localErr || error;
+
+  const processFile = useCallback(
+    async (file: File) => {
+      setLocalErr(null);
+      try {
+        await uploadCsv(file);
+      } catch (e) {
+        setLocalErr(e instanceof Error ? e.message : "Не удалось загрузить файл");
+      }
+    },
+    [uploadCsv],
+  );
+
+  const shellPad = presentation ? "p-5 sm:p-6" : "p-4 sm:p-5";
+  const shellClass =
+    presDark
+      ? `overflow-visible rounded-2xl border border-slate-700/55 bg-[#1e293b] shadow-[0_8px_28px_rgba(0,0,0,0.2)] ${shellPad}`
+      : presentation && mplPremium
+        ? `overflow-visible ${shellPad} ${MPL_PREMIUM_CHART_SHELL}`
+        : presentation
+          ? `overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart shadow-[0_4px_22px_rgba(15,23,42,0.05)] ${shellPad}`
+          : `overflow-visible rounded-2xl border border-slate-200/70 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.04)] ${shellPad}`;
+
+  const titleCls = presDark ? "text-slate-100" : "text-slate-900";
+  const subCls = presDark ? "text-slate-400" : "text-slate-600";
+  const uploadBtnCls = presDark
+    ? "inline-flex items-center gap-1.5 rounded-lg border border-slate-500/50 bg-slate-800/50 px-3 py-1.5 text-xs font-semibold text-slate-200 shadow-sm hover:border-slate-400/60 disabled:opacity-40"
+    : "inline-flex items-center gap-1.5 rounded-lg border border-slate-300/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:border-slate-400 disabled:opacity-40";
+
+  return (
+    <section
+      className={`relative min-w-0 border-t pt-6 ${presDark ? "border-white/10" : "border-slate-200/50"} ${
+        dragOver && isEditMode ? (presDark ? "ring-2 ring-amber-500/40" : "ring-2 ring-amber-400/50") : ""
+      } ${shellClass}`}
+      aria-labelledby="installment-forecast-heading"
+      onDragOver={
+        isEditMode
+          ? (e: DragEvent) => {
+              e.preventDefault();
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={isEditMode ? () => setDragOver(false) : undefined}
+      onDrop={
+        isEditMode
+          ? (e: DragEvent) => {
+              e.preventDefault();
+              setDragOver(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void processFile(file);
+            }
+          : undefined
+      }
+    >
+      {isEditMode ? (
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void processFile(file);
+          }}
+        />
+      ) : null}
+
+      <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <h3 id="installment-forecast-heading" className={`text-sm font-semibold tracking-tight ${titleCls}`}>
+            Прогноз поступлений по заключенным договорам (рассрочки)
+          </h3>
+          {isEditMode ? (
+            <p className={`mt-1 text-[11px] ${subCls}`}>
+              CSV из раздела «Рассрочка ДДУ» (график платежей или long-формат). В прогнозе только месяцы с мая 2026.
+            </p>
+          ) : null}
+        </div>
+        {isEditMode ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              className={uploadBtnCls}
+              onClick={() => inputRef.current?.click()}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {busy ? "Загрузка…" : hasCsv ? "CSV загружен" : "Подгрузить CSV"}
+            </button>
+            {hasCsv ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="text-xs font-semibold text-rose-600 hover:text-rose-500 disabled:opacity-40"
+                onClick={clearCsv}
+              >
+                Сбросить
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {err ? (
+        <p
+          className={`mb-3 rounded-lg border px-3 py-2 text-sm ${presDark ? "border-rose-500/30 bg-rose-950/30 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}
+        >
+          {err}
+        </p>
+      ) : null}
+
+      {!hydrated || busy ? (
+        <div className={`flex items-center gap-2 py-10 text-sm ${subCls}`}>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Загрузка…
+        </div>
+      ) : !hasFutureData ? (
+        <p className={`py-10 text-center text-sm ${subCls}`}>
+          {hasCsv ? "Нет будущих поступлений по рассрочкам" : "Подгрузите CSV графика рассрочки ДДУ"}
+        </p>
+      ) : (
+        <>
+          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+            <KpiCard
+              title="Общий прогноз поступлений"
+              value={totalParts.value}
+              unit={"unit" in totalParts ? `${totalParts.unit} ₽` : undefined}
+              presDark={presDark}
+            />
+            <KpiCard
+              title="Средний платеж в месяц"
+              value={avgParts.value}
+              unit={"unit" in avgParts ? `${avgParts.unit} ₽` : undefined}
+              presDark={presDark}
+            />
+            <KpiCard
+              title="Последний месяц прогноза"
+              value={summary.lastPeriodLabel ?? "—"}
+              presDark={presDark}
+            />
+          </div>
+          <InstallmentForecastChart
+            data={chartPoints}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+          />
+        </>
+      )}
+    </section>
+  );
+}

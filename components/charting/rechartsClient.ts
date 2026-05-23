@@ -7,6 +7,7 @@
  */
 export {
   Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
