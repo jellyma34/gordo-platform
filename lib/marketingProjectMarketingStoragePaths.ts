@@ -79,3 +79,43 @@ export function marketingProjectRevenueFactJsonPath(projectId: string): string {
 export function marketingProjectRevenueFactRawCsvPath(projectId: string): string {
   return path.join(marketingProjectMarketingDir(projectId), "revenue-fact.raw.csv");
 }
+
+export function marketingProjectInstallmentForecastJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "installment-forecast.json");
+}
+
+export function marketingProjectInstallmentForecastRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "installment-forecast.raw.csv");
+}
+
+export function marketingProjectInstallmentAreaJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "installment-area.json");
+}
+
+export function marketingProjectInstallmentAreaRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "installment-area.raw.csv");
+}
+
+export function marketingProjectDduRevenueJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "ddu-revenue.json");
+}
+
+export function marketingProjectDduRevenueRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "ddu-revenue.raw.csv");
+}
+
+export function marketingProjectProjectValueJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "project-value.json");
+}
+
+export function marketingProjectProjectValueRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "project-value.raw.csv");
+}
+
+export function marketingProjectApartmentPlanJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "apartment-plan.json");
+}
+
+export function marketingProjectApartmentPlanRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "apartment-plan.raw.csv");
+}

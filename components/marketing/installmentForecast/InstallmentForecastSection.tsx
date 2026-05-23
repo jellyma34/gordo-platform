@@ -1,24 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
 import { InstallmentForecastChart } from "@/components/marketing/installmentForecast/InstallmentForecastChart";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { buildInstallmentForecastChartData } from "@/lib/buildInstallmentForecastChartData";
 import { formatCompactCurrencyRuParts } from "@/lib/formatCompactCurrencyRu";
+import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import {
   clearMarketingInstallmentForecastCsvLocalStorage,
+  marketingInstallmentForecastCsvDocIsValid,
   readMarketingInstallmentForecastCsvFromLocalStorage,
-  writeMarketingInstallmentForecastCsvToLocalStorage,
   type MarketingInstallmentForecastCsvStoredV1,
 } from "@/lib/marketingInstallmentForecastCsv";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
-import {
-  INSTALLMENT_FORECAST_CSV_MAX_BYTES,
-  parseInstallmentForecastCsvAsync,
-} from "@/lib/parseInstallmentForecastCsv";
+import { INSTALLMENT_FORECAST_CSV_MAX_BYTES } from "@/lib/parseInstallmentForecastCsv";
+import type { InstallmentForecastCsvParseDiagnostics } from "@/lib/planDataSource/installmentForecast/types";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 
 type Props = {
   presentation: boolean;
@@ -65,56 +65,25 @@ export function InstallmentForecastSection({
   isEditMode = false,
 }: Props) {
   const projectId = useMemo(() => marketingPaymentPlanProjectIdFromEnv(), []);
-  const [doc, setDoc] = useState<MarketingInstallmentForecastCsvStoredV1 | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setDoc(readMarketingInstallmentForecastCsvFromLocalStorage(projectId));
-    setHydrated(true);
-  }, [projectId]);
+  const {
+    doc,
+    hydrated,
+    loading,
+    error,
+    setError,
+    uploadFile,
+    clearImport,
+  } = useMarketingImportDoc<MarketingInstallmentForecastCsvStoredV1>({
+    projectId,
+    datasetKey: "installmentForecast",
+    importKind: "installment_forecast",
+    validate: marketingInstallmentForecastCsvDocIsValid,
+    readLocalForMigration: readMarketingInstallmentForecastCsvFromLocalStorage,
+    clearLocal: clearMarketingInstallmentForecastCsvLocalStorage,
+  });
 
-  const uploadCsv = useCallback(
-    async (file: File) => {
-      if (file.size > INSTALLMENT_FORECAST_CSV_MAX_BYTES) {
-        throw new Error("Размер файла не должен превышать 10 МБ.");
-      }
-      if (!file.name.toLowerCase().endsWith(".csv")) {
-        throw new Error("Допустимы только файлы .csv");
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
-        const { text } = await readMarketingCsvFileDecoded(file);
-        const parsed = await parseInstallmentForecastCsvAsync(text);
-        if (!parsed.ok) {
-          setError(parsed.error);
-          return;
-        }
-        const stored: MarketingInstallmentForecastCsvStoredV1 = {
-          v: 1,
-          updatedAt: new Date().toISOString(),
-          fileName: file.name,
-          rows: parsed.rows,
-          warnings: parsed.warnings,
-          diagnostics: parsed.diagnostics,
-        };
-        writeMarketingInstallmentForecastCsvToLocalStorage(projectId, stored);
-        setDoc(stored);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [projectId],
-  );
-
-  const clearCsv = useCallback(() => {
-    clearMarketingInstallmentForecastCsvLocalStorage(projectId);
-    setDoc(null);
-    setError(null);
-  }, [projectId]);
+  const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentForecastCsvParseDiagnostics | null>(null);
 
   const { chartPoints, summary } = useMemo(
     () => buildInstallmentForecastChartData(doc?.rows ?? []),
@@ -126,6 +95,7 @@ export function InstallmentForecastSection({
 
   const totalParts = formatCompactCurrencyRuParts(summary.totalForecastRub);
   const avgParts = formatCompactCurrencyRuParts(summary.avgMonthlyRub);
+  const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -133,16 +103,41 @@ export function InstallmentForecastSection({
   const busy = loading;
   const err = localErr || error;
 
+  const uploadCsv = useCallback(
+    async (file: File) => {
+      if (file.size > INSTALLMENT_FORECAST_CSV_MAX_BYTES) {
+        throw new Error("Размер файла не должен превышать 10 МБ.");
+      }
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        throw new Error("Допустимы только файлы .csv");
+      }
+      setFailedDiagnostics(null);
+      const result = await uploadFile(file);
+      if (!result.ok) {
+        const diag = result.diagnostics as InstallmentForecastCsvParseDiagnostics | undefined;
+        if (diag) setFailedDiagnostics(diag);
+        return;
+      }
+    },
+    [uploadFile],
+  );
+
+  const clearCsv = useCallback(async () => {
+    setFailedDiagnostics(null);
+    await clearImport();
+  }, [clearImport]);
+
   const processFile = useCallback(
     async (file: File) => {
       setLocalErr(null);
+      setError(null);
       try {
         await uploadCsv(file);
       } catch (e) {
         setLocalErr(e instanceof Error ? e.message : "Не удалось загрузить файл");
       }
     },
-    [uploadCsv],
+    [setError, uploadCsv],
   );
 
   const shellPad = presentation ? "p-5 sm:p-6" : "p-4 sm:p-5";
@@ -211,6 +206,9 @@ export function InstallmentForecastSection({
               CSV из раздела «Рассрочка ДДУ» (график платежей или long-формат). В прогнозе только месяцы с мая 2026.
             </p>
           ) : null}
+          {hasCsv && updatedLabel ? (
+            <p className={`mt-1 text-[11px] ${subCls}`}>{updatedLabel}</p>
+          ) : null}
         </div>
         {isEditMode ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -228,7 +226,7 @@ export function InstallmentForecastSection({
                 type="button"
                 disabled={busy}
                 className="text-xs font-semibold text-rose-600 hover:text-rose-500 disabled:opacity-40"
-                onClick={clearCsv}
+                onClick={() => void clearCsv()}
               >
                 Сбросить
               </button>

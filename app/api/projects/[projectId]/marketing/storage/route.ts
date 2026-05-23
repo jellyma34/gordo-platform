@@ -66,6 +66,16 @@ import {
   marketingProjectRevenueFactRawCsvPath,
   marketingProjectUnitsExecutionJsonPath,
   marketingProjectUnitsExecutionRawCsvPath,
+  marketingProjectInstallmentForecastJsonPath,
+  marketingProjectInstallmentForecastRawCsvPath,
+  marketingProjectInstallmentAreaJsonPath,
+  marketingProjectInstallmentAreaRawCsvPath,
+  marketingProjectDduRevenueJsonPath,
+  marketingProjectDduRevenueRawCsvPath,
+  marketingProjectProjectValueJsonPath,
+  marketingProjectProjectValueRawCsvPath,
+  marketingProjectApartmentPlanJsonPath,
+  marketingProjectApartmentPlanRawCsvPath,
 } from "@/lib/marketingProjectMarketingStoragePaths";
 import {
   marketingSalesPlanExecutionJsonPath,
@@ -73,6 +83,20 @@ import {
   sanitizeMarketingSalesPlanExecutionProjectId,
 } from "@/lib/marketingSalesPlanExecutionStore";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
+import { normalizeMarketingImportKind } from "@/lib/marketingImportKinds";
+import { saveImport, deleteImport as deleteMarketingImportFile } from "@/lib/server/marketingStorage";
+import {
+  parseApartmentPlanImport,
+  parseDduRevenueImport,
+  parseInstallmentAreaImport,
+  parseInstallmentForecastImport,
+  parseProjectValueImport,
+} from "@/lib/server/marketingImportParse";
+import { marketingInstallmentForecastCsvDocIsValid } from "@/lib/marketingInstallmentForecastCsv";
+import { marketingInstallmentAreaCsvDocIsValid } from "@/lib/marketingInstallmentAreaCsv";
+import { marketingDduRevenueCsvDocIsValid } from "@/lib/marketingDduRevenueCsv";
+import { marketingProjectValueCsvDocIsValid } from "@/lib/marketingProjectValueCsv";
+import { marketingApartmentPlanCsvDocIsValid } from "@/lib/marketingApartmentPlanCsv";
 
 export const runtime = "nodejs";
 
@@ -91,6 +115,11 @@ type MarketingStoragePresence = {
   hasReceiptsPlanFact: boolean;
   hasMarketingLeads: boolean;
   hasRevenueFact: boolean;
+  hasInstallmentForecast: boolean;
+  hasInstallmentArea: boolean;
+  hasDduRevenue: boolean;
+  hasProjectValue: boolean;
+  hasApartmentPlan: boolean;
 };
 
 async function readJsonInvestorsDoc(
@@ -238,6 +267,56 @@ async function readJsonSegmentExecutionDoc(
   }
 }
 
+async function readJsonInstallmentForecastDoc(projectId: string) {
+  try {
+    const raw = await readFile(marketingProjectInstallmentForecastJsonPath(projectId), "utf-8");
+    const doc = JSON.parse(raw) as unknown;
+    return marketingInstallmentForecastCsvDocIsValid(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonInstallmentAreaDoc(projectId: string) {
+  try {
+    const raw = await readFile(marketingProjectInstallmentAreaJsonPath(projectId), "utf-8");
+    const doc = JSON.parse(raw) as unknown;
+    return marketingInstallmentAreaCsvDocIsValid(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonDduRevenueDoc(projectId: string) {
+  try {
+    const raw = await readFile(marketingProjectDduRevenueJsonPath(projectId), "utf-8");
+    const doc = JSON.parse(raw) as unknown;
+    return marketingDduRevenueCsvDocIsValid(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonProjectValueDoc(projectId: string) {
+  try {
+    const raw = await readFile(marketingProjectProjectValueJsonPath(projectId), "utf-8");
+    const doc = JSON.parse(raw) as unknown;
+    return marketingProjectValueCsvDocIsValid(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonApartmentPlanDoc(projectId: string) {
+  try {
+    const raw = await readFile(marketingProjectApartmentPlanJsonPath(projectId), "utf-8");
+    const doc = JSON.parse(raw) as unknown;
+    return marketingApartmentPlanCsvDocIsValid(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
 async function computePresence(safeProjectId: string): Promise<MarketingStoragePresence> {
   let hasPlan = false;
   let hasFact = false;
@@ -277,6 +356,11 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
   const receipts = await readJsonReceiptsPlanFactDoc(safeProjectId);
   const marketingLeads = await readJsonMarketingLeadsDoc(safeProjectId);
   const revenueFact = await readJsonRevenueFactDoc(safeProjectId);
+  const installmentForecast = await readJsonInstallmentForecastDoc(safeProjectId);
+  const installmentArea = await readJsonInstallmentAreaDoc(safeProjectId);
+  const dduRevenue = await readJsonDduRevenueDoc(safeProjectId);
+  const projectValue = await readJsonProjectValueDoc(safeProjectId);
+  const apartmentPlan = await readJsonApartmentPlanDoc(safeProjectId);
 
   return {
     hasPlan,
@@ -291,6 +375,11 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
     hasReceiptsPlanFact: receipts != null && receipts.monthly.length > 0,
     hasMarketingLeads: marketingLeads != null,
     hasRevenueFact: revenueFactCsvDocIsValid(revenueFact),
+    hasInstallmentForecast: installmentForecast != null && installmentForecast.rows.length > 0,
+    hasInstallmentArea: installmentArea != null && installmentArea.rows.length > 0,
+    hasDduRevenue: dduRevenue != null && dduRevenue.rows.length > 0,
+    hasProjectValue: projectValue != null && projectValue.rows.length > 0,
+    hasApartmentPlan: apartmentPlan != null && apartmentPlan.rows.length > 0,
   };
 }
 
@@ -298,7 +387,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const { projectId: raw } = await ctx.params;
   const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
   const presence = await computePresence(safeProjectId);
-  const [investors, segmentExecution, unitsExecution, apartments, parking, storages, receiptsPlanFact, marketingLeads, revenueFact] =
+  const [investors, segmentExecution, unitsExecution, apartments, parking, storages, receiptsPlanFact, marketingLeads, revenueFact, installmentForecast, installmentArea, dduRevenue, projectValue, apartmentPlan] =
     await Promise.all([
     readJsonInvestorsDoc(safeProjectId),
     readJsonSegmentExecutionDoc(safeProjectId),
@@ -309,6 +398,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
     readJsonReceiptsPlanFactDoc(safeProjectId),
     readJsonMarketingLeadsDoc(safeProjectId),
     readJsonRevenueFactDoc(safeProjectId),
+    readJsonInstallmentForecastDoc(safeProjectId),
+    readJsonInstallmentAreaDoc(safeProjectId),
+    readJsonDduRevenueDoc(safeProjectId),
+    readJsonProjectValueDoc(safeProjectId),
+    readJsonApartmentPlanDoc(safeProjectId),
   ]);
   return NextResponse.json(
     {
@@ -325,6 +419,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         receiptsPlanFact,
         marketingLeads,
         revenueFact,
+        installmentForecast,
+        installmentArea,
+        dduRevenue,
+        projectValue,
+        apartmentPlan,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -336,6 +435,40 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     const { projectId: raw } = await ctx.params;
     const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
     const ct = req.headers.get("content-type") ?? "";
+
+    if (ct.includes("application/json")) {
+      const body = (await req.json()) as {
+        kind?: string;
+        migrateFromBrowser?: boolean;
+        doc?: unknown;
+        uploadedBy?: string;
+      };
+      const kindNorm = normalizeMarketingImportKind(body.kind ?? "");
+      if (!body.migrateFromBrowser || !kindNorm || body.doc == null) {
+        return NextResponse.json(
+          { ok: false, error: "Ожидается JSON { kind, migrateFromBrowser: true, doc }." },
+          { status: 400 },
+        );
+      }
+      const valid =
+        (kindNorm === "installment_forecast" && marketingInstallmentForecastCsvDocIsValid(body.doc)) ||
+        (kindNorm === "installment_area" && marketingInstallmentAreaCsvDocIsValid(body.doc)) ||
+        (kindNorm === "ddu_revenue" && marketingDduRevenueCsvDocIsValid(body.doc)) ||
+        (kindNorm === "project_value" && marketingProjectValueCsvDocIsValid(body.doc)) ||
+        (kindNorm === "apartment_plan" && marketingApartmentPlanCsvDocIsValid(body.doc));
+      if (!valid) {
+        return NextResponse.json({ ok: false, error: "Некорректный документ для миграции." }, { status: 400 });
+      }
+      const doc = {
+        ...(body.doc as Record<string, unknown>),
+        uploadedBy: body.uploadedBy?.trim() || "—",
+        updatedAt: new Date().toISOString(),
+      };
+      await saveImport(safeProjectId, kindNorm, doc);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: kindNorm, doc, presence });
+    }
+
     if (!ct.includes("multipart/form-data")) {
       return NextResponse.json({ ok: false, error: "Ожидается multipart/form-data." }, { status: 415 });
     }
@@ -632,11 +765,136 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       });
     }
 
+    if (kind === "installment_forecast" || kind === "installment-forecast" || kind === "installment_forecast_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseInstallmentForecastImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+      };
+      await saveImport(safeProjectId, "installment_forecast", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "installment_forecast", doc, presence });
+    }
+
+    if (kind === "installment_area" || kind === "installment-area" || kind === "project_area_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseInstallmentAreaImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+      };
+      await saveImport(safeProjectId, "installment_area", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "installment_area", doc, presence });
+    }
+
+    if (kind === "ddu_revenue" || kind === "ddu-revenue" || kind === "sales_plan_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseDduRevenueImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+      };
+      await saveImport(safeProjectId, "ddu_revenue", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "ddu_revenue", doc, presence });
+    }
+
+    if (kind === "project_value" || kind === "project-value" || kind === "project_value_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseProjectValueImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+      };
+      await saveImport(safeProjectId, "project_value", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "project_value", doc, presence });
+    }
+
+    if (kind === "apartment_plan" || kind === "apartment-plan" || kind === "apartment_plan_csv") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseApartmentPlanImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        biReportMeta: parsed.biReportMeta,
+      };
+      await saveImport(safeProjectId, "apartment_plan", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "apartment_plan", doc, presence });
+    }
+
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Укажите kind=investors, kind=segment_execution, kind=receipts_plan_fact, kind=marketing_leads, kind=revenue_fact, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
+          "Укажите kind: investors, segment_execution, receipts_plan_fact, marketing_leads, revenue_fact, units_execution, apartments, parking, storages, installment_forecast, installment_area, ddu_revenue, project_value, apartment_plan.",
       },
       { status: 400 },
     );
@@ -678,16 +936,44 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       kind !== "revenue_fact" &&
       kind !== "revenue-fact" &&
       kind !== "sales_structure_revenue" &&
-      kind !== "structure_revenue_fact"
+      kind !== "structure_revenue_fact" &&
+      kind !== "installment_forecast" &&
+      kind !== "installment-forecast" &&
+      kind !== "installment_forecast_csv" &&
+      kind !== "installment_area" &&
+      kind !== "installment-area" &&
+      kind !== "project_area_csv" &&
+      kind !== "ddu_revenue" &&
+      kind !== "ddu-revenue" &&
+      kind !== "sales_plan_csv" &&
+      kind !== "project_value" &&
+      kind !== "project-value" &&
+      kind !== "project_value_csv" &&
+      kind !== "apartment_plan" &&
+      kind !== "apartment-plan" &&
+      kind !== "apartment_plan_csv"
     ) {
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Ожидался query kind=investors, kind=segment_execution, kind=receipts_plan_fact, kind=marketing_leads, kind=revenue_fact, kind=units_execution, kind=apartments, kind=parking или kind=storages.",
+            "Ожидался query kind (investors, segment_execution, installment_forecast, ddu_revenue, project_value, apartment_plan, …).",
         },
         { status: 400 },
       );
+    }
+
+    const kindNorm = normalizeMarketingImportKind(kind);
+    if (
+      kindNorm === "installment_forecast" ||
+      kindNorm === "installment_area" ||
+      kindNorm === "ddu_revenue" ||
+      kindNorm === "project_value" ||
+      kindNorm === "apartment_plan"
+    ) {
+      await deleteMarketingImportFile(safeProjectId, kindNorm);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: kindNorm, presence });
     }
 
     if (kind === "investors") {

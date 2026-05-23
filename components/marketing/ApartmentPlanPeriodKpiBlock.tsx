@@ -9,6 +9,7 @@ import { EntityProjectVolumeMeta } from "@/components/marketing/entityPlanPeriod
 import type { ApartmentKpiHue, ApartmentPlanKpiPlanCalcDebug, ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
 import { csvTypeLabelRu, planSourceLabelForCsvType } from "@/lib/planDataSource/apartmentPlanCsvPipeline";
+import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import {
   apartmentKpiExecutionHue,
@@ -669,7 +670,7 @@ function KpiSkeletonLine({ presDark }: { presDark: boolean }) {
   return <div className={`h-8 w-2/3 animate-pulse rounded-md ${track}`} aria-hidden />;
 }
 
-type CsvMeta = { fileName: string; updatedAt: string };
+type CsvMeta = { fileName: string; updatedAt: string; uploadedBy?: string };
 
 function CsvKpiDiagnosticsPanel({
   diagnostics,
@@ -1225,16 +1226,20 @@ export function ApartmentPlanPeriodKpiBlock({
             </span>
           ) : csvMeta ? (
             <div className="tabular-nums font-medium">
-              <span className={presDark ? "text-slate-500" : "text-slate-500"}>Обновлено: </span>
-              <span>
-                {new Date(csvMeta.updatedAt).toLocaleString("ru-RU", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
+              {formatMarketingImportUpdatedLabel(csvMeta.updatedAt, csvMeta.uploadedBy) ?? (
+                <>
+                  <span className={presDark ? "text-slate-500" : "text-slate-500"}>Обновлено: </span>
+                  <span>
+                    {new Date(csvMeta.updatedAt).toLocaleString("ru-RU", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </>
+              )}
             </div>
           ) : null}
         </div>

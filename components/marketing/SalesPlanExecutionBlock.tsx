@@ -169,7 +169,7 @@ type Props = {
   apartmentPlanKpiCsvHydrated?: boolean;
   apartmentPlanKpiCsvLoading?: boolean;
   apartmentPlanKpiCsvError?: string | null;
-  apartmentPlanKpiCsvMeta?: { fileName: string; updatedAt: string } | null;
+  apartmentPlanKpiCsvMeta?: { fileName: string; updatedAt: string; uploadedBy?: string } | null;
   hasApartmentPlanKpiCsv?: boolean;
   onApartmentPlanKpiCsvUpload?: (file: File) => Promise<void>;
   onApartmentPlanKpiCsvClear?: () => Promise<void>;

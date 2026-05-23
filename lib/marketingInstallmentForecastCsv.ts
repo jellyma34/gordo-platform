@@ -6,6 +6,7 @@ export const MARKETING_INSTALLMENT_FORECAST_CSV_STORAGE_KEY = "marketingInstallm
 export type MarketingInstallmentForecastCsvStoredV1 = {
   v: 1;
   updatedAt: string;
+  uploadedBy?: string;
   fileName: string;
   rows: InstallmentForecastNormalizedRow[];
   warnings?: string[];

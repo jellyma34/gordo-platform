@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
 import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
@@ -36,10 +36,12 @@ import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entity
 import { filterByObject } from "@/lib/marketingMockData";
 import {
   clearMarketingDduRevenueCsvLocalStorage,
+  marketingDduRevenueCsvDocIsValid,
   readMarketingDduRevenueCsvFromLocalStorage,
-  writeMarketingDduRevenueCsvToLocalStorage,
   type MarketingDduRevenueCsvStoredV1,
 } from "@/lib/marketingDduRevenueCsv";
+import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectDduRevenueParkingPlanSliceForKpi,
@@ -48,7 +50,6 @@ import {
 } from "@/lib/planDataSource/dduRevenue/dduRevenuePlanSlice";
 import {
   DDU_REVENUE_CSV_MAX_BYTES,
-  parseDduRevenueCsvAsync,
 } from "@/lib/planDataSource/dduRevenue/parseDduRevenueCsv";
 import type { DduRevenueCsvParseDiagnostics } from "@/lib/planDataSource/dduRevenue/types";
 
@@ -123,16 +124,25 @@ export function DduRevenueSection({
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const [doc, setDoc] = useState<MarketingDduRevenueCsvStoredV1 | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    doc,
+    hydrated,
+    loading,
+    error,
+    setError,
+    uploadFile,
+    clearImport,
+  } = useMarketingImportDoc<MarketingDduRevenueCsvStoredV1>({
+    projectId,
+    datasetKey: "dduRevenue",
+    importKind: "ddu_revenue",
+    validate: marketingDduRevenueCsvDocIsValid,
+    readLocalForMigration: readMarketingDduRevenueCsvFromLocalStorage,
+    clearLocal: clearMarketingDduRevenueCsvLocalStorage,
+  });
   const [failedDiagnostics, setFailedDiagnostics] = useState<DduRevenueCsvParseDiagnostics | null>(null);
 
-  useEffect(() => {
-    setDoc(readMarketingDduRevenueCsvFromLocalStorage(projectId));
-    setHydrated(true);
-  }, [projectId]);
+  const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
 
   const uploadCsv = useCallback(
     async (file: File) => {
@@ -142,49 +152,20 @@ export function DduRevenueSection({
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("Допустимы только файлы .csv");
       }
-      setLoading(true);
-      setError(null);
       setFailedDiagnostics(null);
-      try {
-        const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
-        const { text } = await readMarketingCsvFileDecoded(file);
-        const parsed = await parseDduRevenueCsvAsync(text, {
-          dashboardPeriodKey: defaultDashboardPeriodKey(),
-          period,
-          reportAsOfYmd,
-          fileName: file.name,
-        });
-        if (!parsed.ok) {
-          setError(parsed.error);
-          setFailedDiagnostics(parsed.diagnostics);
-          return;
-        }
-        const stored: MarketingDduRevenueCsvStoredV1 = {
-          v: 1,
-          updatedAt: new Date().toISOString(),
-          fileName: file.name,
-          rows: parsed.rows,
-          warnings: parsed.warnings,
-          diagnostics: parsed.diagnostics,
-          apartmentsSummary: parsed.apartmentsSummary,
-          parkingSummary: parsed.parkingSummary ?? null,
-          storageSummary: parsed.storageSummary ?? null,
-        };
-        writeMarketingDduRevenueCsvToLocalStorage(projectId, stored);
-        setDoc(stored);
-      } finally {
-        setLoading(false);
+      const result = await uploadFile(file);
+      if (!result.ok) {
+        const diag = result.diagnostics as DduRevenueCsvParseDiagnostics | undefined;
+        if (diag) setFailedDiagnostics(diag);
       }
     },
-    [period, projectId, reportAsOfYmd],
+    [uploadFile],
   );
 
   const clearCsv = useCallback(async () => {
-    clearMarketingDduRevenueCsvLocalStorage(projectId);
-    setDoc(null);
-    setError(null);
     setFailedDiagnostics(null);
-  }, [projectId]);
+    await clearImport();
+  }, [clearImport]);
 
   const kpiData: DduRevenuePeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
@@ -354,6 +335,7 @@ export function DduRevenueSection({
               отчёта.
             </p>
           ) : null}
+          {hasCsv && updatedLabel ? <p className={`mt-1 text-[11px] ${mutedCls}`}>{updatedLabel}</p> : null}
         </div>
         {isEditMode ? (
           <div className="flex flex-wrap items-center gap-2">

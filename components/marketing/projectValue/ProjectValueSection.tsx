@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
 import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
@@ -36,20 +36,19 @@ import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entity
 import { filterByObject } from "@/lib/marketingMockData";
 import {
   clearMarketingProjectValueCsvLocalStorage,
+  marketingProjectValueCsvDocIsValid,
   readMarketingProjectValueCsvFromLocalStorage,
-  writeMarketingProjectValueCsvToLocalStorage,
   type MarketingProjectValueCsvStoredV1,
 } from "@/lib/marketingProjectValueCsv";
+import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectProjectValueParkingPlanSliceForKpi,
   selectProjectValuePlanSliceForKpi,
   selectProjectValueStoragePlanSliceForKpi,
 } from "@/lib/planDataSource/projectValue/projectValuePlanSlice";
-import {
-  PROJECT_VALUE_CSV_MAX_BYTES,
-  parseProjectValueCsvAsync,
-} from "@/lib/planDataSource/projectValue/parseProjectValueCsv";
+import { PROJECT_VALUE_CSV_MAX_BYTES } from "@/lib/planDataSource/projectValue/parseProjectValueCsv";
 import type { ProjectValueCsvParseDiagnostics } from "@/lib/planDataSource/projectValue/types";
 
 type Props = {
@@ -123,16 +122,24 @@ export function ProjectValueSection({
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const [doc, setDoc] = useState<MarketingProjectValueCsvStoredV1 | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    doc,
+    hydrated,
+    loading,
+    error,
+    setError,
+    uploadFile,
+    clearImport,
+  } = useMarketingImportDoc<MarketingProjectValueCsvStoredV1>({
+    projectId,
+    datasetKey: "projectValue",
+    importKind: "project_value",
+    validate: marketingProjectValueCsvDocIsValid,
+    readLocalForMigration: readMarketingProjectValueCsvFromLocalStorage,
+    clearLocal: clearMarketingProjectValueCsvLocalStorage,
+  });
   const [failedDiagnostics, setFailedDiagnostics] = useState<ProjectValueCsvParseDiagnostics | null>(null);
-
-  useEffect(() => {
-    setDoc(readMarketingProjectValueCsvFromLocalStorage(projectId));
-    setHydrated(true);
-  }, [projectId]);
+  const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
 
   const uploadCsv = useCallback(
     async (file: File) => {
@@ -142,49 +149,20 @@ export function ProjectValueSection({
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("Допустимы только файлы .csv");
       }
-      setLoading(true);
-      setError(null);
       setFailedDiagnostics(null);
-      try {
-        const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
-        const { text } = await readMarketingCsvFileDecoded(file);
-        const parsed = await parseProjectValueCsvAsync(text, {
-          dashboardPeriodKey: defaultDashboardPeriodKey(),
-          period,
-          reportAsOfYmd,
-          fileName: file.name,
-        });
-        if (!parsed.ok) {
-          setError(parsed.error);
-          setFailedDiagnostics(parsed.diagnostics);
-          return;
-        }
-        const stored: MarketingProjectValueCsvStoredV1 = {
-          v: 1,
-          updatedAt: new Date().toISOString(),
-          fileName: file.name,
-          rows: parsed.rows,
-          warnings: parsed.warnings,
-          diagnostics: parsed.diagnostics,
-          apartmentsSummary: parsed.apartmentsSummary,
-          parkingSummary: parsed.parkingSummary ?? null,
-          storageSummary: parsed.storageSummary ?? null,
-        };
-        writeMarketingProjectValueCsvToLocalStorage(projectId, stored);
-        setDoc(stored);
-      } finally {
-        setLoading(false);
+      const result = await uploadFile(file);
+      if (!result.ok) {
+        const diag = result.diagnostics as ProjectValueCsvParseDiagnostics | undefined;
+        if (diag) setFailedDiagnostics(diag);
       }
     },
-    [period, projectId, reportAsOfYmd],
+    [uploadFile],
   );
 
   const clearCsv = useCallback(async () => {
-    clearMarketingProjectValueCsvLocalStorage(projectId);
-    setDoc(null);
-    setError(null);
     setFailedDiagnostics(null);
-  }, [projectId]);
+    await clearImport();
+  }, [clearImport]);
 
   const kpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
@@ -354,6 +332,7 @@ export function ProjectValueSection({
               дата отчёта.
             </p>
           ) : null}
+          {hasCsv && updatedLabel ? <p className={`mt-1 text-[11px] ${mutedCls}`}>{updatedLabel}</p> : null}
         </div>
         {isEditMode ? (
           <div className="flex flex-wrap items-center gap-2">

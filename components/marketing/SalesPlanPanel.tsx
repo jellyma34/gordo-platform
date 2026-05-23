@@ -62,14 +62,14 @@ import { emptySalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutio
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import {
   clearMarketingApartmentPlanCsvLocalStorage,
+  marketingApartmentPlanCsvDocIsValid,
   readMarketingApartmentPlanCsvFromLocalStorage,
-  writeMarketingApartmentPlanCsvToLocalStorage,
   type MarketingApartmentPlanCsvStoredV1,
 } from "@/lib/marketingApartmentPlanCsv";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 import {
   APARTMENT_PLAN_CSV_MAX_BYTES,
   getPlanCalculationStrategy,
-  parseApartmentPlanCsvAsync,
   quarterKeyToMonthKeys,
   resolveApartmentsPlanProjectVolume,
   selectPlanSliceForKpi,
@@ -787,6 +787,25 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     );
   }, [authUser, sessionUserLabel]);
 
+  const {
+    doc: apartmentPlanKpiDoc,
+    hydrated: apartmentPlanKpiHydrated,
+    loading: apartmentPlanKpiLoading,
+    error: apartmentPlanKpiError,
+    uploadFile: uploadApartmentPlanKpiFile,
+    clearImport: clearApartmentPlanKpiImport,
+  } = useMarketingImportDoc<MarketingApartmentPlanCsvStoredV1>({
+    projectId: paymentPlanProjectId,
+    datasetKey: "apartmentPlan",
+    importKind: "apartment_plan",
+    validate: marketingApartmentPlanCsvDocIsValid,
+    readLocalForMigration: readMarketingApartmentPlanCsvFromLocalStorage,
+    clearLocal: clearMarketingApartmentPlanCsvLocalStorage,
+    uploadedBy: paymentUploadedByLabel,
+  });
+  const [apartmentPlanKpiFailedDiagnostics, setApartmentPlanKpiFailedDiagnostics] =
+    useState<ApartmentPlanCsvParseDiagnostics | null>(null);
+
   const card = presDark ? CARD : presentation && mplPremium ? CARD_PREMIUM : presentation ? CARD_LIGHT : CARD_EDIT;
   const h4 = presDark
     ? "text-sm font-semibold text-slate-100"
@@ -865,14 +884,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   const [marketingLeadsError, setMarketingLeadsError] = useState<string | null>(null);
   const [marketingLeadsLoading, setMarketingLeadsLoading] = useState(false);
 
-  const [apartmentPlanKpiDoc, setApartmentPlanKpiDoc] = useState<MarketingApartmentPlanCsvStoredV1 | null>(null);
-  const [apartmentPlanKpiHydrated, setApartmentPlanKpiHydrated] = useState(false);
-  const [apartmentPlanKpiLoading, setApartmentPlanKpiLoading] = useState(false);
-  const [apartmentPlanKpiError, setApartmentPlanKpiError] = useState<string | null>(null);
-  /** Диагностика последней неудачной попытки импорта (успешная — в doc.diagnostics) */
-  const [apartmentPlanKpiFailedDiagnostics, setApartmentPlanKpiFailedDiagnostics] =
-    useState<ApartmentPlanCsvParseDiagnostics | null>(null);
-
   const segmentExecutionHasChartRows = useMemo(
     () => segmentExecutionChartsHaveRows(segmentExecutionCharts),
     [segmentExecutionCharts],
@@ -940,10 +951,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       });
       setSupplementalMarketingHydrated((v) => {
         if (!v) console.warn("[marketing] supplementalMarketingHydrated timeout — показываем UI без ожидания");
-        return true;
-      });
-      setApartmentPlanKpiHydrated((v) => {
-        if (!v) console.warn("[marketing] apartmentPlanKpiHydrated timeout — показываем UI без ожидания");
         return true;
       });
       setReceiptsPlanFactHydrated((v) => (v ? v : true));
@@ -1601,13 +1608,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     setMarketingLeadsMeta(null);
   }, [paymentPlanProjectId]);
 
-  useEffect(() => {
-    const d = readMarketingApartmentPlanCsvFromLocalStorage(paymentPlanProjectId);
-    setApartmentPlanKpiDoc(d);
-    setApartmentPlanKpiHydrated(true);
-    setApartmentPlanKpiFailedDiagnostics(null);
-  }, [paymentPlanProjectId]);
-
   const uploadApartmentPlanKpiCsv = useCallback(
     async (file: File) => {
       if (file.size > APARTMENT_PLAN_CSV_MAX_BYTES) {
@@ -1616,56 +1616,24 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("Допустимы только файлы .csv");
       }
-      setApartmentPlanKpiLoading(true);
-      setApartmentPlanKpiError(null);
       setApartmentPlanKpiFailedDiagnostics(null);
-      try {
-        const { text, encoding } = await readMarketingCsvFileDecoded(file);
-        console.log("ENCODING", encoding);
-        if (!text.trim()) throw new Error("Файл пустой");
-        const planAnalytics = period === "month" ? report.planAnalytics.month : report.planAnalytics.quarter;
-        const parsed = await parseApartmentPlanCsvAsync(text, {
-          dashboardPeriodKey: planAnalytics.currentPeriodKey,
-          period,
-          reportAsOfYmd: report.asOf,
-          fileName: file.name,
-        });
-        if (!parsed.ok) {
-          setApartmentPlanKpiError(parsed.error);
-          setApartmentPlanKpiFailedDiagnostics(parsed.diagnostics);
-          return;
-        }
-        const doc: MarketingApartmentPlanCsvStoredV1 = {
-          v: 1,
-          updatedAt: new Date().toISOString(),
-          fileName: file.name,
-          uploadedBy: paymentUploadedByLabel,
-          rows: parsed.rows,
-          warnings: parsed.warnings,
-          diagnostics: parsed.diagnostics,
-          biReportMeta: parsed.biReportMeta,
-        };
-        writeMarketingApartmentPlanCsvToLocalStorage(paymentPlanProjectId, doc);
-        setApartmentPlanKpiDoc(doc);
-        setApartmentPlanKpiError(null);
-        setApartmentPlanKpiFailedDiagnostics(null);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Не удалось обработать CSV";
-        setApartmentPlanKpiError(msg);
-        throw e;
-      } finally {
-        setApartmentPlanKpiLoading(false);
+      const result = await uploadApartmentPlanKpiFile(file);
+      if (!result.ok) {
+        const diag = result.diagnostics as ApartmentPlanCsvParseDiagnostics | undefined;
+        if (diag) setApartmentPlanKpiFailedDiagnostics(diag);
+        throw new Error(result.error);
       }
     },
-    [paymentPlanProjectId, paymentUploadedByLabel, period, report],
+    [uploadApartmentPlanKpiFile],
   );
 
   const clearApartmentPlanKpiCsv = useCallback(async () => {
-    setApartmentPlanKpiError(null);
     setApartmentPlanKpiFailedDiagnostics(null);
-    clearMarketingApartmentPlanCsvLocalStorage(paymentPlanProjectId);
-    setApartmentPlanKpiDoc(null);
-  }, [paymentPlanProjectId]);
+    const result = await clearApartmentPlanKpiImport();
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+  }, [clearApartmentPlanKpiImport]);
 
   const uploadSalesPlanExecutionFile = useCallback(
     async (file: File) => {
@@ -4334,7 +4302,11 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           apartmentPlanKpiCsvDiagnostics={apartmentPlanKpiDoc?.diagnostics ?? apartmentPlanKpiFailedDiagnostics ?? null}
           apartmentPlanKpiCsvMeta={
             apartmentPlanKpiDoc
-              ? { fileName: apartmentPlanKpiDoc.fileName, updatedAt: apartmentPlanKpiDoc.updatedAt }
+              ? {
+                  fileName: apartmentPlanKpiDoc.fileName,
+                  updatedAt: apartmentPlanKpiDoc.updatedAt,
+                  uploadedBy: apartmentPlanKpiDoc.uploadedBy,
+                }
               : null
           }
           hasApartmentPlanKpiCsv={apartmentPlanKpiDoc != null && (apartmentPlanKpiDoc.rows?.length ?? 0) > 0}

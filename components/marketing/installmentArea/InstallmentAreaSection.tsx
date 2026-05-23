@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
 import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
@@ -36,20 +36,19 @@ import {
 } from "@/lib/installmentAreaPeriodKpi";
 import {
   clearMarketingInstallmentAreaCsvLocalStorage,
+  marketingInstallmentAreaCsvDocIsValid,
   readMarketingInstallmentAreaCsvFromLocalStorage,
-  writeMarketingInstallmentAreaCsvToLocalStorage,
   type MarketingInstallmentAreaCsvStoredV1,
 } from "@/lib/marketingInstallmentAreaCsv";
+import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectInstallmentAreaParkingPlanSliceForKpi,
   selectInstallmentAreaPlanSliceForKpi,
   selectInstallmentAreaStoragePlanSliceForKpi,
 } from "@/lib/planDataSource/installmentArea/installmentAreaPlanSlice";
-import {
-  INSTALLMENT_AREA_CSV_MAX_BYTES,
-  parseInstallmentAreaCsvAsync,
-} from "@/lib/planDataSource/installmentArea/parseInstallmentAreaCsv";
+import { INSTALLMENT_AREA_CSV_MAX_BYTES } from "@/lib/planDataSource/installmentArea/parseInstallmentAreaCsv";
 import type { InstallmentAreaCsvParseDiagnostics } from "@/lib/planDataSource/installmentArea/types";
 
 type Props = {
@@ -122,16 +121,24 @@ export function InstallmentAreaSection({
       currentPeriodKey,
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
-  const [doc, setDoc] = useState<MarketingInstallmentAreaCsvStoredV1 | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    doc,
+    hydrated,
+    loading,
+    error,
+    setError,
+    uploadFile,
+    clearImport,
+  } = useMarketingImportDoc<MarketingInstallmentAreaCsvStoredV1>({
+    projectId,
+    datasetKey: "installmentArea",
+    importKind: "installment_area",
+    validate: marketingInstallmentAreaCsvDocIsValid,
+    readLocalForMigration: readMarketingInstallmentAreaCsvFromLocalStorage,
+    clearLocal: clearMarketingInstallmentAreaCsvLocalStorage,
+  });
   const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentAreaCsvParseDiagnostics | null>(null);
-
-  useEffect(() => {
-    setDoc(readMarketingInstallmentAreaCsvFromLocalStorage(projectId));
-    setHydrated(true);
-  }, [projectId]);
+  const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
 
   const uploadCsv = useCallback(
     async (file: File) => {
@@ -141,49 +148,20 @@ export function InstallmentAreaSection({
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("Допустимы только файлы .csv");
       }
-      setLoading(true);
-      setError(null);
       setFailedDiagnostics(null);
-      try {
-        const { readMarketingCsvFileDecoded } = await import("@/src/shared/lib/csv/parseInvestorsCsv");
-        const { text } = await readMarketingCsvFileDecoded(file);
-        const parsed = await parseInstallmentAreaCsvAsync(text, {
-          dashboardPeriodKey: defaultDashboardPeriodKey(),
-          period,
-          reportAsOfYmd,
-          fileName: file.name,
-        });
-        if (!parsed.ok) {
-          setError(parsed.error);
-          setFailedDiagnostics(parsed.diagnostics);
-          return;
-        }
-        const stored: MarketingInstallmentAreaCsvStoredV1 = {
-          v: 1,
-          updatedAt: new Date().toISOString(),
-          fileName: file.name,
-          rows: parsed.rows,
-          warnings: parsed.warnings,
-          diagnostics: parsed.diagnostics,
-          apartmentsSummary: parsed.apartmentsSummary,
-          parkingSummary: parsed.parkingSummary ?? null,
-          storageSummary: parsed.storageSummary ?? null,
-        };
-        writeMarketingInstallmentAreaCsvToLocalStorage(projectId, stored);
-        setDoc(stored);
-      } finally {
-        setLoading(false);
+      const result = await uploadFile(file);
+      if (!result.ok) {
+        const diag = result.diagnostics as InstallmentAreaCsvParseDiagnostics | undefined;
+        if (diag) setFailedDiagnostics(diag);
       }
     },
-    [period, projectId, reportAsOfYmd],
+    [uploadFile],
   );
 
   const clearCsv = useCallback(async () => {
-    clearMarketingInstallmentAreaCsvLocalStorage(projectId);
-    setDoc(null);
-    setError(null);
     setFailedDiagnostics(null);
-  }, [projectId]);
+    await clearImport();
+  }, [clearImport]);
 
   const kpiData: InstallmentAreaPeriodKpiUiData = useMemo(() => {
     const slice = doc?.rows?.length
@@ -352,6 +330,7 @@ export function InstallmentAreaSection({
               CSV площади (legacy wide-table). Месяц строк привязывается к периоду дашборда / дате отчёта.
             </p>
           ) : null}
+          {hasCsv && updatedLabel ? <p className={`mt-1 text-[11px] ${mutedCls}`}>{updatedLabel}</p> : null}
         </div>
         {isEditMode ? (
           <div className="flex flex-wrap items-center gap-2">

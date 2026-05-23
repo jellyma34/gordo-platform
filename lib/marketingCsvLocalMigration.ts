@@ -20,6 +20,32 @@ import { clearMarketingUnitsExecutionCsvLocalStorage } from "@/lib/marketingUnit
 import { clearMarketingApartmentsCsvLocalStorage } from "@/lib/marketingApartmentsCsv";
 import { clearMarketingParkingCsvLocalStorage } from "@/lib/marketingParkingCsv";
 import { clearMarketingStoragesCsvLocalStorage } from "@/lib/marketingStoragesCsv";
+import { clearMarketingInstallmentForecastCsvLocalStorage } from "@/lib/marketingInstallmentForecastCsv";
+import { clearMarketingInstallmentAreaCsvLocalStorage } from "@/lib/marketingInstallmentAreaCsv";
+import { clearMarketingDduRevenueCsvLocalStorage } from "@/lib/marketingDduRevenueCsv";
+import { clearMarketingProjectValueCsvLocalStorage } from "@/lib/marketingProjectValueCsv";
+import { clearMarketingApartmentPlanCsvLocalStorage } from "@/lib/marketingApartmentPlanCsv";
+import {
+  readMarketingInstallmentForecastCsvFromLocalStorage,
+  marketingInstallmentForecastCsvDocIsValid,
+} from "@/lib/marketingInstallmentForecastCsv";
+import {
+  readMarketingInstallmentAreaCsvFromLocalStorage,
+  marketingInstallmentAreaCsvDocIsValid,
+} from "@/lib/marketingInstallmentAreaCsv";
+import {
+  readMarketingDduRevenueCsvFromLocalStorage,
+  marketingDduRevenueCsvDocIsValid,
+} from "@/lib/marketingDduRevenueCsv";
+import {
+  readMarketingProjectValueCsvFromLocalStorage,
+  marketingProjectValueCsvDocIsValid,
+} from "@/lib/marketingProjectValueCsv";
+import {
+  readMarketingApartmentPlanCsvFromLocalStorage,
+  marketingApartmentPlanCsvDocIsValid,
+} from "@/lib/marketingApartmentPlanCsv";
+import { migrateMarketingImportDoc } from "@/lib/marketingCsvServerClient";
 
 async function postCsvBlob(
   projectId: string,
@@ -106,6 +132,12 @@ export type MarketingCsvServerPresence = {
   hasExecutionPlan: boolean;
   hasReceiptsPlanFact: boolean;
   hasMarketingLeads?: boolean;
+  hasRevenueFact?: boolean;
+  hasInstallmentForecast?: boolean;
+  hasInstallmentArea?: boolean;
+  hasDduRevenue?: boolean;
+  hasProjectValue?: boolean;
+  hasApartmentPlan?: boolean;
 };
 
 /** Сбрасывает все marketing CSV ключи в localStorage для проекта. */
@@ -118,6 +150,11 @@ export function clearAllMarketingCsvLocalStorage(projectId: string): void {
   clearMarketingApartmentsCsvLocalStorage(projectId);
   clearMarketingParkingCsvLocalStorage(projectId);
   clearMarketingStoragesCsvLocalStorage(projectId);
+  clearMarketingInstallmentForecastCsvLocalStorage(projectId);
+  clearMarketingInstallmentAreaCsvLocalStorage(projectId);
+  clearMarketingDduRevenueCsvLocalStorage(projectId);
+  clearMarketingProjectValueCsvLocalStorage(projectId);
+  clearMarketingApartmentPlanCsvLocalStorage(projectId);
 }
 
 /**
@@ -197,6 +234,46 @@ export async function migrateMarketingCsvFromLocalStorageIfNeeded(opts: {
     if (doc?.rawText?.trim()) {
       const ok = await postCsvBlob(projectId, "storages", doc.fileName || "storages.csv", doc.rawText, uploadedBy);
       if (ok) clearMarketingStoragesCsvLocalStorage(projectId);
+    }
+  }
+
+  if (!presence.hasInstallmentForecast) {
+    const doc = readMarketingInstallmentForecastCsvFromLocalStorage(projectId);
+    if (doc && marketingInstallmentForecastCsvDocIsValid(doc)) {
+      const r = await migrateMarketingImportDoc(projectId, "installment_forecast", doc, uploadedBy);
+      if (r.ok) clearMarketingInstallmentForecastCsvLocalStorage(projectId);
+    }
+  }
+
+  if (!presence.hasInstallmentArea) {
+    const doc = readMarketingInstallmentAreaCsvFromLocalStorage(projectId);
+    if (doc && marketingInstallmentAreaCsvDocIsValid(doc)) {
+      const r = await migrateMarketingImportDoc(projectId, "installment_area", doc, uploadedBy);
+      if (r.ok) clearMarketingInstallmentAreaCsvLocalStorage(projectId);
+    }
+  }
+
+  if (!presence.hasDduRevenue) {
+    const doc = readMarketingDduRevenueCsvFromLocalStorage(projectId);
+    if (doc && marketingDduRevenueCsvDocIsValid(doc)) {
+      const r = await migrateMarketingImportDoc(projectId, "ddu_revenue", doc, uploadedBy);
+      if (r.ok) clearMarketingDduRevenueCsvLocalStorage(projectId);
+    }
+  }
+
+  if (!presence.hasProjectValue) {
+    const doc = readMarketingProjectValueCsvFromLocalStorage(projectId);
+    if (doc && marketingProjectValueCsvDocIsValid(doc)) {
+      const r = await migrateMarketingImportDoc(projectId, "project_value", doc, uploadedBy);
+      if (r.ok) clearMarketingProjectValueCsvLocalStorage(projectId);
+    }
+  }
+
+  if (!presence.hasApartmentPlan) {
+    const doc = readMarketingApartmentPlanCsvFromLocalStorage(projectId);
+    if (doc && marketingApartmentPlanCsvDocIsValid(doc)) {
+      const r = await migrateMarketingImportDoc(projectId, "apartment_plan", doc, uploadedBy);
+      if (r.ok) clearMarketingApartmentPlanCsvLocalStorage(projectId);
     }
   }
 
