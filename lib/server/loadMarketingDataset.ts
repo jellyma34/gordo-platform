@@ -62,6 +62,9 @@ export async function loadMarketingDatasetDoc(
       projectId,
     );
     if (built.ok) return built.doc;
+    console.warn("[analytics] loadMarketingDatasetDoc parse failed:", kind, built.error);
+  } else {
+    console.warn("[analytics] loadMarketingDatasetDoc no CSV:", kind);
   }
 
   return loadImport(projectId, kind);

@@ -1,3 +1,4 @@
+import { ANALYTICS_CSV_PUBLIC_BASE } from "@/lib/analytics/analyticsCsvPath";
 import type { MarketingImportDatasetKey, MarketingImportKind } from "@/lib/marketingImportKinds";
 
 export type AnalyticsCsvRegistryEntry = {
@@ -11,8 +12,6 @@ export type AnalyticsCsvRegistryEntry = {
   label: string;
 };
 
-const PUBLIC_ANALYTICS_BASE = "/data/analytics";
-
 function entry(
   kind: MarketingImportKind,
   fileName: string,
@@ -22,7 +21,7 @@ function entry(
   return {
     kind,
     fileName,
-    publicUrl: `${PUBLIC_ANALYTICS_BASE}/${fileName}`,
+    publicUrl: `${ANALYTICS_CSV_PUBLIC_BASE}/${fileName}`,
     datasetKey,
     label,
   };

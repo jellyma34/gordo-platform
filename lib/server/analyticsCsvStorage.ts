@@ -1,6 +1,8 @@
+import { existsSync } from "fs";
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 
+import { getAnalyticsCsvFetchPath, getAnalyticsServerOrigin } from "@/lib/analytics/analyticsCsvPath";
 import {
   ANALYTICS_CSV_REGISTRY,
   analyticsCsvMetaFileName,
@@ -17,40 +19,82 @@ export type AnalyticsCsvMetaV1 = {
   publicUrl: string;
 };
 
-export function analyticsCsvPublicDir(): string {
-  return path.join(process.cwd(), "public", "data", "analytics");
+let resolvedPublicDir: string | null = null;
+
+/** Директория CSV: учитывает `next start`, custom server и standalone layout. */
+export function resolveAnalyticsCsvPublicDir(): string {
+  if (resolvedPublicDir && existsSync(resolvedPublicDir)) {
+    return resolvedPublicDir;
+  }
+  const candidates = [
+    path.join(process.cwd(), "public", "data", "analytics"),
+    path.join(process.cwd(), "..", "public", "data", "analytics"),
+    path.join(process.cwd(), "..", "..", "public", "data", "analytics"),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(dir)) {
+      resolvedPublicDir = dir;
+      return dir;
+    }
+  }
+  resolvedPublicDir = candidates[0];
+  return resolvedPublicDir;
 }
 
 export function analyticsCsvAbsolutePath(kind: MarketingImportKind): string {
-  return path.join(analyticsCsvPublicDir(), ANALYTICS_CSV_REGISTRY[kind].fileName);
+  return path.join(resolveAnalyticsCsvPublicDir(), ANALYTICS_CSV_REGISTRY[kind].fileName);
 }
 
 export function analyticsCsvMetaAbsolutePath(kind: MarketingImportKind): string {
-  return path.join(analyticsCsvPublicDir(), analyticsCsvMetaFileName(kind));
+  return path.join(resolveAnalyticsCsvPublicDir(), analyticsCsvMetaFileName(kind));
 }
 
 export async function ensureAnalyticsCsvDir(): Promise<string> {
-  const dir = analyticsCsvPublicDir();
+  const dir = resolveAnalyticsCsvPublicDir();
   await mkdir(dir, { recursive: true });
   return dir;
 }
 
-export async function analyticsCsvExists(kind: MarketingImportKind): Promise<boolean> {
-  try {
-    await readFile(analyticsCsvAbsolutePath(kind), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function readAnalyticsCsvText(kind: MarketingImportKind): Promise<string | null> {
+async function readAnalyticsCsvFromFs(kind: MarketingImportKind): Promise<string | null> {
   try {
     const text = await readFile(analyticsCsvAbsolutePath(kind), "utf-8");
     return text.trim() ? text : null;
   } catch {
     return null;
   }
+}
+
+/** HTTP fallback: static asset через тот же origin (Railway production). */
+async function readAnalyticsCsvViaHttp(kind: MarketingImportKind): Promise<string | null> {
+  const entry = analyticsCsvRegistryEntry(kind);
+  const fetchPath = getAnalyticsCsvFetchPath(entry.publicUrl);
+  const origin = getAnalyticsServerOrigin();
+  const url = `${origin}${fetchPath}`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      console.warn("[analytics] server HTTP CSV fetch failed:", url, res.status);
+      return null;
+    }
+    const text = await res.text();
+    return text.trim() ? text : null;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[analytics] server HTTP CSV fetch error:", url, msg);
+    return null;
+  }
+}
+
+export async function analyticsCsvExists(kind: MarketingImportKind): Promise<boolean> {
+  if (existsSync(analyticsCsvAbsolutePath(kind))) return true;
+  const http = await readAnalyticsCsvViaHttp(kind);
+  return Boolean(http);
+}
+
+export async function readAnalyticsCsvText(kind: MarketingImportKind): Promise<string | null> {
+  const fromFs = await readAnalyticsCsvFromFs(kind);
+  if (fromFs) return fromFs;
+  return readAnalyticsCsvViaHttp(kind);
 }
 
 export async function readAnalyticsCsvMeta(kind: MarketingImportKind): Promise<AnalyticsCsvMetaV1 | null> {
