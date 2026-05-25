@@ -146,9 +146,11 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
 
       <div className={card}>
         <h4 className={`${h4} mb-1`}>План / Факт поступлений (рассрочка)</h4>
-        <p className={`${sub} mb-3`}>
-          План — базовый столбец; факт — ряд для сравнения. Ниже плана — предупреждение / риск.
-        </p>
+        {!presentation ? (
+          <p className={`${sub} mb-3`}>
+            План — базовый столбец; факт — ряд для сравнения. Ниже плана — предупреждение / риск.
+          </p>
+        ) : null}
         <div className="h-[280px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={inst.merged} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>

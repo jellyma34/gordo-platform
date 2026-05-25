@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { apartmentPlanFactsFromDealsForKpi } from "@/lib/apartmentPlanFactsFromDeals";
-import { buildApartmentPlanTypeKpiBreakdown } from "@/lib/apartmentPlanTypeKpi";
-import { buildParkingPlanAnalyticsBreakdown, selectPlanSliceForParkingKpi } from "@/lib/parkingPlanAnalytics";
-import { parkingPlanFactsFromDealsForKpi } from "@/lib/parkingPlanFactsFromDeals";
+import { buildApartmentPlanTypeKpiBreakdown, buildApartmentTotals } from "@/lib/apartmentPlanTypeKpi";
+import { buildParkingPlanAnalyticsBreakdown, buildParkingTotals, selectPlanSliceForParkingKpi } from "@/lib/parkingPlanAnalytics";
 import { mergeParkingPlanCsvWithFacts } from "@/lib/parkingPlanPeriodKpi";
-import { buildStoragePlanAnalyticsBreakdown, selectPlanSliceForStorageKpi } from "@/lib/storagePlanAnalytics";
-import { storagePlanFactsFromDealsForKpi } from "@/lib/storagePlanFactsFromDeals";
+import {
+  buildStoragePlanAnalyticsBreakdown,
+  buildStorageTotals,
+  selectPlanSliceForStorageKpi,
+} from "@/lib/storagePlanAnalytics";
 import { mergeStoragePlanCsvWithFacts } from "@/lib/storagePlanPeriodKpi";
 import {
   APARTMENT_PROJECT_TOTAL_UNITS,
@@ -72,7 +74,6 @@ import {
   getPlanCalculationStrategy,
   quarterKeyToMonthKeys,
   resolveApartmentsPlanProjectVolume,
-  selectPlanSliceForKpi,
 } from "@/lib/planDataSource";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
 import { KpiDashboard } from "@/components/marketing/SalesPlanKpiDashboard";
@@ -2229,15 +2230,15 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         dealsFeed.loading && dealRowsForFact.length === 0
           ? { factMonth: 0, factCumulative: 0, debug: null as null }
           : apartmentPlanFactsFromDealsForKpi(dealRowsForFact, { period, currentPeriodKey: currentKey });
-      const facts = { factMonth: dealFacts.factMonth, factCumulative: dealFacts.factCumulative };
 
       const rows = apartmentPlanKpiDoc?.rows;
       const planCsvType =
         apartmentPlanKpiDoc?.diagnostics?.csvType ??
         (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
+      const hasCsvPlan = Array.isArray(rows) && rows.length > 0;
       const typeBreakdown = buildApartmentPlanTypeKpiBreakdown({
         rows,
-        hasCsvPlan: Array.isArray(rows) && rows.length > 0,
+        hasCsvPlan,
         csvType: planCsvType,
         period,
         currentPeriodKey: currentKey,
@@ -2245,11 +2246,20 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         objects: marketingMockData.objects,
         dealRows: dealRowsForFact,
       });
+      const apartmentTotals = buildApartmentTotals(typeBreakdown);
 
-      if (Array.isArray(rows) && rows.length > 0 && apartmentPlanKpiDoc) {
+      if (process.env.NODE_ENV !== "production") {
+        console.log({
+          apartmentTotals,
+          cumulativePlan: apartmentTotals.planCumulative,
+          cumulativeFact: apartmentTotals.factCumulative,
+          selectedMonth: currentKey,
+        });
+      }
+
+      if (hasCsvPlan && apartmentPlanKpiDoc) {
         const planStrategy = getPlanCalculationStrategy(planCsvType);
-        const apartmentsSummary =
-          apartmentPlanKpiDoc.biReportMeta?.apartmentsSummary ?? null;
+        const apartmentsSummary = apartmentPlanKpiDoc.biReportMeta?.apartmentsSummary ?? null;
         const qMonthsKpi = quarterKeyToMonthKeys(currentKey);
         const apartmentsSummaryMonthKey =
           period === "quarter" && qMonthsKpi?.length ? qMonthsKpi[qMonthsKpi.length - 1]! : currentKey;
@@ -2259,112 +2269,71 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           biApartmentsSummary: apartmentsSummary,
           monthKey: apartmentsSummaryMonthKey,
         });
-        const slice =
-          typeof selectPlanSliceForKpi === "function"
-            ? selectPlanSliceForKpi(rows, {
-                period,
-                currentPeriodKey: currentKey,
-                objectId: objectId ?? "all",
-                objects: marketingMockData.objects,
-                biApartmentsSummary: apartmentsSummary,
-                csvType: planCsvType,
-              })
-            : null;
-        const planCalcDebug = slice
-          ? {
-              calculationStrategyLabel: planStrategy.calculationStrategyLabel,
-              cumulativeDebugEn: planStrategy.cumulativeDebugEn,
-              cumulativeDebugRu: planStrategy.cumulativeDebugRu,
-              kpiEntity: slice.planDebug.kpiEntity,
-              csvSummaryRow: slice.planDebug.csvSummaryRow,
-              selectedMonthLabel: slice.planDebug.selectedMonthLabel,
-              planCumulativeSource: slice.planDebug.planCumulativeSource,
-            }
-          : {
-              calculationStrategyLabel: planStrategy.calculationStrategyLabel,
-              cumulativeDebugEn: planStrategy.cumulativeDebugEn,
-              cumulativeDebugRu: planStrategy.cumulativeDebugRu,
-            };
-        if (slice) {
-          const { planDebug: _pd, ...planSlice } = slice;
-          const merged = mergeApartmentPlanCsvWithFacts(planSlice, facts, {
-            apartmentsPlanProject: apartmentsPlanProject > 0 ? apartmentsPlanProject : null,
-          });
-          const summaryPlanCum = apartmentsSummary?.planCumulative ?? 0;
-          const summaryPlanMonth = apartmentsSummary?.planMonth ?? 0;
-          const planCumulative =
-            merged.planCumulative > 0 ? merged.planCumulative : summaryPlanCum > 0 ? summaryPlanCum : 0;
-          const planMonth = merged.planMonth > 0 ? merged.planMonth : summaryPlanMonth > 0 ? summaryPlanMonth : 0;
-          return {
-            hasCsvPlan: true as const,
-            ...merged,
-            planMonth,
-            planCumulative,
-            dealFactDebug: dealFacts.debug,
-            planCalcDebug: {
-              ...planCalcDebug,
-              planCumulativeSource: planCumulative,
-            },
-            typeBreakdown,
-          };
-        }
-        if (apartmentsSummary && (apartmentsSummary.planCumulative > 0 || apartmentsSummary.planMonth > 0)) {
-          const planSlice = {
-            planMonth: apartmentsSummary.planMonth,
-            planCumulative: apartmentsSummary.planCumulative,
-            totalVolume: apartmentsPlanProject > 0 ? apartmentsPlanProject : apartmentsSummary.planProject,
-            cumulativeMode: "bi_report_ready_column" as const,
-          };
-          return {
-            hasCsvPlan: true as const,
-            ...mergeApartmentPlanCsvWithFacts(planSlice, facts, {
-              apartmentsPlanProject: apartmentsPlanProject > 0 ? apartmentsPlanProject : null,
-            }),
-            dealFactDebug: dealFacts.debug,
-            planCalcDebug: {
-              ...planCalcDebug,
-              planCumulativeSource: planSlice.planCumulative,
-            },
-            typeBreakdown,
-          };
-        }
-        const fallbackVol = apartmentsPlanProject > 0 ? apartmentsPlanProject : APARTMENT_PROJECT_TOTAL_UNITS;
+        const merged = mergeApartmentPlanCsvWithFacts(
+          {
+            planMonth: apartmentTotals.planMonth,
+            planCumulative: apartmentTotals.planCumulative,
+            totalVolume: 0,
+            cumulativeMode: planStrategy.cumulativeMode,
+          },
+          {
+            factMonth: apartmentTotals.factMonth,
+            factCumulative: apartmentTotals.factCumulative,
+          },
+          { apartmentsPlanProject: apartmentsPlanProject > 0 ? apartmentsPlanProject : null },
+        );
         return {
           hasCsvPlan: true as const,
-          ...mergeApartmentPlanCsvWithFacts(
-            { planMonth: 0, planCumulative: 0, totalVolume: 0, cumulativeMode: "bi_report_ready_column" },
-            facts,
-            { apartmentsPlanProject: fallbackVol },
-          ),
+          ...merged,
           dealFactDebug: dealFacts.debug,
-          planCalcDebug,
+          planCalcDebug: {
+            calculationStrategyLabel: planStrategy.calculationStrategyLabel,
+            cumulativeDebugEn: planStrategy.cumulativeDebugEn,
+            cumulativeDebugRu: planStrategy.cumulativeDebugRu,
+            kpiEntity: "Apartments" as const,
+            csvSummaryRow: "Σ 1к+2к+3к+4к+",
+            selectedMonthLabel: currentKey,
+            planCumulativeSource: apartmentTotals.planCumulative,
+          },
           typeBreakdown,
         };
       }
 
-      return { hasCsvPlan: false as const, ...facts, dealFactDebug: dealFacts.debug, typeBreakdown };
+      return {
+        hasCsvPlan: false as const,
+        factMonth: apartmentTotals.factMonth,
+        factCumulative: apartmentTotals.factCumulative,
+        dealFactDebug: dealFacts.debug,
+        typeBreakdown,
+      };
     } catch (e) {
       console.error("apartmentPlanPeriodKpi:", e);
       return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0, dealFactDebug: null };
     }
   }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
 
-  const parkingPlanPeriodKpi = useMemo(() => {
+  const parkingPlanBundle = useMemo(() => {
     try {
       const currentKey = analytics.currentPeriodKey;
       const dealRowsForFact = marketingDealsFiltered;
-      const dealFacts =
-        dealsFeed.loading && dealRowsForFact.length === 0
-          ? { factMonth: 0, factCumulative: 0 }
-          : parkingPlanFactsFromDealsForKpi(dealRowsForFact, { period, currentPeriodKey: currentKey });
-      const facts = { factMonth: dealFacts.factMonth, factCumulative: dealFacts.factCumulative };
-
       const rows = apartmentPlanKpiDoc?.rows;
       const planCsvType =
         apartmentPlanKpiDoc?.diagnostics?.csvType ??
         (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
+      const hasCsvPlan = Array.isArray(rows) && rows.length > 0;
+      const breakdown = buildParkingPlanAnalyticsBreakdown({
+        rows,
+        hasCsvPlan,
+        csvType: planCsvType,
+        period,
+        currentPeriodKey: currentKey,
+        objectId: objectId ?? "all",
+        objects: marketingMockData.objects,
+        dealRows: dealsFeed.loading && dealRowsForFact.length === 0 ? [] : dealRowsForFact,
+      });
+      const totals = buildParkingTotals(breakdown);
 
-      if (Array.isArray(rows) && rows.length > 0) {
+      if (hasCsvPlan) {
         const slice = selectPlanSliceForParkingKpi(rows, {
           period,
           currentPeriodKey: currentKey,
@@ -2372,57 +2341,62 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           objects: marketingMockData.objects,
           csvType: planCsvType,
         });
-        if (slice) {
-          return { hasCsvPlan: true as const, ...mergeParkingPlanCsvWithFacts(slice, facts) };
-        }
+        const planSlice = {
+          planMonth: totals.planMonth,
+          planCumulative: totals.planCumulative,
+          totalVolume: slice?.totalVolume ?? 0,
+          cumulativeMode: slice?.cumulativeMode ?? ("bi_report_ready_column" as const),
+        };
+        return {
+          breakdown,
+          periodKpi: {
+            hasCsvPlan: true as const,
+            ...mergeParkingPlanCsvWithFacts(planSlice, {
+              factMonth: totals.factMonth,
+              factCumulative: totals.factCumulative,
+            }),
+          },
+        };
       }
 
-      return { hasCsvPlan: false as const, ...facts };
+      return {
+        breakdown,
+        periodKpi: { hasCsvPlan: false as const, factMonth: totals.factMonth, factCumulative: totals.factCumulative },
+      };
     } catch (e) {
-      console.error("parkingPlanPeriodKpi:", e);
-      return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 };
+      console.error("parkingPlanBundle:", e);
+      return {
+        breakdown: { hasCsvPlan: false, items: [] },
+        periodKpi: { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 },
+      };
     }
   }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
 
-  const parkingPlanAnalyticsBreakdown = useMemo(() => {
+  const parkingPlanPeriodKpi = parkingPlanBundle.periodKpi;
+  const parkingPlanAnalyticsBreakdown = parkingPlanBundle.breakdown;
+
+  const storagePlanBundle = useMemo(() => {
     try {
       const currentKey = analytics.currentPeriodKey;
+      const dealRowsForFact = marketingDealsFiltered;
       const rows = apartmentPlanKpiDoc?.rows;
       const planCsvType =
         apartmentPlanKpiDoc?.diagnostics?.csvType ??
         (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
-      return buildParkingPlanAnalyticsBreakdown({
+      const hasCsvPlan = Array.isArray(rows) && rows.length > 0;
+      const breakdown = buildStoragePlanAnalyticsBreakdown({
         rows,
-        hasCsvPlan: Array.isArray(rows) && rows.length > 0,
+        hasCsvPlan,
         csvType: planCsvType,
         period,
         currentPeriodKey: currentKey,
         objectId: objectId ?? "all",
         objects: marketingMockData.objects,
-        dealRows: marketingDealsFiltered,
+        dealRows: dealsFeed.loading && dealRowsForFact.length === 0 ? [] : dealRowsForFact,
       });
-    } catch (e) {
-      console.error("parkingPlanAnalyticsBreakdown:", e);
-      return { hasCsvPlan: false, items: [] };
-    }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, marketingDealsFiltered, objectId, period]);
+      const totals = buildStorageTotals(breakdown);
 
-  const storagePlanPeriodKpi = useMemo(() => {
-    try {
-      const currentKey = analytics.currentPeriodKey;
-      const dealRowsForFact = marketingDealsFiltered;
-      const dealFacts =
-        dealsFeed.loading && dealRowsForFact.length === 0
-          ? { factMonth: 0, factCumulative: 0 }
-          : storagePlanFactsFromDealsForKpi(dealRowsForFact, { period, currentPeriodKey: currentKey });
-      const facts = { factMonth: dealFacts.factMonth, factCumulative: dealFacts.factCumulative };
-
-      const rows = apartmentPlanKpiDoc?.rows;
-      const planCsvType =
-        apartmentPlanKpiDoc?.diagnostics?.csvType ??
-        (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
-
-      if (Array.isArray(rows) && rows.length > 0) {
+      if (hasCsvPlan) {
         const slice = selectPlanSliceForStorageKpi(rows, {
           period,
           currentPeriodKey: currentKey,
@@ -2430,40 +2404,39 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           objects: marketingMockData.objects,
           csvType: planCsvType,
         });
-        if (slice) {
-          return { hasCsvPlan: true as const, ...mergeStoragePlanCsvWithFacts(slice, facts) };
-        }
+        const planSlice = {
+          planMonth: totals.planMonth,
+          planCumulative: totals.planCumulative,
+          totalVolume: slice?.totalVolume ?? 0,
+          cumulativeMode: slice?.cumulativeMode ?? ("bi_report_ready_column" as const),
+        };
+        return {
+          breakdown,
+          periodKpi: {
+            hasCsvPlan: true as const,
+            ...mergeStoragePlanCsvWithFacts(planSlice, {
+              factMonth: totals.factMonth,
+              factCumulative: totals.factCumulative,
+            }),
+          },
+        };
       }
 
-      return { hasCsvPlan: false as const, ...facts };
+      return {
+        breakdown,
+        periodKpi: { hasCsvPlan: false as const, factMonth: totals.factMonth, factCumulative: totals.factCumulative },
+      };
     } catch (e) {
-      console.error("storagePlanPeriodKpi:", e);
-      return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 };
+      console.error("storagePlanBundle:", e);
+      return {
+        breakdown: { hasCsvPlan: false, items: [] },
+        periodKpi: { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 },
+      };
     }
   }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
 
-  const storagePlanAnalyticsBreakdown = useMemo(() => {
-    try {
-      const currentKey = analytics.currentPeriodKey;
-      const rows = apartmentPlanKpiDoc?.rows;
-      const planCsvType =
-        apartmentPlanKpiDoc?.diagnostics?.csvType ??
-        (apartmentPlanKpiDoc?.biReportMeta?.apartmentsSummary ? "bi_report" : undefined);
-      return buildStoragePlanAnalyticsBreakdown({
-        rows,
-        hasCsvPlan: Array.isArray(rows) && rows.length > 0,
-        csvType: planCsvType,
-        period,
-        currentPeriodKey: currentKey,
-        objectId: objectId ?? "all",
-        objects: marketingMockData.objects,
-        dealRows: marketingDealsFiltered,
-      });
-    } catch (e) {
-      console.error("storagePlanAnalyticsBreakdown:", e);
-      return { hasCsvPlan: false, items: [] };
-    }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, marketingDealsFiltered, objectId, period]);
+  const storagePlanPeriodKpi = storagePlanBundle.periodKpi;
+  const storagePlanAnalyticsBreakdown = storagePlanBundle.breakdown;
 
   const revenueLineData = useMemo(() => seriesToLineData(seriesPoints, "revenue"), [seriesPoints]);
 

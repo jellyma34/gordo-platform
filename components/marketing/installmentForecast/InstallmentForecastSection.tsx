@@ -206,7 +206,7 @@ export function InstallmentForecastSection({
               CSV из раздела «Рассрочка ДДУ» (график платежей или long-формат). В прогнозе только месяцы с мая 2026.
             </p>
           ) : null}
-          {hasCsv && updatedLabel ? (
+          {isEditMode && hasCsv && updatedLabel ? (
             <p className={`mt-1 text-[11px] ${subCls}`}>{updatedLabel}</p>
           ) : null}
         </div>

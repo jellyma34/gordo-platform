@@ -330,7 +330,9 @@ export function InstallmentAreaSection({
               CSV площади (legacy wide-table). Месяц строк привязывается к периоду дашборда / дате отчёта.
             </p>
           ) : null}
-          {hasCsv && updatedLabel ? <p className={`mt-1 text-[11px] ${mutedCls}`}>{updatedLabel}</p> : null}
+          {isEditMode && hasCsv && updatedLabel ? (
+            <p className={`mt-1 text-[11px] ${mutedCls}`}>{updatedLabel}</p>
+          ) : null}
         </div>
         {isEditMode ? (
           <div className="flex flex-wrap items-center gap-2">

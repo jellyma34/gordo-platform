@@ -459,7 +459,7 @@ export function SalesPlanSegmentPlanFactBarChart({
             </div>
           ) : null}
         </div>
-        {hasUnitsPlanSource ? (
+        {!presentation && hasUnitsPlanSource ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
             Факт — сделки JSON; план — накопительный план в штуках × средняя стоимость сегмента.
           </p>

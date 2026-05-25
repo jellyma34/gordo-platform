@@ -231,7 +231,7 @@ export function apartmentPlanFactsFromDealsByTypeForKpi(
     "apt-4": { factMonth: 0, factCumulative: 0 },
   });
 
-  const { monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
+  const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
   const result = empty();
 
   for (const r of rows) {
@@ -239,15 +239,35 @@ export function apartmentPlanFactsFromDealsByTypeForKpi(
     const typeKey = inferApartmentPlanTypeKeyFromDeal(r);
     if (!typeKey) continue;
 
-    result[typeKey].factCumulative += 1;
-
     const mk = canonicalMonthKey(r);
-    if (mk && monthKeysInPeriod.has(mk)) {
+    if (!mk) continue;
+
+    if (mk <= endMonthKey) {
+      result[typeKey].factCumulative += 1;
+    }
+    if (monthKeysInPeriod.has(mk)) {
       result[typeKey].factMonth += 1;
     }
   }
 
   return result;
+}
+
+/** Свод «Квартиры» = сумма KPI по комнатностям (1к + 2к + 3к + 4к+), не отдельная строка CSV «apartments». */
+export function buildApartmentTotals(
+  breakdown: ApartmentPlanTypeKpiBreakdown,
+): Pick<ApartmentPlanPeriodKpiInputs, "planMonth" | "factMonth" | "planCumulative" | "factCumulative"> {
+  let planMonth = 0;
+  let factMonth = 0;
+  let planCumulative = 0;
+  let factCumulative = 0;
+  for (const item of breakdown.items) {
+    planMonth += item.planMonth;
+    factMonth += item.factMonth;
+    planCumulative += item.planCumulative;
+    factCumulative += item.factCumulative;
+  }
+  return { planMonth, factMonth, planCumulative, factCumulative };
 }
 
 export function buildApartmentPlanTypeKpiBreakdown(args: {

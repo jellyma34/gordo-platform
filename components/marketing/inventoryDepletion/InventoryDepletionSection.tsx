@@ -134,10 +134,12 @@ export function InventoryDepletionSection({
       <h3 id="inventory-depletion-heading" className={`mb-1 text-sm font-semibold tracking-tight ${titleCls}`}>
         Выбытие объектов
       </h3>
-      <p className={`mb-4 text-[11px] leading-snug ${subCls}`}>
-        Исходный ассортимент — из плана KPI (структура продаж); продажи — из JSON сделок (`/api/deals`). Остаток = план −
-        продано.
-      </p>
+      {!presentation ? (
+        <p className={`mb-4 text-[11px] leading-snug ${subCls}`}>
+          Исходный ассортимент — из плана KPI (структура продаж); продажи — из JSON сделок (`/api/deals`). Остаток = план −
+          продано.
+        </p>
+      ) : null}
 
       {loading ? (
         <div className={`flex items-center gap-2 py-10 text-sm ${subCls}`}>
@@ -154,27 +156,31 @@ export function InventoryDepletionSection({
           {dealsFeed.error ? (
             <p className={`text-center text-xs text-rose-600 ${presDark ? "text-rose-300" : ""}`}>{dealsFeed.error}</p>
           ) : null}
-          <div className={diagCls}>
-            <div>Deals feed: подключён</div>
-            <div>Deals loaded: {dealsFeed.rows.length}</div>
-            <div>После фильтра объекта: 0</div>
-          </div>
+          {!presentation ? (
+            <div className={diagCls}>
+              <div>Deals feed: подключён</div>
+              <div>Deals loaded: {dealsFeed.rows.length}</div>
+              <div>После фильтра объекта: 0</div>
+            </div>
+          ) : null}
         </div>
       ) : showDiagnostics ? (
         <div className="space-y-4">
-          <div className={diagCls}>
-            <div className="font-semibold">Диагностика выбытия (временно)</div>
-            <div>Deals loaded: {bundle.debug.dealsLoaded}</div>
-            <div>Matched sales: {bundle.debug.matchedSales}</div>
-            <div>Без месяца: {bundle.debug.rejectedNoMonth}</div>
-            <div>Отклонено (статус): {bundle.debug.rejectedNegative}</div>
-            <div>Вне сегментов: {bundle.debug.rejectedSegment}</div>
-            <div>Квартиры без комнатности: {bundle.debug.apartmentsWithoutRoomType}</div>
-            <div>План KPI загружен: {bundle.hasPlan ? "да" : "нет"}</div>
-            <div className="mt-1">dealType: {bundle.debug.uniqueDealTypes.join(", ") || "—"}</div>
-            <div>status (sample): {bundle.debug.uniqueStatusLabels.join(" · ") || "—"}</div>
-            <div>typeLabel (sample): {bundle.debug.uniqueTypeLabels.join(" · ") || "—"}</div>
-          </div>
+          {!presentation ? (
+            <div className={diagCls}>
+              <div className="font-semibold">Диагностика выбытия (временно)</div>
+              <div>Deals loaded: {bundle.debug.dealsLoaded}</div>
+              <div>Matched sales: {bundle.debug.matchedSales}</div>
+              <div>Без месяца: {bundle.debug.rejectedNoMonth}</div>
+              <div>Отклонено (статус): {bundle.debug.rejectedNegative}</div>
+              <div>Вне сегментов: {bundle.debug.rejectedSegment}</div>
+              <div>Квартиры без комнатности: {bundle.debug.apartmentsWithoutRoomType}</div>
+              <div>План KPI загружен: {bundle.hasPlan ? "да" : "нет"}</div>
+              <div className="mt-1">dealType: {bundle.debug.uniqueDealTypes.join(", ") || "—"}</div>
+              <div>status (sample): {bundle.debug.uniqueStatusLabels.join(" · ") || "—"}</div>
+              <div>typeLabel (sample): {bundle.debug.uniqueTypeLabels.join(" · ") || "—"}</div>
+            </div>
+          ) : null}
           <InventoryDepletionDonutGrid donuts={bundle.donuts} presDark={presDark} />
         </div>
       ) : !hasSales ? (
@@ -185,9 +191,11 @@ export function InventoryDepletionSection({
 
           <div className={innerCardCls}>
             <h4 className={`mb-1 text-sm font-semibold tracking-tight ${titleCls}`}>Динамика выбытия объектов</h4>
-            <p className={`mb-4 text-[11px] ${subCls}`}>
-              Остаток ассортимента по месяцам (ось Y — штуки, снижение по мере продаж).
-            </p>
+            {!presentation ? (
+              <p className={`mb-4 text-[11px] ${subCls}`}>
+                Остаток ассортимента по месяцам (ось Y — штуки, снижение по мере продаж).
+              </p>
+            ) : null}
             {bundle.dynamics.length > 0 ? (
               <InventoryDepletionDynamicsChart
                 data={bundle.dynamics}

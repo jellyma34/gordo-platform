@@ -12,6 +12,7 @@ import {
   mergeEntitySummaryWithCsvRow,
 } from "@/lib/planDataSource/entitySummaryPlanSlice";
 import { isParkingRootSummaryRow } from "@/lib/planDataSource/entityRowMatchers";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { normalizeMatchKey } from "@/lib/planDataSource/normalize";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
 import type { ApartmentPlanCsvNormalizedRow } from "@/lib/planDataSource/types";
@@ -24,6 +25,13 @@ export type ParkingPlanCategoryMeta = {
   label: string;
   shortLabel: string;
 };
+
+function canonicalMonthKey(row: NormalizedDealRow): string | null {
+  const mk = normalizeMonthKey(row.monthKey) ?? normalizeMonthKey(row.dealDate);
+  if (mk && /^\d{4}-\d{2}$/.test(mk)) return mk;
+  const head = String(row.dealDate ?? "").trim().slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(head) ? head : null;
+}
 
 export const PARKING_PLAN_CATEGORY_ORDER: readonly ParkingPlanCategoryMeta[] = [
   { key: "underground", label: "Подземные", shortLabel: "Подзем." },
@@ -357,27 +365,60 @@ function resolveParkingChartCategories(
 
 export function parkingPlanFactsFromDealsByCategory(
   rows: readonly NormalizedDealRow[],
-  _opts: { period: "month" | "quarter"; currentPeriodKey: string },
+  opts: { period: "month" | "quarter"; currentPeriodKey: string },
   categories: readonly ParkingPlanCategoryMeta[],
-): Record<ParkingPlanCategoryKey, number> {
-  const result = Object.fromEntries(categories.map((c) => [c.key, 0])) as Record<ParkingPlanCategoryKey, number>;
+): Record<ParkingPlanCategoryKey, { factMonth: number; factCumulative: number }> {
+  const result = Object.fromEntries(
+    categories.map((c) => [c.key, { factMonth: 0, factCumulative: 0 }]),
+  ) as Record<ParkingPlanCategoryKey, { factMonth: number; factCumulative: number }>;
   const useTotalOnly = categories.length === 1 && categories[0]!.key === "total";
+
+  const qMonths = quarterKeyToMonthKeys(opts.currentPeriodKey);
+  const endMonthKey =
+    opts.period === "quarter" && qMonths?.length ? qMonths[qMonths.length - 1]! : opts.currentPeriodKey;
+  const monthKeysInPeriod =
+    opts.period === "quarter" && qMonths?.length ? new Set(qMonths) : new Set([opts.currentPeriodKey]);
 
   for (const r of rows) {
     if (r.dealType !== "parking") continue;
     if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
     const cat = useTotalOnly ? "total" : inferParkingCategoryFromDeal(r);
     if (!cat || !(cat in result)) continue;
-    result[cat] += 1;
+    const mk = canonicalMonthKey(r);
+    if (!mk) continue;
+    if (mk <= endMonthKey) result[cat].factCumulative += 1;
+    if (monthKeysInPeriod.has(mk)) result[cat].factMonth += 1;
   }
 
   return result;
 }
 
 export type ParkingPlanAnalyticsItem = ParkingPlanCategoryMeta & {
+  planMonth: number;
   planCumulative: number;
+  factMonth: number;
   factCumulative: number;
 };
+
+/** Свод машино-мест = сумма по категориям (детальным строкам CSV / JSON). */
+export function buildParkingTotals(breakdown: ParkingPlanAnalyticsBreakdown): {
+  planMonth: number;
+  planCumulative: number;
+  factMonth: number;
+  factCumulative: number;
+} {
+  let planMonth = 0;
+  let planCumulative = 0;
+  let factMonth = 0;
+  let factCumulative = 0;
+  for (const item of breakdown.items) {
+    planMonth += item.planMonth;
+    planCumulative += item.planCumulative;
+    factMonth += item.factMonth;
+    factCumulative += item.factCumulative;
+  }
+  return { planMonth, planCumulative, factMonth, factCumulative };
+}
 
 export type ParkingPlanAnalyticsBreakdown = {
   hasCsvPlan: boolean;
@@ -414,6 +455,7 @@ export function buildParkingPlanAnalyticsBreakdown(args: {
   }, categories);
 
   const items: ParkingPlanAnalyticsItem[] = categories.map((meta) => {
+    let planMonth = 0;
     let planCumulative = 0;
     if (args.hasCsvPlan && Array.isArray(args.rows) && args.rows.length > 0) {
       const slice = selectPlanSliceForParkingCategory(args.rows, meta.key, {
@@ -424,12 +466,16 @@ export function buildParkingPlanAnalyticsBreakdown(args: {
         csvType: args.csvType,
         parkingSummary: meta.key === "total" ? parkingSummary : null,
       });
+      planMonth = slice?.planMonth ?? 0;
       planCumulative = slice?.planCumulative ?? 0;
     }
+    const facts = factsByCat[meta.key] ?? { factMonth: 0, factCumulative: 0 };
     return {
       ...meta,
+      planMonth,
       planCumulative,
-      factCumulative: factsByCat[meta.key] ?? 0,
+      factMonth: facts.factMonth,
+      factCumulative: facts.factCumulative,
     };
   });
 

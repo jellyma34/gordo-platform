@@ -508,12 +508,6 @@ export function MarketingDealsDynamicsSection({ presentation, period, objectId }
     >
       <div className="mb-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">Сделки</div>
-        <p className="mt-1 max-w-3xl text-[10px] leading-snug text-slate-500">
-          Три графика отвечают на разные вопросы: объём сделок, связь выручки и сделок, средний чек. Подсказок при наведении нет —
-          клик по столбцу или точке открывает единую карточку периода (метрики и Δ к предыдущему периоду). Наведение только слегка
-          подсвечивает месяц на всех графиках. Клик по пустому месту в блоке (вне графиков и карточки), вне блока или «Снять выбор»
-          сбрасывает выбор. Обводка столбцов динамики — «светофор» к голубой заливке.
-        </p>
       </div>
 
       {selectedRow ? (

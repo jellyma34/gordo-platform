@@ -68,6 +68,7 @@ export function KpiDashboard({
   gridClassName?: string;
 }) {
   const presentationLike = mode === "presentation" || mode === "explain" || mode === "presentationLight";
+  const hideKpiDescription = mode === "presentation" || mode === "presentationLight";
   /** Тёмные градиенты KPI — только старая тёмная презентация и explain. */
   const kpiDarkSurface = mode === "presentation" || mode === "explain";
 
@@ -359,17 +360,19 @@ export function KpiDashboard({
                   </div>
                 ) : null}
                 <div className={`mt-0.5 text-[11px] ${kpiDarkSurface ? "text-slate-400" : "text-slate-600"}`}>{kpi.sub}</div>
-                <p
-                  className={`mt-1.5 text-[12px] leading-tight ${kpiDarkSurface ? "text-slate-300/70" : "text-slate-700/70"} ${mode === "presentation" || mode === "presentationLight" ? "line-clamp-3" : "line-clamp-2"}`}
-                  style={{
-                    display: "-webkit-box",
-                    WebkitLineClamp: mode === "presentation" || mode === "presentationLight" ? 3 : 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
-                >
-                  {kpi.description}
-                </p>
+                {!hideKpiDescription ? (
+                  <p
+                    className={`mt-1.5 text-[12px] leading-tight ${kpiDarkSurface ? "text-slate-300/70" : "text-slate-700/70"} line-clamp-2`}
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {kpi.description}
+                  </p>
+                ) : null}
               </div>
               {mode !== "explain" ? (
                 <div
