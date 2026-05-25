@@ -128,21 +128,133 @@ function ProjectStructureCardHeader({
   iconWrapTone,
   labelTone,
   className = "",
+  titleClassName,
 }: {
   iconWrapTone: MarketingDealSegmentIconWrapTone;
   labelTone: "work" | "dark";
   className?: string;
+  titleClassName?: string;
 }) {
   const wrap = MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS[iconWrapTone];
-  const labelClass = `${MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE} ${
-    labelTone === "dark" ? "text-indigo-300/95" : "text-indigo-800/95"
-  }`;
+  const labelClass =
+    titleClassName ??
+    `${MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE} ${
+      labelTone === "dark" ? "text-indigo-300/95" : "text-indigo-800/95"
+    }`;
   return (
     <div className={`flex min-w-0 items-center gap-3 ${className}`.trim()}>
       <div className={wrap} aria-hidden>
         <LayoutDashboard className="h-5 w-5 shrink-0 text-indigo-500" strokeWidth={2} />
       </div>
       <span className={labelClass}>По проекту</span>
+    </div>
+  );
+}
+
+type ProjectStructureSummaryHeroProps = {
+  card: SalesStructureCardRow;
+  presentation: boolean;
+  presDark: boolean;
+  mplPremium: boolean;
+  segmentCardRadius: string;
+  iconWrapTone: MarketingDealSegmentIconWrapTone;
+  labelTone: "work" | "dark";
+};
+
+/** Full-width summary-блок «По проекту» над рядом сегментных карточек. */
+function ProjectStructureSummaryHero({
+  card,
+  presentation,
+  presDark,
+  mplPremium,
+  segmentCardRadius,
+  iconWrapTone,
+  labelTone,
+}: ProjectStructureSummaryHeroProps) {
+  const vs = presDark
+    ? PROJECT_VISUAL_PRESENTATION
+    : mplPremium && presentation
+      ? PROJECT_VISUAL_PREMIUM
+      : PROJECT_VISUAL_WORK;
+  const muted = presDark ? "text-slate-500" : "text-slate-400";
+  const metricValue = presDark ? "text-slate-50" : "text-[#111827]";
+  const heroTitle = presDark
+    ? "text-[13px] font-semibold tracking-tight text-indigo-200/95"
+    : "text-[13px] font-semibold tracking-tight text-indigo-800/95";
+  const avgPriceM2 = card.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(card.sum / card.soldAreaM2) : "—";
+
+  const metric = (label: string, value: string, valueClassName?: string) => (
+    <div className="min-w-0 tabular-nums">
+      <div className={`text-[11px] font-medium leading-tight sm:text-[12px] ${muted}`}>{label}</div>
+      <div
+        className={`mt-1 text-[15px] font-semibold leading-tight sm:text-base ${valueClassName ?? metricValue}`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="sales-structure-project-hero w-full min-w-0 max-w-none">
+      <div
+        className={`sales-structure-card group relative w-full overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out`}
+      >
+        <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
+        <div
+          className={`pointer-events-none absolute inset-0 ${segmentCardRadius} segment-card-gradient-sheen ${
+            presentation ? "opacity-[0.42] mix-blend-soft-light" : "opacity-[0.26]"
+          }`}
+          style={{ backgroundImage: vs.sheen }}
+          aria-hidden
+        />
+        <div
+          className={`pointer-events-none absolute inset-0 ${segmentCardRadius} mix-blend-overlay ${
+            presentation ? "opacity-[0.16]" : "opacity-[0.07]"
+          }`}
+          style={{
+            backgroundImage: `repeating-linear-gradient(135deg, rgba(255,255,255,0.07) 0px, transparent 1px, transparent 5px)`,
+          }}
+          aria-hidden
+        />
+        <div className="relative px-4 py-4 sm:px-5 sm:py-4 md:px-6 md:py-4">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between md:gap-8 lg:gap-10">
+            <div className="min-w-0 flex-1">
+              <ProjectStructureCardHeader
+                iconWrapTone={iconWrapTone}
+                labelTone={labelTone}
+                titleClassName={heroTitle}
+                className="mb-3 sm:mb-3.5"
+              />
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                <span
+                  className={`text-[28px] font-bold leading-none tabular-nums tracking-tight sm:text-[32px] ${vs.value}`}
+                >
+                  {numFmt.format(card.count)}
+                </span>
+                {card.inventoryTotal != null && card.inventoryTotal > 0 ? (
+                  <span className={`shrink-0 text-[13px] font-normal leading-none tabular-nums sm:text-sm ${muted} opacity-60`}>
+                    из {numFmt.format(card.inventoryTotal)} шт
+                  </span>
+                ) : (
+                  <span className={`shrink-0 text-[13px] font-normal leading-none sm:text-sm ${muted} opacity-60`}>шт</span>
+                )}
+              </div>
+              <div className={`mt-2 text-xl font-semibold leading-none tabular-nums sm:mt-2.5 sm:text-2xl ${vs.value}`}>
+                {compactRub(card.sum)}
+              </div>
+            </div>
+            <div
+              className={`grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 md:max-w-[min(100%,26rem)] md:grid-cols-1 md:gap-3.5 md:border-l md:pl-6 lg:max-w-[22rem] lg:pl-8 ${
+                presDark ? "md:border-white/10" : "md:border-indigo-200/55"
+              }`}
+            >
+              {metric("Факт поступлений", formatFactReceiptRub(card.factRevenue))}
+              {metric("Средний чек", rubFmt.format(card.avg))}
+              {metric("Средняя стоимость м²", avgPriceM2)}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -645,7 +757,10 @@ export function SalesPlanSegmentStructure({
     [apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool, commercialInventoryUnits],
   );
 
-  const cards = useMemo(() => {
+  const structureCards = useMemo((): {
+    projectCard: SalesStructureCardRow;
+    segmentCards: SalesStructureCardRow[];
+  } | null => {
     const totalSum = filteredRows.reduce((s, r) => s + r.sumRub, 0);
     const grouped = groupDealsBySegment(filteredRows);
 
@@ -688,13 +803,13 @@ export function SalesPlanSegmentStructure({
       if (!list?.length) continue;
       segmentCards.push(buildSegmentRow(key, list));
     }
-    if (segmentCards.length === 0) return [];
+    if (segmentCards.length === 0) return null;
 
     const projectSourceRows: SalesStructureCardRow[] = PROJECT_STRUCTURE_SEGMENTS.map((key) =>
       buildSegmentRow(key, grouped[key] ?? []),
     );
     const projectCard = aggregateProjectStructureMetrics(projectSourceRows);
-    return [projectCard, ...segmentCards];
+    return { projectCard, segmentCards };
   }, [
     filteredRows,
     apartmentsRevenuePool,
@@ -722,7 +837,7 @@ export function SalesPlanSegmentStructure({
     );
   }
 
-  if (cards.length === 0) {
+  if (!structureCards) {
     return (
       <div className="mb-7 w-full min-w-0 max-w-none">
         <SalesStructureBlockHeader {...headerProps} />
@@ -736,7 +851,16 @@ export function SalesPlanSegmentStructure({
     );
   }
 
-  const gridClass = `sales-structure grid w-full min-w-0 max-w-none grid-cols-1 gap-3 items-stretch sm:grid-cols-2 ${segmentKpiGridLgClass(cards.length)}`;
+  const { projectCard, segmentCards } = structureCards;
+  const segmentGridClass = `sales-structure grid w-full min-w-0 max-w-none grid-cols-1 gap-3 items-start sm:grid-cols-2 ${segmentKpiGridLgClass(segmentCards.length)}`;
+  const iconWrapTone = presDark
+    ? "dark"
+    : mplPremium && presentation
+      ? "premium"
+      : presentation
+        ? "presentation"
+        : "work";
+  const labelTone = presDark ? "dark" : "work";
 
   return (
     <div className="mb-7 w-full min-w-0 max-w-none">
@@ -747,123 +871,115 @@ export function SalesPlanSegmentStructure({
       {apartmentsShareWarning ? (
         <p className={`mb-3 text-xs font-medium ${presDark ? "text-amber-300/90" : "text-amber-800"}`}>{apartmentsShareWarning}</p>
       ) : null}
-      <div className={gridClass}>
-        {cards.map((c) => {
-          const isProject = c.isProject === true;
-          const vs = isProject
-            ? presDark
-              ? PROJECT_VISUAL_PRESENTATION
-              : mplPremium && presentation
-                ? PROJECT_VISUAL_PREMIUM
-                : PROJECT_VISUAL_WORK
-            : presDark
+      <div className="flex w-full min-w-0 max-w-none flex-col gap-3">
+        <ProjectStructureSummaryHero
+          card={projectCard}
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          segmentCardRadius={segmentCardRadius}
+          iconWrapTone={iconWrapTone}
+          labelTone={labelTone}
+        />
+        <div className={segmentGridClass}>
+          {segmentCards.map((c) => {
+            const vs = presDark
               ? SEGMENT_VISUAL_PRESENTATION[c.key]
               : mplPremium && presentation
                 ? SEGMENT_VISUAL_PREMIUM[c.key]
                 : SEGMENT_VISUAL_WORK[c.key];
-          const sharePct = Math.min(100, Math.max(0, c.share * 100));
-          const iconWrapTone = presDark
-            ? "dark"
-            : mplPremium && presentation
-              ? "premium"
-              : presentation
-                ? "presentation"
-                : "work";
-          const labelTone = presDark ? "dark" : "work";
-          return (
-            <div key={isProject ? "project" : c.key} className="flex h-full min-h-0 min-w-0 flex-col">
-              <div
-                className={`sales-structure-card group relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
-              >
-                <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
+            const sharePct = Math.min(100, Math.max(0, c.share * 100));
+            return (
+              <div key={c.key} className="flex min-w-0 flex-col self-start">
                 <div
-                  className={`pointer-events-none absolute inset-0 ${segmentCardRadius} segment-card-gradient-sheen ${
-                    presentation ? "opacity-[0.38] mix-blend-soft-light" : "opacity-[0.22]"
-                  }`}
-                  style={{ backgroundImage: vs.sheen }}
-                  aria-hidden
-                />
-                <div
-                  className={`pointer-events-none absolute inset-0 ${segmentCardRadius} mix-blend-overlay ${
-                    presentation ? "opacity-[0.14]" : "opacity-[0.06]"
-                  }`}
-                  style={{
-                    backgroundImage: `repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0px, transparent 1px, transparent 5px)`,
-                  }}
-                  aria-hidden
-                />
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
-                  {isProject ? (
-                    <ProjectStructureCardHeader iconWrapTone={iconWrapTone} labelTone={labelTone} className="mb-1" />
-                  ) : (
+                  className={`sales-structure-card group relative flex min-w-0 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
+                >
+                  <div className="pointer-events-none absolute inset-0" style={{ background: vs.radial }} aria-hidden />
+                  <div
+                    className={`pointer-events-none absolute inset-0 ${segmentCardRadius} segment-card-gradient-sheen ${
+                      presentation ? "opacity-[0.38] mix-blend-soft-light" : "opacity-[0.22]"
+                    }`}
+                    style={{ backgroundImage: vs.sheen }}
+                    aria-hidden
+                  />
+                  <div
+                    className={`pointer-events-none absolute inset-0 ${segmentCardRadius} mix-blend-overlay ${
+                      presentation ? "opacity-[0.14]" : "opacity-[0.06]"
+                    }`}
+                    style={{
+                      backgroundImage: `repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0px, transparent 1px, transparent 5px)`,
+                    }}
+                    aria-hidden
+                  />
+                  <div className="relative flex min-w-0 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
                     <MarketingDealSegmentHeader
                       segment={c.key}
                       iconWrapTone={iconWrapTone}
                       labelTone={labelTone}
                       className="mb-1"
                     />
-                  )}
-                  <SegmentStructurePrimaryKpi
-                    count={c.count}
-                    inventoryTotal={c.inventoryTotal}
-                    sumRub={c.sum}
-                    valueClass={vs.value}
-                    presDark={presDark}
-                  />
-                  <div className="mt-1.5 tabular-nums leading-snug">
-                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>
-                      Факт поступлений
-                    </div>
-                    <div
-                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
-                    >
-                      {formatFactReceiptRub(c.factRevenue)}
-                    </div>
-                  </div>
-                  <div className="mt-1.5 tabular-nums leading-snug">
-                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
-                    <div
-                      className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
-                    >
-                      {rubFmt.format(c.avg)}
-                    </div>
-                  </div>
-                  <div className="mt-1.5 tabular-nums leading-snug">
-                    <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средняя стоимость м²</div>
-                    <div
-                      className={`mt-0.5 text-[14px] font-medium leading-tight whitespace-nowrap tabular-nums ${presDark ? "text-slate-50" : "text-[#111827]"}`}
-                    >
-                      {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
-                    </div>
-                  </div>
-                  {!presentation && !isProject ? (
-                  <div className="mt-2">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className={`text-[10px] font-medium tracking-normal ${vs.tertiary}`}>Доля выручки</span>
-                      <span className={`text-[11px] tabular-nums leading-none ${vs.tertiary}`}>{shareFmt.format(c.share)}</span>
-                    </div>
-                    <div
-                      className={`mt-1.5 h-1 w-full overflow-hidden rounded-full ${
-                        presentation ? "bg-white/[0.08] ring-1 ring-white/[0.06]" : "bg-slate-200/90 ring-1 ring-slate-300/50"
-                      }`}
-                    >
+                    <SegmentStructurePrimaryKpi
+                      count={c.count}
+                      inventoryTotal={c.inventoryTotal}
+                      sumRub={c.sum}
+                      valueClass={vs.value}
+                      presDark={presDark}
+                    />
+                    <div className="mt-1.5 tabular-nums leading-snug">
+                      <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>
+                        Факт поступлений
+                      </div>
                       <div
-                        className={`h-full rounded-full transition-[width] duration-500 ease-out ${
-                          presentation ? "shadow-[0_0_12px_rgba(255,255,255,0.12)]" : ""
-                        }`}
-                        style={{
-                          width: `${sharePct}%`,
-                          backgroundColor: vs.barFill,
-                        }}
-                      />
+                        className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                      >
+                        {formatFactReceiptRub(c.factRevenue)}
+                      </div>
                     </div>
+                    <div className="mt-1.5 tabular-nums leading-snug">
+                      <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средний чек</div>
+                      <div
+                        className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                      >
+                        {rubFmt.format(c.avg)}
+                      </div>
+                    </div>
+                    <div className="mt-1.5 tabular-nums leading-snug">
+                      <div className={`text-[12px] leading-tight ${presDark ? "text-slate-500" : "text-slate-400"}`}>Средняя стоимость м²</div>
+                      <div
+                        className={`mt-0.5 text-[14px] font-medium leading-tight whitespace-nowrap tabular-nums ${presDark ? "text-slate-50" : "text-[#111827]"}`}
+                      >
+                        {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
+                      </div>
+                    </div>
+                    {!presentation ? (
+                      <div className="mt-2">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className={`text-[10px] font-medium tracking-normal ${vs.tertiary}`}>Доля выручки</span>
+                          <span className={`text-[11px] tabular-nums leading-none ${vs.tertiary}`}>{shareFmt.format(c.share)}</span>
+                        </div>
+                        <div
+                          className={`mt-1.5 h-1 w-full overflow-hidden rounded-full ${
+                            presentation ? "bg-white/[0.08] ring-1 ring-white/[0.06]" : "bg-slate-200/90 ring-1 ring-slate-300/50"
+                          }`}
+                        >
+                          <div
+                            className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+                              presentation ? "shadow-[0_0_12px_rgba(255,255,255,0.12)]" : ""
+                            }`}
+                            style={{
+                              width: `${sharePct}%`,
+                              backgroundColor: vs.barFill,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  ) : null}
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
