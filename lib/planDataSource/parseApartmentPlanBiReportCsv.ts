@@ -13,6 +13,7 @@ import {
   isBiGrandTotalRow,
   isNonApartmentPropertyRow,
   type BiApartmentsSummarySlice,
+  type BiProjectSummarySlice,
 } from "@/lib/planDataSource/apartmentPlanKpiEntity";
 import {
   isCommercialRootSummaryRow,
@@ -206,6 +207,8 @@ export type BiReportParseResult = {
   columnMapping: Record<string, string>;
   /** Свод «Квартиры»: накопительный план и объём проекта для KPI квартир. */
   apartmentsSummary: BiApartmentsSummarySlice | null;
+  /** Свод «ИТОГО»: KPI блока «Проект». */
+  projectSummary: BiProjectSummarySlice | null;
   /** @deprecated Используйте {@link apartmentsSummary}.planProject */
   summaryPlanProject: number | null;
   importedSegmentRows: number;
@@ -224,6 +227,7 @@ export function parseApartmentPlanBiReportFromGrid(
   const warnings: string[] = [];
   const out: ApartmentPlanCsvNormalizedRow[] = [];
   let apartmentsSummary: BiApartmentsSummarySlice | null = null;
+  let projectSummary: BiProjectSummarySlice | null = null;
   let ignoredSummaryRows = 0;
   let importedSegmentRows = 0;
 
@@ -247,6 +251,15 @@ export function parseApartmentPlanBiReportFromGrid(
 
     if (isBiGrandTotalRow(segmentNorm, rawLabel)) {
       ignoredSummaryRows += 1;
+      const planM = parseNum(rec[map.planMonth]);
+      const planC = parseNum(rec[map.planCumulative]);
+      const tv = parseNum(rec[map.planProject]);
+      projectSummary = {
+        planMonth: Math.max(0, planM ?? 0),
+        planCumulative: Math.max(0, planC ?? 0),
+        planProject: Math.max(0, tv ?? 0),
+        rawLabel: rawLabel || segmentNorm,
+      };
       continue;
     }
 
@@ -363,6 +376,7 @@ export function parseApartmentPlanBiReportFromGrid(
       warnings,
       columnMapping,
       apartmentsSummary,
+      projectSummary,
       summaryPlanProject,
       importedSegmentRows,
       ignoredSummaryRows,

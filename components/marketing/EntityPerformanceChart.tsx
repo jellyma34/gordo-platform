@@ -14,7 +14,12 @@ import {
 } from "@/components/charting/rechartsClient";
 import { rechartsPresentationMiniTooltip } from "@/components/marketing/salesPlanCharts";
 import type { PerformanceChartRow } from "@/lib/entityPerformanceChart";
-import { formatCompactMoneyAxis, formatCompactMoneyAxisTick, numFmt } from "@/lib/salesPlanChartFormat";
+import {
+  formatCompactMoneyAxis,
+  formatCompactMoneyAxisTick,
+  formatNumberWithoutCurrency,
+  numFmt,
+} from "@/lib/salesPlanChartFormat";
 
 const PLAN_FILL = "#FFAB5C";
 const PLAN_FILL_DARK = "#fdba74";
@@ -54,7 +59,11 @@ export function EntityPerformanceChart({
   const factFill = presDark ? FACT_FILL_DARK : FACT_FILL;
   const compactRub = unitSuffix === "₽";
   const formatChartValue = (n: number) =>
-    compactRub ? `${formatCompactMoneyAxis(n)}` : `${numFmt.format(Math.round(n))} ${unitSuffix}`;
+    compactRub
+      ? formatCompactMoneyAxis(n)
+      : unitSuffix
+        ? `${numFmt.format(Math.round(n))} ${unitSuffix}`
+        : formatNumberWithoutCurrency(n);
   const formatAxisTick = (v: number) =>
     compactRub ? formatCompactMoneyAxisTick(Number(v)) : numFmt.format(Math.round(Number(v)));
 

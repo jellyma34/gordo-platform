@@ -16,27 +16,29 @@ type Props = {
 };
 
 /**
- * «ПО ТИПАМ КВАРТИР» — по одному полноценному KPI-блоку на комнатность (как свод «Квартиры»).
+ * «По типам квартир» — continuation внутри premium shell (как DduRevenueRoomTypeKpiGrid).
  */
 export function ApartmentRoomTypeKpiGrid({ breakdown, presDark, presentation, mplPremium }: Props) {
   const segments = useMemo(() => breakdown.items, [breakdown.items]);
 
   if (!segments.length) return null;
 
+  const borderColor = presDark ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.06)";
+
   return (
     <div
-      className="mt-6 min-w-0 border-t pt-5 md:mt-7 md:pt-6"
-      style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
+      className={`min-w-0 border-t ${presentation ? "mt-3 pt-3 md:mt-4 md:pt-4" : "mt-4 pt-4 md:mt-5 md:pt-5"}`}
+      style={{ borderColor }}
     >
       <p
-        className={`mb-5 text-[13px] font-semibold uppercase tracking-[0.06em] ${
-          presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500"
+        className={`mb-3 text-xs font-medium leading-snug ${
+          presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-[#64748B]"
         }`}
       >
         По типам квартир
       </p>
 
-      <div className="grid w-full min-w-0 max-w-full items-start gap-8 [grid-template-columns:repeat(auto-fit,minmax(min(720px,100%),1fr))]">
+      <div className={`flex flex-col ${presentation ? "gap-4" : "gap-6"}`}>
         {segments.map((slice) => {
           const cardsData = apartmentPlanTypeSliceToCardsData(slice, breakdown.hasCsvPlan);
           const projectVolumeUnits =
@@ -48,11 +50,13 @@ export function ApartmentRoomTypeKpiGrid({ breakdown, presDark, presentation, mp
               : null;
 
           return (
-            <div key={slice.key} className="flex min-w-0 w-full max-w-full flex-col gap-4">
+            <div key={slice.key} className="min-w-0 w-full max-w-full">
               <EntityPlanPeriodKpiSection
                 embedded
-                cardsLayout="room-type"
+                cardsLayout="ddu-revenue-premium"
+                cardsDensity="ddu-revenue-premium"
                 entityLabel={slice.label}
+                illustrationSegment="apartment"
                 theme={APARTMENT_KPI_THEME}
                 cardsData={cardsData}
                 presDark={presDark}

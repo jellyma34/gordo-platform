@@ -32,12 +32,21 @@ export type EntityPlanPeriodKpiSectionProps = {
   metricIncludesCurrency?: boolean;
   /** KPI «План проекта»: полное число без сокращений. */
   projectPlanFullNumber?: boolean;
+  /** Подписи над столбиками «План на отчетный месяц»: «1,53 млрд». */
+  compactBarLabels?: boolean;
   /** Левый rail «Площадь проекта» (десятичное значение, кв.м). */
   projectVolume?: { value: number; unit: string; caption: string } | null;
   /** Левый rail «План проекта» (компактные рубли). */
   projectVolumeCompactCurrency?: { rub: number; caption: string } | null;
+  /** Суффикс единицы в rail при `projectPlanFullNumber` (напр. «руб./м²»). */
+  projectVolumeValueUnitSuffix?: string;
   /** Левый rail «N квартир» (целое из «План проекта» сегмента). */
-  projectVolumeUnits?: { count: number; unit: string } | null;
+  projectVolumeUnits?: {
+    count: number;
+    unit: string;
+    caption?: string;
+    subtitle?: string;
+  } | null;
   /** Вложенный блок (комнатность в сетке 2×2 / 4 колонки). */
   embedded?: boolean;
   /** Первая секция блока: без border-top и лишнего margin сверху. */
@@ -65,8 +74,10 @@ export function EntityPlanPeriodKpiSection({
   formatMetric,
   metricIncludesCurrency = true,
   projectPlanFullNumber = false,
+  compactBarLabels = false,
   projectVolume,
   projectVolumeCompactCurrency,
+  projectVolumeValueUnitSuffix,
   projectVolumeUnits,
   embedded = false,
   leadingSection = false,
@@ -127,6 +138,8 @@ export function EntityPlanPeriodKpiSection({
           count: projectVolumeUnits.count,
           unit: projectVolumeUnits.unit,
           illustrationSegment,
+          caption: projectVolumeUnits.caption,
+          subtitle: projectVolumeUnits.subtitle,
         }
       : undefined;
   const railLayoutCls =
@@ -207,10 +220,12 @@ export function EntityPlanPeriodKpiSection({
           formatMetric={formatMetric}
           metricIncludesCurrency={metricIncludesCurrency}
           projectPlanFullNumber={projectPlanFullNumber}
+          compactBarLabels={compactBarLabels}
           layout={cardsLayout}
           cardsDensity={premiumLayout ? "ddu-revenue-premium" : cardsDensity}
           planVolume={premiumPlanVolume}
           planVolumeUnits={premiumPlanVolumeUnits}
+          planVolumeValueUnitSuffix={projectVolumeValueUnitSuffix}
         />
       </div>
 

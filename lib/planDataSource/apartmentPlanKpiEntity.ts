@@ -11,6 +11,9 @@ export type BiApartmentsSummarySlice = {
   rawLabel: string;
 };
 
+/** Сводная строка «ИТОГО» BI / wide-table — KPI блока «Проект». */
+export type BiProjectSummarySlice = BiApartmentsSummarySlice;
+
 function normLabel(raw: string, segmentNorm: string): { raw: string; n: string; compact: string } {
   const rawL = String(raw ?? "")
     .toLowerCase()

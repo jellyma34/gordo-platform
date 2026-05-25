@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "kind": "receipts_plan_fact",
+  "uploadedAt": "2026-05-19T19:07:53.787Z",
+  "uploadedBy": "—",
+  "sourceFile": "поступления_план_факт.csv",
+  "publicUrl": "/data/analytics/receipts-plan-fact.csv"
+}

@@ -4,7 +4,7 @@ import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import { PremiumSegmentIllustration } from "@/components/marketing/PremiumSegmentIllustration";
 import { DDU_REVENUE_PREMIUM_KPI_UI } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
 import { formatCompactNumberWithoutCurrency } from "@/lib/formatCompactCurrencyRu";
-import { formatFullNumber, numFmt } from "@/lib/salesPlanChartFormat";
+import { formatNumberWithoutCurrency, numFmt } from "@/lib/salesPlanChartFormat";
 
 function projectPlanFullNumberFontSize(displayLength: number): string {
   if (displayLength >= 14) return "clamp(0.62rem, 1.55vw, 0.78rem)";
@@ -27,6 +27,8 @@ type CurrencyProps = BaseProps & {
   showCurrencySymbol?: boolean;
   /** KPI «План проекта»: полное число без млн/млрд (блок ДДУ). */
   projectPlanFullNumber?: boolean;
+  /** Суффикс единицы при полном числе (напр. «руб./м²»). */
+  valueUnitSuffix?: string;
 };
 
 type UnitsProps = BaseProps & {
@@ -56,7 +58,7 @@ export function PremiumSegmentVolumeCard(props: PremiumSegmentVolumeCardProps) {
 
   const useProjectPlanFullNumber = props.mode !== "units" && props.projectPlanFullNumber === true;
   const projectPlanDisplay =
-    props.mode !== "units" && useProjectPlanFullNumber ? formatFullNumber(props.rub) : null;
+    props.mode !== "units" && useProjectPlanFullNumber ? formatNumberWithoutCurrency(props.rub) : null;
 
   const UI = DDU_REVENUE_PREMIUM_KPI_UI;
   const surface = presDark
@@ -140,7 +142,15 @@ export function PremiumSegmentVolumeCard(props: PremiumSegmentVolumeCardProps) {
                 }}
               >
                 {useProjectPlanFullNumber ? (
-                  projectPlanDisplay
+                  <>
+                    {projectPlanDisplay}
+                    {props.valueUnitSuffix ? (
+                      <>
+                        {" "}
+                        <span className="text-[0.72em] font-semibold">{props.valueUnitSuffix}</span>
+                      </>
+                    ) : null}
+                  </>
                 ) : props.showCurrencySymbol === false ? (
                   formatCompactNumberWithoutCurrency(props.rub)
                 ) : (

@@ -12,6 +12,7 @@ type Props = {
   skeleton?: boolean;
   showCurrencySymbol?: boolean;
   projectPlanFullNumber?: boolean;
+  valueUnitSuffix?: string;
 };
 
 /** Карточка «План проекта» в premium-сетке KPI (DDU / стоимость проекта). */
@@ -24,6 +25,7 @@ export function EntityProjectVolumePlanCard({
   skeleton = false,
   showCurrencySymbol = true,
   projectPlanFullNumber = false,
+  valueUnitSuffix,
 }: Props) {
   return (
     <PremiumSegmentVolumeCard
@@ -35,6 +37,7 @@ export function EntityProjectVolumePlanCard({
       skeleton={skeleton}
       showCurrencySymbol={showCurrencySymbol}
       projectPlanFullNumber={projectPlanFullNumber}
+      valueUnitSuffix={valueUnitSuffix}
     />
   );
 }

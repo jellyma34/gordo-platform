@@ -10,13 +10,13 @@ import {
   type CashflowChartRow,
   type CashflowSeriesRow,
 } from "@/lib/buildCashflowSeries";
+import { formatCashflowChartCumulativePointLabel } from "@/lib/cashflowChartUnits";
 import {
   cashflowChartYAxisScale,
-  formatCashflowChartCumulativePointLabel,
+  formatCashflowAxisTick,
   formatCashflowChartUnitInteger,
   formatCashflowChartUnitTooltip,
-  formatCashflowChartUnitYAxisTick,
-} from "@/lib/cashflowChartUnits";
+} from "@/lib/chartFormatters";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
@@ -1081,9 +1081,9 @@ export function SalesPlanCashflowDynamicsChart({
       <div className="mb-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h3
-            className={`text-sm font-semibold leading-tight ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
+            className={`min-w-0 max-w-full flex-1 text-sm font-semibold leading-[1.2] ${presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-900"}`}
           >
-            Динамика поступлений
+            Динамика поступлений от заключенных сделок в периоде
           </h3>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <button
@@ -1211,7 +1211,7 @@ export function SalesPlanCashflowDynamicsChart({
               tick={{ fill: axisColor, fontSize: 10, fontWeight: 500 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => formatCashflowChartUnitYAxisTick(Number(v))}
+              tickFormatter={(v) => formatCashflowAxisTick(Number(v))}
               width={88}
               allowDataOverflow
             />

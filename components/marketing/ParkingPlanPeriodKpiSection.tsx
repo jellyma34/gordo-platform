@@ -22,6 +22,9 @@ type Props = {
   presentation: boolean;
   mplPremium: boolean;
   csvLoading?: boolean;
+  /** Пустая строка — заголовок сегмента только в accordion. */
+  entityLabel?: string;
+  leadingSection?: boolean;
 };
 
 export function ParkingPlanPeriodKpiSection({
@@ -31,6 +34,8 @@ export function ParkingPlanPeriodKpiSection({
   presentation,
   mplPremium,
   csvLoading = false,
+  entityLabel = "Машино-места",
+  leadingSection = false,
 }: Props) {
   const safeData: ParkingPlanPeriodKpiUiData = data ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 };
   const hasAnyData = parkingPlanPeriodKpiHasAnyData(safeData, analyticsBreakdown);
@@ -76,7 +81,7 @@ export function ParkingPlanPeriodKpiSection({
   if (!hasAnyData && !csvLoading) {
     return (
       <EntityPlanPeriodKpiSection
-        entityLabel="Машино-места"
+        entityLabel={entityLabel}
         illustrationSegment="parking"
         theme={PARKING_KPI_THEME}
         cardsData={cardsDataWithVolume}
@@ -84,6 +89,8 @@ export function ParkingPlanPeriodKpiSection({
         presentation={presentation}
         mplPremium={mplPremium}
         projectVolumeUnits={projectVolumeUnits}
+        embedded
+        leadingSection={leadingSection}
         cardsLayout="ddu-revenue-premium"
         cardsDensity="ddu-revenue-premium"
         showEmpty
@@ -94,7 +101,7 @@ export function ParkingPlanPeriodKpiSection({
 
   return (
     <EntityPlanPeriodKpiSection
-      entityLabel="Машино-места"
+      entityLabel={entityLabel}
       illustrationSegment="parking"
       theme={PARKING_KPI_THEME}
       cardsData={cardsDataWithVolume}
@@ -102,6 +109,8 @@ export function ParkingPlanPeriodKpiSection({
       presentation={presentation}
       mplPremium={mplPremium}
       projectVolumeUnits={projectVolumeUnits}
+      embedded
+      leadingSection={leadingSection}
       cardsLayout="ddu-revenue-premium"
       cardsDensity="ddu-revenue-premium"
       skeleton={csvLoading}

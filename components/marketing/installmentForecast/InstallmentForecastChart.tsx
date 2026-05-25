@@ -20,9 +20,9 @@ import {
 } from "@/components/charting/rechartsClient";
 import {
   cashflowChartYAxisScale,
+  formatCashflowAxisTick,
   formatCashflowChartUnitTooltip,
-  formatCashflowChartUnitYAxisTick,
-} from "@/lib/cashflowChartUnits";
+} from "@/lib/chartFormatters";
 import type { InstallmentForecastChartPoint } from "@/lib/buildInstallmentForecastChartData";
 
 export type ForecastChartMode = "monthly" | "cumulative";
@@ -126,7 +126,7 @@ export function InstallmentForecastChart({
         tick={{ fill: axisColor, fontSize: 10, fontWeight: 500 }}
         axisLine={false}
         tickLine={false}
-        tickFormatter={(v) => formatCashflowChartUnitYAxisTick(Number(v))}
+        tickFormatter={(v) => formatCashflowAxisTick(Number(v))}
         width={72}
       />
       <Tooltip

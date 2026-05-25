@@ -14,6 +14,9 @@ export const MARKETING_IMPORT_KINDS = [
   "ddu_revenue",
   "project_value",
   "apartment_plan",
+  "average_price_per_sqm",
+  "total_area",
+  "reduced_area",
 ] as const;
 
 export type MarketingImportKind = (typeof MARKETING_IMPORT_KINDS)[number];
@@ -33,7 +36,10 @@ export type MarketingImportDatasetKey =
   | "installmentArea"
   | "dduRevenue"
   | "projectValue"
-  | "apartmentPlan";
+  | "apartmentPlan"
+  | "averagePricePerSqm"
+  | "totalArea"
+  | "reducedAreaAnalytics";
 
 export const MARKETING_IMPORT_KIND_ALIASES: Record<string, MarketingImportKind> = {
   investors: "investors",
@@ -78,6 +84,21 @@ export const MARKETING_IMPORT_KIND_ALIASES: Record<string, MarketingImportKind> 
   apartment_plan: "apartment_plan",
   "apartment-plan": "apartment_plan",
   apartment_plan_csv: "apartment_plan",
+  average_price_per_sqm: "average_price_per_sqm",
+  "average-price-per-sqm": "average_price_per_sqm",
+  avg_price_per_sqm: "average_price_per_sqm",
+  average_price_csv: "average_price_per_sqm",
+  total_area: "total_area",
+  "total-area": "total_area",
+  total_area_csv: "total_area",
+  общая_площадь: "total_area",
+  reduced_area: "reduced_area",
+  "reduced-area": "reduced_area",
+  reduced_area_csv: "reduced_area",
+  reduced_area_analytics: "reduced_area",
+  "reduced-area-analytics": "reduced_area",
+  приведенная_площадь: "reduced_area",
+  "приведенная-площадь": "reduced_area",
 };
 
 export function normalizeMarketingImportKind(raw: string | null | undefined): MarketingImportKind | null {

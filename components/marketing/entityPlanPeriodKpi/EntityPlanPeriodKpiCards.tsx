@@ -8,7 +8,10 @@ import {
   formatDduRevenueRubParts,
   formatDduRevenueRubWithoutCurrencyParts,
 } from "@/lib/dduRevenuePeriodKpi";
-import { formatProjectValueRubParts } from "@/lib/projectValuePeriodKpi";
+import {
+  formatProjectValueRubParts,
+  formatProjectValueWithoutCurrencyParts,
+} from "@/lib/projectValuePeriodKpi";
 import { formatInstallmentAreaSqmParts } from "@/lib/installmentAreaPeriodKpi";
 import {
   apartmentKpiExecutionHue,
@@ -17,7 +20,7 @@ import {
 } from "@/lib/apartmentsPlanPeriodKpi";
 import { EntityProjectVolumePlanCard } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumePlanCard";
 import { PremiumSegmentVolumeCard } from "@/components/marketing/PremiumSegmentVolumeCard";
-import { dec1Fmt, dec2Fmt, numFmt } from "@/lib/salesPlanChartFormat";
+import { dec1Fmt, dec2Fmt, formatCompactNumber, numFmt } from "@/lib/salesPlanChartFormat";
 
 export const ENTITY_KPI_UI = {
   cardMinHeight: 400,
@@ -177,7 +180,11 @@ function compactCurrencyParts(
   value: number,
   metricIncludesCurrency = true,
 ) {
-  if (theme.id === "project_value") return formatProjectValueRubParts(value);
+  if (theme.id === "project_value") {
+    return metricIncludesCurrency
+      ? formatProjectValueRubParts(value)
+      : formatProjectValueWithoutCurrencyParts(value);
+  }
   return metricIncludesCurrency
     ? formatDduRevenueRubParts(value)
     : formatDduRevenueRubWithoutCurrencyParts(value);
@@ -345,6 +352,7 @@ function KpiBarValueLabel({
   columnWidth,
   density = "default",
   metricIncludesCurrency = true,
+  compactBarLabels = false,
 }: {
   value: number;
   hasValue: boolean;
@@ -356,6 +364,8 @@ function KpiBarValueLabel({
   columnWidth: number;
   density?: EntityKpiCardsDensity;
   metricIncludesCurrency?: boolean;
+  /** Подписи над столбиками: «1,53 млрд» (не для summary KPI). */
+  compactBarLabels?: boolean;
 }) {
   if (!hasValue) {
     return (
@@ -371,6 +381,25 @@ function KpiBarValueLabel({
         }}
       >
         —
+      </span>
+    );
+  }
+
+  if (compactBarLabels && hasValue) {
+    return (
+      <span
+        className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 whitespace-nowrap text-center tabular-nums"
+        style={{
+          bottom: bottomPx,
+          width: columnWidth,
+          maxWidth: columnWidth,
+          color,
+          fontSize: Math.min(fontSize, 12),
+          fontWeight: 700,
+          lineHeight: 1.15,
+        }}
+      >
+        {formatCompactNumber(value)}
       </span>
     );
   }
@@ -501,6 +530,7 @@ function ThemedMiniFactPlanColumnChart({
   density = "default",
   formatMetric = formatKpiCount,
   metricIncludesCurrency = true,
+  compactBarLabels = false,
   planBarLabel = "План",
   factBarLabel = "Факт",
 }: {
@@ -514,6 +544,7 @@ function ThemedMiniFactPlanColumnChart({
   density?: EntityKpiCardsDensity;
   formatMetric?: (n: number) => string;
   metricIncludesCurrency?: boolean;
+  compactBarLabels?: boolean;
   planBarLabel?: string;
   factBarLabel?: string;
 }) {
@@ -590,6 +621,7 @@ function ThemedMiniFactPlanColumnChart({
               theme={theme}
               formatMetric={formatMetric}
               metricIncludesCurrency={metricIncludesCurrency}
+              compactBarLabels={compactBarLabels}
               color={valueColor}
               bottomPx={planBarPx + UI.barValueGap}
               fontSize={chartUi.barValueSize}
@@ -617,6 +649,7 @@ function ThemedMiniFactPlanColumnChart({
               theme={theme}
               formatMetric={formatMetric}
               metricIncludesCurrency={metricIncludesCurrency}
+              compactBarLabels={compactBarLabels}
               color={valueColor}
               bottomPx={factBarPx + UI.barValueGap}
               fontSize={chartUi.barValueSize}
@@ -681,6 +714,7 @@ function ThemedKpiFactPlanCardBody({
   density = "default",
   formatMetric = formatKpiCount,
   metricIncludesCurrency = true,
+  compactBarLabels = false,
   planBarLabel = "План",
   factBarLabel = "Факт",
   hideExecutionPct = false,
@@ -697,6 +731,7 @@ function ThemedKpiFactPlanCardBody({
   density?: EntityKpiCardsDensity;
   formatMetric?: (n: number) => string;
   metricIncludesCurrency?: boolean;
+  compactBarLabels?: boolean;
   planBarLabel?: string;
   factBarLabel?: string;
   hideExecutionPct?: boolean;
@@ -739,6 +774,7 @@ function ThemedKpiFactPlanCardBody({
           density={density}
           formatMetric={formatMetric}
           metricIncludesCurrency={metricIncludesCurrency}
+          compactBarLabels={compactBarLabels}
           planBarLabel={planBarLabel}
           factBarLabel={factBarLabel}
         />
@@ -1048,10 +1084,12 @@ export function EntityPlanPeriodKpiCardsGrid({
   formatMetric,
   metricIncludesCurrency = true,
   projectPlanFullNumber = false,
+  compactBarLabels = false,
   layout = "full",
   cardsDensity = "default",
   planVolume = null,
   planVolumeUnits = null,
+  planVolumeValueUnitSuffix,
 }: {
   theme: EntityKpiTheme;
   data: EntityPlanPeriodKpiCardsData;
@@ -1065,11 +1103,20 @@ export function EntityPlanPeriodKpiCardsGrid({
   metricIncludesCurrency?: boolean;
   /** KPI «План проекта»: полное число (`formatFullNumber`), без млн/млрд. */
   projectPlanFullNumber?: boolean;
+  /** Подписи mini chart «План на отчетный месяц» — `formatCompactNumber`. */
+  compactBarLabels?: boolean;
   layout?: "full" | "stacked" | "room-type" | "ddu-revenue-premium";
   /** Компактная типографика площади (парковки / кладовые). */
   cardsDensity?: EntityKpiCardsDensity;
   planVolume?: { rub: number; caption: string; illustrationSegment?: DealSegmentKey } | null;
-  planVolumeUnits?: { count: number; unit: string; illustrationSegment?: DealSegmentKey } | null;
+  planVolumeUnits?: {
+    count: number;
+    unit: string;
+    illustrationSegment?: DealSegmentKey;
+    caption?: string;
+    subtitle?: string;
+  } | null;
+  planVolumeValueUnitSuffix?: string;
 }) {
   const fmt = formatMetric ?? formatKpiCount;
   const density = cardsDensity;
@@ -1104,6 +1151,7 @@ export function EntityPlanPeriodKpiCardsGrid({
               density={density}
               formatMetric={fmt}
               metricIncludesCurrency={metricIncludesCurrency}
+              compactBarLabels={compactBarLabels}
               planBarLabel={data.monthCardPlanLabel ?? "План"}
               factBarLabel={data.monthCardFactLabel ?? "Факт"}
               hideExecutionPct={data.hideMonthExecutionPct}
@@ -1207,12 +1255,15 @@ export function EntityPlanPeriodKpiCardsGrid({
           skeleton={skeleton}
           showCurrencySymbol={metricIncludesCurrency}
           projectPlanFullNumber={projectPlanFullNumber}
+          valueUnitSuffix={planVolumeValueUnitSuffix}
         />
       ) : planVolumeUnits && planVolumeUnits.count > 0 ? (
         <PremiumSegmentVolumeCard
           mode="units"
           count={planVolumeUnits.count}
           unit={planVolumeUnits.unit}
+          caption={planVolumeUnits.caption}
+          subtitle={planVolumeUnits.subtitle}
           illustrationSegment={planVolumeUnits.illustrationSegment ?? "apartment"}
           presDark={presDark}
           skeleton={skeleton}

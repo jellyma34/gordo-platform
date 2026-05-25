@@ -14,7 +14,6 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
-import { PlanExecutionMonthlyPlanFactLineCard } from "@/components/marketing/PlanExecutionMonthlyPlanFactLineCard";
 import { MPL_PREMIUM_GLASS_MAIN, MPL_PREMIUM_TOOLTIP_SHELL } from "@/lib/marketingPremiumUi";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
@@ -33,16 +32,10 @@ import type {
 } from "@/lib/parseSegmentExecutionCsv";
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
-import { ApartmentPlanPeriodKpiBlock } from "@/components/marketing/ApartmentPlanPeriodKpiBlock";
-import { ParkingPlanPeriodKpiSection } from "@/components/marketing/ParkingPlanPeriodKpiSection";
-import { StoragePlanPeriodKpiSection } from "@/components/marketing/StoragePlanPeriodKpiSection";
 import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
-import type { ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
-import type { ParkingPlanAnalyticsBreakdown } from "@/lib/parkingPlanAnalytics";
-import type { ParkingPlanPeriodKpiUiData } from "@/lib/parkingPlanPeriodKpi";
-import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
-import type { StoragePlanPeriodKpiUiData } from "@/lib/storagePlanPeriodKpi";
-import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
+import { AveragePriceAnalyticsSection } from "@/components/marketing/averagePricePerSqm/AveragePriceAnalyticsSection";
+import { TotalAreaAnalyticsSection } from "@/components/marketing/totalArea/TotalAreaAnalyticsSection";
+import { ReducedAreaAnalyticsSection } from "@/components/marketing/reducedArea/ReducedAreaAnalyticsSection";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
 import {
@@ -164,25 +157,6 @@ type Props = {
   hasPlanFactCsv?: boolean;
   onPlanFactCsvUpload?: (file: File) => Promise<void>;
   onPlanFactCsvClear?: () => Promise<void>;
-  /** KPI квартир: факт из отчёта/сделок; план и % выполнения — только при загруженном CSV плана. */
-  apartmentPlanPeriodKpi: ApartmentPlanPeriodKpiUiData;
-  apartmentPlanKpiCsvHydrated?: boolean;
-  apartmentPlanKpiCsvLoading?: boolean;
-  apartmentPlanKpiCsvError?: string | null;
-  apartmentPlanKpiCsvMeta?: { fileName: string; updatedAt: string; uploadedBy?: string } | null;
-  hasApartmentPlanKpiCsv?: boolean;
-  onApartmentPlanKpiCsvUpload?: (file: File) => Promise<void>;
-  onApartmentPlanKpiCsvClear?: () => Promise<void>;
-  /** Диагностика CSV KPI (последняя удачная или неудачная попытка) */
-  apartmentPlanKpiCsvDiagnostics?: ApartmentPlanCsvParseDiagnostics | null;
-  /** KPI машино-мест: факт из сделок; план — из CSV (строки parking). */
-  parkingPlanPeriodKpi?: ParkingPlanPeriodKpiUiData | null;
-  /** Аналитика машино-мест (план CSV + факт JSON). */
-  parkingPlanAnalyticsBreakdown?: ParkingPlanAnalyticsBreakdown | null;
-  /** KPI кладовых: факт из сделок; план — из CSV (строки storage). */
-  storagePlanPeriodKpi?: StoragePlanPeriodKpiUiData | null;
-  /** Аналитика кладовых (план CSV + факт JSON). */
-  storagePlanAnalyticsBreakdown?: StoragePlanAnalyticsBreakdown | null;
   /** Блок «Маркетинг» (лиды.csv): три графика план/факт. */
   marketingLeadsCharts?: MarketingLeadsCsvChartBundle;
   marketingLeadsCsvHydrated?: boolean;
@@ -210,19 +184,6 @@ export function SalesPlanExecutionBlock({
   hasPlanFactCsv = false,
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
-  apartmentPlanPeriodKpi,
-  apartmentPlanKpiCsvHydrated = true,
-  apartmentPlanKpiCsvLoading = false,
-  apartmentPlanKpiCsvError = null,
-  apartmentPlanKpiCsvMeta = null,
-  hasApartmentPlanKpiCsv = false,
-  onApartmentPlanKpiCsvUpload,
-  onApartmentPlanKpiCsvClear,
-  apartmentPlanKpiCsvDiagnostics = null,
-  parkingPlanPeriodKpi = null,
-  parkingPlanAnalyticsBreakdown = null,
-  storagePlanPeriodKpi = null,
-  storagePlanAnalyticsBreakdown = null,
   marketingLeadsCharts = { monthKeys: [], adSpend: [], leads: [], costPerLead: [] },
   marketingLeadsCsvHydrated = true,
   marketingLeadsCsvLoading = false,
@@ -325,21 +286,6 @@ export function SalesPlanExecutionBlock({
           />
         ) : null}
 
-        <div className="min-w-0 w-full max-w-none">
-          <PlanExecutionMonthlyPlanFactLineCard
-            monthlyPlanVsFact={monthlyPlanVsFact}
-            presentation={presentation}
-            presDark={presDark}
-            mplPremium={mplPremium}
-            isEditMode={isEditMode}
-            planFactCsvHydrated={planFactCsvHydrated}
-            planFactCsvLoading={planFactCsvLoading}
-            hasPlanFactCsv={hasPlanFactCsv}
-            onPlanFactCsvUpload={onPlanFactCsvUpload}
-            onPlanFactCsvClear={onPlanFactCsvClear}
-          />
-        </div>
-
         <SalesUnitsExecutionSection
           presentation={presentation}
           presDark={presDark}
@@ -349,40 +295,25 @@ export function SalesPlanExecutionBlock({
           unitsCsvError={unitsCsvError}
         />
 
-        {apartmentPlanPeriodKpi ? (
-          <ApartmentPlanPeriodKpiBlock
-            data={apartmentPlanPeriodKpi}
-            presentation={presentation}
-            presDark={presDark}
-            mplPremium={mplPremium}
-            isEditMode={isEditMode}
-            csvHydrated={apartmentPlanKpiCsvHydrated}
-            csvLoading={apartmentPlanKpiCsvLoading}
-            csvError={apartmentPlanKpiCsvError}
-            csvMeta={apartmentPlanKpiCsvMeta}
-            hasCsv={hasApartmentPlanKpiCsv}
-            onCsvUpload={onApartmentPlanKpiCsvUpload}
-            onCsvClear={onApartmentPlanKpiCsvClear}
-            csvDiagnostics={apartmentPlanKpiCsvDiagnostics}
-          />
-        ) : null}
-
-        <ParkingPlanPeriodKpiSection
-          data={parkingPlanPeriodKpi}
-          analyticsBreakdown={parkingPlanAnalyticsBreakdown}
-          presDark={presDark}
+        <AveragePriceAnalyticsSection
           presentation={presentation}
+          presDark={presDark}
           mplPremium={mplPremium}
-          csvLoading={apartmentPlanKpiCsvLoading}
+          showCsvUpload={isEditMode}
         />
 
-        <StoragePlanPeriodKpiSection
-          data={storagePlanPeriodKpi}
-          analyticsBreakdown={storagePlanAnalyticsBreakdown}
-          presDark={presDark}
+        <TotalAreaAnalyticsSection
           presentation={presentation}
+          presDark={presDark}
           mplPremium={mplPremium}
-          csvLoading={apartmentPlanKpiCsvLoading}
+          showCsvUpload={isEditMode}
+        />
+
+        <ReducedAreaAnalyticsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          showCsvUpload={isEditMode}
         />
 
         <MarketingLeadsCsvSection

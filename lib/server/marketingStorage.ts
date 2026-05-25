@@ -4,6 +4,12 @@ import type { MarketingImportKind } from "@/lib/marketingImportKinds";
 import {
   marketingProjectApartmentPlanJsonPath,
   marketingProjectApartmentPlanRawCsvPath,
+  marketingProjectAveragePricePerSqmJsonPath,
+  marketingProjectAveragePricePerSqmRawCsvPath,
+  marketingProjectTotalAreaJsonPath,
+  marketingProjectTotalAreaRawCsvPath,
+  marketingProjectReducedAreaJsonPath,
+  marketingProjectReducedAreaRawCsvPath,
   marketingProjectApartmentsJsonPath,
   marketingProjectApartmentsRawCsvPath,
   marketingProjectDduRevenueJsonPath,
@@ -32,7 +38,9 @@ import {
   marketingProjectUnitsExecutionJsonPath,
   marketingProjectUnitsExecutionRawCsvPath,
 } from "@/lib/marketingProjectMarketingStoragePaths";
+import { analyticsCsvRegistryEntry } from "@/lib/analytics/analyticsCsvRegistry";
 import { sanitizeMarketingPaymentPlanProjectId } from "@/lib/marketingPaymentPlanStore";
+import { deleteAnalyticsCsv, persistAnalyticsCsv } from "@/lib/server/analyticsCsvStorage";
 
 export type MarketingImportMeta = {
   kind: MarketingImportKind;
@@ -101,6 +109,18 @@ const IMPORT_PATHS: Record<MarketingImportKind, (projectId: string) => ImportPat
     jsonPath: marketingProjectApartmentPlanJsonPath(id),
     rawCsvPath: marketingProjectApartmentPlanRawCsvPath(id),
   }),
+  average_price_per_sqm: (id) => ({
+    jsonPath: marketingProjectAveragePricePerSqmJsonPath(id),
+    rawCsvPath: marketingProjectAveragePricePerSqmRawCsvPath(id),
+  }),
+  total_area: (id) => ({
+    jsonPath: marketingProjectTotalAreaJsonPath(id),
+    rawCsvPath: marketingProjectTotalAreaRawCsvPath(id),
+  }),
+  reduced_area: (id) => ({
+    jsonPath: marketingProjectReducedAreaJsonPath(id),
+    rawCsvPath: marketingProjectReducedAreaRawCsvPath(id),
+  }),
 };
 
 function safeProjectId(projectId: string): string {
@@ -125,6 +145,13 @@ export async function saveImport(
   await writeFile(paths.jsonPath, JSON.stringify(doc, null, 0), "utf-8");
   if (rawCsvText != null && rawCsvText.length > 0) {
     await writeFile(paths.rawCsvPath, rawCsvText, "utf-8");
+    const d = doc as Record<string, unknown>;
+    const entry = analyticsCsvRegistryEntry(kind);
+    await persistAnalyticsCsv(kind, rawCsvText, {
+      uploadedAt: typeof d.updatedAt === "string" ? d.updatedAt : new Date().toISOString(),
+      uploadedBy: typeof d.uploadedBy === "string" ? d.uploadedBy : "—",
+      sourceFile: typeof d.fileName === "string" ? d.fileName : entry.fileName,
+    });
   }
 }
 
@@ -149,6 +176,7 @@ export async function deleteImport(projectId: string, kind: MarketingImportKind)
       /* ignore */
     }
   }
+  await deleteAnalyticsCsv(kind);
 }
 
 function metaFromDoc(kind: MarketingImportKind, doc: unknown): MarketingImportMeta {

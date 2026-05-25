@@ -16,7 +16,7 @@ import {
   useProjectCostSalesBlock,
   type UseProjectCostSalesBlockArgs,
 } from "@/lib/projectCost/useProjectCostSalesBlock";
-import { formatProjectValueRub } from "@/lib/projectValuePeriodKpi";
+import { formatProjectValueWithoutCurrency } from "@/lib/projectValuePeriodKpi";
 import { SALES_PLAN_OBJECT_TYPE_TAB_ORDER, type SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
 
 type Props = UseProjectCostSalesBlockArgs & {
@@ -87,7 +87,10 @@ export function ProjectCostAnalyticsSection({
     presentation,
     mplPremium,
     sectionTitle: "Общая стоимость проекта",
-    formatMetric: formatProjectValueRub,
+    formatMetric: formatProjectValueWithoutCurrency,
+    metricIncludesCurrency: false,
+    projectPlanFullNumber: true,
+    compactBarLabels: true,
     projectVolumeCompactCurrency: activeSlice.projectVolumeCompactCurrency,
   };
 
@@ -132,7 +135,7 @@ export function ProjectCostAnalyticsSection({
                 hasCsvPlan={entityAnalytics.hasCsvPlan}
                 presDark={presDark}
                 presentation={presentation}
-                unitSuffix="₽"
+                unitSuffix=""
               />
             ) : null}
           </>

@@ -119,3 +119,27 @@ export function marketingProjectApartmentPlanJsonPath(projectId: string): string
 export function marketingProjectApartmentPlanRawCsvPath(projectId: string): string {
   return path.join(marketingProjectMarketingDir(projectId), "apartment-plan.raw.csv");
 }
+
+export function marketingProjectAveragePricePerSqmJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "average-price-per-sqm.json");
+}
+
+export function marketingProjectAveragePricePerSqmRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "average-price-per-sqm.raw.csv");
+}
+
+export function marketingProjectTotalAreaJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "total-area.json");
+}
+
+export function marketingProjectTotalAreaRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "total-area.raw.csv");
+}
+
+export function marketingProjectReducedAreaJsonPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "reduced-area.json");
+}
+
+export function marketingProjectReducedAreaRawCsvPath(projectId: string): string {
+  return path.join(marketingProjectMarketingDir(projectId), "reduced-area.raw.csv");
+}

@@ -43,6 +43,13 @@ export type ApartmentPlanCsvParseOk = {
       planProject: number;
       rawLabel: string;
     } | null;
+    /** Строка «ИТОГО» — KPI блока «Проект» (не сумма сегментов). */
+    projectSummary?: {
+      planMonth: number;
+      planCumulative: number;
+      planProject: number;
+      rawLabel: string;
+    } | null;
     /** @deprecated Используйте apartmentsSummary.planProject */
     summaryPlanProject?: number | null;
   };

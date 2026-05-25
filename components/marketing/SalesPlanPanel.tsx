@@ -12,6 +12,8 @@ import {
   selectPlanSliceForStorageKpi,
 } from "@/lib/storagePlanAnalytics";
 import { mergeStoragePlanCsvWithFacts } from "@/lib/storagePlanPeriodKpi";
+import { projectPlanFactsFromDealsForKpi } from "@/lib/projectPlanFactsFromDeals";
+import { buildProjectPlanPeriodKpi } from "@/lib/projectPlanPeriodKpi";
 import {
   APARTMENT_PROJECT_TOTAL_UNITS,
   mergeApartmentPlanCsvWithFacts,
@@ -161,6 +163,10 @@ import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactCha
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { DduSalesChart } from "@/components/marketing/dduRevenue/DduSalesChart";
 import { ProjectCostAnalyticsSection } from "@/components/marketing/projectCost/ProjectCostAnalyticsSection";
+import { SalesPlanExecutionSection } from "@/components/marketing/salesPlanExecution/SalesPlanExecutionSection";
+import { InstallmentForecastSection } from "@/components/marketing/installmentForecast/InstallmentForecastSection";
+import { ReportingPeriodPlanExecutionSection } from "@/components/marketing/reportingPeriodPlanExecution/ReportingPeriodPlanExecutionSection";
+import { ANALYTICS_SECTION_SPACING_CLASS } from "@/components/marketing/analytics/analyticsDashboardShell";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
@@ -2315,6 +2321,28 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     }
   }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
 
+  const projectPlanPeriodKpi = useMemo(() => {
+    try {
+      const currentKey = analytics.currentPeriodKey;
+      const dealRowsForFact = marketingDealsFiltered;
+      const hasCsv = Array.isArray(apartmentPlanKpiDoc?.rows) && (apartmentPlanKpiDoc?.rows?.length ?? 0) > 0;
+      const projectSummary = apartmentPlanKpiDoc?.biReportMeta?.projectSummary ?? null;
+      const dealFacts =
+        dealsFeed.loading && dealRowsForFact.length === 0
+          ? { factMonth: 0, factCumulative: 0 }
+          : projectPlanFactsFromDealsForKpi(dealRowsForFact, { period, currentPeriodKey: currentKey });
+
+      return buildProjectPlanPeriodKpi({
+        projectSummary,
+        hasCsvPlan: hasCsv,
+        dealFacts,
+      });
+    } catch (e) {
+      console.error("projectPlanPeriodKpi:", e);
+      return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 };
+    }
+  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, period]);
+
   const parkingPlanBundle = useMemo(() => {
     try {
       const currentKey = analytics.currentPeriodKey;
@@ -4259,6 +4287,22 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         </div>
       ) : null}
 
+      <SalesPlanExecutionSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplPremium}
+        period={period}
+        objectId={objectId}
+        currentPeriodKey={analytics.currentPeriodKey}
+        monthlyPlanVsFact={monthlyPlanVsFactChart}
+        hasPlanFactCsv={receiptsPlanFactMeta != null}
+        isEditMode={planChromeEditMode}
+        planFactCsvHydrated={receiptsPlanFactHydrated}
+        planFactCsvLoading={receiptsPlanFactLoading}
+        onPlanFactCsvUpload={uploadPlanVsFactCsvFile}
+        onPlanFactCsvClear={clearPlanVsFactCsv}
+      />
+
       <>
         <SalesPlanCashflowDynamicsChart
           rows={cashflowSeriesBase}
@@ -4273,6 +4317,51 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           zaydetMonthVerify={paymentZaydetMonthVerify}
           showZaydetCsvDebugTable={mode === "edit" && !presentation}
         />
+
+        <div
+          className={`installment-forecast-on-sales-plan w-full min-w-0 max-w-none ${ANALYTICS_SECTION_SPACING_CLASS}`}
+          data-analytics-section="installment-forecast"
+        >
+          <InstallmentForecastSection
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            isEditMode={planChromeEditMode}
+            period={period}
+          />
+        </div>
+
+        {apartmentPlanPeriodKpi ? (
+          <ReportingPeriodPlanExecutionSection
+            data={apartmentPlanPeriodKpi}
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            isEditMode={planChromeEditMode}
+            csvHydrated={apartmentPlanKpiHydrated}
+            csvLoading={apartmentPlanKpiLoading}
+            csvError={apartmentPlanKpiError}
+            csvMeta={
+              apartmentPlanKpiDoc
+                ? {
+                    fileName: apartmentPlanKpiDoc.fileName,
+                    updatedAt: apartmentPlanKpiDoc.updatedAt,
+                    uploadedBy: apartmentPlanKpiDoc.uploadedBy,
+                  }
+                : null
+            }
+            hasCsv={apartmentPlanKpiDoc != null && (apartmentPlanKpiDoc.rows?.length ?? 0) > 0}
+            onCsvUpload={uploadApartmentPlanKpiCsv}
+            onCsvClear={clearApartmentPlanKpiCsv}
+            csvDiagnostics={apartmentPlanKpiDoc?.diagnostics ?? apartmentPlanKpiFailedDiagnostics ?? null}
+            parkingPlanPeriodKpi={parkingPlanPeriodKpi}
+            parkingPlanAnalyticsBreakdown={parkingPlanAnalyticsBreakdown}
+            storagePlanPeriodKpi={storagePlanPeriodKpi}
+            storagePlanAnalyticsBreakdown={storagePlanAnalyticsBreakdown}
+            projectPlanPeriodKpi={projectPlanPeriodKpi}
+          />
+        ) : null}
+
         {!dealsFeed.loading ? (
           <SalesPlanSegmentPlanFactBarChart
             dealsRows={marketingDealsFiltered}
@@ -4310,27 +4399,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           hasPlanFactCsv={receiptsPlanFactMeta != null}
           onPlanFactCsvUpload={uploadPlanVsFactCsvFile}
           onPlanFactCsvClear={clearPlanVsFactCsv}
-          apartmentPlanPeriodKpi={apartmentPlanPeriodKpi}
-          apartmentPlanKpiCsvHydrated={apartmentPlanKpiHydrated}
-          apartmentPlanKpiCsvLoading={apartmentPlanKpiLoading}
-          apartmentPlanKpiCsvError={apartmentPlanKpiError}
-          apartmentPlanKpiCsvDiagnostics={apartmentPlanKpiDoc?.diagnostics ?? apartmentPlanKpiFailedDiagnostics ?? null}
-          apartmentPlanKpiCsvMeta={
-            apartmentPlanKpiDoc
-              ? {
-                  fileName: apartmentPlanKpiDoc.fileName,
-                  updatedAt: apartmentPlanKpiDoc.updatedAt,
-                  uploadedBy: apartmentPlanKpiDoc.uploadedBy,
-                }
-              : null
-          }
-          hasApartmentPlanKpiCsv={apartmentPlanKpiDoc != null && (apartmentPlanKpiDoc.rows?.length ?? 0) > 0}
-          onApartmentPlanKpiCsvUpload={uploadApartmentPlanKpiCsv}
-          onApartmentPlanKpiCsvClear={clearApartmentPlanKpiCsv}
-          parkingPlanPeriodKpi={parkingPlanPeriodKpi}
-          parkingPlanAnalyticsBreakdown={parkingPlanAnalyticsBreakdown}
-          storagePlanPeriodKpi={storagePlanPeriodKpi}
-          storagePlanAnalyticsBreakdown={storagePlanAnalyticsBreakdown}
           marketingLeadsCharts={marketingLeadsCharts}
           marketingLeadsCsvHydrated={marketingLeadsHydrated}
           marketingLeadsCsvLoading={marketingLeadsLoading}

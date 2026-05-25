@@ -5,11 +5,18 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
 });
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 
-/** Полное целое с разделением тысяч пробелами: «1 502 050 089» (без млн/млрд и без ₽). */
-export function formatFullNumber(n: number | null | undefined): string {
+/** Полное целое с разделением тысяч пробелами, без символа валюты: «1 530 105 630». */
+export function formatNumberWithoutCurrency(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return numFmt.format(Math.round(n));
 }
+
+/** @alias {@link formatNumberWithoutCurrency} */
+export function formatFullNumber(n: number | null | undefined): string {
+  return formatNumberWithoutCurrency(n);
+}
+
+export { formatCompactNumberWithoutCurrency as formatCompactNumber } from "@/lib/formatCompactCurrencyRu";
 export const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 export const dec2Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

@@ -168,6 +168,7 @@ function parseColumnarPlan(
     biReportMeta: {
       monthKey,
       apartmentsSummary: r.apartmentsSummary,
+      projectSummary: r.projectSummary,
       summaryPlanProject: r.summaryPlanProject,
     },
     diagnostics: {
@@ -230,6 +231,7 @@ function parseNormalizedWideTable(
   const warnings: string[] = [];
   const rows: ApartmentPlanCsvNormalizedRow[] = [];
   let apartmentsSummaryWide: BiApartmentsSummarySlice | null = null;
+  let projectSummaryWide: BiApartmentsSummarySlice | null = null;
 
   for (let i = 0; i < rowsIn.length; i++) {
     const rec = rowsIn[i] ?? {};
@@ -247,8 +249,21 @@ function parseNormalizedWideTable(
       continue;
     }
 
+    const planMonthN = parseNumberCell(pmRaw != null ? String(pmRaw) : "");
+    const planCumulativeN = parseNumberCell(pcRaw != null ? String(pcRaw) : "");
+    const totalVolumeN = parseNumberCell(tvRaw != null ? String(tvRaw) : "");
+
     if (isBiGrandTotalRow(segmentNorm, rawSeg)) {
-      warnings.push(`Строка ${i + 2}: пропущена (ИТОГО — не для KPI квартир).`);
+      if (planMonthN != null && planCumulativeN != null && totalVolumeN != null) {
+        projectSummaryWide = {
+          planMonth: Math.max(0, planMonthN),
+          planCumulative: Math.max(0, planCumulativeN),
+          planProject: Math.max(0, totalVolumeN),
+          rawLabel: rawSeg.trim() || segmentNorm,
+        };
+      } else {
+        warnings.push(`Строка ${i + 2} (ИТОГО): пропущена (нет чисел в плане).`);
+      }
       continue;
     }
 
@@ -260,10 +275,6 @@ function parseNormalizedWideTable(
       warnings.push(`Строка ${i + 2}: пропущена (некорректный month: "${monthRaw}").`);
       continue;
     }
-
-    const planMonthN = parseNumberCell(pmRaw != null ? String(pmRaw) : "");
-    const planCumulativeN = parseNumberCell(pcRaw != null ? String(pcRaw) : "");
-    const totalVolumeN = parseNumberCell(tvRaw != null ? String(tvRaw) : "");
 
     if (planMonthN == null || planCumulativeN == null || totalVolumeN == null) {
       warnings.push(`Строка ${i + 2}: пропущена (ожидаются числа в plan_month / plan_cumulative / total_volume).`);
@@ -330,12 +341,13 @@ function parseNormalizedWideTable(
     ok: true,
     rows,
     warnings,
-    ...(apartmentsSummaryWide && firstMonthKey
+    ...((apartmentsSummaryWide || projectSummaryWide) && firstMonthKey
       ? {
           biReportMeta: {
             monthKey: firstMonthKey,
             apartmentsSummary: apartmentsSummaryWide,
-            summaryPlanProject: apartmentsSummaryWide.planProject,
+            projectSummary: projectSummaryWide,
+            summaryPlanProject: apartmentsSummaryWide?.planProject ?? projectSummaryWide?.planProject ?? null,
           },
         }
       : {}),

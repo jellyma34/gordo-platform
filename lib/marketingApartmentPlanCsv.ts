@@ -20,6 +20,12 @@ export type MarketingApartmentPlanCsvStoredV1 = {
       planProject: number;
       rawLabel: string;
     } | null;
+    projectSummary?: {
+      planMonth: number;
+      planCumulative: number;
+      planProject: number;
+      rawLabel: string;
+    } | null;
     summaryPlanProject?: number | null;
   };
 };

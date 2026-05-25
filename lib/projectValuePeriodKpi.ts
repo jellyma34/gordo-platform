@@ -2,7 +2,7 @@ import type { EntityPlanPeriodKpiCardsData } from "@/components/marketing/entity
 import type { ProjectValueDealFacts } from "@/lib/projectValueFactsFromDeals";
 import type { ProjectValueKpiPlanSlice } from "@/lib/planDataSource/projectValue/projectValuePlanSlice";
 import type { ProjectValueCsvFormat } from "@/lib/planDataSource/projectValue/types";
-import { numFmt } from "@/lib/salesPlanChartFormat";
+import { formatNumberWithoutCurrency, numFmt } from "@/lib/salesPlanChartFormat";
 
 export type ProjectValuePeriodKpiUiData =
   | ({
@@ -26,6 +26,18 @@ export function formatProjectValueRubParts(
 ): { value: string; unit: "₽" } | { value: "—" } {
   if (n == null || !Number.isFinite(n)) return { value: "—" };
   return { value: numFmt.format(Math.round(n)), unit: "₽" };
+}
+
+/** KPI блока «Общая стоимость проекта» на плане продаж (без ₽). */
+export function formatProjectValueWithoutCurrency(n: number | null | undefined): string {
+  return formatNumberWithoutCurrency(n);
+}
+
+export function formatProjectValueWithoutCurrencyParts(
+  n: number | null | undefined,
+): { value: string } | { value: "—" } {
+  if (n == null || !Number.isFinite(n)) return { value: "—" };
+  return { value: formatNumberWithoutCurrency(n) };
 }
 
 export function projectValueMarkupPercent(charter: number, reportMarkup: number): number | null {

@@ -18,8 +18,10 @@ data/gpr-import-*.json
 data/marketing-payment-plan/*.json
 data/marketing-payment-plan/*.raw.csv
 
-# Проектное хранилище маркетинговых CSV (`app/api/projects/.../marketing/storage`)
+# Проектное хранилище маркетинговых CSV (`app/api/projects/.../marketing/storage`) — runtime cache, не в git
 data/projects/*/marketing/*
+
+# Analytics CSV для git/deploy: `public/data/analytics/*.csv` — НЕ игнорировать
 
 # Python / backend
 __pycache__/

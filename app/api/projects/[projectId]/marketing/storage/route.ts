@@ -76,6 +76,12 @@ import {
   marketingProjectProjectValueRawCsvPath,
   marketingProjectApartmentPlanJsonPath,
   marketingProjectApartmentPlanRawCsvPath,
+  marketingProjectAveragePricePerSqmJsonPath,
+  marketingProjectAveragePricePerSqmRawCsvPath,
+  marketingProjectTotalAreaJsonPath,
+  marketingProjectTotalAreaRawCsvPath,
+  marketingProjectReducedAreaJsonPath,
+  marketingProjectReducedAreaRawCsvPath,
 } from "@/lib/marketingProjectMarketingStoragePaths";
 import {
   marketingSalesPlanExecutionJsonPath,
@@ -84,9 +90,16 @@ import {
 } from "@/lib/marketingSalesPlanExecutionStore";
 import { readInvestorsCsvFileAsText, readMarketingCsvFileAsText } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import { normalizeMarketingImportKind } from "@/lib/marketingImportKinds";
+import { analyticsCsvRegistryEntry } from "@/lib/analytics/analyticsCsvRegistry";
+import { persistAnalyticsCsv, deleteAnalyticsCsv } from "@/lib/server/analyticsCsvStorage";
+import { loadMarketingDatasetDoc } from "@/lib/server/loadMarketingDataset";
 import { saveImport, deleteImport as deleteMarketingImportFile } from "@/lib/server/marketingStorage";
+import type { MarketingImportKind } from "@/lib/marketingImportKinds";
 import {
   parseApartmentPlanImport,
+  parseAveragePricePerSqmImport,
+  parseTotalAreaImport,
+  parseReducedAreaImport,
   parseDduRevenueImport,
   parseInstallmentAreaImport,
   parseInstallmentForecastImport,
@@ -97,10 +110,28 @@ import { marketingInstallmentAreaCsvDocIsValid } from "@/lib/marketingInstallmen
 import { marketingDduRevenueCsvDocIsValid } from "@/lib/marketingDduRevenueCsv";
 import { marketingProjectValueCsvDocIsValid } from "@/lib/marketingProjectValueCsv";
 import { marketingApartmentPlanCsvDocIsValid } from "@/lib/marketingApartmentPlanCsv";
+import { marketingAveragePricePerSqmCsvDocIsValid } from "@/lib/marketingAveragePricePerSqmCsv";
+import { marketingTotalAreaCsvDocIsValid } from "@/lib/marketingTotalAreaCsv";
+import { marketingReducedAreaCsvDocIsValid } from "@/lib/marketingReducedAreaCsv";
 
 export const runtime = "nodejs";
 
 type RouteCtx = { params: Promise<{ projectId: string }> };
+
+async function persistPublicAnalyticsCsv(
+  kind: MarketingImportKind,
+  text: string,
+  updatedAt: string,
+  uploadedBy: string,
+  fileName: string,
+): Promise<void> {
+  const entry = analyticsCsvRegistryEntry(kind);
+  await persistAnalyticsCsv(kind, text, {
+    updatedAt,
+    uploadedBy,
+    sourceFile: fileName || entry.fileName,
+  });
+}
 
 type MarketingStoragePresence = {
   hasPlan: boolean;
@@ -120,25 +151,24 @@ type MarketingStoragePresence = {
   hasDduRevenue: boolean;
   hasProjectValue: boolean;
   hasApartmentPlan: boolean;
+  hasAveragePricePerSqm: boolean;
+  hasTotalArea: boolean;
+  hasReducedArea: boolean;
 };
 
 async function readJsonInvestorsDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingInvestorsCsv>> {
-  try {
-    const raw = await readFile(marketingProjectInvestorsJsonPath(projectId), "utf-8");
-    return parseStoredMarketingInvestorsCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("investors", projectId);
+  return raw ? parseStoredMarketingInvestorsCsv(raw) : null;
 }
 
 async function readJsonUnitsDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingUnitsExecutionCsv>> {
   try {
-    const raw = await readFile(marketingProjectUnitsExecutionJsonPath(projectId), "utf-8");
-    const doc = parseStoredMarketingUnitsExecutionCsv(JSON.parse(raw) as unknown);
+    const loaded = await loadMarketingDatasetDoc("units_execution", projectId);
+    const doc = parseStoredMarketingUnitsExecutionCsv(loaded);
     if (!doc) return null;
 
     let csvText = doc.rawText?.trim() ?? "";
@@ -173,148 +203,110 @@ async function readJsonUnitsDoc(
 async function readJsonApartmentsDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingApartmentsCsv>> {
-  try {
-    const raw = await readFile(marketingProjectApartmentsJsonPath(projectId), "utf-8");
-    return parseStoredMarketingApartmentsCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("apartments", projectId);
+  return raw ? parseStoredMarketingApartmentsCsv(raw) : null;
 }
 
 async function readJsonParkingDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingParkingCsv>> {
-  try {
-    const raw = await readFile(marketingProjectParkingJsonPath(projectId), "utf-8");
-    return parseStoredMarketingParkingCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("parking", projectId);
+  return raw ? parseStoredMarketingParkingCsv(raw) : null;
 }
 
 async function readJsonStoragesDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingStoragesCsv>> {
-  try {
-    const raw = await readFile(marketingProjectStoragesJsonPath(projectId), "utf-8");
-    return parseStoredMarketingStoragesCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("storages", projectId);
+  return raw ? parseStoredMarketingStoragesCsv(raw) : null;
 }
 
 async function readJsonReceiptsPlanFactDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingReceiptsPlanFactCsv>> {
-  try {
-    const raw = await readFile(marketingProjectReceiptsPlanFactJsonPath(projectId), "utf-8");
-    return parseStoredMarketingReceiptsPlanFactCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("receipts_plan_fact", projectId);
+  return raw ? parseStoredMarketingReceiptsPlanFactCsv(raw) : null;
 }
 
 async function readJsonRevenueFactDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingRevenueFactCsv>> {
-  try {
-    const raw = await readFile(marketingProjectRevenueFactJsonPath(projectId), "utf-8");
-    const doc = parseStoredMarketingRevenueFactCsv(JSON.parse(raw) as unknown);
-    if (!doc) return null;
-    let csvText = doc.rawText?.trim() ?? "";
-    if (!csvText) {
-      try {
-        csvText = (await readFile(marketingProjectRevenueFactRawCsvPath(projectId), "utf-8")).trim();
-      } catch {
-        csvText = "";
-      }
+  const loaded = await loadMarketingDatasetDoc("revenue_fact", projectId);
+  const doc = loaded ? parseStoredMarketingRevenueFactCsv(loaded) : null;
+  if (!doc) return null;
+  let csvText = doc.rawText?.trim() ?? "";
+  if (!csvText) {
+    try {
+      csvText = (await readFile(marketingProjectRevenueFactRawCsvPath(projectId), "utf-8")).trim();
+    } catch {
+      csvText = "";
     }
-    return reconcileMarketingRevenueFactDoc({ ...doc, rawText: csvText || doc.rawText });
-  } catch {
-    return null;
   }
+  return reconcileMarketingRevenueFactDoc({ ...doc, rawText: csvText || doc.rawText });
 }
 
 async function readJsonMarketingLeadsDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingLeadsCsv>> {
-  try {
-    const raw = await readFile(marketingProjectLeadsCsvJsonPath(projectId), "utf-8");
-    const doc = parseStoredMarketingLeadsCsv(JSON.parse(raw) as unknown);
-    if (!doc) return null;
-    let csvText = doc.rawText?.trim() ?? "";
-    if (!csvText) {
-      try {
-        csvText = (await readFile(marketingProjectLeadsCsvRawPath(projectId), "utf-8")).trim();
-      } catch {
-        csvText = "";
-      }
+  const loaded = await loadMarketingDatasetDoc("marketing_leads", projectId);
+  const doc = loaded ? parseStoredMarketingLeadsCsv(loaded) : null;
+  if (!doc) return null;
+  let csvText = doc.rawText?.trim() ?? "";
+  if (!csvText) {
+    try {
+      csvText = (await readFile(marketingProjectLeadsCsvRawPath(projectId), "utf-8")).trim();
+    } catch {
+      csvText = "";
     }
-    return reconcileMarketingLeadsDoc({ ...doc, rawText: csvText || doc.rawText });
-  } catch {
-    return null;
   }
+  return reconcileMarketingLeadsDoc({ ...doc, rawText: csvText || doc.rawText });
 }
 
 async function readJsonSegmentExecutionDoc(
   projectId: string,
 ): Promise<ReturnType<typeof parseStoredMarketingSegmentExecutionCsv>> {
-  try {
-    const raw = await readFile(marketingProjectSegmentExecutionJsonPath(projectId), "utf-8");
-    return parseStoredMarketingSegmentExecutionCsv(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
+  const raw = await loadMarketingDatasetDoc("segment_execution", projectId);
+  return raw ? parseStoredMarketingSegmentExecutionCsv(raw) : null;
 }
 
 async function readJsonInstallmentForecastDoc(projectId: string) {
-  try {
-    const raw = await readFile(marketingProjectInstallmentForecastJsonPath(projectId), "utf-8");
-    const doc = JSON.parse(raw) as unknown;
-    return marketingInstallmentForecastCsvDocIsValid(doc) ? doc : null;
-  } catch {
-    return null;
-  }
+  const doc = await loadMarketingDatasetDoc("installment_forecast", projectId);
+  return marketingInstallmentForecastCsvDocIsValid(doc) ? doc : null;
 }
 
 async function readJsonInstallmentAreaDoc(projectId: string) {
-  try {
-    const raw = await readFile(marketingProjectInstallmentAreaJsonPath(projectId), "utf-8");
-    const doc = JSON.parse(raw) as unknown;
-    return marketingInstallmentAreaCsvDocIsValid(doc) ? doc : null;
-  } catch {
-    return null;
-  }
+  const doc = await loadMarketingDatasetDoc("installment_area", projectId);
+  return marketingInstallmentAreaCsvDocIsValid(doc) ? doc : null;
 }
 
 async function readJsonDduRevenueDoc(projectId: string) {
-  try {
-    const raw = await readFile(marketingProjectDduRevenueJsonPath(projectId), "utf-8");
-    const doc = JSON.parse(raw) as unknown;
-    return marketingDduRevenueCsvDocIsValid(doc) ? doc : null;
-  } catch {
-    return null;
-  }
+  const doc = await loadMarketingDatasetDoc("ddu_revenue", projectId);
+  return marketingDduRevenueCsvDocIsValid(doc) ? doc : null;
 }
 
 async function readJsonProjectValueDoc(projectId: string) {
-  try {
-    const raw = await readFile(marketingProjectProjectValueJsonPath(projectId), "utf-8");
-    const doc = JSON.parse(raw) as unknown;
-    return marketingProjectValueCsvDocIsValid(doc) ? doc : null;
-  } catch {
-    return null;
-  }
+  const doc = await loadMarketingDatasetDoc("project_value", projectId);
+  return marketingProjectValueCsvDocIsValid(doc) ? doc : null;
+}
+
+async function readJsonAveragePricePerSqmDoc(projectId: string) {
+  const doc = await loadMarketingDatasetDoc("average_price_per_sqm", projectId);
+  return marketingAveragePricePerSqmCsvDocIsValid(doc) ? doc : null;
+}
+
+async function readJsonTotalAreaDoc(projectId: string) {
+  const doc = await loadMarketingDatasetDoc("total_area", projectId);
+  return marketingTotalAreaCsvDocIsValid(doc) ? doc : null;
+}
+
+async function readJsonReducedAreaDoc(projectId: string) {
+  const doc = await loadMarketingDatasetDoc("reduced_area", projectId);
+  return marketingReducedAreaCsvDocIsValid(doc) ? doc : null;
 }
 
 async function readJsonApartmentPlanDoc(projectId: string) {
-  try {
-    const raw = await readFile(marketingProjectApartmentPlanJsonPath(projectId), "utf-8");
-    const doc = JSON.parse(raw) as unknown;
-    return marketingApartmentPlanCsvDocIsValid(doc) ? doc : null;
-  } catch {
-    return null;
-  }
+  const doc = await loadMarketingDatasetDoc("apartment_plan", projectId);
+  return marketingApartmentPlanCsvDocIsValid(doc) ? doc : null;
 }
 
 async function computePresence(safeProjectId: string): Promise<MarketingStoragePresence> {
@@ -361,6 +353,9 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
   const dduRevenue = await readJsonDduRevenueDoc(safeProjectId);
   const projectValue = await readJsonProjectValueDoc(safeProjectId);
   const apartmentPlan = await readJsonApartmentPlanDoc(safeProjectId);
+  const averagePricePerSqm = await readJsonAveragePricePerSqmDoc(safeProjectId);
+  const totalArea = await readJsonTotalAreaDoc(safeProjectId);
+  const reducedArea = await readJsonReducedAreaDoc(safeProjectId);
 
   return {
     hasPlan,
@@ -380,6 +375,9 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
     hasDduRevenue: dduRevenue != null && dduRevenue.rows.length > 0,
     hasProjectValue: projectValue != null && projectValue.rows.length > 0,
     hasApartmentPlan: apartmentPlan != null && apartmentPlan.rows.length > 0,
+    hasAveragePricePerSqm: averagePricePerSqm != null && averagePricePerSqm.rows.length > 0,
+    hasTotalArea: totalArea != null && totalArea.rows.length > 0,
+    hasReducedArea: reducedArea != null && reducedArea.rows.length > 0,
   };
 }
 
@@ -387,7 +385,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const { projectId: raw } = await ctx.params;
   const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
   const presence = await computePresence(safeProjectId);
-  const [investors, segmentExecution, unitsExecution, apartments, parking, storages, receiptsPlanFact, marketingLeads, revenueFact, installmentForecast, installmentArea, dduRevenue, projectValue, apartmentPlan] =
+  const [investors, segmentExecution, unitsExecution, apartments, parking, storages, receiptsPlanFact, marketingLeads, revenueFact, installmentForecast, installmentArea, dduRevenue, projectValue, apartmentPlan, averagePricePerSqm, totalArea, reducedAreaAnalytics] =
     await Promise.all([
     readJsonInvestorsDoc(safeProjectId),
     readJsonSegmentExecutionDoc(safeProjectId),
@@ -403,6 +401,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
     readJsonDduRevenueDoc(safeProjectId),
     readJsonProjectValueDoc(safeProjectId),
     readJsonApartmentPlanDoc(safeProjectId),
+    readJsonAveragePricePerSqmDoc(safeProjectId),
+    readJsonTotalAreaDoc(safeProjectId),
+    readJsonReducedAreaDoc(safeProjectId),
   ]);
   return NextResponse.json(
     {
@@ -424,6 +425,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         dduRevenue,
         projectValue,
         apartmentPlan,
+        averagePricePerSqm,
+        totalArea,
+        reducedAreaAnalytics,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -455,7 +459,10 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         (kindNorm === "installment_area" && marketingInstallmentAreaCsvDocIsValid(body.doc)) ||
         (kindNorm === "ddu_revenue" && marketingDduRevenueCsvDocIsValid(body.doc)) ||
         (kindNorm === "project_value" && marketingProjectValueCsvDocIsValid(body.doc)) ||
-        (kindNorm === "apartment_plan" && marketingApartmentPlanCsvDocIsValid(body.doc));
+        (kindNorm === "apartment_plan" && marketingApartmentPlanCsvDocIsValid(body.doc)) ||
+        (kindNorm === "average_price_per_sqm" && marketingAveragePricePerSqmCsvDocIsValid(body.doc)) ||
+        (kindNorm === "total_area" && marketingTotalAreaCsvDocIsValid(body.doc)) ||
+        (kindNorm === "reduced_area" && marketingReducedAreaCsvDocIsValid(body.doc));
       if (!valid) {
         return NextResponse.json({ ok: false, error: "Некорректный документ для миграции." }, { status: 400 });
       }
@@ -506,6 +513,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectInvestorsJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectInvestorsRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("investors", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -542,6 +550,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectSegmentExecutionJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectSegmentExecutionRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("segment_execution", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -576,6 +585,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectLeadsCsvJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectLeadsCsvRawPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("marketing_leads", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -609,6 +619,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectReceiptsPlanFactJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectReceiptsPlanFactRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("receipts_plan_fact", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -637,6 +648,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       });
       await writeFile(marketingProjectUnitsExecutionJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectUnitsExecutionRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("units_execution", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -665,6 +677,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectApartmentsJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectApartmentsRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("apartments", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -693,6 +706,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectParkingJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectParkingRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("parking", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -726,6 +740,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectRevenueFactJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectRevenueFactRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("revenue_fact", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -755,6 +770,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       };
       await writeFile(marketingProjectStoragesJsonPath(safeProjectId), JSON.stringify(doc, null, 0), "utf-8");
       await writeFile(marketingProjectStoragesRawCsvPath(safeProjectId), text, "utf-8");
+      await persistPublicAnalyticsCsv("storages", text, updatedAt, uploadedBy, fileName);
       const presence = await computePresence(safeProjectId);
       return NextResponse.json({
         ok: true,
@@ -866,6 +882,99 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "project_value", doc, presence });
     }
 
+    if (kind === "total_area" || kind === "total-area" || kind === "total_area_csv" || kind === "общая_площадь") {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseTotalAreaImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+        projectColumnKind: parsed.projectColumnKind,
+      };
+      await saveImport(safeProjectId, "total_area", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "total_area", doc, presence });
+    }
+
+    if (
+      kind === "reduced_area" ||
+      kind === "reduced-area" ||
+      kind === "reduced_area_csv" ||
+      kind === "reduced_area_analytics" ||
+      kind === "приведенная_площадь" ||
+      kind === "приведенная-площадь"
+    ) {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseReducedAreaImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+        projectColumnKind: parsed.projectColumnKind,
+      };
+      await saveImport(safeProjectId, "reduced_area", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "reduced_area", doc, presence });
+    }
+
+    if (
+      kind === "average_price_per_sqm" ||
+      kind === "average-price-per-sqm" ||
+      kind === "avg_price_per_sqm" ||
+      kind === "average_price_csv"
+    ) {
+      const text = await readMarketingCsvFileAsText(file as File);
+      const parsed = await parseAveragePricePerSqmImport(text, fileName);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.error, diagnostics: parsed.diagnostics, warnings: parsed.warnings ?? [] },
+          { status: 400 },
+        );
+      }
+      const doc = {
+        v: 1 as const,
+        updatedAt,
+        uploadedBy,
+        fileName,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+        diagnostics: parsed.diagnostics,
+        apartmentsSummary: parsed.apartmentsSummary,
+        parkingSummary: parsed.parkingSummary ?? null,
+        storageSummary: parsed.storageSummary ?? null,
+        projectColumnKind: parsed.projectColumnKind,
+      };
+      await saveImport(safeProjectId, "average_price_per_sqm", doc, text);
+      const presence = await computePresence(safeProjectId);
+      return NextResponse.json({ ok: true, projectId: safeProjectId, kind: "average_price_per_sqm", doc, presence });
+    }
+
     if (kind === "apartment_plan" || kind === "apartment-plan" || kind === "apartment_plan_csv") {
       const text = await readMarketingCsvFileAsText(file as File);
       const parsed = await parseApartmentPlanImport(text, fileName);
@@ -894,7 +1003,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       {
         ok: false,
         error:
-          "Укажите kind: investors, segment_execution, receipts_plan_fact, marketing_leads, revenue_fact, units_execution, apartments, parking, storages, installment_forecast, installment_area, ddu_revenue, project_value, apartment_plan.",
+          "Укажите kind: investors, segment_execution, receipts_plan_fact, marketing_leads, revenue_fact, units_execution, apartments, parking, storages, installment_forecast, installment_area, ddu_revenue, project_value, apartment_plan, average_price_per_sqm, total_area, reduced_area.",
       },
       { status: 400 },
     );
@@ -951,7 +1060,21 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       kind !== "project_value_csv" &&
       kind !== "apartment_plan" &&
       kind !== "apartment-plan" &&
-      kind !== "apartment_plan_csv"
+      kind !== "apartment_plan_csv" &&
+      kind !== "average_price_per_sqm" &&
+      kind !== "average-price-per-sqm" &&
+      kind !== "avg_price_per_sqm" &&
+      kind !== "average_price_csv" &&
+      kind !== "total_area" &&
+      kind !== "total-area" &&
+      kind !== "total_area_csv" &&
+      kind !== "общая_площадь" &&
+      kind !== "reduced_area" &&
+      kind !== "reduced-area" &&
+      kind !== "reduced_area_csv" &&
+      kind !== "reduced_area_analytics" &&
+      kind !== "приведенная_площадь" &&
+      kind !== "приведенная-площадь"
     ) {
       return NextResponse.json(
         {
@@ -969,7 +1092,10 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       kindNorm === "installment_area" ||
       kindNorm === "ddu_revenue" ||
       kindNorm === "project_value" ||
-      kindNorm === "apartment_plan"
+      kindNorm === "apartment_plan" ||
+      kindNorm === "average_price_per_sqm" ||
+      kindNorm === "total_area" ||
+      kindNorm === "reduced_area"
     ) {
       await deleteMarketingImportFile(safeProjectId, kindNorm);
       const presence = await computePresence(safeProjectId);
@@ -1090,6 +1216,11 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
           /* ignore */
         }
       }
+    }
+
+    const deleteKind = normalizeMarketingImportKind(kind);
+    if (deleteKind) {
+      await deleteAnalyticsCsv(deleteKind);
     }
 
     const presence = await computePresence(safeProjectId);

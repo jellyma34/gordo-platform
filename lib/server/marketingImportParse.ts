@@ -1,3 +1,6 @@
+import { parseAveragePricePerSqmCsvAsync } from "@/lib/planDataSource/averagePricePerSqm/parseAveragePricePerSqmCsv";
+import { parseTotalAreaCsvAsync } from "@/lib/planDataSource/totalArea/parseTotalAreaCsv";
+import { parseReducedAreaCsvAsync } from "@/lib/planDataSource/reducedArea/parseReducedAreaCsv";
 import { parseApartmentPlanCsvAsync } from "@/lib/planDataSource/parseApartmentPlanCsv";
 import { parseDduRevenueCsvAsync } from "@/lib/planDataSource/dduRevenue/parseDduRevenueCsv";
 import { parseInstallmentAreaCsvAsync } from "@/lib/planDataSource/installmentArea/parseInstallmentAreaCsv";
@@ -47,6 +50,30 @@ export async function parseProjectValueImport(text: string, fileName: string) {
 export async function parseApartmentPlanImport(text: string, fileName: string) {
   const ctx = defaultMarketingParseContext();
   return parseApartmentPlanCsvAsync(text, {
+    ...ctx,
+    fileName,
+  });
+}
+
+export async function parseAveragePricePerSqmImport(text: string, fileName: string) {
+  const ctx = defaultMarketingParseContext();
+  return parseAveragePricePerSqmCsvAsync(text, {
+    ...ctx,
+    fileName,
+  });
+}
+
+export async function parseTotalAreaImport(text: string, fileName: string) {
+  const ctx = defaultMarketingParseContext();
+  return parseTotalAreaCsvAsync(text, {
+    ...ctx,
+    fileName,
+  });
+}
+
+export async function parseReducedAreaImport(text: string, fileName: string) {
+  const ctx = defaultMarketingParseContext();
+  return parseReducedAreaCsvAsync(text, {
     ...ctx,
     fileName,
   });

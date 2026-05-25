@@ -22,6 +22,8 @@ type Props = {
   presentation: boolean;
   mplPremium: boolean;
   csvLoading?: boolean;
+  entityLabel?: string;
+  leadingSection?: boolean;
 };
 
 export function StoragePlanPeriodKpiSection({
@@ -31,6 +33,8 @@ export function StoragePlanPeriodKpiSection({
   presentation,
   mplPremium,
   csvLoading = false,
+  entityLabel = "Кладовые",
+  leadingSection = false,
 }: Props) {
   const safeData: StoragePlanPeriodKpiUiData = data ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 };
   const hasAnyData = storagePlanPeriodKpiHasAnyData(safeData, analyticsBreakdown);
@@ -76,7 +80,7 @@ export function StoragePlanPeriodKpiSection({
   if (!hasAnyData && !csvLoading) {
     return (
       <EntityPlanPeriodKpiSection
-        entityLabel="Кладовые"
+        entityLabel={entityLabel}
         illustrationSegment="storage"
         theme={STORAGE_KPI_THEME}
         cardsData={cardsDataWithVolume}
@@ -84,6 +88,8 @@ export function StoragePlanPeriodKpiSection({
         presentation={presentation}
         mplPremium={mplPremium}
         projectVolumeUnits={projectVolumeUnits}
+        embedded
+        leadingSection={leadingSection}
         cardsLayout="ddu-revenue-premium"
         cardsDensity="ddu-revenue-premium"
         showEmpty
@@ -94,7 +100,7 @@ export function StoragePlanPeriodKpiSection({
 
   return (
     <EntityPlanPeriodKpiSection
-      entityLabel="Кладовые"
+      entityLabel={entityLabel}
       illustrationSegment="storage"
       theme={STORAGE_KPI_THEME}
       cardsData={cardsDataWithVolume}
@@ -102,6 +108,8 @@ export function StoragePlanPeriodKpiSection({
       presentation={presentation}
       mplPremium={mplPremium}
       projectVolumeUnits={projectVolumeUnits}
+      embedded
+      leadingSection={leadingSection}
       cardsLayout="ddu-revenue-premium"
       cardsDensity="ddu-revenue-premium"
       skeleton={csvLoading}

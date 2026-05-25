@@ -3,9 +3,22 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 
-import { ApartmentRoomTypeAnalyticsSection } from "@/components/marketing/ApartmentRoomTypeAnalyticsSection";
-import { ApartmentRoomTypeKpiGrid } from "@/components/marketing/ApartmentRoomTypeKpiGrid";
-import { EntityProjectVolumeMeta } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumeMeta";
+import { AnalyticsAccordionSection } from "@/components/marketing/analytics/AnalyticsAccordionSection";
+import { analyticsDashboardShellClass } from "@/components/marketing/analytics/analyticsDashboardShell";
+import { ParkingPlanPeriodKpiSection } from "@/components/marketing/ParkingPlanPeriodKpiSection";
+import { StoragePlanPeriodKpiSection } from "@/components/marketing/StoragePlanPeriodKpiSection";
+import { ReportingPeriodApartmentsSegment } from "@/components/marketing/reportingPeriodPlanExecution/ReportingPeriodApartmentsSegment";
+import { ReportingPeriodProjectSegment } from "@/components/marketing/reportingPeriodPlanExecution/ReportingPeriodProjectSegment";
+import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
+import { PROJECT_VALUE_KPI_THEME } from "@/lib/entityKpiTheme";
+import type { ParkingPlanAnalyticsBreakdown } from "@/lib/parkingPlanAnalytics";
+import type { ParkingPlanPeriodKpiUiData } from "@/lib/parkingPlanPeriodKpi";
+import { parkingProjectVolumeFromKpiData } from "@/lib/parkingPlanPeriodKpi";
+import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
+import type { StoragePlanPeriodKpiUiData } from "@/lib/storagePlanPeriodKpi";
+import { storageProjectVolumeFromKpiData } from "@/lib/storagePlanPeriodKpi";
+import type { ProjectPlanPeriodKpiUiData } from "@/lib/projectPlanPeriodKpi";
+import { projectProjectVolumeFromKpiData } from "@/lib/projectPlanPeriodKpi";
 import type { ApartmentKpiHue, ApartmentPlanKpiPlanCalcDebug, ApartmentPlanPeriodKpiUiData } from "@/lib/apartmentsPlanPeriodKpi";
 import type { ApartmentPlanKpiDealFactDebug } from "@/lib/apartmentPlanFactsFromDeals";
 import { csvTypeLabelRu, planSourceLabelForCsvType } from "@/lib/planDataSource/apartmentPlanCsvPipeline";
@@ -949,6 +962,11 @@ type Props = {
   onCsvUpload?: (file: File) => Promise<void>;
   onCsvClear?: () => Promise<void>;
   csvDiagnostics?: ApartmentPlanCsvParseDiagnostics | null;
+  parkingPlanPeriodKpi?: ParkingPlanPeriodKpiUiData | null;
+  parkingPlanAnalyticsBreakdown?: ParkingPlanAnalyticsBreakdown | null;
+  storagePlanPeriodKpi?: StoragePlanPeriodKpiUiData | null;
+  storagePlanAnalyticsBreakdown?: StoragePlanAnalyticsBreakdown | null;
+  projectPlanPeriodKpi?: ProjectPlanPeriodKpiUiData | null;
 };
 
 export function ApartmentPlanPeriodKpiBlock({
@@ -965,6 +983,11 @@ export function ApartmentPlanPeriodKpiBlock({
   onCsvUpload,
   onCsvClear,
   csvDiagnostics = null,
+  parkingPlanPeriodKpi = null,
+  parkingPlanAnalyticsBreakdown = null,
+  storagePlanPeriodKpi = null,
+  storagePlanAnalyticsBreakdown = null,
+  projectPlanPeriodKpi = null,
 }: Props) {
   const safeData: ApartmentPlanPeriodKpiUiData =
     data && typeof data === "object"
@@ -974,29 +997,28 @@ export function ApartmentPlanPeriodKpiBlock({
 
   if (!data || typeof data !== "object") return null;
 
-  const hasPlanKpi = debouncedData.hasCsvPlan;
-  const planMonthDen = hasPlanKpi ? debouncedData.planMonth : null;
-  const planCumDen = hasPlanKpi ? debouncedData.planCumulative : null;
-  const totalVolDen = hasPlanKpi ? debouncedData.totalVolume : null;
-  const projectApartmentTotal =
-    hasPlanKpi && totalVolDen != null && totalVolDen > 0 ? Math.round(totalVolDen) : null;
-
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
-  const sectionLabelCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-gray-900";
-  const dashCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-400";
-
-  const pctMonth = apartmentKpiExecutionPercent(debouncedData.factMonth, planMonthDen);
-  const pctCum = apartmentKpiExecutionPercent(debouncedData.factCumulative, planCumDen);
-  const pctTotal = debouncedData.hasCsvPlan
-    ? apartmentKpiVolumeCompletionPercent(debouncedData)
-    : apartmentKpiExecutionPercent(debouncedData.factCumulative, totalVolDen);
-
-  const spctT = useSmoothScalar(pctTotal ?? 0);
+  const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-600";
+  const shellCls = analyticsDashboardShellClass(presDark, presentation, mplPremium);
+  const apartmentCount =
+    debouncedData.hasCsvPlan && debouncedData.totalVolume > 0
+      ? Math.round(debouncedData.totalVolume)
+      : null;
+  const parkingCount = parkingProjectVolumeFromKpiData(
+    parkingPlanPeriodKpi ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 },
+  );
+  const storageCount = storageProjectVolumeFromKpiData(
+    storagePlanPeriodKpi ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 },
+  );
+  const projectCount = projectPlanPeriodKpi
+    ? projectProjectVolumeFromKpiData(projectPlanPeriodKpi)
+    : null;
+  const safeProjectKpi: ProjectPlanPeriodKpiUiData =
+    projectPlanPeriodKpi ?? { hasCsvPlan: false, factMonth: 0, factCumulative: 0 };
 
   const factExceedsTotalVolume =
     debouncedData.hasCsvPlan && debouncedData.factCumulative > debouncedData.totalVolume;
   const typeBreakdown = debouncedData.typeBreakdown;
-  const showTypeBreakdown = (typeBreakdown?.items.length ?? 0) > 0;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -1063,53 +1085,44 @@ export function ApartmentPlanPeriodKpiBlock({
 
   const showSkeleton = busy && isEditMode;
 
-  const sectionPad = presDark ? "px-0 py-5" : presentation ? "px-0 py-6" : "px-1 py-6 sm:px-2 sm:py-7";
-  const sectionSurfaceStyle =
-    presDark || presentation ? undefined : { background: KPI_UI.dashboardBg };
-
   return (
     <div
-      className={`relative z-0 mt-6 w-full min-w-0 border-t pt-6 ${
-        presDark
-          ? "border-white/10"
-          : presentation
-            ? "border-slate-200/40"
-            : "border-slate-200/50"
-      } ${dragOver && isEditMode ? (presDark ? "ring-2 ring-sky-500/40 ring-offset-2 ring-offset-slate-900" : "ring-2 ring-sky-400/50 ring-offset-2") : ""}`}
-      style={sectionSurfaceStyle}
+      className={`relative min-w-0 w-full max-w-none ${
+        dragOver && isEditMode
+          ? presDark
+            ? "ring-2 ring-sky-500/40 rounded-[22px]"
+            : "ring-2 ring-sky-400/50 rounded-[22px]"
+          : ""
+      }`}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {isEditMode && onCsvUpload ? <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onInputChange} /> : null}
+      {isEditMode && onCsvUpload ? (
+        <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onInputChange} />
+      ) : null}
 
-      <div className={`relative z-[1] ${sectionPad}`}>
-      <div className="relative z-[1] mb-5 flex min-w-0 flex-col gap-3 md:mb-6 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0 flex-1">
-          <h2 className={`text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`}>
+      <div
+        className={`relative min-w-0 overflow-hidden px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-3.5 md:px-6 md:pt-5 md:pb-4 ${shellCls}`}
+      >
+        <div className="mb-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <h2 className={`min-w-0 text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`}>
             Выполнение плана отчетного периода
           </h2>
-          <p className={`mt-2 text-xl font-bold leading-tight tracking-tight sm:text-2xl ${sectionLabelCls}`}>
-            Квартиры
-          </p>
-        </div>
-        {isEditMode && onCsvUpload ? (
-          <div className="flex w-full min-w-0 flex-col gap-2 md:w-auto md:flex-row md:items-center md:justify-end">
-            {hasCsv && csvMeta ? (
-              <span
-                className={`order-2 hidden truncate text-xs font-semibold tabular-nums md:order-1 md:block md:max-w-[14rem] md:pe-1 md:text-right ${
-                  presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-600"
-                }`}
-                title={csvMeta.fileName}
-              >
-                {csvMeta.fileName}
-              </span>
-            ) : null}
-            <div className="order-1 flex min-w-0 flex-wrap items-center gap-2 md:order-2">
+          {isEditMode && onCsvUpload ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+              {hasCsv && csvMeta ? (
+                <span
+                  className={`hidden max-w-[14rem] truncate text-xs font-semibold tabular-nums sm:block ${mutedCls}`}
+                  title={csvMeta.fileName}
+                >
+                  {csvMeta.fileName}
+                </span>
+              ) : null}
               <button
                 type="button"
                 disabled={busy}
-                className={`${uploadBtnCls} shrink-0 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] ${
+                className={`${uploadBtnCls} shrink-0 ${
                   hasCsv && !busy
                     ? presDark
                       ? "border-emerald-500/40 text-emerald-200"
@@ -1133,19 +1146,13 @@ export function ApartmentPlanPeriodKpiBlock({
                 </button>
               ) : null}
             </div>
-            {hasCsv && csvMeta ? (
-              <span
-                className={`order-3 truncate text-xs font-semibold tabular-nums md:hidden ${
-                  presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-600"
-                }`}
-                title={csvMeta.fileName}
-              >
-                {csvMeta.fileName}
-              </span>
-            ) : null}
-          </div>
+          ) : null}
+        </div>
+        {isEditMode && onCsvUpload && hasCsv && csvMeta ? (
+          <p className={`mb-3 truncate text-[11px] font-semibold tabular-nums sm:hidden ${mutedCls}`} title={csvMeta.fileName}>
+            {csvMeta.fileName}
+          </p>
         ) : null}
-      </div>
 
       {err ? (
         <div
@@ -1245,129 +1252,104 @@ export function ApartmentPlanPeriodKpiBlock({
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-stretch md:gap-5">
-        {projectApartmentTotal != null ? (
-          <EntityProjectVolumeMeta
-            count={projectApartmentTotal}
-            unit={apartmentProjectVolumeUnit(projectApartmentTotal)}
+        <div className="flex min-w-0 flex-col gap-2 sm:gap-2.5">
+          <AnalyticsAccordionSection
+            title="Проект"
+            count={projectCount}
+            defaultExpanded
+            accent
             presDark={presDark}
             presentation={presentation}
-          />
-        ) : null}
-        <div className="grid min-w-0 flex-1 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
-        <div className="flex min-w-0 overflow-visible">
-          <KpiCardShell
-            title="План на отчетный месяц"
-            presDark={presDark}
-            presentation={presentation}
-            mplPremium={mplPremium}
-            skeleton={showSkeleton}
           >
-            {showSkeleton ? (
-              <KpiSkeletonLine presDark={presDark} />
-            ) : (
-              <KpiFactPlanCardBody
-                fact={debouncedData.factMonth}
-                plan={planMonthDen}
-                hasPlan={hasPlanKpi}
-                executionPct={pctMonth}
-                presDark={presDark}
-                presentation={presentation}
-                mplPremium={mplPremium}
-                dashCls={dashCls}
-              />
-            )}
-          </KpiCardShell>
-        </div>
-
-        <div className="flex min-w-0 overflow-visible">
-          <KpiCardShell
-            title="План накопительно итогом"
-            presDark={presDark}
-            presentation={presentation}
-            mplPremium={mplPremium}
-            skeleton={showSkeleton}
-          >
-            {showSkeleton ? (
-              <KpiSkeletonLine presDark={presDark} />
-            ) : (
-              <KpiFactPlanCardBody
-                fact={debouncedData.factCumulative}
-                plan={planCumDen}
-                hasPlan={hasPlanKpi}
-                executionPct={pctCum}
-                presDark={presDark}
-                presentation={presentation}
-                mplPremium={mplPremium}
-                dashCls={dashCls}
-              />
-            )}
-          </KpiCardShell>
-        </div>
-
-        <div className="flex min-w-0 overflow-visible">
-          <KpiCardShell
-            title="% выполнения от общего объема"
-            presDark={presDark}
-            presentation={presentation}
-            mplPremium={mplPremium}
-            skeleton={showSkeleton}
-            centered
-          >
-            {showSkeleton ? (
-              <KpiSkeletonLine presDark={presDark} />
-            ) : pctTotal != null ? (
-              <div className="relative flex w-full flex-col items-center justify-center py-3">
-                <KpiCircularProgressRing percent={spctT} presDark={presDark} />
-              </div>
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center px-2 py-3 text-center">
-                <div
-                  className="mx-auto flex items-center justify-center rounded-full border-[9px] border-[#EEF2FF]"
-                  style={{ width: KPI_UI.ringSize, height: KPI_UI.ringSize }}
-                >
-                  <span
-                    className={`tabular-nums leading-none ${dashCls}`}
-                    style={{ fontSize: KPI_UI.ringPercentSize, fontWeight: 700 }}
-                  >
-                    —
-                  </span>
-                </div>
-                <span
-                  className="mt-1.5 uppercase"
-                  style={{
-                    fontSize: KPI_UI.ringSubtitleSize,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                    color: KPI_MUTED_LABEL,
-                  }}
-                >
-                  Реализовано
-                </span>
-              </div>
-            )}
-          </KpiCardShell>
-        </div>
-        </div>
-      </div>
-
-      {showTypeBreakdown ? (
-        <>
-          <ApartmentRoomTypeKpiGrid
-            breakdown={typeBreakdown!}
-            presDark={presDark}
-            presentation={presentation}
-            mplPremium={mplPremium}
-          />
-          {!presentation ? (
-            <ApartmentRoomTypeAnalyticsSection
-              breakdown={typeBreakdown!}
+            <ReportingPeriodProjectSegment
+              data={safeProjectKpi}
               presDark={presDark}
               presentation={presentation}
+              mplPremium={mplPremium}
+              skeleton={showSkeleton}
             />
-          ) : null}
-        </>
-      ) : null}
+          </AnalyticsAccordionSection>
+
+          <AnalyticsAccordionSection
+            title="Квартиры"
+            count={apartmentCount}
+            presDark={presDark}
+            presentation={presentation}
+          >
+            <ReportingPeriodApartmentsSegment
+              data={debouncedData}
+              typeBreakdown={typeBreakdown}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={mplPremium}
+              skeleton={showSkeleton}
+            />
+          </AnalyticsAccordionSection>
+
+          <AnalyticsAccordionSection
+            title="Машино-места"
+            count={parkingCount}
+            presDark={presDark}
+            presentation={presentation}
+          >
+            <ParkingPlanPeriodKpiSection
+              data={parkingPlanPeriodKpi}
+              analyticsBreakdown={parkingPlanAnalyticsBreakdown}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={mplPremium}
+              csvLoading={busy}
+              entityLabel=""
+              leadingSection
+            />
+          </AnalyticsAccordionSection>
+
+          <AnalyticsAccordionSection
+            title="Кладовые"
+            count={storageCount}
+            presDark={presDark}
+            presentation={presentation}
+          >
+            <StoragePlanPeriodKpiSection
+              data={storagePlanPeriodKpi}
+              analyticsBreakdown={storagePlanAnalyticsBreakdown}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={mplPremium}
+              csvLoading={busy}
+              entityLabel=""
+              leadingSection
+            />
+          </AnalyticsAccordionSection>
+
+          <AnalyticsAccordionSection title="Коммерция" presDark={presDark} presentation={presentation}>
+            <EntityPlanPeriodKpiSection
+              entityLabel=""
+              illustrationSegment="commercial"
+              theme={PROJECT_VALUE_KPI_THEME}
+              cardsData={{
+                hasCsvPlan: false,
+                factMonth: 0,
+                factCumulative: 0,
+                planMonth: null,
+                planCumulative: null,
+                totalProjectPlan: null,
+                pctMonth: null,
+                pctCum: null,
+                pctVolume: null,
+              }}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={mplPremium}
+              embedded
+              leadingSection
+              cardsLayout="ddu-revenue-premium"
+              cardsDensity="ddu-revenue-premium"
+              showEmpty
+              emptyMessage="Нет данных по коммерции"
+            />
+          </AnalyticsAccordionSection>
+        </div>
       </div>
     </div>
   );

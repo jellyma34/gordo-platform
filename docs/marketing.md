@@ -43,8 +43,11 @@ JSON envelope formats supported:
 ### Supplemental marketing CSVs (investors, segments, units, apartments, parking, storages)
 
 - `POST/GET/DELETE /api/projects/{projectId}/marketing/storage`
-- Files under `data/projects/{projectId}/marketing/*.json` + `*.raw.csv`
-- Hydration: server only; one-time migration from browser `localStorage` via `lib/marketingCsvLocalMigration.ts`
+- **Source of truth (git + Railway deploy):** `public/data/analytics/*.csv` — реестр в `lib/analytics/analyticsCsvRegistry.ts`
+- Runtime cache (не в git): `data/projects/{projectId}/marketing/*.json` + `*.raw.csv`
+- При upload CSV дублируется в `public/data/analytics/`; после загрузки закоммитьте `public/data/analytics/*.csv` и push
+- Hydration: GET storage читает public CSV → парсит → отдаёт datasets; legacy sync из `data/projects/.../raw.csv` при первом запросе
+- One-time migration from browser `localStorage` via `lib/marketingCsvLocalMigration.ts`
 
 ### Sales plan execution CSV (Verba)
 
