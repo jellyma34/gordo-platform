@@ -9,6 +9,7 @@ import { normalizeProjectValueRow } from "@/lib/planDataSource/projectValue/rowH
 import type { ProjectValueKpiPlanSlice } from "@/lib/planDataSource/projectValue/projectValuePlanSlice";
 import type { ProjectValueNormalizedRow } from "@/lib/planDataSource/projectValue/types";
 import { projectValueFactsFromDealsByTypeForKpi } from "@/lib/projectValueFactsFromDeals";
+import { buildPerformanceChartRows, type PerformanceChartRow } from "@/lib/entityPerformanceChart";
 import { projectValueSliceToCardsData } from "@/lib/projectValuePeriodKpi";
 import type { EntityPlanPeriodKpiCardsData } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
 
@@ -188,4 +189,25 @@ export function projectValuePlanTypeSliceToCardsData(
     csvFormat: slice.csvFormat,
     ...slice,
   });
+}
+
+export function buildProjectValuePlanTypeChartRows(
+  breakdown: ProjectValuePlanTypeKpiBreakdown | null | undefined,
+): PerformanceChartRow[] {
+  if (!breakdown?.items?.length) return [];
+  return buildPerformanceChartRows(
+    breakdown.items.map((i) => ({
+      key: i.key,
+      label: i.label,
+      shortLabel: i.shortLabel,
+      planCumulative:
+        breakdown.csvFormat === "project_value"
+          ? Math.max(0, i.charter)
+          : Math.max(0, i.planCumulative),
+      factCumulative:
+        breakdown.csvFormat === "project_value"
+          ? Math.max(0, i.currentPlan)
+          : Math.max(0, i.factCumulative),
+    })),
+  );
 }

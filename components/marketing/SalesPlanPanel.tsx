@@ -160,6 +160,7 @@ import {
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { DduSalesChart } from "@/components/marketing/dduRevenue/DduSalesChart";
+import { ProjectCostAnalyticsSection } from "@/components/marketing/projectCost/ProjectCostAnalyticsSection";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
@@ -3738,6 +3739,15 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         objectId={objectId}
         currentPeriodKey={analytics.currentPeriodKey}
         sectionSpacing="sales-plan"
+      />
+
+      <ProjectCostAnalyticsSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplPremium}
+        period={period}
+        objectId={objectId}
+        currentPeriodKey={analytics.currentPeriodKey}
       />
 
       {!presentation ? (

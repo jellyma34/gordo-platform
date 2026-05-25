@@ -3,7 +3,7 @@
 import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
 import { performanceChartHasData, type PerformanceChartRow } from "@/lib/entityPerformanceChart";
 
-type Props = {
+export type EntityPerformanceAnalyticsSectionProps = {
   title: string;
   rows: readonly PerformanceChartRow[];
   hasCsvPlan: boolean;
@@ -28,7 +28,7 @@ export function EntityPerformanceAnalyticsSection({
   presentation,
   emptyMessage = "Нет данных для графика",
   unitSuffix,
-}: Props) {
+}: EntityPerformanceAnalyticsSectionProps) {
   if (presentation && PLAN_EXECUTION_ANALYTICS_HIDDEN_IN_PRESENTATION.has(title)) {
     return null;
   }

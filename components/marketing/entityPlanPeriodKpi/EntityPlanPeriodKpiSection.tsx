@@ -12,7 +12,7 @@ import { EntityProjectVolumeMeta } from "@/components/marketing/entityPlanPeriod
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
 import { apartmentKpiExecutionPercent } from "@/lib/apartmentsPlanPeriodKpi";
 
-type Props = {
+export type EntityPlanPeriodKpiSectionProps = {
   entityLabel: string;
   /** Иллюстрация в карточке «План проекта» (крупная centered-иконка сегмента). */
   illustrationSegment?: DealSegmentKey;
@@ -73,7 +73,7 @@ export function EntityPlanPeriodKpiSection({
   cardsLayout = "full",
   cardsDensity = "default",
   children,
-}: Props) {
+}: EntityPlanPeriodKpiSectionProps) {
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const sectionLabelCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-gray-900";
   const borderColor = presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)";
