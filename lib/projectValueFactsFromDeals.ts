@@ -123,14 +123,14 @@ export function projectValueFactsFromDealsByTypeForKpi(
   return result;
 }
 
-function projectValueFactsForDealType(
+function projectValueFactsForDealSegment(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-  dealType: "parking" | "storage",
+  segment: "parking" | "storage" | "commercial",
 ): ProjectValueDealFacts {
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
 
-  const typedRows = rows.filter((r) => matchesNormalizedDealSegment(r, dealType));
+  const typedRows = rows.filter((r) => matchesNormalizedDealSegment(r, segment));
   const candidates = typedRows.filter((r) => {
     if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) return false;
     return canonicalMonthKey(r) != null;
@@ -164,12 +164,19 @@ export function projectValueParkingFactsFromDealsForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
 ): ProjectValueDealFacts {
-  return projectValueFactsForDealType(rows, opts, "parking");
+  return projectValueFactsForDealSegment(rows, opts, "parking");
 }
 
 export function projectValueStorageFactsFromDealsForKpi(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
 ): ProjectValueDealFacts {
-  return projectValueFactsForDealType(rows, opts, "storage");
+  return projectValueFactsForDealSegment(rows, opts, "storage");
+}
+
+export function projectValueCommercialFactsFromDealsForKpi(
+  rows: readonly NormalizedDealRow[],
+  opts: { period: "month" | "quarter"; currentPeriodKey: string },
+): ProjectValueDealFacts {
+  return projectValueFactsForDealSegment(rows, opts, "commercial");
 }

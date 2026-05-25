@@ -20,39 +20,49 @@ export type ProjectValuePlanTypeKpiBreakdown = {
   items: ProjectValuePlanTypeKpiSlice[];
 };
 
-function pickTypeValueRow(
+function typeRowsForKey(
   rows: readonly ProjectValueNormalizedRow[],
   typeKey: ApartmentPlanTypeKey,
-): ProjectValueNormalizedRow | null {
-  const typeRows = rows
+): ProjectValueNormalizedRow[] {
+  return rows
     .map(normalizeProjectValueRow)
     .filter((r) => matchApartmentPlanTypeKey(r.segmentNorm, r.segmentNorm) === typeKey);
-  if (!typeRows.length) return null;
-  return typeRows.reduce((best, r) => {
-    const score = r.charter * 1_000_000 + Math.abs(r.currentPlan) + Math.abs(r.priceIncrease);
-    const bestScore = best.charter * 1_000_000 + Math.abs(best.currentPlan) + Math.abs(best.priceIncrease);
-    return score > bestScore ? r : best;
-  });
 }
 
 function selectPlanSliceForProjectValueTypeKpi(
   rows: readonly ProjectValueNormalizedRow[],
   typeKey: ApartmentPlanTypeKey,
 ): ProjectValueKpiPlanSlice | null {
-  const row = pickTypeValueRow(rows, typeKey);
-  if (!row) return null;
-  if (
-    row.csvFormat === "project_value" &&
-    row.charter <= 0 &&
-    row.currentPlan <= 0 &&
-    row.priceIncrease === 0 &&
-    row.reportMarkup <= 0
-  ) {
-    return null;
+  const typeRows = typeRowsForKey(rows, typeKey);
+  if (!typeRows.length) return null;
+
+  const csvFormat = typeRows[0]!.csvFormat;
+  if (csvFormat === "project_value") {
+    const charter = typeRows.reduce((s, r) => s + Math.max(0, r.charter), 0);
+    const currentPlan = typeRows.reduce((s, r) => s + Math.max(0, r.currentPlan), 0);
+    const priceIncrease = typeRows.reduce((s, r) => s + r.priceIncrease, 0);
+    const reportMarkup = typeRows.reduce((s, r) => s + Math.max(0, r.reportMarkup), 0);
+    if (charter <= 0 && currentPlan <= 0 && priceIncrease === 0 && reportMarkup <= 0) return null;
+    return {
+      csvFormat: "project_value",
+      charter,
+      currentPlan,
+      priceIncrease,
+      reportMarkup,
+      projectCost: charter,
+      planMonth: charter,
+      planCumulative: 0,
+      factMonth: currentPlan,
+      factCumulative: priceIncrease,
+    };
   }
-  if (row.csvFormat === "legacy" && row.planMonth <= 0 && row.planCumulative <= 0 && row.projectCost <= 0) {
-    return null;
-  }
+
+  const row = typeRows.reduce((best, r) => {
+    const score = r.planMonth * 1_000_000 + r.planCumulative * 1_000 + r.projectCost;
+    const bestScore = best.planMonth * 1_000_000 + best.planCumulative * 1_000 + best.projectCost;
+    return score > bestScore ? r : best;
+  });
+  if (row.planMonth <= 0 && row.planCumulative <= 0 && row.projectCost <= 0) return null;
   return {
     csvFormat: row.csvFormat,
     charter: row.charter,
@@ -97,6 +107,37 @@ export function buildProjectValuePlanTypeKpiBreakdown(args: {
           currentPlan: facts.factMonth > 0 ? facts.factMonth : planSlice.currentPlan,
         };
       }
+      if (csvFormat === "project_value" && (facts.factMonth > 0 || facts.factCumulative !== 0)) {
+        return {
+          ...meta,
+          csvFormat: "project_value",
+          charter: 0,
+          currentPlan: facts.factMonth,
+          priceIncrease: facts.factCumulative,
+          reportMarkup: 0,
+          planMonth: 0,
+          planCumulative: 0,
+          projectCost: 0,
+          factMonth: facts.factMonth,
+          factCumulative: facts.factCumulative,
+        };
+      }
+    }
+
+    if (!args.hasCsvPlan && (facts.factMonth > 0 || facts.factCumulative > 0)) {
+      return {
+        ...meta,
+        csvFormat: "legacy",
+        charter: 0,
+        currentPlan: 0,
+        priceIncrease: 0,
+        reportMarkup: 0,
+        planMonth: 0,
+        planCumulative: 0,
+        projectCost: 0,
+        factMonth: facts.factMonth,
+        factCumulative: facts.factCumulative,
+      };
     }
 
     return {

@@ -17,6 +17,7 @@ export type MarketingProjectValueCsvStoredV1 = {
   apartmentsSummary?: ProjectValueEntitySummary | null;
   parkingSummary?: ProjectValueEntitySummary | null;
   storageSummary?: ProjectValueEntitySummary | null;
+  commercialSummary?: ProjectValueEntitySummary | null;
 };
 
 function scopedKey(projectId: string): string {

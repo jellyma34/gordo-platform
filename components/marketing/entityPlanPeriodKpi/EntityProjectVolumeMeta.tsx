@@ -32,6 +32,8 @@ type CompactCurrencyVolumeProps = {
   mode: "compact-currency";
   rub: number;
   caption?: string;
+  /** Полная сумма в ₽ без млрд/млн/тыс (только rail «План проекта»). */
+  fullCurrency?: boolean;
   railMinWidthPx?: number;
   presDark: boolean;
   presentation: boolean;
@@ -50,13 +52,19 @@ export function EntityProjectVolumeMeta(props: Props) {
 
   let displayMain: string | null = null;
   let displayUnit = "unit" in props ? props.unit : "";
+  const fullCurrency = props.mode === "compact-currency" && props.fullCurrency;
   if (props.mode === "compact-currency") {
     const rub = props.rub;
     if (!Number.isFinite(rub) || rub <= 0) return null;
-    const parts = formatCompactCurrencyRuParts(rub);
-    if (parts.value === "—") return null;
-    displayMain = parts.value;
-    displayUnit = "unit" in parts ? parts.unit : "₽";
+    if (fullCurrency) {
+      displayMain = numFmt.format(Math.round(rub));
+      displayUnit = "₽";
+    } else {
+      const parts = formatCompactCurrencyRuParts(rub);
+      if (parts.value === "—") return null;
+      displayMain = parts.value;
+      displayUnit = "unit" in parts ? parts.unit : "₽";
+    }
   } else if (props.mode === "decimal") {
     const v = props.value;
     if (!Number.isFinite(v) || v <= 0) return null;
@@ -85,7 +93,9 @@ export function EntityProjectVolumeMeta(props: Props) {
     : compact
       ? "flex flex-col items-center justify-center gap-0.5 self-stretch border-r py-1 pe-3"
       : props.mode === "decimal" || props.mode === "compact-currency"
-        ? "flex flex-col items-center justify-center gap-1 self-center pb-1 md:self-stretch md:border-r md:py-2 md:pb-0 md:pe-5"
+        ? fullCurrency
+          ? "flex flex-col items-center justify-center gap-1 self-center pb-1 text-center md:max-w-[9.5rem] md:self-stretch md:border-r md:py-2 md:pb-0 md:pe-4 lg:max-w-[11rem] lg:pe-5"
+          : "flex flex-col items-center justify-center gap-1 self-center pb-1 md:self-stretch md:border-r md:py-2 md:pb-0 md:pe-5"
         : "flex flex-row items-baseline justify-center gap-1.5 self-center pb-1 md:flex-col md:items-center md:justify-center md:gap-1 md:self-stretch md:border-r md:py-2 md:pb-0 md:pe-5";
 
   return (
@@ -106,24 +116,36 @@ export function EntityProjectVolumeMeta(props: Props) {
           {caption}
         </span>
       ) : null}
-      <span
-        className={`tabular-nums leading-none tracking-tight ${colorCls}`}
-        style={{
-          fontSize: compact ? 15 : props.mode === "decimal" || props.mode === "compact-currency" ? 16 : 18,
-          fontWeight: 700,
-        }}
-      >
-        {displayMain}
-      </span>
-      <span
-        className={`whitespace-nowrap leading-tight ${colorCls}`}
-        style={{
-          fontSize: compact ? 11 : props.mode === "decimal" || props.mode === "compact-currency" ? 12 : 13,
-          fontWeight: 600,
-        }}
-      >
-        {displayUnit}
-      </span>
+      {fullCurrency ? (
+        <span
+          className={`max-w-full text-balance leading-snug tracking-tight ${colorCls}`}
+          style={{ fontSize: 14, fontWeight: 700 }}
+        >
+          <span className="tabular-nums">{displayMain}</span>{" "}
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{displayUnit}</span>
+        </span>
+      ) : (
+        <>
+          <span
+            className={`tabular-nums leading-none tracking-tight ${colorCls}`}
+            style={{
+              fontSize: compact ? 15 : props.mode === "decimal" || props.mode === "compact-currency" ? 16 : 18,
+              fontWeight: 700,
+            }}
+          >
+            {displayMain}
+          </span>
+          <span
+            className={`whitespace-nowrap leading-tight ${colorCls}`}
+            style={{
+              fontSize: compact ? 11 : props.mode === "decimal" || props.mode === "compact-currency" ? 12 : 13,
+              fontWeight: 600,
+            }}
+          >
+            {displayUnit}
+          </span>
+        </>
+      )}
     </aside>
   );
 }

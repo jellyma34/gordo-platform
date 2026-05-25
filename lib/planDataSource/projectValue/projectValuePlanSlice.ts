@@ -1,5 +1,6 @@
 import {
   isApartmentRootSummaryRow,
+  isCommercialRootSummaryRow,
   isParkingRootSummaryRow,
   isStorageRootSummaryRow,
 } from "@/lib/planDataSource/entityRowMatchers";
@@ -81,6 +82,13 @@ export function selectProjectValueStoragePlanSliceForKpi(
   storageSummary?: ProjectValueEntitySummary | null,
 ): ProjectValueKpiPlanSlice | null {
   return pickEntityRoot(rows, storageSummary, isStorageRootSummaryRow);
+}
+
+export function selectProjectValueCommercialPlanSliceForKpi(
+  rows: readonly ProjectValueNormalizedRow[],
+  commercialSummary?: ProjectValueEntitySummary | null,
+): ProjectValueKpiPlanSlice | null {
+  return pickEntityRoot(rows, commercialSummary, isCommercialRootSummaryRow);
 }
 
 export { projectValueSummaryFromRow };

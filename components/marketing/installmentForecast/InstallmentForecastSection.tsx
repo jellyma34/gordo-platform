@@ -6,7 +6,6 @@ import { Loader2, Upload } from "lucide-react";
 import { InstallmentForecastChart } from "@/components/marketing/installmentForecast/InstallmentForecastChart";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { buildInstallmentForecastChartData } from "@/lib/buildInstallmentForecastChartData";
-import { formatCompactCurrencyRuParts } from "@/lib/formatCompactCurrencyRu";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import {
   clearMarketingInstallmentForecastCsvLocalStorage,
@@ -27,36 +26,6 @@ type Props = {
   isEditMode?: boolean;
   period?: MarketingPeriodGranularity;
 };
-
-function KpiCard({
-  title,
-  value,
-  unit,
-  presDark,
-}: {
-  title: string;
-  value: string;
-  unit?: string;
-  presDark: boolean;
-}) {
-  return (
-    <div
-      className={
-        presDark
-          ? "rounded-xl border border-slate-600/50 bg-slate-800/40 px-4 py-3"
-          : "rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3"
-      }
-    >
-      <div className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
-        {title}
-      </div>
-      <div className={`mt-1 flex items-baseline gap-1 tabular-nums ${presDark ? "text-slate-50" : "text-slate-900"}`}>
-        <span className="text-xl font-bold">{value}</span>
-        {unit ? <span className={`text-sm font-medium ${presDark ? "text-slate-400" : "text-slate-500"}`}>{unit}</span> : null}
-      </div>
-    </div>
-  );
-}
 
 export function InstallmentForecastSection({
   presentation,
@@ -85,7 +54,7 @@ export function InstallmentForecastSection({
 
   const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentForecastCsvParseDiagnostics | null>(null);
 
-  const { chartPoints, summary } = useMemo(
+  const { chartPoints } = useMemo(
     () => buildInstallmentForecastChartData(doc?.rows ?? []),
     [doc?.rows],
   );
@@ -93,8 +62,6 @@ export function InstallmentForecastSection({
   const hasCsv = Boolean(doc?.rows?.length);
   const hasFutureData = chartPoints.length > 0;
 
-  const totalParts = formatCompactCurrencyRuParts(summary.totalForecastRub);
-  const avgParts = formatCompactCurrencyRuParts(summary.avgMonthlyRub);
   const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -196,7 +163,7 @@ export function InstallmentForecastSection({
         />
       ) : null}
 
-      <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div className="mb-3 flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <h3 id="installment-forecast-heading" className={`text-sm font-semibold tracking-tight ${titleCls}`}>
             Прогноз поступлений по заключенным договорам (рассрочки)
@@ -253,33 +220,12 @@ export function InstallmentForecastSection({
           {hasCsv ? "Нет будущих поступлений по рассрочкам" : "Подгрузите CSV графика рассрочки ДДУ"}
         </p>
       ) : (
-        <>
-          <div className="mb-5 grid gap-3 sm:grid-cols-3">
-            <KpiCard
-              title="Общий прогноз поступлений"
-              value={totalParts.value}
-              unit={"unit" in totalParts ? `${totalParts.unit} ₽` : undefined}
-              presDark={presDark}
-            />
-            <KpiCard
-              title="Средний платеж в месяц"
-              value={avgParts.value}
-              unit={"unit" in avgParts ? `${avgParts.unit} ₽` : undefined}
-              presDark={presDark}
-            />
-            <KpiCard
-              title="Последний месяц прогноза"
-              value={summary.lastPeriodLabel ?? "—"}
-              presDark={presDark}
-            />
-          </div>
-          <InstallmentForecastChart
-            data={chartPoints}
-            presDark={presDark}
-            presentation={presentation}
-            mplPremium={mplPremium}
-          />
-        </>
+        <InstallmentForecastChart
+          data={chartPoints}
+          presDark={presDark}
+          presentation={presentation}
+          mplPremium={mplPremium}
+        />
       )}
     </section>
   );

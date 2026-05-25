@@ -56,6 +56,7 @@ export type ProjectValueCsvParseResult =
       apartmentsSummary: ProjectValueEntitySummary | null;
       parkingSummary?: ProjectValueEntitySummary | null;
       storageSummary?: ProjectValueEntitySummary | null;
+      commercialSummary?: ProjectValueEntitySummary | null;
     }
   | {
       ok: false;

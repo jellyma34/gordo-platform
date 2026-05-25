@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
-import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
 import { DduRevenueEntityKpiSection } from "@/components/marketing/dduRevenue/DduRevenueEntityKpiSection";
 import { DduRevenueRoomTypeKpiGrid } from "@/components/marketing/dduRevenue/DduRevenueRoomTypeKpiGrid";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
@@ -32,7 +31,6 @@ import {
   type DduRevenuePeriodKpiUiData,
 } from "@/lib/dduRevenuePeriodKpi";
 import { DDU_REVENUE_KPI_THEME } from "@/lib/entityKpiTheme";
-import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entityPerformanceChart";
 import { filterByObject } from "@/lib/marketingMockData";
 import {
   clearMarketingDduRevenueCsvLocalStorage,
@@ -190,19 +188,6 @@ export function DduRevenueSection({
 
   const cardsData = useMemo(() => dduRevenueSliceToCardsData(kpiData), [kpiData]);
 
-  const chartRows = useMemo(() => {
-    if (!doc?.rows?.length) return [];
-    return buildPerformanceChartRows(
-      doc.rows.map((r) => ({
-        key: r.segmentNorm,
-        label: r.segmentNorm,
-        shortLabel: r.segmentNorm.length > 12 ? `${r.segmentNorm.slice(0, 10)}…` : r.segmentNorm,
-        planCumulative: r.planCumulative,
-        factCumulative: r.factCumulative,
-      })),
-    );
-  }, [doc?.rows]);
-
   const projectVolumeCompactCurrency = useMemo(() => dduRevenueProjectVolumeRail(kpiData), [kpiData]);
 
   const hasCsv = Boolean(doc?.rows?.length);
@@ -250,7 +235,7 @@ export function DduRevenueSection({
 
   const showTypeBreakdown = dduRevenuePlanTypeBreakdownHasData(typeBreakdown);
 
-  const hasAnyData = dduRevenuePeriodKpiHasData(kpiData) || performanceChartHasData(chartRows);
+  const hasAnyData = dduRevenuePeriodKpiHasData(kpiData);
   const diagnostics = doc?.diagnostics ?? failedDiagnostics;
   const showDebug = isEditMode && !presentation;
 
@@ -290,7 +275,7 @@ export function DduRevenueSection({
 
   return (
     <div
-      className={`relative mt-6 min-w-0 border-t pt-6 ${presDark ? "border-white/10" : "border-slate-200/50"} ${
+      className={`relative min-w-0 ${
         dragOver && isEditMode ? (presDark ? "ring-2 ring-emerald-500/40" : "ring-2 ring-emerald-400/50") : ""
       }`}
       onDragOver={
@@ -383,6 +368,7 @@ export function DduRevenueSection({
           sectionTitle="Продажи по заключенным ДДУ, руб."
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
+          leadingSection
           skeleton
         />
       ) : !hasAnyData ? (
@@ -396,6 +382,7 @@ export function DduRevenueSection({
           sectionTitle="Продажи по заключенным ДДУ, руб."
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
+          leadingSection
           showEmpty
           emptyMessage="Подгрузите CSV выручки ДДУ или дождитесь данных системы"
         />
@@ -410,24 +397,8 @@ export function DduRevenueSection({
           sectionTitle="Продажи по заключенным ДДУ, руб."
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
-        >
-          {performanceChartHasData(chartRows) ? (
-            <div
-              className={`mt-6 min-w-0 rounded-2xl border p-4 ${presDark ? "border-white/10 bg-slate-900/40" : "border-slate-200/70 bg-white"}`}
-            >
-              <h3 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>
-                Накопительно по сегментам (₽)
-              </h3>
-              <EntityPerformanceChart
-                rows={chartRows}
-                hasCsvPlan={cardsData.hasCsvPlan}
-                presDark={presDark}
-                presentation={presentation}
-                unitSuffix="₽"
-              />
-            </div>
-          ) : null}
-        </EntityPlanPeriodKpiSection>
+          leadingSection
+        />
       )}
 
       {typeBreakdownSection}

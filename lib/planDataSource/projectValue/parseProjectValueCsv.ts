@@ -98,6 +98,7 @@ function parseProjectValueCsvGrid(
   let apartmentsSummary: ProjectValueEntitySummary | null = null;
   let parkingSummary: ProjectValueEntitySummary | null = null;
   let storageSummary: ProjectValueEntitySummary | null = null;
+  let commercialSummary: ProjectValueEntitySummary | null = null;
   let importedRootRows = 0;
 
   for (let i = 0; i < rowsIn.length; i++) {
@@ -134,13 +135,14 @@ function parseProjectValueCsvGrid(
     if (isApartmentRootSummaryRow(segmentNorm, rawLabel)) apartmentsSummary = summary;
     if (isParkingRootSummaryRow(segmentNorm, rawLabel)) parkingSummary = summary;
     if (isStorageRootSummaryRow(segmentNorm, rawLabel)) storageSummary = summary;
+    if (isCommercialRootSummaryRow(segmentNorm, rawLabel)) commercialSummary = summary;
   }
 
   if (!out.length) {
     return {
       ok: false,
       error:
-        "Не удалось импортировать строки: нужны «Квартиры», «Парковки», «Кладовые», «ИТОГО» и/или строки комнатности.",
+        "Не удалось импортировать строки: нужны «Квартиры», «Парковки», «Кладовые», «Коммерческие помещения», «ИТОГО» и/или строки комнатности.",
       warnings,
       diagnostics: {
         rawHeaders: metaFields,
@@ -176,6 +178,7 @@ function parseProjectValueCsvGrid(
     apartmentsSummary,
     parkingSummary,
     storageSummary,
+    commercialSummary,
     diagnostics: {
       rawHeaders: metaFields,
       columnMapping: projectValueCsvColumnMappingForDiagnostics(map),
@@ -214,6 +217,7 @@ function parseLegacyProjectValueGrid(
   let apartmentsSummary: ProjectValueEntitySummary | null = null;
   let parkingSummary: ProjectValueEntitySummary | null = null;
   let storageSummary: ProjectValueEntitySummary | null = null;
+  let commercialSummary: ProjectValueEntitySummary | null = null;
   let importedRootRows = 0;
 
   for (let i = 0; i < rowsIn.length; i++) {
@@ -252,6 +256,7 @@ function parseLegacyProjectValueGrid(
     if (isApartmentRootSummaryRow(segmentNorm, rawLabel)) apartmentsSummary = summary;
     if (isParkingRootSummaryRow(segmentNorm, rawLabel)) parkingSummary = summary;
     if (isStorageRootSummaryRow(segmentNorm, rawLabel)) storageSummary = summary;
+    if (isCommercialRootSummaryRow(segmentNorm, rawLabel)) commercialSummary = summary;
   }
 
   if (!out.length) {
@@ -295,6 +300,7 @@ function parseLegacyProjectValueGrid(
     apartmentsSummary,
     parkingSummary,
     storageSummary,
+    commercialSummary,
     diagnostics: {
       rawHeaders: metaFields,
       columnMapping: legacyProjectValueColumnMappingForDiagnostics(map),

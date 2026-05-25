@@ -2,7 +2,7 @@ import type { EntityPlanPeriodKpiCardsData } from "@/components/marketing/entity
 import type { ProjectValueDealFacts } from "@/lib/projectValueFactsFromDeals";
 import type { ProjectValueKpiPlanSlice } from "@/lib/planDataSource/projectValue/projectValuePlanSlice";
 import type { ProjectValueCsvFormat } from "@/lib/planDataSource/projectValue/types";
-import { formatCompactCurrencyRu, formatCompactCurrencyRuParts } from "@/lib/formatCompactCurrencyRu";
+import { numFmt } from "@/lib/salesPlanChartFormat";
 
 export type ProjectValuePeriodKpiUiData =
   | ({
@@ -17,13 +17,15 @@ export type ProjectValuePeriodKpiUiData =
     };
 
 export function formatProjectValueRub(n: number | null | undefined): string {
-  return formatCompactCurrencyRu(n);
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${numFmt.format(Math.round(n))} ₽`;
 }
 
 export function formatProjectValueRubParts(
   n: number | null | undefined,
-): { value: string; unit: string } | { value: "—" } {
-  return formatCompactCurrencyRuParts(n);
+): { value: string; unit: "₽" } | { value: "—" } {
+  if (n == null || !Number.isFinite(n)) return { value: "—" };
+  return { value: numFmt.format(Math.round(n)), unit: "₽" };
 }
 
 export function projectValueMarkupPercent(charter: number, reportMarkup: number): number | null {

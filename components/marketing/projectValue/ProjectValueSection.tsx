@@ -3,26 +3,16 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
-import { EntityPerformanceChart } from "@/components/marketing/EntityPerformanceChart";
 import { ProjectValueEntityKpiSection } from "@/components/marketing/projectValue/ProjectValueEntityKpiSection";
-import { ProjectValueRoomTypeKpiGrid } from "@/components/marketing/projectValue/ProjectValueRoomTypeKpiGrid";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { useMarketingDealsFeedOptional } from "@/components/marketing/marketingDealsFeedContext";
 import {
-  buildProjectValueParkingAnalytics,
-  buildProjectValueStorageAnalytics,
-  projectValueEntityAnalyticsHasData,
-} from "@/lib/projectValueEntityAnalytics";
-import {
+  projectValueCommercialFactsFromDealsForKpi,
   projectValueFactsFromDealsForKpi,
   projectValueParkingFactsFromDealsForKpi,
   projectValueStorageFactsFromDealsForKpi,
 } from "@/lib/projectValueFactsFromDeals";
-import {
-  buildProjectValuePlanTypeKpiBreakdown,
-  projectValuePlanTypeBreakdownHasData,
-} from "@/lib/projectValuePlanTypeKpi";
 import {
   formatProjectValueRub,
   mergeProjectValueEntityKpiData,
@@ -32,7 +22,6 @@ import {
   type ProjectValuePeriodKpiUiData,
 } from "@/lib/projectValuePeriodKpi";
 import { PROJECT_VALUE_KPI_THEME } from "@/lib/entityKpiTheme";
-import { buildPerformanceChartRows, performanceChartHasData } from "@/lib/entityPerformanceChart";
 import { filterByObject } from "@/lib/marketingMockData";
 import {
   clearMarketingProjectValueCsvLocalStorage,
@@ -44,6 +33,7 @@ import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedL
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
+  selectProjectValueCommercialPlanSliceForKpi,
   selectProjectValueParkingPlanSliceForKpi,
   selectProjectValuePlanSliceForKpi,
   selectProjectValueStoragePlanSliceForKpi,
@@ -104,24 +94,6 @@ export function ProjectValueSection({
     });
   }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const dealParkingValueFacts = useMemo(() => {
-    if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
-    if (!dealRowsForFact.length) return null;
-    return projectValueParkingFactsFromDealsForKpi(dealRowsForFact, {
-      period: periodGran,
-      currentPeriodKey,
-    });
-  }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
-
-  const dealStorageValueFacts = useMemo(() => {
-    if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
-    if (!dealRowsForFact.length) return null;
-    return projectValueStorageFactsFromDealsForKpi(dealRowsForFact, {
-      period: periodGran,
-      currentPeriodKey,
-    });
-  }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
-
   const {
     doc,
     hydrated,
@@ -171,83 +143,61 @@ export function ProjectValueSection({
     return mergeProjectValueEntityKpiData(slice, dealValueFacts);
   }, [dealValueFacts, doc]);
 
-  const parkingKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
-    const slice = doc?.rows?.length
-      ? selectProjectValueParkingPlanSliceForKpi(doc.rows, doc.parkingSummary ?? null)
-      : null;
-    return mergeProjectValueEntityKpiData(slice, dealParkingValueFacts);
-  }, [dealParkingValueFacts, doc]);
-
-  const storageKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
-    const slice = doc?.rows?.length
-      ? selectProjectValueStoragePlanSliceForKpi(doc.rows, doc.storageSummary ?? null)
-      : null;
-    return mergeProjectValueEntityKpiData(slice, dealStorageValueFacts);
-  }, [dealStorageValueFacts, doc]);
-
   const cardsData = useMemo(() => projectValueSliceToCardsData(kpiData), [kpiData]);
-
-  const chartRows = useMemo(() => {
-    if (!doc?.rows?.length) return [];
-    return buildPerformanceChartRows(
-      doc.rows.map((r) => ({
-        key: r.segmentNorm,
-        label: r.segmentNorm,
-        shortLabel: r.segmentNorm.length > 12 ? `${r.segmentNorm.slice(0, 10)}…` : r.segmentNorm,
-        planCumulative: r.planCumulative,
-        factCumulative: r.factCumulative,
-      })),
-    );
-  }, [doc?.rows]);
 
   const projectVolumeCompactCurrency = useMemo(() => projectValueProjectVolumeRail(kpiData), [kpiData]);
 
   const hasCsv = Boolean(doc?.rows?.length);
 
-  const parkingAnalytics = useMemo(
-    () =>
-      buildProjectValueParkingAnalytics({
-        rows: doc?.rows,
-        hasCsvPlan: hasCsv,
-        period: periodGran,
-        currentPeriodKey,
-        dealRows: dealRowsForFact,
-      }),
-    [currentPeriodKey, dealRowsForFact, doc?.rows, hasCsv, periodGran],
-  );
+  const dealParkingFacts = useMemo(() => {
+    if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
+    if (!dealRowsForFact.length) return null;
+    return projectValueParkingFactsFromDealsForKpi(dealRowsForFact, {
+      period: periodGran,
+      currentPeriodKey,
+    });
+  }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const storageAnalytics = useMemo(
-    () =>
-      buildProjectValueStorageAnalytics({
-        rows: doc?.rows,
-        hasCsvPlan: hasCsv,
-        period: periodGran,
-        currentPeriodKey,
-        dealRows: dealRowsForFact,
-      }),
-    [currentPeriodKey, dealRowsForFact, doc?.rows, hasCsv, periodGran],
-  );
+  const dealStorageFacts = useMemo(() => {
+    if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
+    if (!dealRowsForFact.length) return null;
+    return projectValueStorageFactsFromDealsForKpi(dealRowsForFact, {
+      period: periodGran,
+      currentPeriodKey,
+    });
+  }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const showParkingSection =
-    projectValuePeriodKpiHasData(parkingKpiData) || projectValueEntityAnalyticsHasData(parkingAnalytics);
-  const showStorageSection =
-    projectValuePeriodKpiHasData(storageKpiData) || projectValueEntityAnalyticsHasData(storageAnalytics);
+  const dealCommercialFacts = useMemo(() => {
+    if (dealsFeed?.loading && dealRowsForFact.length === 0) return null;
+    if (!dealRowsForFact.length) return null;
+    return projectValueCommercialFactsFromDealsForKpi(dealRowsForFact, {
+      period: periodGran,
+      currentPeriodKey,
+    });
+  }, [currentPeriodKey, dealRowsForFact, dealsFeed?.loading, periodGran]);
 
-  const typeBreakdown = useMemo(
-    () =>
-      buildProjectValuePlanTypeKpiBreakdown({
-        rows: doc?.rows,
-        hasCsvPlan: hasCsv,
-        period: periodGran,
-        currentPeriodKey,
-        dealRows: dealRowsForFact,
-      }),
-    [currentPeriodKey, dealRowsForFact, doc?.rows, hasCsv, period],
-  );
+  const parkingKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
+    const slice = doc?.rows?.length
+      ? selectProjectValueParkingPlanSliceForKpi(doc.rows, doc.parkingSummary ?? null)
+      : null;
+    return mergeProjectValueEntityKpiData(slice, dealParkingFacts);
+  }, [dealParkingFacts, doc]);
 
-  const showTypeBreakdown = projectValuePlanTypeBreakdownHasData(typeBreakdown);
+  const storageKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
+    const slice = doc?.rows?.length
+      ? selectProjectValueStoragePlanSliceForKpi(doc.rows, doc.storageSummary ?? null)
+      : null;
+    return mergeProjectValueEntityKpiData(slice, dealStorageFacts);
+  }, [dealStorageFacts, doc]);
 
-  const hasAnyData = projectValuePeriodKpiHasData(kpiData) || performanceChartHasData(chartRows);
+  const commercialKpiData: ProjectValuePeriodKpiUiData = useMemo(() => {
+    const slice = doc?.rows?.length
+      ? selectProjectValueCommercialPlanSliceForKpi(doc.rows, doc.commercialSummary ?? null)
+      : null;
+    return mergeProjectValueEntityKpiData(slice, dealCommercialFacts);
+  }, [dealCommercialFacts, doc]);
+
+  const hasAnyData = projectValuePeriodKpiHasData(kpiData);
   const diagnostics = doc?.diagnostics ?? failedDiagnostics;
   const showDebug = isEditMode && !presentation;
 
@@ -256,16 +206,6 @@ export function ProjectValueSection({
   const [localErr, setLocalErr] = useState<string | null>(null);
   const busy = loading;
   const err = localErr || error;
-
-  const typeBreakdownSection =
-    showTypeBreakdown && !busy ? (
-      <ProjectValueRoomTypeKpiGrid
-        breakdown={typeBreakdown}
-        presDark={presDark}
-        presentation={presentation}
-        mplPremium={mplPremium}
-      />
-    ) : null;
 
   const processFile = useCallback(
     async (file: File) => {
@@ -380,6 +320,7 @@ export function ProjectValueSection({
           sectionTitle="Общая стоимость проекта"
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
+          leadingSection
           skeleton
         />
       ) : !hasAnyData ? (
@@ -393,6 +334,7 @@ export function ProjectValueSection({
           sectionTitle="Общая стоимость проекта"
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
+          leadingSection
           showEmpty
           emptyMessage="Подгрузите CSV стоимости проекта или дождитесь данных системы"
         />
@@ -407,54 +349,40 @@ export function ProjectValueSection({
           sectionTitle="Общая стоимость проекта"
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
-        >
-          {performanceChartHasData(chartRows) ? (
-            <div
-              className={`mt-6 min-w-0 rounded-2xl border p-4 ${presDark ? "border-white/10 bg-slate-900/40" : "border-slate-200/70 bg-white"}`}
-            >
-              <h3 className={`mb-3 text-sm font-semibold ${presDark ? "text-slate-100" : "text-slate-900"}`}>
-                Накопительно по сегментам (₽)
-              </h3>
-              <EntityPerformanceChart
-                rows={chartRows}
-                hasCsvPlan={cardsData.hasCsvPlan}
-                presDark={presDark}
-                presentation={presentation}
-                unitSuffix="₽"
-              />
-            </div>
-          ) : null}
-        </EntityPlanPeriodKpiSection>
+          leadingSection
+        />
       )}
 
-      {typeBreakdownSection}
-
-      {showParkingSection && !busy ? (
-        <ProjectValueEntityKpiSection
-          entityLabel="Машино-места"
-          theme={PROJECT_VALUE_KPI_THEME}
-          kpiData={parkingKpiData}
-          analyticsBreakdown={parkingAnalytics}
-          analyticsTitle="Аналитика выполнения стоимости проекта по машино-местам"
-          presDark={presDark}
-          presentation={presentation}
-          mplPremium={mplPremium}
-          emptyMessage="Нет данных по машино-местам"
-        />
-      ) : null}
-
-      {showStorageSection && !busy ? (
-        <ProjectValueEntityKpiSection
-          entityLabel="Кладовые"
-          theme={PROJECT_VALUE_KPI_THEME}
-          kpiData={storageKpiData}
-          analyticsBreakdown={storageAnalytics}
-          analyticsTitle="Аналитика выполнения стоимости проекта по кладовым"
-          presDark={presDark}
-          presentation={presentation}
-          mplPremium={mplPremium}
-          emptyMessage="Нет данных по кладовым"
-        />
+      {!busy && hydrated ? (
+        <>
+          <ProjectValueEntityKpiSection
+            entityLabel="Парковки"
+            kpiData={parkingKpiData}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+            showEmpty
+            emptyMessage="Нет данных по парковкам"
+          />
+          <ProjectValueEntityKpiSection
+            entityLabel="Кладовые"
+            kpiData={storageKpiData}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+            showEmpty
+            emptyMessage="Нет данных по кладовым"
+          />
+          <ProjectValueEntityKpiSection
+            entityLabel="Коммерческие помещения"
+            kpiData={commercialKpiData}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+            showEmpty
+            emptyMessage="Нет данных по коммерческим помещениям"
+          />
+        </>
       ) : null}
 
       {showDebug && diagnostics ? (

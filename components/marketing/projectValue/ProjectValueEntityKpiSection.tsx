@@ -2,14 +2,8 @@
 
 import { useMemo } from "react";
 
-import { EntityPerformanceAnalyticsSection } from "@/components/marketing/EntityPerformanceAnalyticsSection";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
-import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
-import {
-  buildProjectValueEntityChartRows,
-  projectValueEntityAnalyticsHasData,
-  type ProjectValueEntityAnalyticsBreakdown,
-} from "@/lib/projectValueEntityAnalytics";
+import { PROJECT_VALUE_KPI_THEME } from "@/lib/entityKpiTheme";
 import {
   formatProjectValueRub,
   projectValuePeriodKpiHasData,
@@ -20,10 +14,7 @@ import {
 
 type Props = {
   entityLabel: string;
-  theme: EntityKpiTheme;
   kpiData: ProjectValuePeriodKpiUiData;
-  analyticsBreakdown: ProjectValueEntityAnalyticsBreakdown;
-  analyticsTitle: string;
   presDark: boolean;
   presentation: boolean;
   mplPremium: boolean;
@@ -32,12 +23,10 @@ type Props = {
   emptyMessage?: string;
 };
 
+/** Парковки / кладовые / коммерция — тот же KPI-набор, что у свода «Квартиры». */
 export function ProjectValueEntityKpiSection({
   entityLabel,
-  theme,
   kpiData,
-  analyticsBreakdown,
-  analyticsTitle,
   presDark,
   presentation,
   mplPremium,
@@ -47,12 +36,7 @@ export function ProjectValueEntityKpiSection({
 }: Props) {
   const cardsData = useMemo(() => projectValueSliceToCardsData(kpiData), [kpiData]);
   const projectVolumeCompactCurrency = useMemo(() => projectValueProjectVolumeRail(kpiData), [kpiData]);
-  const chartRows = useMemo(
-    () => buildProjectValueEntityChartRows(analyticsBreakdown),
-    [analyticsBreakdown],
-  );
-  const showAnalytics = projectValueEntityAnalyticsHasData(analyticsBreakdown);
-  const hasKpi = projectValuePeriodKpiHasData(kpiData) || showAnalytics;
+  const hasKpi = projectValuePeriodKpiHasData(kpiData);
 
   if (!hasKpi && !skeleton && !showEmpty) return null;
 
@@ -62,13 +46,13 @@ export function ProjectValueEntityKpiSection({
       style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
     >
       <EntityPlanPeriodKpiSection
+        embedded
         entityLabel={entityLabel}
-        theme={theme}
+        theme={PROJECT_VALUE_KPI_THEME}
         cardsData={cardsData}
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
-        sectionTitle="Общая стоимость проекта"
         formatMetric={formatProjectValueRub}
         projectVolumeCompactCurrency={projectVolumeCompactCurrency}
         cardsDensity="project-value-entity"
@@ -76,17 +60,6 @@ export function ProjectValueEntityKpiSection({
         showEmpty={showEmpty && !hasKpi}
         emptyMessage={emptyMessage}
       />
-
-      {showAnalytics && !skeleton ? (
-        <EntityPerformanceAnalyticsSection
-          title={analyticsTitle}
-          rows={chartRows}
-          hasCsvPlan={cardsData.hasCsvPlan}
-          presDark={presDark}
-          presentation={presentation}
-          unitSuffix="₽"
-        />
-      ) : null}
     </div>
   );
 }

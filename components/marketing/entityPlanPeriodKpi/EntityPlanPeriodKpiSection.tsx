@@ -33,6 +33,8 @@ type Props = {
   projectVolumeUnits?: { count: number; unit: string } | null;
   /** Вложенный блок (комнатность в сетке 2×2 / 4 колонки). */
   embedded?: boolean;
+  /** Первая секция блока: без border-top и лишнего margin сверху. */
+  leadingSection?: boolean;
   /** `room-type` — как `full`: rail объёма + 3 KPI в ряд (блок комнатности). */
   cardsLayout?: "full" | "stacked" | "room-type";
   /** Компактная типографика KPI площади (парковки / кладовые). */
@@ -56,6 +58,7 @@ export function EntityPlanPeriodKpiSection({
   projectVolumeCompactCurrency,
   projectVolumeUnits,
   embedded = false,
+  leadingSection = false,
   cardsLayout = "full",
   cardsDensity = "default",
   children,
@@ -74,10 +77,10 @@ export function EntityPlanPeriodKpiSection({
     [cardsData],
   );
 
-  const shellCls = embedded
+  const shellCls = embedded || leadingSection
     ? "min-w-0 w-full max-w-full"
     : "mt-6 min-w-0 border-t pt-5 md:mt-7 md:pt-6";
-  const shellStyle = embedded ? undefined : { borderColor };
+  const shellStyle = embedded || leadingSection ? undefined : { borderColor };
   const entityTitleCls = embedded
     ? `text-base font-bold leading-snug tracking-tight sm:text-lg ${sectionLabelCls}`
     : `mt-2 text-xl font-bold leading-tight tracking-tight sm:text-2xl ${sectionLabelCls}`;
@@ -121,7 +124,16 @@ export function EntityPlanPeriodKpiSection({
             mode="compact-currency"
             rub={projectVolumeCompactCurrency.rub}
             caption={projectVolumeCompactCurrency.caption}
-            railMinWidthPx={120}
+            fullCurrency={
+              projectVolumeCompactCurrency.caption === "План проекта" ||
+              projectVolumeCompactCurrency.caption === "Стоимость проекта"
+            }
+            railMinWidthPx={
+              projectVolumeCompactCurrency.caption === "План проекта" ||
+              projectVolumeCompactCurrency.caption === "Стоимость проекта"
+                ? 88
+                : 120
+            }
             presDark={presDark}
             presentation={presentation}
           />
