@@ -1,4 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { matchesNormalizedDealSegment, resolveNormalizedDealRowSegment } from "@/lib/normalizeDealSegment";
 import {
   apartmentPlanKpiDedupKey,
   isApartmentKpiDealSoldStatus,
@@ -214,7 +215,8 @@ export function inferInventoryDepletionApartmentType(row: NormalizedDealRow): Ap
  * исключаем только явный отказ / расторжение / «бронь» без ДДУ.
  */
 export function isInventoryDepletionCountedDeal(row: NormalizedDealRow): boolean {
-  if (row.dealType !== "apartment" && row.dealType !== "parking" && row.dealType !== "storage") {
+  const seg = resolveNormalizedDealRowSegment(row);
+  if (seg !== "apartment" && seg !== "parking" && seg !== "storage") {
     return false;
   }
   if (!resolveInventoryDepletionMonthKey(row)) return false;
@@ -270,7 +272,7 @@ export function inventoryDepletionSalesFromDeals(rows: readonly NormalizedDealRo
   let rejectedSegment = 0;
   let apartmentsWithoutRoomType = 0;
 
-  const apartmentRows = rows.filter((r) => r.dealType === "apartment");
+  const apartmentRows = rows.filter((r) => matchesNormalizedDealSegment(r, "apartment"));
   for (const r of apartmentRows) {
     if (!resolveInventoryDepletionMonthKey(r)) rejectedNoMonth += 1;
     else if (!isInventoryDepletionCountedDeal(r)) rejectedNegative += 1;
@@ -303,14 +305,17 @@ export function inventoryDepletionSalesFromDeals(rows: readonly NormalizedDealRo
   }
 
   for (const r of rows) {
-    if (r.dealType !== "apartment" && r.dealType !== "parking" && r.dealType !== "storage") {
+    const seg = resolveNormalizedDealRowSegment(r);
+    if (seg !== "apartment" && seg !== "parking" && seg !== "storage") {
       rejectedSegment += 1;
     }
   }
 
   for (const r of rows) {
-    if (r.dealType !== "parking" && r.dealType !== "storage") continue;
-    if (!resolveInventoryDepletionMonthKey(r)) {
+    const segmentKey = resolveNormalizedDealRowSegment(r);
+    if (segmentKey !== "parking" && segmentKey !== "storage") continue;
+    const mk = resolveInventoryDepletionMonthKey(r);
+    if (!mk) {
       rejectedNoMonth += 1;
       continue;
     }
@@ -318,10 +323,8 @@ export function inventoryDepletionSalesFromDeals(rows: readonly NormalizedDealRo
       rejectedNegative += 1;
       continue;
     }
-    const mk = resolveInventoryDepletionMonthKey(r)!;
-    const seg = r.dealType;
-    soldTotal[seg] += 1;
-    bumpMonth(soldByMonth[seg], mk);
+    soldTotal[segmentKey] += 1;
+    bumpMonth(soldByMonth[segmentKey], mk);
   }
 
   const matchedSales =

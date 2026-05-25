@@ -100,7 +100,9 @@ export function StoragePlanPeriodKpiSection({
       projectVolumeUnits={projectVolumeUnits}
       skeleton={csvLoading}
     >
-      <StoragePerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
+      {!presentation ? (
+        <StoragePerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
+      ) : null}
     </EntityPlanPeriodKpiSection>
   );
 }

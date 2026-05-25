@@ -1359,11 +1359,13 @@ export function ApartmentPlanPeriodKpiBlock({
             presentation={presentation}
             mplPremium={mplPremium}
           />
-          <ApartmentRoomTypeAnalyticsSection
-            breakdown={typeBreakdown!}
-            presDark={presDark}
-            presentation={presentation}
-          />
+          {!presentation ? (
+            <ApartmentRoomTypeAnalyticsSection
+              breakdown={typeBreakdown!}
+              presDark={presDark}
+              presentation={presentation}
+            />
+          ) : null}
         </>
       ) : null}
       </div>

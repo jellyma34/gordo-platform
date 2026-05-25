@@ -1,5 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
-import { isApartmentKpiDealSoldStatus } from "@/lib/apartmentPlanFactsFromDeals";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { quarterKeyToMonthKeys } from "@/lib/planDataSource/selectPlanForKpi";
 
@@ -43,8 +43,7 @@ export function parkingPlanFactsFromDealsForKpi(
   let factCumulative = 0;
 
   for (const r of rows) {
-    if (r.dealType !== "parking") continue;
-    if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
+    if (!matchesNormalizedDealSegment(r, "parking")) continue;
     const mk = canonicalMonthKey(r);
     if (!mk) continue;
     if (mk <= endMonthKey) factCumulative += 1;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { apartmentPlanFactsFromDealsForKpi } from "@/lib/apartmentPlanFactsFromDeals";
 import { buildApartmentPlanTypeKpiBreakdown, buildApartmentTotals } from "@/lib/apartmentPlanTypeKpi";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { buildParkingPlanAnalyticsBreakdown, buildParkingTotals, selectPlanSliceForParkingKpi } from "@/lib/parkingPlanAnalytics";
 import { mergeParkingPlanCsvWithFacts } from "@/lib/parkingPlanPeriodKpi";
 import {
@@ -2333,6 +2334,16 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       });
       const totals = buildParkingTotals(breakdown);
 
+      if (process.env.NODE_ENV === "development") {
+        const matchedDeals = dealRowsForFact.filter((r) => matchesNormalizedDealSegment(r, "parking")).length;
+        console.log({
+          segment: "parking",
+          matchedDeals,
+          cumulativeFact: totals.factCumulative,
+          monthFact: totals.factMonth,
+        });
+      }
+
       if (hasCsvPlan) {
         const slice = selectPlanSliceForParkingKpi(rows, {
           period,
@@ -2395,6 +2406,16 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         dealRows: dealsFeed.loading && dealRowsForFact.length === 0 ? [] : dealRowsForFact,
       });
       const totals = buildStorageTotals(breakdown);
+
+      if (process.env.NODE_ENV === "development") {
+        const matchedDeals = dealRowsForFact.filter((r) => matchesNormalizedDealSegment(r, "storage")).length;
+        console.log({
+          segment: "storage",
+          matchedDeals,
+          cumulativeFact: totals.factCumulative,
+          monthFact: totals.factMonth,
+        });
+      }
 
       if (hasCsvPlan) {
         const slice = selectPlanSliceForStorageKpi(rows, {

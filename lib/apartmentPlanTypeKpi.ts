@@ -1,4 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { capPlanFields, mergeApartmentPlanCsvWithFacts, type ApartmentPlanPeriodKpiInputs } from "@/lib/apartmentsPlanPeriodKpi";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import {
@@ -235,7 +236,7 @@ export function apartmentPlanFactsFromDealsByTypeForKpi(
   const result = empty();
 
   for (const r of rows) {
-    if (r.dealType !== "apartment") continue;
+    if (!matchesNormalizedDealSegment(r, "apartment")) continue;
     const typeKey = inferApartmentPlanTypeKeyFromDeal(r);
     if (!typeKey) continue;
 

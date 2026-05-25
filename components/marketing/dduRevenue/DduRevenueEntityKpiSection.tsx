@@ -52,7 +52,7 @@ export function DduRevenueEntityKpiSection({
     [analyticsBreakdown],
   );
   const showAnalytics = dduRevenueEntityAnalyticsHasData(analyticsBreakdown);
-  const hasKpi = dduRevenuePeriodKpiHasData(kpiData) || showAnalytics;
+  const hasKpi = dduRevenuePeriodKpiHasData(kpiData) || (showAnalytics && !presentation);
 
   if (!hasKpi && !skeleton && !showEmpty) return null;
 
@@ -77,7 +77,7 @@ export function DduRevenueEntityKpiSection({
         emptyMessage={emptyMessage}
       />
 
-      {showAnalytics && !skeleton ? (
+      {showAnalytics && !skeleton && !presentation ? (
         <EntityPerformanceAnalyticsSection
           title={analyticsTitle}
           rows={chartRows}

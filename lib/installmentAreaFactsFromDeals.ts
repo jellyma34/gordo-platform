@@ -1,4 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import {
   apartmentPlanKpiDedupKey,
   canonicalMonthKey,
@@ -134,7 +135,7 @@ function installmentAreaFactsForDealType(
 ): InstallmentAreaDealFacts {
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
 
-  const typedRows = rows.filter((r) => r.dealType === dealType);
+  const typedRows = rows.filter((r) => matchesNormalizedDealSegment(r, dealType));
   const candidates = typedRows.filter((r) => {
     if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) return false;
     return canonicalMonthKey(r) != null;

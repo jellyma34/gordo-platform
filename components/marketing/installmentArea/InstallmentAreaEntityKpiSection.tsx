@@ -53,7 +53,7 @@ export function InstallmentAreaEntityKpiSection({
     [analyticsBreakdown],
   );
   const showAnalytics = installmentAreaEntityAnalyticsHasData(analyticsBreakdown);
-  const hasKpi = installmentAreaPeriodKpiHasData(kpiData) || showAnalytics;
+  const hasKpi = installmentAreaPeriodKpiHasData(kpiData) || (showAnalytics && !presentation);
 
   if (!hasKpi && !skeleton && !showEmpty) return null;
 
@@ -75,7 +75,7 @@ export function InstallmentAreaEntityKpiSection({
         emptyMessage={emptyMessage}
       />
 
-      {showAnalytics && !skeleton ? (
+      {showAnalytics && !skeleton && !presentation ? (
         <EntityPerformanceAnalyticsSection
           title={analyticsTitle}
           rows={chartRows}

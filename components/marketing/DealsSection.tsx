@@ -11,6 +11,12 @@ import { flattenDealsInput as flattenDealsInputShape, parseDealsEnvelope as pars
 import { extractApartmentRoomCountFromObject } from "@/lib/apartmentDealRoomCount";
 import { inferDealProductSegmentFromText } from "@/lib/marketingDealSegmentInference";
 import {
+  collectDealSegmentHintsFromExportRow,
+  logDealSegmentExportDebug,
+  normalizeDealSegment,
+  segmentFromCategorySlugOnly,
+} from "@/lib/normalizeDealSegment";
+import {
   buyerEntityPickNum,
   buyerEntityPickRaw,
   buyerEntityPickStr,
@@ -723,59 +729,47 @@ function dealObjectRefForSegmentClassification(row: DealExportRow): DealObjectRe
   return out;
 }
 
-/** Явные коды `category` (и типичные алиасы CRM) → не квартиры. Иначе — квартиры. */
-function segmentFromCategorySlugOnly(slug: string): NormalizedObjectType | null {
-  if (
-    slug === "garage" ||
-    slug === "parking" ||
-    slug === "parking_place" ||
-    slug === "parking_space" ||
-    slug === "lot_parking" ||
-    slug === "car_space" ||
-    slug === "мм" ||
-    slug === "mm"
-  )
-    return "parking";
-  if (slug === "storageroom" || slug === "storage") return "storage";
-  if (slug === "comm" || slug === "commercial" || slug === "retail" || slug === "office") return "commercial";
-  return null;
-}
-
 /**
- * Сегментация только по `object.category` (после merge) и подсказкам `category_name` / `name` при пустой категории.
- * Любой заполненный `category`, не относящийся к garage/storage/commercial, трактуется как «Квартиры»
- * (в т.ч. `living`, `flat` и др.).
+ * Сегментация по `object.category`, подписям объекта и доп. полям выгрузки (`objectType`, `segment`, `roomType`, …).
+ * При `living` и аналогичных кодах — сначала {@link normalizeDealSegment}, затем fallback «Квартиры».
  */
-export function resolveObjectSegmentType(obj: DealObjectRef | undefined): NormalizedObjectType {
+export function resolveObjectSegmentType(
+  obj: DealObjectRef | undefined,
+  extraHints = "",
+): NormalizedObjectType {
   const cRaw = String(obj?.category ?? "").trim();
   const cSlug = cRaw.replace(/\s+/g, "_").replace(/-/g, "_").toLowerCase();
 
   const special = segmentFromCategorySlugOnly(cSlug);
   if (special != null) return special;
-  if (cRaw !== "") return "apartment";
 
   const name = String(obj?.category_name ?? "");
   const objectName = String(obj?.name ?? "");
-  const nameBlob = `${name} ${objectName}`.toLowerCase();
-  if (nameBlob.includes("клад")) return "storage";
+  const hintBlob = `${cRaw} ${name} ${objectName} ${extraHints}`.trim();
 
-  const hinted = inferDealProductSegmentFromText(`${cRaw} ${name} ${objectName}`);
-  if (hinted) return hinted;
+  const fromNormalize = normalizeDealSegment(hintBlob);
+  if (fromNormalize != null) return fromNormalize;
+
+  const hinted = inferDealProductSegmentFromText(hintBlob);
+  if (hinted != null) return hinted;
+
+  if (cRaw !== "") return "apartment";
+
+  const nameBlob = `${name} ${objectName}`.toLowerCase();
+  if (nameBlob.includes("клад") || nameBlob.includes("келлер")) return "storage";
 
   return "apartment";
 }
 
 /**
- * Сегмент сделки: `object.category` / `object.category_name`, объединение с `deal.object`, затем при пустой категории — `deal.category`.
- * Не использует `type` / `object_type`.
+ * Сегмент сделки: category + objectType/segment/roomType и др. из JSON.
  */
 export function resolveDealSegmentType(row: DealExportRow): NormalizedObjectType {
-  return resolveObjectSegmentType(dealObjectRefForSegmentClassification(row));
+  const extraHints = collectDealSegmentHintsFromExportRow(row);
+  return resolveObjectSegmentType(dealObjectRefForSegmentClassification(row), extraHints);
 }
 
-/**
- * Сегмент сделки; совпадает с {@link resolveDealSegmentType} (доп. поля выгрузки учитываются внутри него при пустой категории).
- */
+/** Сегмент сделки с эвристиками по всем полям выгрузки. */
 export function resolveDealSegmentTypeWithInference(row: DealExportRow): NormalizedObjectType {
   return resolveDealSegmentType(row);
 }
@@ -1728,6 +1722,10 @@ export function extractDealObjectParams(row: DealExportRow): DealObjectParams {
 export function extractNormalizedDeals(data: unknown): NormalizedDealRow[] {
   const list: DealExportRow[] = Array.isArray(data) ? data : [];
   const out: NormalizedDealRow[] = [];
+
+  if (list.length > 0) {
+    logDealSegmentExportDebug(list);
+  }
 
   for (const item of list) {
     const row = item as DealExportRow;

@@ -100,7 +100,9 @@ export function ParkingPlanPeriodKpiSection({
       projectVolumeUnits={projectVolumeUnits}
       skeleton={csvLoading}
     >
-      <ParkingPerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
+      {!presentation ? (
+        <ParkingPerformanceAnalyticsSection breakdown={analyticsBreakdown} presDark={presDark} presentation={presentation} />
+      ) : null}
     </EntityPlanPeriodKpiSection>
   );
 }

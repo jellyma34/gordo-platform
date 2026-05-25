@@ -1,5 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
-import { isApartmentKpiDealSoldStatus } from "@/lib/apartmentPlanFactsFromDeals";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { buildPerformanceChartRows, type PerformanceChartRow } from "@/lib/entityPerformanceChart";
 import {
   isBiApartmentsSummaryRow,
@@ -111,7 +111,7 @@ export function matchParkingCategoryKey(
 }
 
 export function inferParkingCategoryFromDeal(row: NormalizedDealRow): ParkingPlanCategoryKey | null {
-  if (row.dealType !== "parking") return null;
+  if (!matchesNormalizedDealSegment(row, "parking")) return null;
   const hints = [row.objectParams.type, row.objectLabel, row.objectUnitLabel, row.typeLabel]
     .filter((s) => s != null && String(s).trim() !== "")
     .join(" ");
@@ -346,8 +346,7 @@ function resolveParkingChartCategories(
 
   const dealCats = new Set<ParkingPlanCategoryKey>();
   for (const r of dealRows) {
-    if (r.dealType !== "parking") continue;
-    if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
+    if (!matchesNormalizedDealSegment(r, "parking")) continue;
     const k = inferParkingCategoryFromDeal(r);
     if (k && k !== "total") dealCats.add(k);
   }
@@ -355,9 +354,7 @@ function resolveParkingChartCategories(
     return PARKING_PLAN_CATEGORY_ORDER.filter((m) => dealCats.has(m.key));
   }
 
-  const hasParkingDeals = dealRows.some(
-    (r) => r.dealType === "parking" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel),
-  );
+  const hasParkingDeals = dealRows.some((r) => matchesNormalizedDealSegment(r, "parking"));
   if (hasParkingDeals) return [TOTAL_PARKING_META];
 
   return [];
@@ -380,8 +377,7 @@ export function parkingPlanFactsFromDealsByCategory(
     opts.period === "quarter" && qMonths?.length ? new Set(qMonths) : new Set([opts.currentPeriodKey]);
 
   for (const r of rows) {
-    if (r.dealType !== "parking") continue;
-    if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
+    if (!matchesNormalizedDealSegment(r, "parking")) continue;
     const cat = useTotalOnly ? "total" : inferParkingCategoryFromDeal(r);
     if (!cat || !(cat in result)) continue;
     const mk = canonicalMonthKey(r);

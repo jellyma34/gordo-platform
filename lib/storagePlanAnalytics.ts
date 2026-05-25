@@ -1,5 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
-import { isApartmentKpiDealSoldStatus } from "@/lib/apartmentPlanFactsFromDeals";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { buildPerformanceChartRows, type PerformanceChartRow } from "@/lib/entityPerformanceChart";
 import {
   isBiApartmentsSummaryRow,
@@ -125,7 +125,7 @@ export function matchStorageCategoryKey(
 }
 
 export function inferStorageCategoryFromDeal(row: NormalizedDealRow): StoragePlanCategoryKey | null {
-  if (row.dealType !== "storage") return null;
+  if (!matchesNormalizedDealSegment(row, "storage")) return null;
   const hints = [row.objectParams.type, row.objectLabel, row.objectUnitLabel, row.typeLabel]
     .filter((s) => s != null && String(s).trim() !== "")
     .join(" ");
@@ -360,8 +360,7 @@ function resolveStorageChartCategories(
 
   const dealCats = new Set<StoragePlanCategoryKey>();
   for (const r of dealRows) {
-    if (r.dealType !== "storage") continue;
-    if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
+    if (!matchesNormalizedDealSegment(r, "storage")) continue;
     const k = inferStorageCategoryFromDeal(r);
     if (k && k !== "total") dealCats.add(k);
   }
@@ -369,9 +368,7 @@ function resolveStorageChartCategories(
     return STORAGE_PLAN_CATEGORY_ORDER.filter((m) => dealCats.has(m.key));
   }
 
-  const hasStorageDeals = dealRows.some(
-    (r) => r.dealType === "storage" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel),
-  );
+  const hasStorageDeals = dealRows.some((r) => matchesNormalizedDealSegment(r, "storage"));
   if (hasStorageDeals) return [TOTAL_STORAGE_META];
 
   return [];
@@ -394,8 +391,7 @@ export function storagePlanFactsFromDealsByCategory(
     opts.period === "quarter" && qMonths?.length ? new Set(qMonths) : new Set([opts.currentPeriodKey]);
 
   for (const r of rows) {
-    if (r.dealType !== "storage") continue;
-    if (!isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel)) continue;
+    if (!matchesNormalizedDealSegment(r, "storage")) continue;
     const cat = useTotalOnly ? "total" : inferStorageCategoryFromDeal(r);
     if (!cat || !(cat in result)) continue;
     const mk = canonicalMonthKey(r);

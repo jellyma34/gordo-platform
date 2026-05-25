@@ -3,6 +3,7 @@ import {
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
 import { canonicalMonthKey } from "@/lib/apartmentPlanFactsFromDeals";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { inferApartmentPlanTypeKeyFromDeal, type ApartmentPlanTypeKey } from "@/lib/apartmentPlanTypeKpi";
 import type { DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
@@ -204,15 +205,20 @@ export function buildSqmPriceDynamicsBundle(rows: readonly NormalizedDealRow[]):
     const inputs = dealPriceAndArea(r);
     if (!inputs) continue;
 
-    if (r.dealType === "apartment") {
+    if (matchesNormalizedDealSegment(r, "apartment")) {
       const typeKey = inferApartmentPlanTypeKeyFromDeal(r);
       if (!typeKey) continue;
       bumpCell(aptCellsByType[typeKey], mk, inputs);
       continue;
     }
 
-    if (r.dealType === "parking" || r.dealType === "storage") {
-      bumpCell(propCellsByType[r.dealType], mk, inputs);
+    if (matchesNormalizedDealSegment(r, "parking")) {
+      bumpCell(propCellsByType.parking, mk, inputs);
+      continue;
+    }
+
+    if (matchesNormalizedDealSegment(r, "storage")) {
+      bumpCell(propCellsByType.storage, mk, inputs);
     }
   }
 

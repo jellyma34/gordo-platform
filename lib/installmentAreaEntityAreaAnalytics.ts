@@ -1,4 +1,5 @@
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
+import { matchesNormalizedDealSegment } from "@/lib/normalizeDealSegment";
 import {
   apartmentPlanKpiDedupKey,
   canonicalMonthKey,
@@ -131,7 +132,7 @@ function parkingFactsByCategory(
   const { endMonthKey } = resolveKpiMonthWindow(period, currentPeriodKey);
 
   const sorted = [...dealRows]
-    .filter((r) => r.dealType === "parking" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel))
+    .filter((r) => matchesNormalizedDealSegment(r, "parking") && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel))
     .filter((r) => canonicalMonthKey(r) != null)
     .sort((a, b) => {
       const d = a.dealDateMs - b.dealDateMs;
@@ -163,7 +164,7 @@ function storageFactsByCategory(
   const { endMonthKey } = resolveKpiMonthWindow(period, currentPeriodKey);
 
   const sorted = [...dealRows]
-    .filter((r) => r.dealType === "storage" && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel))
+    .filter((r) => matchesNormalizedDealSegment(r, "storage") && isApartmentKpiDealSoldStatus(r.statusLabel, r.dealKindLabel))
     .filter((r) => canonicalMonthKey(r) != null)
     .sort((a, b) => {
       const d = a.dealDateMs - b.dealDateMs;

@@ -13,6 +13,13 @@ type Props = {
   unitSuffix?: string;
 };
 
+/** Breakdown-графики плана/факта — только режим редактирования. */
+const PLAN_EXECUTION_ANALYTICS_HIDDEN_IN_PRESENTATION = new Set([
+  "Аналитика выполнения плана по комнатности",
+  "Аналитика выполнения плана по машино-местам",
+  "Аналитика выполнения плана по кладовым",
+]);
+
 export function EntityPerformanceAnalyticsSection({
   title,
   rows,
@@ -22,6 +29,10 @@ export function EntityPerformanceAnalyticsSection({
   emptyMessage = "Нет данных для графика",
   unitSuffix,
 }: Props) {
+  if (presentation && PLAN_EXECUTION_ANALYTICS_HIDDEN_IN_PRESENTATION.has(title)) {
+    return null;
+  }
+
   const shellCls = presDark
     ? "rounded-[20px] border border-white/10 bg-slate-900/40 shadow-[0_6px_24px_rgba(0,0,0,0.2)]"
     : presentation
