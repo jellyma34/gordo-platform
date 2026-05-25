@@ -3,7 +3,15 @@
 import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import { PremiumSegmentIllustration } from "@/components/marketing/PremiumSegmentIllustration";
 import { DDU_REVENUE_PREMIUM_KPI_UI } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
-import { numFmt } from "@/lib/salesPlanChartFormat";
+import { formatCompactNumberWithoutCurrency } from "@/lib/formatCompactCurrencyRu";
+import { formatFullNumber, numFmt } from "@/lib/salesPlanChartFormat";
+
+function projectPlanFullNumberFontSize(displayLength: number): string {
+  if (displayLength >= 14) return "clamp(0.62rem, 1.55vw, 0.78rem)";
+  if (displayLength >= 11) return "clamp(0.7rem, 1.85vw, 0.88rem)";
+  if (displayLength >= 9) return "clamp(0.78rem, 2.1vw, 0.98rem)";
+  return "clamp(0.85rem, 2.4vw, 1.12rem)";
+}
 
 type BaseProps = {
   illustrationSegment: DealSegmentKey;
@@ -16,6 +24,9 @@ type BaseProps = {
 type CurrencyProps = BaseProps & {
   mode?: "currency";
   rub: number;
+  showCurrencySymbol?: boolean;
+  /** KPI «План проекта»: полное число без млн/млрд (блок ДДУ). */
+  projectPlanFullNumber?: boolean;
 };
 
 type UnitsProps = BaseProps & {
@@ -42,6 +53,10 @@ export function PremiumSegmentVolumeCard(props: PremiumSegmentVolumeCardProps) {
       : Number.isFinite(props.rub) && props.rub > 0;
 
   if (!skeleton && !hasValue) return null;
+
+  const useProjectPlanFullNumber = props.mode !== "units" && props.projectPlanFullNumber === true;
+  const projectPlanDisplay =
+    props.mode !== "units" && useProjectPlanFullNumber ? formatFullNumber(props.rub) : null;
 
   const UI = DDU_REVENUE_PREMIUM_KPI_UI;
   const surface = presDark
@@ -111,11 +126,29 @@ export function PremiumSegmentVolumeCard(props: PremiumSegmentVolumeCardProps) {
           ) : (
             <>
               <p
-                className={`mt-1.5 tabular-nums leading-[1.12] tracking-tight ${presDark ? "text-slate-50" : "text-slate-900"}`}
-                style={{ fontSize: "clamp(1rem, 1.35vw, 1.25rem)", fontWeight: 700 }}
+                className={`mt-1.5 w-full max-w-full px-0.5 tabular-nums tracking-tight ${
+                  useProjectPlanFullNumber
+                    ? "whitespace-normal break-words leading-[1.15]"
+                    : "leading-[1.12]"
+                } ${presDark ? "text-slate-50" : "text-slate-900"}`}
+                style={{
+                  fontSize:
+                    useProjectPlanFullNumber && projectPlanDisplay
+                      ? projectPlanFullNumberFontSize(projectPlanDisplay.length)
+                      : "clamp(1rem, 1.35vw, 1.25rem)",
+                  fontWeight: 700,
+                }}
               >
-                {numFmt.format(Math.round(props.rub))}{" "}
-                <span className="text-[0.72em] font-semibold">₽</span>
+                {useProjectPlanFullNumber ? (
+                  projectPlanDisplay
+                ) : props.showCurrencySymbol === false ? (
+                  formatCompactNumberWithoutCurrency(props.rub)
+                ) : (
+                  <>
+                    {numFmt.format(Math.round(props.rub))}{" "}
+                    <span className="text-[0.72em] font-semibold">₽</span>
+                  </>
+                )}
               </p>
               <p className={`mt-1.5 text-[11px] font-medium leading-snug ${presDark ? "text-slate-500" : "text-[#64748B]"}`}>
                 {subtitle}

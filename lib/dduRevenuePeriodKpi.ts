@@ -1,7 +1,12 @@
 import type { EntityPlanPeriodKpiCardsData } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiCards";
 import type { DduRevenueDealFacts } from "@/lib/dduRevenueFactsFromDeals";
 import type { DduRevenueKpiPlanSlice } from "@/lib/planDataSource/dduRevenue/dduRevenuePlanSlice";
-import { formatCompactCurrencyRu, formatCompactCurrencyRuParts } from "@/lib/formatCompactCurrencyRu";
+import {
+  formatCompactCurrencyRu,
+  formatCompactCurrencyRuParts,
+  formatCompactNumberWithoutCurrency,
+  formatCompactNumberWithoutCurrencyParts,
+} from "@/lib/formatCompactCurrencyRu";
 
 export type DduRevenuePeriodKpiUiData =
   | ({
@@ -21,6 +26,17 @@ export function formatDduRevenueRubParts(
   n: number | null | undefined,
 ): { value: string; unit: string } | { value: "—" } {
   return formatCompactCurrencyRuParts(n);
+}
+
+/** KPI блока «Продажи по заключенным ДДУ» (без символа ₽ в карточках). */
+export function formatDduRevenueRubWithoutCurrency(n: number | null | undefined): string {
+  return formatCompactNumberWithoutCurrency(n);
+}
+
+export function formatDduRevenueRubWithoutCurrencyParts(
+  n: number | null | undefined,
+): { value: string; unit: string } | { value: "—" } {
+  return formatCompactNumberWithoutCurrencyParts(n);
 }
 
 export function dduRevenueExecutionPercent(

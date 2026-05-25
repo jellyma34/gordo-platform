@@ -126,7 +126,7 @@ export function dduRevenueFactsFromDealsByTypeForKpi(
 function dduRevenueFactsForDealType(
   rows: readonly NormalizedDealRow[],
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
-  dealType: "parking" | "storage",
+  dealType: "parking" | "storage" | "commercial",
 ): DduRevenueDealFacts {
   const { endMonthKey, monthKeysInPeriod } = resolveKpiMonthWindow(opts.period, opts.currentPeriodKey);
 
@@ -172,4 +172,11 @@ export function dduRevenueStorageFactsFromDealsForKpi(
   opts: { period: "month" | "quarter"; currentPeriodKey: string },
 ): DduRevenueDealFacts {
   return dduRevenueFactsForDealType(rows, opts, "storage");
+}
+
+export function dduRevenueCommercialFactsFromDealsForKpi(
+  rows: readonly NormalizedDealRow[],
+  opts: { period: "month" | "quarter"; currentPeriodKey: string },
+): DduRevenueDealFacts {
+  return dduRevenueFactsForDealType(rows, opts, "commercial");
 }

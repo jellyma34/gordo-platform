@@ -1,4 +1,5 @@
 import { matchApartmentPlanTypeKey } from "@/lib/apartmentPlanTypeKpi";
+import { roomTypeNormalized } from "@/lib/roomTypeNormalized";
 import { isParkingDetailSegment } from "@/lib/parkingPlanAnalytics";
 import { isStorageDetailSegment } from "@/lib/storagePlanAnalytics";
 import { isNonApartmentPropertyRow } from "@/lib/planDataSource/apartmentPlanKpiEntity";
@@ -52,7 +53,7 @@ function isDduRevenueRoomTypeRow(segmentNorm: string, rawLabel: string): boolean
   if (isGrandTotalRow(segmentNorm, rawLabel)) return false;
   if (isApartmentRootSummaryRow(segmentNorm, rawLabel)) return false;
   if (isNonApartmentPropertyRow(segmentNorm, rawLabel)) return false;
-  return matchApartmentPlanTypeKey(segmentNorm, rawLabel) != null;
+  return roomTypeNormalized(segmentNorm, rawLabel) != null || matchApartmentPlanTypeKey(segmentNorm, rawLabel) != null;
 }
 
 function isDduRevenueEntityDetailRow(segmentNorm: string, rawLabel: string): boolean {

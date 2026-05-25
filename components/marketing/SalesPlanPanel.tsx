@@ -159,6 +159,7 @@ import {
 } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
+import { DduSalesChart } from "@/components/marketing/dduRevenue/DduSalesChart";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
@@ -3727,6 +3728,16 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         onRevenueFactCsvDocChange={setRevenueFactCsvDoc}
         csvUploadProjectId={paymentPlanProjectId}
         csvUploadedBy={paymentUploadedByLabel}
+      />
+
+      <DduSalesChart
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplPremium}
+        period={period}
+        objectId={objectId}
+        currentPeriodKey={analytics.currentPeriodKey}
+        sectionSpacing="sales-plan"
       />
 
       {!presentation ? (

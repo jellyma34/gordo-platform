@@ -28,6 +28,10 @@ type Props = {
   sectionTitle?: string;
   /** Формат чисел в карточках (напр. кв.м). */
   formatMetric?: (n: number) => string;
+  /** `false` — KPI без символа «₽» (блок «Продажи по заключенным ДДУ»). */
+  metricIncludesCurrency?: boolean;
+  /** KPI «План проекта»: полное число без сокращений. */
+  projectPlanFullNumber?: boolean;
   /** Левый rail «Площадь проекта» (десятичное значение, кв.м). */
   projectVolume?: { value: number; unit: string; caption: string } | null;
   /** Левый rail «План проекта» (компактные рубли). */
@@ -59,6 +63,8 @@ export function EntityPlanPeriodKpiSection({
   emptyMessage = "Нет данных",
   sectionTitle = "Выполнение плана отчетного периода",
   formatMetric,
+  metricIncludesCurrency = true,
+  projectPlanFullNumber = false,
   projectVolume,
   projectVolumeCompactCurrency,
   projectVolumeUnits,
@@ -199,6 +205,8 @@ export function EntityPlanPeriodKpiSection({
           mplPremium={mplPremium}
           skeleton={skeleton}
           formatMetric={formatMetric}
+          metricIncludesCurrency={metricIncludesCurrency}
+          projectPlanFullNumber={projectPlanFullNumber}
           layout={cardsLayout}
           cardsDensity={premiumLayout ? "ddu-revenue-premium" : cardsDensity}
           planVolume={premiumPlanVolume}

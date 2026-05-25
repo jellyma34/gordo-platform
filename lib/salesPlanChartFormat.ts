@@ -4,6 +4,12 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
 });
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+
+/** Полное целое с разделением тысяч пробелами: «1 502 050 089» (без млн/млрд и без ₽). */
+export function formatFullNumber(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return numFmt.format(Math.round(n));
+}
 export const dec1Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 export const dec2Fmt = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

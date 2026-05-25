@@ -10,6 +10,8 @@ type Props = {
   illustrationSegment?: DealSegmentKey;
   presDark: boolean;
   skeleton?: boolean;
+  showCurrencySymbol?: boolean;
+  projectPlanFullNumber?: boolean;
 };
 
 /** Карточка «План проекта» в premium-сетке KPI (DDU / стоимость проекта). */
@@ -20,6 +22,8 @@ export function EntityProjectVolumePlanCard({
   illustrationSegment = "apartment",
   presDark,
   skeleton = false,
+  showCurrencySymbol = true,
+  projectPlanFullNumber = false,
 }: Props) {
   return (
     <PremiumSegmentVolumeCard
@@ -29,6 +33,8 @@ export function EntityProjectVolumePlanCard({
       illustrationSegment={illustrationSegment}
       presDark={presDark}
       skeleton={skeleton}
+      showCurrencySymbol={showCurrencySymbol}
+      projectPlanFullNumber={projectPlanFullNumber}
     />
   );
 }

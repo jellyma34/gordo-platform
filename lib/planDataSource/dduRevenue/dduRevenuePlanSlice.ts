@@ -1,5 +1,6 @@
 import {
   isApartmentRootSummaryRow,
+  isCommercialRootSummaryRow,
   isParkingRootSummaryRow,
   isStorageRootSummaryRow,
 } from "@/lib/planDataSource/entityRowMatchers";
@@ -59,4 +60,10 @@ export function selectDduRevenueStoragePlanSliceForKpi(
   storageSummary?: DduRevenueEntitySummary | null,
 ): DduRevenueKpiPlanSlice | null {
   return pickEntityRoot(rows, storageSummary, isStorageRootSummaryRow);
+}
+
+export function selectDduRevenueCommercialPlanSliceForKpi(
+  rows: readonly DduRevenueNormalizedRow[],
+): DduRevenueKpiPlanSlice | null {
+  return pickEntityRoot(rows, null, isCommercialRootSummaryRow);
 }
