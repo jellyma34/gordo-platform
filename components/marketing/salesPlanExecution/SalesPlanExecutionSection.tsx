@@ -10,9 +10,7 @@ import {
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { UploadPlanFactCsvButton } from "@/components/marketing/UploadPlanFactCsvButton";
-import { ExecutionProgressCard } from "@/components/marketing/salesPlanExecution/ExecutionProgressCard";
 import { PlanFactChart } from "@/components/marketing/salesPlanExecution/PlanFactChart";
-import { PlanFactSummary } from "@/components/marketing/salesPlanExecution/PlanFactSummary";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
   useSalesPlanExecutionBlock,
@@ -34,8 +32,8 @@ type Props = UseSalesPlanExecutionBlockArgs & {
 };
 
 /**
- * Полный блок «Исполнение плана продаж / План vs факт»:
- * KPI → график → progress. Не путать с PlanExecutionMonthlyPlanFactLineCard (только график).
+ * Блок «Исполнение плана продаж»: заголовок, режим графика, легенда, plan/fact line chart.
+ * Не путать с PlanExecutionMonthlyPlanFactLineCard (только график).
  */
 export function SalesPlanExecutionSection({
   presentation,
@@ -60,12 +58,11 @@ export function SalesPlanExecutionSection({
     monthlyPlanVsFact,
     hasPlanFactCsv,
   });
-  const { chartMode, setChartMode, chartRows, summary, hasData, currentPeriodKey: periodKey } = block;
+  const { chartMode, setChartMode, chartRows, hasData, currentPeriodKey: periodKey } = block;
 
   const shellCls = analyticsDashboardShellClass(presDark, presentation, mplPremium);
   const segmentSurface = resolveAnalyticsSegmentSurface(presDark, presentation, mplPremium);
   const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
-  const subtitleCls = presDark ? "text-slate-400" : "text-slate-500";
   const pillsWrapCls = presDark
     ? "flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     : "flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
@@ -90,9 +87,9 @@ export function SalesPlanExecutionSection({
       data-analytics-section="sales-plan-execution-full"
     >
       <div
-        className={`relative min-w-0 overflow-hidden px-4 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-5 md:px-6 md:pt-5 md:pb-5 ${shellCls}`}
+        className={`relative min-w-0 overflow-hidden px-4 pt-3.5 pb-3 sm:px-5 sm:pt-4 sm:pb-3.5 md:px-6 md:pt-4 md:pb-3.5 ${shellCls}`}
       >
-        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <header className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2
               id="sales-plan-execution-heading"
@@ -100,9 +97,8 @@ export function SalesPlanExecutionSection({
             >
               Исполнение плана продаж
             </h2>
-            <p className={`mt-1 text-xs font-medium ${subtitleCls}`}>План vs факт</p>
           </div>
-          <div className="flex min-w-0 shrink-0 flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex min-w-0 shrink-0 flex-col items-stretch gap-1.5 sm:items-end">
             {showPlanFactCsvUpload ? (
               <UploadPlanFactCsvButton
                 hasCsv={hasPlanFactCsv}
@@ -136,23 +132,15 @@ export function SalesPlanExecutionSection({
         </header>
 
         {showDashboard ? (
-          <div className="flex flex-col gap-4">
-            <PlanFactSummary summary={summary} presDark={presDark} presentation={presentation} />
-            <PlanFactChart
-              rows={chartRows}
-              chartKey={chartAnimKey}
-              presDark={presDark}
-              presentation={presentation}
-              mplPremium={mplPremium}
-            />
-            <ExecutionProgressCard
-              percentComplete={summary.percentComplete}
-              presDark={presDark}
-              presentation={presentation}
-            />
-          </div>
+          <PlanFactChart
+            rows={chartRows}
+            chartKey={chartAnimKey}
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+          />
         ) : (
-          <p className={`py-8 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+          <p className={`py-6 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>
             Нет данных плана и факта продаж для выбранного среза. Загрузите CSV «поступления_план_факт» в режиме
             редактирования.
           </p>

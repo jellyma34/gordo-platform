@@ -6,6 +6,9 @@ import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactCha
 
 export type SalesPlanExecutionChartMode = "monthly" | "cumulative";
 
+/** Месяцы, исключённые из графика «Исполнение плана продаж» (данные в CSV/хранилище не трогаем). */
+export const SALES_PLAN_EXECUTION_CHART_EXCLUDED_PERIOD_KEYS = new Set<string>(["2025-09"]);
+
 export type SalesPlanExecutionMergedRow = {
   periodKey: string;
   label: string;
@@ -88,12 +91,20 @@ export function buildSalesPlanExecutionMergedRows(
   });
 }
 
+/** Строки для line chart: без месяцев из {@link SALES_PLAN_EXECUTION_CHART_EXCLUDED_PERIOD_KEYS}. */
+export function filterSalesPlanExecutionChartMergedRows(
+  rows: readonly SalesPlanExecutionMergedRow[],
+): SalesPlanExecutionMergedRow[] {
+  return rows.filter((r) => !SALES_PLAN_EXECUTION_CHART_EXCLUDED_PERIOD_KEYS.has(r.periodKey));
+}
+
 export function buildSalesPlanExecutionChartRows(
   rows: readonly SalesPlanExecutionMergedRow[],
   mode: SalesPlanExecutionChartMode,
 ): SalesPlanExecutionChartRow[] {
+  const chartRows = filterSalesPlanExecutionChartMergedRows(rows);
   if (mode === "monthly") {
-    return rows.map((r) => ({
+    return chartRows.map((r) => ({
       periodKey: r.periodKey,
       label: r.label,
       plan: r.planRub > 0 ? r.planRub : null,
@@ -102,7 +113,7 @@ export function buildSalesPlanExecutionChartRows(
   }
   let planRun = 0;
   let factRun = 0;
-  return rows.map((r) => {
+  return chartRows.map((r) => {
     planRun += r.planRub;
     factRun += r.factRub;
     return {

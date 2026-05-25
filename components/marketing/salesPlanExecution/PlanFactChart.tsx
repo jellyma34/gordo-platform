@@ -107,9 +107,9 @@ export function PlanFactChart({
       <CashflowInflowChartLegendToolbar
         chrome={{ presDark, presentation }}
         showPlan
-        className="mb-2"
+        className="mb-1.5"
       />
-      <div className="min-w-0 overflow-visible pt-1 pb-2">
+      <div className="min-w-0 overflow-visible pb-1">
         <div className="h-[280px] min-h-[280px] w-full overflow-visible sm:h-[300px] sm:min-h-[300px] [&_svg]:overflow-visible">
           <ResponsiveContainer width="100%" height="100%" className="!overflow-visible [&_svg]:overflow-visible">
             <LineChart
