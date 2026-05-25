@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DduRevenueSection } from "@/components/marketing/dduRevenue/DduRevenueSection";
 import { InstallmentAreaSection } from "@/components/marketing/installmentArea/InstallmentAreaSection";
+import { InventoryDepletionSection } from "@/components/marketing/inventoryDepletion/InventoryDepletionSection";
 import { InstallmentForecastSection } from "@/components/marketing/installmentForecast/InstallmentForecastSection";
 import { ProjectValueSection } from "@/components/marketing/projectValue/ProjectValueSection";
 import { SqmPriceDynamicsSection } from "@/components/marketing/sqmPriceDynamics/SqmPriceDynamicsSection";
@@ -97,6 +98,14 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
         presDark={presDark}
         mplPremium={mplLight}
         isEditMode={!presentation}
+        period={period}
+        objectId={objectId}
+      />
+
+      <InventoryDepletionSection
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplLight}
         period={period}
         objectId={objectId}
       />
