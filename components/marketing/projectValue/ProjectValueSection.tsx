@@ -31,6 +31,7 @@ import {
 } from "@/lib/marketingProjectValueCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
+import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectProjectValueCommercialPlanSliceForKpi,
@@ -227,7 +228,7 @@ export function ProjectValueSection({
 
   return (
     <div
-      className={`relative mt-6 min-w-0 border-t pt-6 ${presDark ? "border-white/10" : "border-slate-200/50"} ${
+      className={`${marketingAnalyticsMajorSectionClass(presDark)} ${
         dragOver && isEditMode ? (presDark ? "ring-2 ring-amber-500/40" : "ring-2 ring-amber-400/50") : ""
       }`}
       onDragOver={
@@ -312,6 +313,7 @@ export function ProjectValueSection({
       {!hydrated || (busy && isEditMode) ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -321,11 +323,14 @@ export function ProjectValueSection({
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
+          cardsDensity="ddu-revenue-premium"
           skeleton
         />
       ) : !hasAnyData ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -335,12 +340,15 @@ export function ProjectValueSection({
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
+          cardsDensity="ddu-revenue-premium"
           showEmpty
           emptyMessage="Подгрузите CSV стоимости проекта или дождитесь данных системы"
         />
       ) : (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={PROJECT_VALUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -350,6 +358,8 @@ export function ProjectValueSection({
           formatMetric={formatProjectValueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
+          cardsDensity="ddu-revenue-premium"
         />
       )}
 
@@ -357,6 +367,7 @@ export function ProjectValueSection({
         <>
           <ProjectValueEntityKpiSection
             entityLabel="Парковки"
+            illustrationSegment="parking"
             kpiData={parkingKpiData}
             presDark={presDark}
             presentation={presentation}
@@ -366,6 +377,7 @@ export function ProjectValueSection({
           />
           <ProjectValueEntityKpiSection
             entityLabel="Кладовые"
+            illustrationSegment="storage"
             kpiData={storageKpiData}
             presDark={presDark}
             presentation={presentation}
@@ -375,6 +387,7 @@ export function ProjectValueSection({
           />
           <ProjectValueEntityKpiSection
             entityLabel="Коммерческие помещения"
+            illustrationSegment="commercial"
             kpiData={commercialKpiData}
             presDark={presDark}
             presentation={presentation}

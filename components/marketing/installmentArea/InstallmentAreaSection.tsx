@@ -42,6 +42,7 @@ import {
 } from "@/lib/marketingInstallmentAreaCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
+import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectInstallmentAreaParkingPlanSliceForKpi,
@@ -286,7 +287,7 @@ export function InstallmentAreaSection({
 
   return (
     <div
-      className={`relative mt-6 min-w-0 border-t pt-6 ${presDark ? "border-white/10" : "border-slate-200/50"} ${
+      className={`${marketingAnalyticsMajorSectionClass(presDark)} ${
         dragOver && isEditMode ? (presDark ? "ring-2 ring-teal-500/40" : "ring-2 ring-teal-400/50") : ""
       }`}
       onDragOver={

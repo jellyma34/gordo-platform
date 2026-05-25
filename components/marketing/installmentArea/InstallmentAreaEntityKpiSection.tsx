@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { EntityPerformanceAnalyticsSection } from "@/components/marketing/EntityPerformanceAnalyticsSection";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
+import { marketingAnalyticsSegmentBorderColor } from "@/lib/marketingAnalyticsSectionShell";
 import {
   buildInstallmentAreaEntityAreaChartRows,
   installmentAreaEntityAnalyticsHasData,
@@ -58,8 +59,12 @@ export function InstallmentAreaEntityKpiSection({
   if (!hasKpi && !skeleton && !showEmpty) return null;
 
   return (
-    <div className="mt-6 min-w-0 border-t pt-6 md:mt-7 md:pt-7" style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}>
+    <div
+      className="mt-6 min-w-0 border-t pt-6 md:mt-7 md:pt-7"
+      style={{ borderColor: marketingAnalyticsSegmentBorderColor(presDark) }}
+    >
       <EntityPlanPeriodKpiSection
+        embedded
         entityLabel={entityLabel}
         theme={theme}
         cardsData={cardsData}

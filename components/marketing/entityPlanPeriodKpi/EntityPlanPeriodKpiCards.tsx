@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
 import { formatDduRevenueRubParts } from "@/lib/dduRevenuePeriodKpi";
 import { formatProjectValueRubParts } from "@/lib/projectValuePeriodKpi";
@@ -12,6 +13,7 @@ import {
   type ApartmentKpiHue,
 } from "@/lib/apartmentsPlanPeriodKpi";
 import { EntityProjectVolumePlanCard } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumePlanCard";
+import { PremiumSegmentVolumeCard } from "@/components/marketing/PremiumSegmentVolumeCard";
 import { dec1Fmt, dec2Fmt, numFmt } from "@/lib/salesPlanChartFormat";
 
 export const ENTITY_KPI_UI = {
@@ -1013,6 +1015,7 @@ export function EntityPlanPeriodKpiCardsGrid({
   layout = "full",
   cardsDensity = "default",
   planVolume = null,
+  planVolumeUnits = null,
 }: {
   theme: EntityKpiTheme;
   data: EntityPlanPeriodKpiCardsData;
@@ -1025,7 +1028,8 @@ export function EntityPlanPeriodKpiCardsGrid({
   layout?: "full" | "stacked" | "room-type" | "ddu-revenue-premium";
   /** Компактная типографика площади (парковки / кладовые). */
   cardsDensity?: EntityKpiCardsDensity;
-  planVolume?: { rub: number; caption: string } | null;
+  planVolume?: { rub: number; caption: string; illustrationSegment?: DealSegmentKey } | null;
+  planVolumeUnits?: { count: number; unit: string; illustrationSegment?: DealSegmentKey } | null;
 }) {
   const fmt = formatMetric ?? formatKpiCount;
   const density = cardsDensity;
@@ -1150,23 +1154,35 @@ export function EntityPlanPeriodKpiCardsGrid({
   );
 
   if (layout === "ddu-revenue-premium") {
+    const volumeRail =
+      planVolume && planVolume.rub > 0 ? (
+        <EntityProjectVolumePlanCard
+          rub={planVolume.rub}
+          caption={planVolume.caption}
+          illustrationSegment={planVolume.illustrationSegment ?? "apartment"}
+          presDark={presDark}
+          skeleton={skeleton}
+        />
+      ) : planVolumeUnits && planVolumeUnits.count > 0 ? (
+        <PremiumSegmentVolumeCard
+          mode="units"
+          count={planVolumeUnits.count}
+          unit={planVolumeUnits.unit}
+          illustrationSegment={planVolumeUnits.illustrationSegment ?? "apartment"}
+          presDark={presDark}
+          skeleton={skeleton}
+        />
+      ) : (
+        <div
+          className="hidden lg:block"
+          style={{ minHeight: kpiUiTokens(density).cardMinHeight }}
+          aria-hidden
+        />
+      );
+
     return (
       <div className={gridCls}>
-        {planVolume && planVolume.rub > 0 ? (
-          <EntityProjectVolumePlanCard
-            rub={planVolume.rub}
-            caption={planVolume.caption}
-            presDark={presDark}
-            skeleton={skeleton}
-            density={density}
-          />
-        ) : (
-          <div
-            className="hidden lg:block"
-            style={{ minHeight: kpiUiTokens(density).cardMinHeight }}
-            aria-hidden
-          />
-        )}
+        {volumeRail}
         {kpiCards}
       </div>
     );

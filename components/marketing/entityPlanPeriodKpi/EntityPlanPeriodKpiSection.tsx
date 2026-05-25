@@ -2,6 +2,7 @@
 
 import { useMemo, type ReactNode } from "react";
 
+import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import {
   EntityPlanPeriodKpiCardsGrid,
   type EntityKpiCardsDensity,
@@ -13,6 +14,8 @@ import { apartmentKpiExecutionPercent } from "@/lib/apartmentsPlanPeriodKpi";
 
 type Props = {
   entityLabel: string;
+  /** Иллюстрация в карточке «План проекта» (крупная centered-иконка сегмента). */
+  illustrationSegment?: DealSegmentKey;
   theme: EntityKpiTheme;
   cardsData: EntityPlanPeriodKpiCardsData;
   presDark: boolean;
@@ -45,6 +48,7 @@ type Props = {
 
 export function EntityPlanPeriodKpiSection({
   entityLabel,
+  illustrationSegment = "apartment",
   theme,
   cardsData,
   presDark,
@@ -97,6 +101,22 @@ export function EntityPlanPeriodKpiSection({
     : embedded
       ? "mb-4"
       : "mb-5 min-w-0 md:mb-6";
+  const showEntityTitle = !(premiumLayout && presentation && leadingSection);
+  const premiumPlanVolume =
+    premiumLayout && projectVolumeCompactCurrency
+      ? {
+          ...projectVolumeCompactCurrency,
+          illustrationSegment,
+        }
+      : undefined;
+  const premiumPlanVolumeUnits =
+    premiumLayout && projectVolumeUnits
+      ? {
+          count: projectVolumeUnits.count,
+          unit: projectVolumeUnits.unit,
+          illustrationSegment,
+        }
+      : undefined;
   const railLayoutCls =
     cardsLayout === "stacked"
       ? "flex min-w-0 flex-col gap-4"
@@ -110,9 +130,7 @@ export function EntityPlanPeriodKpiSection({
         {!embedded ? (
           <h2 className={`text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`}>{sectionTitle}</h2>
         ) : null}
-        {premiumLayout && presentation && leadingSection ? null : (
-          <p className={entityTitleCls}>{entityLabel}</p>
-        )}
+        {showEntityTitle ? <p className={entityTitleCls}>{entityLabel}</p> : null}
         <p className={`mt-6 py-10 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>{emptyMessage}</p>
       </div>
     );
@@ -134,9 +152,7 @@ export function EntityPlanPeriodKpiSection({
             {sectionTitle}
           </h2>
         ) : null}
-        {premiumLayout && presentation && leadingSection ? null : (
-          <p className={entityTitleCls}>{entityLabel}</p>
-        )}
+        {showEntityTitle ? <p className={entityTitleCls}>{entityLabel}</p> : null}
       </div>
 
       <div className={railLayoutCls}>
@@ -189,7 +205,8 @@ export function EntityPlanPeriodKpiSection({
           formatMetric={formatMetric}
           layout={cardsLayout}
           cardsDensity={premiumLayout ? "ddu-revenue-premium" : cardsDensity}
-          planVolume={premiumLayout ? projectVolumeCompactCurrency : undefined}
+          planVolume={premiumPlanVolume}
+          planVolumeUnits={premiumPlanVolumeUnits}
         />
       </div>
 

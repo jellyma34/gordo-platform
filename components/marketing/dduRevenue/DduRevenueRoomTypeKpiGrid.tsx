@@ -49,6 +49,7 @@ export function DduRevenueRoomTypeKpiGrid({ breakdown, presDark, presentation, m
                 embedded
                 cardsLayout="ddu-revenue-premium"
                 entityLabel={slice.label}
+                illustrationSegment="apartment"
                 theme={DDU_REVENUE_KPI_THEME}
                 cardsData={cardsData}
                 presDark={presDark}

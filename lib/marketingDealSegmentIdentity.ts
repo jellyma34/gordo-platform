@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Building2, Car, CircleHelp, Package, ShoppingBag } from "lucide-react";
+import { Building2, CarFront, CircleHelp, Package, Store } from "lucide-react";
 
 /**
  * Ключи сегментов сделок для маркетингового UI (совпадают с DealSegmentKey в DealsSection).
@@ -9,10 +9,37 @@ export type MarketingDealSegmentUiKey = "apartment" | "parking" | "storage" | "c
 /** Lucide-иконки сегментов — один источник для KPI и карточек «Сделки». */
 export const MARKETING_DEAL_SEGMENT_ICONS: Record<MarketingDealSegmentUiKey, LucideIcon> = {
   apartment: Building2,
-  parking: Car,
+  parking: CarFront,
   storage: Package,
-  commercial: ShoppingBag,
+  commercial: Store,
   other: CircleHelp,
+};
+
+/** Premium-иллюстрация: единый pastel blue для всех сегментов (см. PremiumSegmentIllustration). */
+export const MARKETING_DEAL_SEGMENT_ILLUSTRATION_STYLE: Record<
+  MarketingDealSegmentUiKey,
+  { light: { circleBg: string; iconColor: string }; dark: { circleBg: string; iconColor: string } }
+> = {
+  apartment: {
+    light: { circleBg: "#F3F6FF", iconColor: "#B8C7F8" },
+    dark: { circleBg: "rgba(99,102,241,0.12)", iconColor: "rgba(191,203,248,0.55)" },
+  },
+  parking: {
+    light: { circleBg: "#F3F6FF", iconColor: "#B8C7F8" },
+    dark: { circleBg: "rgba(99,102,241,0.12)", iconColor: "rgba(191,203,248,0.55)" },
+  },
+  storage: {
+    light: { circleBg: "#F3F6FF", iconColor: "#B8C7F8" },
+    dark: { circleBg: "rgba(99,102,241,0.12)", iconColor: "rgba(191,203,248,0.55)" },
+  },
+  commercial: {
+    light: { circleBg: "#F3F6FF", iconColor: "#B8C7F8" },
+    dark: { circleBg: "rgba(99,102,241,0.12)", iconColor: "rgba(191,203,248,0.55)" },
+  },
+  other: {
+    light: { circleBg: "#F3F6FF", iconColor: "#B8C7F8" },
+    dark: { circleBg: "rgba(99,102,241,0.12)", iconColor: "rgba(191,203,248,0.55)" },
+  },
 };
 
 /** Цвет обводки иконки (как в «Структура продаж»). */
@@ -67,3 +94,16 @@ export const MARKETING_DEAL_SEGMENT_HEADER_LABEL_CLASS: Record<
 /** Базовая строка заголовка сегмента (без uppercase — меньше визуального шума). */
 export const MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE =
   "min-w-0 text-[12px] font-semibold leading-snug tracking-tight";
+
+/** Тон обёртки иконки — как в карточках «Структура продаж». */
+export function resolveMarketingDealSegmentIconWrapTone(args: {
+  presDark: boolean;
+  presentation: boolean;
+  mplPremium?: boolean;
+}): MarketingDealSegmentIconWrapTone {
+  const { presDark, presentation, mplPremium = false } = args;
+  if (presDark) return "dark";
+  if (mplPremium && presentation) return "premium";
+  if (presentation) return "presentation";
+  return "work";
+}

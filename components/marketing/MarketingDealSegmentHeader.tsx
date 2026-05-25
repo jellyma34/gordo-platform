@@ -2,6 +2,7 @@
 
 import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import { DEAL_SEGMENT_LABEL_RU } from "@/components/marketing/DealsSection";
+import { PremiumSegmentIllustration } from "@/components/marketing/PremiumSegmentIllustration";
 import {
   MARKETING_DEAL_SEGMENT_HEADER_LABEL_CLASS,
   MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE,
@@ -59,4 +60,18 @@ export function MarketingDealSegmentHeader({
       <span className={labelResolved}>{text}</span>
     </div>
   );
+}
+
+export type MarketingDealSegmentIllustrationProps = {
+  segment: DealSegmentKey;
+  presDark?: boolean;
+  className?: string;
+};
+
+/** @deprecated Используйте PremiumSegmentIllustration — единый pastel-style для всех сегментов. */
+export function MarketingDealSegmentIllustration({
+  segment,
+  className = "",
+}: MarketingDealSegmentIllustrationProps) {
+  return <PremiumSegmentIllustration segment={segment} className={className} />;
 }

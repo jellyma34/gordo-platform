@@ -19,7 +19,7 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
   const presDark = presentation && !mplLight;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       <DduRevenueSection
         presentation={presentation}
         presDark={presDark}

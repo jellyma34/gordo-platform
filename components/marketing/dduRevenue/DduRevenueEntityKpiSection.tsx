@@ -2,9 +2,11 @@
 
 import { useMemo } from "react";
 
+import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import { EntityPerformanceAnalyticsSection } from "@/components/marketing/EntityPerformanceAnalyticsSection";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
+import { marketingAnalyticsSegmentBorderColor } from "@/lib/marketingAnalyticsSectionShell";
 import {
   buildDduRevenueEntityChartRows,
   dduRevenueEntityAnalyticsHasData,
@@ -20,6 +22,7 @@ import {
 
 type Props = {
   entityLabel: string;
+  illustrationSegment: DealSegmentKey;
   theme: EntityKpiTheme;
   kpiData: DduRevenuePeriodKpiUiData;
   analyticsBreakdown: DduRevenueEntityAnalyticsBreakdown;
@@ -34,6 +37,7 @@ type Props = {
 
 export function DduRevenueEntityKpiSection({
   entityLabel,
+  illustrationSegment,
   theme,
   kpiData,
   analyticsBreakdown,
@@ -59,10 +63,12 @@ export function DduRevenueEntityKpiSection({
   return (
     <div
       className="mt-6 min-w-0 border-t pt-6 md:mt-7 md:pt-7"
-      style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
+      style={{ borderColor: marketingAnalyticsSegmentBorderColor(presDark) }}
     >
       <EntityPlanPeriodKpiSection
+        embedded
         entityLabel={entityLabel}
+        illustrationSegment={illustrationSegment}
         theme={theme}
         cardsData={cardsData}
         presDark={presDark}
@@ -71,7 +77,8 @@ export function DduRevenueEntityKpiSection({
         sectionTitle="Продажи по заключенным ДДУ, руб."
         formatMetric={formatDduRevenueRub}
         projectVolumeCompactCurrency={projectVolumeCompactCurrency}
-        cardsDensity="ddu-revenue-entity"
+        cardsLayout="ddu-revenue-premium"
+        cardsDensity="ddu-revenue-premium"
         skeleton={skeleton}
         showEmpty={showEmpty && !hasKpi}
         emptyMessage={emptyMessage}

@@ -2,8 +2,10 @@
 
 import { useMemo } from "react";
 
+import type { DealSegmentKey } from "@/components/marketing/DealsSection";
 import { EntityPlanPeriodKpiSection } from "@/components/marketing/entityPlanPeriodKpi/EntityPlanPeriodKpiSection";
 import { PROJECT_VALUE_KPI_THEME } from "@/lib/entityKpiTheme";
+import { marketingAnalyticsSegmentBorderColor } from "@/lib/marketingAnalyticsSectionShell";
 import {
   formatProjectValueRub,
   projectValuePeriodKpiHasData,
@@ -14,6 +16,7 @@ import {
 
 type Props = {
   entityLabel: string;
+  illustrationSegment: DealSegmentKey;
   kpiData: ProjectValuePeriodKpiUiData;
   presDark: boolean;
   presentation: boolean;
@@ -23,9 +26,10 @@ type Props = {
   emptyMessage?: string;
 };
 
-/** Парковки / кладовые / коммерция — тот же KPI-набор, что у свода «Квартиры». */
+/** Парковки / кладовые / коммерция — тот же premium KPI-набор, что у свода «Квартиры». */
 export function ProjectValueEntityKpiSection({
   entityLabel,
+  illustrationSegment,
   kpiData,
   presDark,
   presentation,
@@ -43,11 +47,12 @@ export function ProjectValueEntityKpiSection({
   return (
     <div
       className="mt-6 min-w-0 border-t pt-6 md:mt-7 md:pt-7"
-      style={{ borderColor: presDark ? "rgba(255,255,255,0.1)" : "rgba(226,232,240,0.55)" }}
+      style={{ borderColor: marketingAnalyticsSegmentBorderColor(presDark) }}
     >
       <EntityPlanPeriodKpiSection
         embedded
         entityLabel={entityLabel}
+        illustrationSegment={illustrationSegment}
         theme={PROJECT_VALUE_KPI_THEME}
         cardsData={cardsData}
         presDark={presDark}
@@ -55,7 +60,8 @@ export function ProjectValueEntityKpiSection({
         mplPremium={mplPremium}
         formatMetric={formatProjectValueRub}
         projectVolumeCompactCurrency={projectVolumeCompactCurrency}
-        cardsDensity="project-value-entity"
+        cardsLayout="ddu-revenue-premium"
+        cardsDensity="ddu-revenue-premium"
         skeleton={skeleton}
         showEmpty={showEmpty && !hasKpi}
         emptyMessage={emptyMessage}

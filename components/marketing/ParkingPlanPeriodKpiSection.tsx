@@ -77,12 +77,15 @@ export function ParkingPlanPeriodKpiSection({
     return (
       <EntityPlanPeriodKpiSection
         entityLabel="Машино-места"
+        illustrationSegment="parking"
         theme={PARKING_KPI_THEME}
         cardsData={cardsDataWithVolume}
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
         projectVolumeUnits={projectVolumeUnits}
+        cardsLayout="ddu-revenue-premium"
+        cardsDensity="ddu-revenue-premium"
         showEmpty
         emptyMessage="Нет данных по машино-местам"
       />
@@ -92,12 +95,15 @@ export function ParkingPlanPeriodKpiSection({
   return (
     <EntityPlanPeriodKpiSection
       entityLabel="Машино-места"
+      illustrationSegment="parking"
       theme={PARKING_KPI_THEME}
       cardsData={cardsDataWithVolume}
       presDark={presDark}
       presentation={presentation}
       mplPremium={mplPremium}
       projectVolumeUnits={projectVolumeUnits}
+      cardsLayout="ddu-revenue-premium"
+      cardsDensity="ddu-revenue-premium"
       skeleton={csvLoading}
     >
       {!presentation ? (

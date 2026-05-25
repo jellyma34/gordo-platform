@@ -360,6 +360,7 @@ export function DduRevenueSection({
       {!hydrated || (busy && isEditMode) ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={DDU_REVENUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -375,6 +376,7 @@ export function DduRevenueSection({
       ) : !hasAnyData ? (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={DDU_REVENUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -391,6 +393,7 @@ export function DduRevenueSection({
       ) : (
         <EntityPlanPeriodKpiSection
           entityLabel="Квартиры"
+          illustrationSegment="apartment"
           theme={DDU_REVENUE_KPI_THEME}
           cardsData={cardsData}
           presDark={presDark}
@@ -409,6 +412,7 @@ export function DduRevenueSection({
       {showParkingSection && !busy ? (
         <DduRevenueEntityKpiSection
           entityLabel="Машино-места"
+          illustrationSegment="parking"
           theme={DDU_REVENUE_KPI_THEME}
           kpiData={parkingKpiData}
           analyticsBreakdown={parkingAnalytics}
@@ -423,6 +427,7 @@ export function DduRevenueSection({
       {showStorageSection && !busy ? (
         <DduRevenueEntityKpiSection
           entityLabel="Кладовые"
+          illustrationSegment="storage"
           theme={DDU_REVENUE_KPI_THEME}
           kpiData={storageKpiData}
           analyticsBreakdown={storageAnalytics}

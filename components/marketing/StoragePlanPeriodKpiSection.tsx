@@ -77,12 +77,15 @@ export function StoragePlanPeriodKpiSection({
     return (
       <EntityPlanPeriodKpiSection
         entityLabel="Кладовые"
+        illustrationSegment="storage"
         theme={STORAGE_KPI_THEME}
         cardsData={cardsDataWithVolume}
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
         projectVolumeUnits={projectVolumeUnits}
+        cardsLayout="ddu-revenue-premium"
+        cardsDensity="ddu-revenue-premium"
         showEmpty
         emptyMessage="Нет данных по кладовым"
       />
@@ -92,12 +95,15 @@ export function StoragePlanPeriodKpiSection({
   return (
     <EntityPlanPeriodKpiSection
       entityLabel="Кладовые"
+      illustrationSegment="storage"
       theme={STORAGE_KPI_THEME}
       cardsData={cardsDataWithVolume}
       presDark={presDark}
       presentation={presentation}
       mplPremium={mplPremium}
       projectVolumeUnits={projectVolumeUnits}
+      cardsLayout="ddu-revenue-premium"
+      cardsDensity="ddu-revenue-premium"
       skeleton={csvLoading}
     >
       {!presentation ? (
