@@ -78,3 +78,11 @@ body.presentation-active {
   line-height: 1.2;
   margin: 0;
 }
+
+/* Экспорт PDF маркетинга: скрыть UI, не попадающий в отчёт */
+html.marketing-pdf-capturing [data-pdf-exclude],
+html.marketing-pdf-capturing .recharts-tooltip-wrapper,
+html.marketing-pdf-capturing .recharts-active-dot {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

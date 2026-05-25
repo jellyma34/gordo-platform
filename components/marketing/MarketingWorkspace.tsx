@@ -14,6 +14,7 @@ import { useRegisterMarketingLayoutChrome } from "@/components/marketing/marketi
 import { useMarketingEditTabOptional } from "@/components/marketing/marketingEditTabContext";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "./marketingPresentationLightContext";
+import { MarketingPdfExport } from "@/components/reports/MarketingPdfExport";
 
 export type { MarketingTab } from "./marketingTypes";
 
@@ -110,24 +111,41 @@ export function MarketingWorkspace({
         ? "rounded-2xl border border-mpl-border bg-mpl-card p-5 sm:p-6"
         : "rounded-2xl border border-slate-200/70 bg-white p-5 sm:p-6 shadow-[0_4px_24px_rgba(15,23,42,0.04)]";
 
+  const pdfReportTitle =
+    activeTab === "sales" ? "План продаж" : activeTab === "deals" ? "Сделки" : "Рассрочка ДДУ";
+
+  const panel = (
+    <>
+      {activeTab === "sales" ? (
+        <SalesPlanPanel
+          presentation={presentation}
+          period={period}
+          objectId={objectId}
+          initialPlanScenario={initialPlanScenario}
+        />
+      ) : activeTab === "deals" ? (
+        <SalesDealsSection presentation={presentation} period={period} objectId={objectId} />
+      ) : (
+        <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />
+      )}
+    </>
+  );
+
   return (
     <MarketingDealsFeedProvider>
       <section className={outer}>
         <div className={contentWell}>
-          <div className="min-w-0">
-            {activeTab === "sales" ? (
-              <SalesPlanPanel
-                presentation={presentation}
-                period={period}
-                objectId={objectId}
-                initialPlanScenario={initialPlanScenario}
-              />
-            ) : activeTab === "deals" ? (
-              <SalesDealsSection presentation={presentation} period={period} objectId={objectId} />
-            ) : (
-              <InstallmentDduPanel presentation={presentation} period={period} objectId={objectId} />
-            )}
+          <div
+            className="min-w-0 bg-white"
+            data-marketing-pdf-export-root={presentation ? true : undefined}
+          >
+            {panel}
           </div>
+          {presentation ? (
+            <div className="flex justify-center py-16" data-pdf-exclude>
+              <MarketingPdfExport reportTitle={pdfReportTitle} period={period} objectId={objectId} />
+            </div>
+          ) : null}
         </div>
       </section>
     </MarketingDealsFeedProvider>

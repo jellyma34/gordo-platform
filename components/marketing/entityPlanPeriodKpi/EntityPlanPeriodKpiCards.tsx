@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { EntityKpiTheme } from "@/lib/entityKpiTheme";
 import { formatDduRevenueRubParts } from "@/lib/dduRevenuePeriodKpi";
@@ -11,6 +11,7 @@ import {
   apartmentKpiProgressWidthPercent,
   type ApartmentKpiHue,
 } from "@/lib/apartmentsPlanPeriodKpi";
+import { EntityProjectVolumePlanCard } from "@/components/marketing/entityPlanPeriodKpi/EntityProjectVolumePlanCard";
 import { dec1Fmt, dec2Fmt, numFmt } from "@/lib/salesPlanChartFormat";
 
 export const ENTITY_KPI_UI = {
@@ -44,6 +45,32 @@ export const ENTITY_KPI_UI = {
   ringStroke: 9,
   ringPercentSize: 50,
   ringSubtitleSize: 15,
+} as const;
+
+/** Premium compact dashboard — блок «Продажи по заключенным ДДУ». */
+export const DDU_REVENUE_PREMIUM_KPI_UI = {
+  ...ENTITY_KPI_UI,
+  cardMinHeight: 252,
+  cardPadding: 14,
+  cardRadius: 20,
+  cardBorder: "1px solid rgba(15,23,42,0.06)",
+  cardShadow: "0 2px 14px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.03)",
+  cardShadowHover: "0 4px 20px rgba(15,23,42,0.07), 0 2px 4px rgba(15,23,42,0.04)",
+  chartAreaHeight: 88,
+  chartMarginY: 6,
+  barMaxHeight: 52,
+  barWidth: 32,
+  barGap: 16,
+  barValueSize: 13,
+  barLabelSize: 10,
+  dividerMarginY: 6,
+  deviationLabelSize: 11,
+  deviationValueSize: 18,
+  fulfillmentValueSize: 22,
+  ringSize: 148,
+  ringStroke: 8,
+  ringPercentSize: 30,
+  ringSubtitleSize: 11,
 } as const;
 
 /** Компактные токены для блока комнатности (4 в ряд, внутри — rail + 3 KPI горизонтально). */
@@ -85,11 +112,32 @@ export const INSTALLMENT_AREA_ENTITY_KPI_UI = {
 export type EntityKpiCardsDensity =
   | "default"
   | "room-type"
+  | "ddu-revenue-premium"
   | "installment-area-entity"
   | "ddu-revenue-entity"
   | "project-value-entity";
 
+export function kpiPremiumCardSurfaceStyle(
+  presDark: boolean,
+  density: EntityKpiCardsDensity,
+  skeleton?: boolean,
+): React.CSSProperties {
+  const UI = kpiUiTokens(density);
+  if (presDark) {
+    return { minHeight: UI.cardMinHeight, padding: UI.cardPadding };
+  }
+  return {
+    background: "#FFFFFF",
+    border: UI.cardBorder,
+    borderRadius: UI.cardRadius,
+    boxShadow: skeleton ? UI.cardShadow : UI.cardShadow,
+    minHeight: UI.cardMinHeight,
+    padding: UI.cardPadding,
+  };
+}
+
 function kpiUiTokens(density: EntityKpiCardsDensity) {
+  if (density === "ddu-revenue-premium") return DDU_REVENUE_PREMIUM_KPI_UI;
   if (density === "room-type") return ROOM_TYPE_KPI_UI;
   if (
     density === "installment-area-entity" ||
@@ -109,9 +157,14 @@ function usesCompactCurrencyLabels(theme: EntityKpiTheme, density: EntityKpiCard
   return (
     theme.id === "ddu_revenue" ||
     theme.id === "project_value" ||
+    density === "ddu-revenue-premium" ||
     density === "ddu-revenue-entity" ||
     density === "project-value-entity"
   );
+}
+
+function isPremiumDashboardDensity(density: EntityKpiCardsDensity): boolean {
+  return density === "ddu-revenue-premium";
 }
 
 function compactCurrencyParts(theme: EntityKpiTheme, value: number) {
@@ -194,6 +247,19 @@ type KpiMiniChartUi = {
 };
 
 function kpiMiniChartUi(theme: EntityKpiTheme, density: EntityKpiCardsDensity = "default"): KpiMiniChartUi {
+  if (density === "ddu-revenue-premium") {
+    const UI = DDU_REVENUE_PREMIUM_KPI_UI;
+    return {
+      barGap: UI.barGap,
+      barColumnWidth: 76,
+      barWidth: UI.barWidth,
+      barValueSize: UI.barValueSize,
+      barValueExtraLine: 6,
+      chartAreaHeight: UI.chartAreaHeight,
+      chartShellClass: "relative mx-auto w-full min-w-0 max-w-[188px]",
+      chartInnerMaxClass: "mx-auto w-full max-w-[188px]",
+    };
+  }
   if (density === "room-type") {
     return {
       barGap: ROOM_TYPE_KPI_UI.barGap,
@@ -242,8 +308,9 @@ function kpiMiniChartUi(theme: EntityKpiTheme, density: EntityKpiCardsDensity = 
   };
 }
 
-function kpiBarColumnHeightPx(ui: KpiMiniChartUi): number {
-  return ENTITY_KPI_UI.barMaxHeight + ui.barValueSize + ENTITY_KPI_UI.barValueGap + ui.barValueExtraLine;
+function kpiBarColumnHeightPx(ui: KpiMiniChartUi, density: EntityKpiCardsDensity = "default"): number {
+  const barMax = kpiUiTokens(density).barMaxHeight;
+  return barMax + ui.barValueSize + ENTITY_KPI_UI.barValueGap + ui.barValueExtraLine;
 }
 
 function KpiBarValueLabel({
@@ -441,7 +508,7 @@ function ThemedMiniFactPlanColumnChart({
   const valueColor = presDark ? "#f1f5f9" : "#0f172a";
   const labelColor = presDark ? "#94a3b8" : UI.mutedLabel;
   const chartUi = kpiMiniChartUi(theme, density);
-  const colH = kpiBarColumnHeightPx(chartUi);
+  const colH = kpiBarColumnHeightPx(chartUi, density);
   const planBarPx = Math.max(4, (animPlanH / 100) * UI.barMaxHeight);
   const factBarPx = Math.max(4, (animFactH / 100) * UI.barMaxHeight);
 
@@ -545,7 +612,7 @@ function ThemedMiniFactPlanColumnChart({
         />
         <div className="mt-2.5 flex justify-center" style={{ gap: chartUi.barGap }}>
           <span
-            className="text-center uppercase"
+            className={`text-center ${isPremiumDashboardDensity(density) ? "" : "uppercase"}`}
             style={{
               width: chartUi.barColumnWidth,
               color: labelColor,
@@ -556,7 +623,7 @@ function ThemedMiniFactPlanColumnChart({
             {planBarLabel}
           </span>
           <span
-            className="text-center uppercase"
+            className={`text-center ${isPremiumDashboardDensity(density) ? "" : "uppercase"}`}
             style={{
               width: chartUi.barColumnWidth,
               color: labelColor,
@@ -610,6 +677,7 @@ function ThemedKpiFactPlanCardBody({
   const deviationLabelStyle = { color: presDark ? "#94a3b8" : UI.mutedLabel, fontSize: UI.deviationLabelSize, fontWeight: 500 };
   const compactTypo =
     density === "installment-area-entity" ||
+    density === "ddu-revenue-premium" ||
     density === "ddu-revenue-entity" ||
     density === "project-value-entity";
   const deviationValueStyle = compactTypo
@@ -713,6 +781,7 @@ function KpiSingleMetricCardBody({
   const UI = kpiUiTokens(density);
   const compactTypo =
     density === "installment-area-entity" ||
+    density === "ddu-revenue-premium" ||
     density === "ddu-revenue-entity" ||
     density === "project-value-entity";
   const valueStyle = compactTypo
@@ -775,7 +844,7 @@ function ThemedKpiCircularProgressRing({
 }) {
   const UI = kpiUiTokens(density);
   const size = UI.ringSize;
-  const strokeWidth = ENTITY_KPI_UI.ringStroke;
+  const strokeWidth = UI.ringStroke;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const animPct = useSmoothScalar(Math.min(100, Math.max(0, percent)));
@@ -812,7 +881,15 @@ function ThemedKpiCircularProgressRing({
             ? `${dec2Fmt.format(Math.round(animPct * 100) / 100)}%`
             : `${dec1Fmt.format(Math.round(animPct * 10) / 10)}%`}
         </span>
-        <span className="mt-1.5 uppercase" style={{ fontSize: UI.ringSubtitleSize, fontWeight: 600, letterSpacing: "0.06em", color: presDark ? "#94a3b8" : UI.mutedLabel }}>
+        <span
+          className={isPremiumDashboardDensity(density) ? "mt-1" : "mt-1.5 uppercase"}
+          style={{
+            fontSize: UI.ringSubtitleSize,
+            fontWeight: 600,
+            letterSpacing: isPremiumDashboardDensity(density) ? "0.02em" : "0.06em",
+            color: presDark ? "#94a3b8" : UI.mutedLabel,
+          }}
+        >
           {ringCaption}
         </span>
       </div>
@@ -836,10 +913,13 @@ function KpiCardShell({
   density?: EntityKpiCardsDensity;
 }) {
   const UI = kpiUiTokens(density);
+  const premium = isPremiumDashboardDensity(density);
   const surface = presDark
-    ? "rounded-[20px] border border-white/10 bg-slate-900/50 shadow-[0_8px_28px_rgba(0,0,0,0.28)]"
-    : "rounded-[20px] border bg-white";
-  const lightStyle = presDark
+    ? `rounded-[${UI.cardRadius}px] border border-white/10 bg-slate-900/50 shadow-[0_8px_28px_rgba(0,0,0,0.28)]`
+    : premium
+      ? `rounded-[${UI.cardRadius}px] border bg-white`
+      : "rounded-[20px] border bg-white";
+  const lightStyle: CSSProperties = presDark
     ? { minHeight: UI.cardMinHeight, padding: UI.cardPadding }
     : {
         background: "#FFFFFF",
@@ -849,7 +929,7 @@ function KpiCardShell({
         minHeight: UI.cardMinHeight,
         padding: UI.cardPadding,
       };
-  const titleFontSize = density === "room-type" ? 10 : 14;
+  const titleFontSize = density === "room-type" ? 10 : premium ? 12 : 14;
 
   return (
     <div
@@ -859,7 +939,7 @@ function KpiCardShell({
         presDark || skeleton
           ? undefined
           : (e) => {
-              (e.currentTarget as HTMLDivElement).style.boxShadow = ENTITY_KPI_UI.cardShadowHover;
+              (e.currentTarget as HTMLDivElement).style.boxShadow = UI.cardShadowHover;
             }
       }
       onMouseLeave={
@@ -877,17 +957,21 @@ function KpiCardShell({
             ? undefined
             : {
                 fontSize: titleFontSize,
-                fontWeight: 600,
-                letterSpacing: "0.03em",
+                fontWeight: premium ? 600 : 600,
+                letterSpacing: premium ? "0.02em" : "0.03em",
                 color: UI.mutedLabel,
-                textTransform: "uppercase" as const,
-                lineHeight: 1.2,
+                textTransform: premium ? "none" : ("uppercase" as const),
+                lineHeight: 1.25,
               }
         }
       >
         {title}
       </div>
-      <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-visible ${centered ? "items-center justify-center pt-2" : density === "room-type" ? "pt-2" : "pt-4"}`}>
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-visible ${
+          centered ? "items-center justify-center pt-0.5" : premium ? "pt-1.5" : density === "room-type" ? "pt-2" : "pt-4"
+        }`}
+      >
         {children}
       </div>
     </div>
@@ -928,6 +1012,7 @@ export function EntityPlanPeriodKpiCardsGrid({
   formatMetric,
   layout = "full",
   cardsDensity = "default",
+  planVolume = null,
 }: {
   theme: EntityKpiTheme;
   data: EntityPlanPeriodKpiCardsData;
@@ -937,21 +1022,26 @@ export function EntityPlanPeriodKpiCardsGrid({
   skeleton?: boolean;
   /** По умолчанию целые шт; для площади — `formatInstallmentAreaSqm`. */
   formatMetric?: (n: number) => string;
-  layout?: "full" | "stacked" | "room-type";
+  layout?: "full" | "stacked" | "room-type" | "ddu-revenue-premium";
   /** Компактная типографика площади (парковки / кладовые). */
   cardsDensity?: EntityKpiCardsDensity;
+  planVolume?: { rub: number; caption: string } | null;
 }) {
   const fmt = formatMetric ?? formatKpiCount;
   const density = cardsDensity;
   const dashCls = presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-400";
   const spctVolume = useSmoothScalar(data.pctVolume ?? 0);
   const gridCls =
-    layout === "stacked"
-      ? "grid min-w-0 flex-1 grid-cols-1 gap-4"
-      : "grid min-w-0 flex-1 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6";
+    layout === "ddu-revenue-premium"
+      ? presentation
+        ? "grid w-full min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(196px,220px)_repeat(3,minmax(0,1fr))] lg:items-stretch lg:gap-4"
+        : "grid w-full min-w-0 max-w-[1500px] grid-cols-1 gap-4 lg:grid-cols-[240px_repeat(3,minmax(0,1fr))] lg:items-stretch lg:gap-5"
+      : layout === "stacked"
+        ? "grid min-w-0 flex-1 grid-cols-1 gap-4"
+        : "grid min-w-0 flex-1 grid-cols-1 gap-5 md:grid-cols-3 md:gap-6";
 
-  return (
-    <div className={gridCls}>
+  const kpiCards = (
+    <>
       <div className="flex min-w-0 overflow-visible">
         <KpiCardShell title="План на отчетный месяц" presDark={presDark} skeleton={skeleton} density={density}>
           {skeleton ? (
@@ -1022,7 +1112,11 @@ export function EntityPlanPeriodKpiCardsGrid({
           {skeleton ? (
             <KpiSkeletonLine presDark={presDark} />
           ) : data.pctVolume != null ? (
-            <div className="relative flex w-full flex-col items-center justify-center py-3">
+            <div
+              className={`relative flex w-full flex-col items-center justify-center ${
+                density === "ddu-revenue-premium" ? "py-0" : "py-3"
+              }`}
+            >
               <ThemedKpiCircularProgressRing
                 percent={spctVolume}
                 presDark={presDark}
@@ -1052,6 +1146,31 @@ export function EntityPlanPeriodKpiCardsGrid({
           )}
         </KpiCardShell>
       </div>
-    </div>
+    </>
   );
+
+  if (layout === "ddu-revenue-premium") {
+    return (
+      <div className={gridCls}>
+        {planVolume && planVolume.rub > 0 ? (
+          <EntityProjectVolumePlanCard
+            rub={planVolume.rub}
+            caption={planVolume.caption}
+            presDark={presDark}
+            skeleton={skeleton}
+            density={density}
+          />
+        ) : (
+          <div
+            className="hidden lg:block"
+            style={{ minHeight: kpiUiTokens(density).cardMinHeight }}
+            aria-hidden
+          />
+        )}
+        {kpiCards}
+      </div>
+    );
+  }
+
+  return <div className={gridCls}>{kpiCards}</div>;
 }

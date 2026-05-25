@@ -275,9 +275,9 @@ export function DduRevenueSection({
 
   return (
     <div
-      className={`relative min-w-0 ${
-        dragOver && isEditMode ? (presDark ? "ring-2 ring-emerald-500/40" : "ring-2 ring-emerald-400/50") : ""
-      }`}
+      className={`relative mx-auto min-w-0 w-full ${
+        presentation ? "max-w-[1450px] px-8" : "max-w-[1500px]"
+      } ${dragOver && isEditMode ? (presDark ? "ring-2 ring-emerald-500/40" : "ring-2 ring-emerald-400/50") : ""}`}
       onDragOver={
         isEditMode
           ? (e: DragEvent) => {
@@ -369,6 +369,7 @@ export function DduRevenueSection({
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
           skeleton
         />
       ) : !hasAnyData ? (
@@ -383,6 +384,7 @@ export function DduRevenueSection({
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
           showEmpty
           emptyMessage="Подгрузите CSV выручки ДДУ или дождитесь данных системы"
         />
@@ -398,6 +400,7 @@ export function DduRevenueSection({
           formatMetric={formatDduRevenueRub}
           projectVolumeCompactCurrency={projectVolumeCompactCurrency}
           leadingSection
+          cardsLayout="ddu-revenue-premium"
         />
       )}
 
