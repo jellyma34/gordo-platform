@@ -46,8 +46,6 @@ export function InventoryDepletionSection({
     datasetKey: "apartmentPlan",
     importKind: "apartment_plan",
     validate: marketingApartmentPlanCsvDocIsValid,
-    readLocalForMigration: readMarketingApartmentPlanCsvFromLocalStorage,
-    clearLocal: clearMarketingApartmentPlanCsvLocalStorage,
   });
 
   /** Тот же срез, что «Структура продаж» / план KPI (`filterNormalizedDealsForMarketingObject`). */

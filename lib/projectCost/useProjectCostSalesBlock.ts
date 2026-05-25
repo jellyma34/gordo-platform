@@ -17,9 +17,7 @@ import {
   projectValueStorageFactsFromDealsForKpi,
 } from "@/lib/projectValueFactsFromDeals";
 import {
-  clearMarketingProjectValueCsvLocalStorage,
   marketingProjectValueCsvDocIsValid,
-  readMarketingProjectValueCsvFromLocalStorage,
   type MarketingProjectValueCsvStoredV1,
 } from "@/lib/marketingProjectValueCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
@@ -75,8 +73,6 @@ export function useProjectCostSalesBlock({
     datasetKey: "projectValue",
     importKind: "project_value",
     validate: marketingProjectValueCsvDocIsValid,
-    readLocalForMigration: readMarketingProjectValueCsvFromLocalStorage,
-    clearLocal: clearMarketingProjectValueCsvLocalStorage,
   });
 
   const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);

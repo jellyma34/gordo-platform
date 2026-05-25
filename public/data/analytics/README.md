@@ -14,10 +14,18 @@ git push
 
 Проверка после deploy: `GET /api/analytics/status` — список файлов и `missing`.
 
-Обязательные файлы для основных блоков:
+Сейчас в репозитории (проверьте `GET /api/analytics/status`):
+
+- `investors.csv`, `segment-execution.csv`, `units-execution.csv`
+- `apartments.csv`, `parking.csv`, `storages.csv`
+- `receipts-plan-fact.csv`, `marketing-leads.csv`, `revenue-fact.csv`
+- `apartment-plan.csv`, `avg-price.csv`, `total-area.csv`, `reduced-area.csv`
+
+**Нужно добавить в git** (блоки пустые без файла):
 
 - `ddu-sales.csv` — Продажи по ДДУ
-- `project-value.csv` — Стоимость проекта
-- `avg-price.csv`, `total-area.csv`, `reduced-area.csv`
-- `apartment-plan.csv`, `installment-forecast.csv`, `installment-area.csv`
-- и др. по реестру
+- `project-value.csv` — Общая стоимость проекта
+- `installment-forecast.csv` — Прогноз поступлений
+- `installment-area.csv` — рассрочка / площадь (если используется)
+
+Полная таблица блоков: `lib/analytics/ANALYTICS_BLOCK_CSV_MAP.md`

@@ -13,9 +13,7 @@ import {
   type SalesPlanReducedAreaByObjectType,
 } from "@/lib/reducedArea/buildSalesPlanReducedAreaByObjectType";
 import {
-  clearMarketingReducedAreaCsvLocalStorage,
   marketingReducedAreaCsvDocIsValid,
-  readMarketingReducedAreaCsvFromLocalStorage,
   type MarketingReducedAreaCsvStoredV1,
 } from "@/lib/marketingReducedAreaCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
@@ -62,8 +60,6 @@ export function useReducedAreaBlock({
     datasetKey: "reducedAreaAnalytics",
     importKind: "reduced_area",
     validate: marketingReducedAreaCsvDocIsValid,
-    readLocalForMigration: readMarketingReducedAreaCsvFromLocalStorage,
-    clearLocal: clearMarketingReducedAreaCsvLocalStorage,
   });
 
   const doc = useExternalDoc ? externalDoc ?? null : internalImport.doc;

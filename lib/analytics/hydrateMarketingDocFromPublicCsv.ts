@@ -6,12 +6,12 @@ import { loadAnalyticsCsv } from "@/lib/analytics/analyticsCsvLoader";
 import type { MarketingImportKind } from "@/lib/marketingImportKinds";
 
 export type HydrateMarketingDocFromPublicCsvResult<T> =
-  | { ok: true; doc: T; source: "public_csv" }
-  | { ok: false; reason: "missing" | "fetch_failed" | "parse_failed" | "invalid_doc"; error?: string };
+  | { ok: true; doc: T; source: "public_csv"; fetchPath: string }
+  | { ok: false; reason: "missing" | "fetch_failed" | "parse_failed" | "invalid_doc"; error?: string; fetchPath: string };
 
 /**
- * Production-first: загрузка CSV из static assets + парсинг через API.
- * Не использует localStorage / FileReader.
+ * Production-only: static CSV из `public/data/analytics/` + parse API.
+ * Без localStorage, FileReader, blob URL, runtime upload cache.
  */
 export async function hydrateMarketingDocFromPublicCsv<T>(
   importKind: MarketingImportKind,
@@ -20,12 +20,10 @@ export async function hydrateMarketingDocFromPublicCsv<T>(
 ): Promise<HydrateMarketingDocFromPublicCsvResult<T>> {
   const entry = analyticsCsvRegistryEntry(importKind);
   const fetchPath = getAnalyticsCsvFetchPath(entry.publicUrl);
-  console.log("CSV fetch path:", fetchPath);
 
   const loaded = await loadAnalyticsCsv(importKind);
   if (!loaded?.text?.trim()) {
-    console.warn("[analytics] CSV missing or empty:", fetchPath, importKind);
-    return { ok: false, reason: "missing" };
+    return { ok: false, reason: "missing", fetchPath };
   }
 
   try {
@@ -47,19 +45,34 @@ export async function hydrateMarketingDocFromPublicCsv<T>(
     } | null;
 
     if (!res.ok || !j?.ok) {
-      console.warn("[analytics] CSV parse API failed:", fetchPath, res.status, j?.error);
-      return { ok: false, reason: "parse_failed", error: j?.error ?? `HTTP ${res.status}` };
+      console.error("Analytics CSV failed:", fetchPath, j?.error ?? `HTTP ${res.status}`);
+      return {
+        ok: false,
+        reason: "parse_failed",
+        error: j?.error ?? `HTTP ${res.status}`,
+        fetchPath,
+      };
     }
 
     if (!validate(j.doc)) {
-      console.warn("[analytics] Parsed doc failed validation:", importKind);
-      return { ok: false, reason: "invalid_doc" };
+      console.error("Analytics CSV failed:", fetchPath, "invalid_doc after parse");
+      return { ok: false, reason: "invalid_doc", fetchPath };
     }
 
-    return { ok: true, doc: j.doc, source: "public_csv" };
+    return { ok: true, doc: j.doc, source: "public_csv", fetchPath };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[analytics] CSV hydrate error:", fetchPath, msg);
-    return { ok: false, reason: "fetch_failed", error: msg };
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.error("Analytics CSV failed:", fetchPath, err);
+    return { ok: false, reason: "fetch_failed", error: err.message, fetchPath };
   }
+}
+
+/** Упрощённый helper: doc или null. */
+export async function loadMarketingDocFromPublicCsv<T>(
+  importKind: MarketingImportKind,
+  validate: (doc: unknown) => doc is T,
+  projectId: string,
+): Promise<T | null> {
+  const r = await hydrateMarketingDocFromPublicCsv(importKind, validate, projectId);
+  return r.ok ? r.doc : null;
 }

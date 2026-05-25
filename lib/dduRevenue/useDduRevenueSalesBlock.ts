@@ -22,9 +22,7 @@ import {
   dduRevenueStorageFactsFromDealsForKpi,
 } from "@/lib/dduRevenueFactsFromDeals";
 import {
-  clearMarketingDduRevenueCsvLocalStorage,
   marketingDduRevenueCsvDocIsValid,
-  readMarketingDduRevenueCsvFromLocalStorage,
   type MarketingDduRevenueCsvStoredV1,
 } from "@/lib/marketingDduRevenueCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
@@ -96,8 +94,6 @@ export function useDduRevenueSalesBlock({
     datasetKey: "dduRevenue",
     importKind: "ddu_revenue",
     validate: marketingDduRevenueCsvDocIsValid,
-    readLocalForMigration: readMarketingDduRevenueCsvFromLocalStorage,
-    clearLocal: clearMarketingDduRevenueCsvLocalStorage,
   });
 
   const doc = useExternalDoc ? externalDoc ?? null : internalImport.doc;

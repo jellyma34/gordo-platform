@@ -13,9 +13,7 @@ import {
   type SalesPlanTotalAreaByObjectType,
 } from "@/lib/totalArea/buildSalesPlanTotalAreaByObjectType";
 import {
-  clearMarketingTotalAreaCsvLocalStorage,
   marketingTotalAreaCsvDocIsValid,
-  readMarketingTotalAreaCsvFromLocalStorage,
   type MarketingTotalAreaCsvStoredV1,
 } from "@/lib/marketingTotalAreaCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
@@ -62,8 +60,6 @@ export function useTotalAreaBlock({
     datasetKey: "totalArea",
     importKind: "total_area",
     validate: marketingTotalAreaCsvDocIsValid,
-    readLocalForMigration: readMarketingTotalAreaCsvFromLocalStorage,
-    clearLocal: clearMarketingTotalAreaCsvLocalStorage,
   });
 
   const doc = useExternalDoc ? externalDoc ?? null : internalImport.doc;

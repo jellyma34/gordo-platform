@@ -46,7 +46,7 @@ import {
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { buildCashflowSeries, periodKeyToRuChartLabel } from "@/lib/buildCashflowSeries";
-import { clearMarketingSalesPlanExecutionLocalStorage, mergeMarketingDataset } from "@/lib/marketingCsvBrowserStorage";
+import { clearMarketingSalesPlanExecutionLocalStorage } from "@/lib/marketingCsvBrowserStorage";
 import {
   migrateMarketingCsvFromLocalStorageIfNeeded,
   type MarketingCsvServerPresence,
@@ -66,9 +66,7 @@ import type { SalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutio
 import { emptySalesPlanExecutionDataset } from "@/lib/marketingSalesPlanExecutionTable";
 import { buildVelocityLineRows } from "@/lib/salesPlanVelocityChartData";
 import {
-  clearMarketingApartmentPlanCsvLocalStorage,
   marketingApartmentPlanCsvDocIsValid,
-  readMarketingApartmentPlanCsvFromLocalStorage,
   type MarketingApartmentPlanCsvStoredV1,
 } from "@/lib/marketingApartmentPlanCsv";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
@@ -809,8 +807,6 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     datasetKey: "apartmentPlan",
     importKind: "apartment_plan",
     validate: marketingApartmentPlanCsvDocIsValid,
-    readLocalForMigration: readMarketingApartmentPlanCsvFromLocalStorage,
-    clearLocal: clearMarketingApartmentPlanCsvLocalStorage,
     uploadedBy: paymentUploadedByLabel,
   });
   const [apartmentPlanKpiFailedDiagnostics, setApartmentPlanKpiFailedDiagnostics] =
@@ -1425,122 +1421,37 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setRevenueFactCsvDoc(null);
     };
     (async () => {
-      let serverDatasets: {
-        investors: MarketingInvestorsCsvStoredV1 | null;
-        segmentExecution: MarketingSegmentExecutionStoredV1 | null;
-        unitsExecution: MarketingUnitsExecutionStoredV1 | null;
-        apartments: MarketingApartmentsCsvStoredV1 | null;
-        parking: MarketingParkingCsvStoredV1 | null;
-        storages: MarketingStoragesCsvStoredV1 | null;
-        receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
-        marketingLeads: MarketingLeadsCsvStoredV1 | null;
-        revenueFact: MarketingRevenueFactCsvStoredV1 | null;
-      } | null = null;
-      let presence: MarketingCsvServerPresence = {
-        hasPlan: false,
-        hasFact: false,
-        hasInvestors: false,
-        hasSegmentExecution: false,
-        hasUnitsExecution: false,
-        hasApartments: false,
-        hasParking: false,
-        hasStorages: false,
-        hasExecutionPlan: false,
-        hasReceiptsPlanFact: false,
-        hasMarketingLeads: false,
-      };
-      try {
-        const res = await fetch(
-          `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`,
-          { cache: "no-store" },
-        );
-        const j = (await res.json()) as {
-          ok?: boolean;
-          presence?: MarketingCsvServerPresence;
-          datasets?: {
-            investors: MarketingInvestorsCsvStoredV1 | null;
-            segmentExecution: MarketingSegmentExecutionStoredV1 | null;
-            unitsExecution: MarketingUnitsExecutionStoredV1 | null;
-            apartments: MarketingApartmentsCsvStoredV1 | null;
-            parking: MarketingParkingCsvStoredV1 | null;
-            storages: MarketingStoragesCsvStoredV1 | null;
-            receiptsPlanFact: MarketingReceiptsPlanFactStoredV1 | null;
-            marketingLeads: MarketingLeadsCsvStoredV1 | null;
-            revenueFact: MarketingRevenueFactCsvStoredV1 | null;
-          };
-        };
-        if (cancelled) return;
-        if (res.ok && j?.ok && j.datasets) {
-          serverDatasets = j.datasets;
-          if (j.presence) presence = j.presence;
-        }
-      } catch {
-        /* server-only */
-      }
+      const { hydrateSupplementalMarketingFromPublic } = await import(
+        "@/lib/analytics/hydrateSupplementalMarketingFromPublic"
+      );
+      const serverDatasets = await hydrateSupplementalMarketingFromPublic(paymentPlanProjectId);
       if (cancelled) return;
 
-      await migrateMarketingCsvFromLocalStorageIfNeeded({
-        projectId: paymentPlanProjectId,
-        uploadedBy: paymentUploadedByLabel,
-        reportAsOf: report.asOf,
-        presence,
-      });
-
-      if (!serverDatasets) {
-        try {
-          const res2 = await fetch(
-            `/api/projects/${encodeURIComponent(paymentPlanProjectId)}/marketing/storage`,
-            { cache: "no-store" },
-          );
-          const j2 = (await res2.json()) as {
-            ok?: boolean;
-            datasets?: typeof serverDatasets;
-          };
-          if (res2.ok && j2?.ok && j2.datasets) serverDatasets = j2.datasets;
-        } catch {
-          /* ignore */
-        }
-      }
-      if (cancelled) return;
-
-      const inv = mergeMarketingDataset(serverDatasets?.investors, null, investorsCsvDocIsValid);
-      if (inv) applyFromInvestorsDoc(inv);
+      if (serverDatasets.investors) applyFromInvestorsDoc(serverDatasets.investors);
       else resetInvestorsUi();
 
-      const seg = mergeMarketingDataset(serverDatasets?.segmentExecution, null, segmentExecutionCsvDocIsValid);
-      if (seg) applyFromSegmentExecutionDoc(seg);
+      if (serverDatasets.segmentExecution) applyFromSegmentExecutionDoc(serverDatasets.segmentExecution);
       else resetSegmentExecutionUi();
 
-      const u = mergeMarketingDataset(serverDatasets?.unitsExecution, null, unitsExecutionCsvDocIsValid);
-      if (u) applyFromUnitsDoc(u);
+      if (serverDatasets.unitsExecution) applyFromUnitsDoc(serverDatasets.unitsExecution);
       else resetUnitsUi();
 
-      const apt = mergeMarketingDataset(serverDatasets?.apartments, null, apartmentsCsvDocIsValid);
-      if (apt) applyFromApartmentsDoc(apt);
+      if (serverDatasets.apartments) applyFromApartmentsDoc(serverDatasets.apartments);
       else resetApartmentsUi();
 
-      const park = mergeMarketingDataset(serverDatasets?.parking, null, parkingCsvDocIsValid);
-      if (park) applyFromParkingDoc(park);
+      if (serverDatasets.parking) applyFromParkingDoc(serverDatasets.parking);
       else resetParkingUi();
 
-      const stor = mergeMarketingDataset(serverDatasets?.storages, null, storagesCsvDocIsValid);
-      if (stor) applyFromStoragesDoc(stor);
+      if (serverDatasets.storages) applyFromStoragesDoc(serverDatasets.storages);
       else resetStoragesUi();
 
-      const rpf = mergeMarketingDataset(
-        serverDatasets?.receiptsPlanFact,
-        null,
-        receiptsPlanFactCsvDocIsValid,
-      );
-      if (rpf) applyFromReceiptsPlanFactDoc(rpf);
+      if (serverDatasets.receiptsPlanFact) applyFromReceiptsPlanFactDoc(serverDatasets.receiptsPlanFact);
       else resetReceiptsPlanFactUi();
 
-      const ml = mergeMarketingDataset(serverDatasets?.marketingLeads, null, marketingLeadsCsvDocIsValid);
-      if (ml) applyFromMarketingLeadsDoc(ml);
+      if (serverDatasets.marketingLeads) applyFromMarketingLeadsDoc(serverDatasets.marketingLeads);
       else resetMarketingLeadsUi();
 
-      const rf = mergeMarketingDataset(serverDatasets?.revenueFact, null, revenueFactCsvDocIsValid);
-      if (rf) applyFromRevenueFactDoc(rf);
+      if (serverDatasets.revenueFact) applyFromRevenueFactDoc(serverDatasets.revenueFact);
       else resetRevenueFactUi();
     })()
       .catch(() => {

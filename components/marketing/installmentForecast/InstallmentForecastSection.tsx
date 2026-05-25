@@ -8,9 +8,7 @@ import type { MarketingPeriodGranularity } from "@/components/marketing/Marketin
 import { buildInstallmentForecastChartData } from "@/lib/buildInstallmentForecastChartData";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import {
-  clearMarketingInstallmentForecastCsvLocalStorage,
   marketingInstallmentForecastCsvDocIsValid,
-  readMarketingInstallmentForecastCsvFromLocalStorage,
   type MarketingInstallmentForecastCsvStoredV1,
 } from "@/lib/marketingInstallmentForecastCsv";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
@@ -48,8 +46,6 @@ export function InstallmentForecastSection({
     datasetKey: "installmentForecast",
     importKind: "installment_forecast",
     validate: marketingInstallmentForecastCsvDocIsValid,
-    readLocalForMigration: readMarketingInstallmentForecastCsvFromLocalStorage,
-    clearLocal: clearMarketingInstallmentForecastCsvLocalStorage,
   });
 
   const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentForecastCsvParseDiagnostics | null>(null);

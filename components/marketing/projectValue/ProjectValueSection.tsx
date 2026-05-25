@@ -107,8 +107,6 @@ export function ProjectValueSection({
     datasetKey: "projectValue",
     importKind: "project_value",
     validate: marketingProjectValueCsvDocIsValid,
-    readLocalForMigration: readMarketingProjectValueCsvFromLocalStorage,
-    clearLocal: clearMarketingProjectValueCsvLocalStorage,
   });
   const [failedDiagnostics, setFailedDiagnostics] = useState<ProjectValueCsvParseDiagnostics | null>(null);
   const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);

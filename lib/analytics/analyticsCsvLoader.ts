@@ -14,27 +14,28 @@ export type LoadAnalyticsCsvResult = {
   fetchPath: string;
 };
 
-/** Клиентский loader: `fetch('/data/analytics/*.csv')` — static build assets. */
+/** Единственный источник данных: `fetch('/data/analytics/<file>.csv')`. */
 export async function loadAnalyticsCsv(kind: MarketingImportKind): Promise<LoadAnalyticsCsvResult | null> {
   const entry = analyticsCsvRegistryEntry(kind);
   const fetchPath = getAnalyticsCsvFetchPath(entry.publicUrl);
-  console.log("CSV fetch path:", fetchPath);
+  console.log("Analytics CSV fetch:", fetchPath);
 
   try {
     const res = await fetch(fetchPath, { cache: "no-store" });
     if (!res.ok) {
-      console.warn("[analytics] CSV fetch failed:", fetchPath, "status:", res.status, res.statusText);
+      console.error("Analytics CSV failed:", fetchPath, `HTTP ${res.status} ${res.statusText}`);
       return null;
     }
     const text = await res.text();
     if (!text.trim()) {
-      console.warn("[analytics] CSV empty:", fetchPath);
+      console.error("Analytics CSV failed:", fetchPath, "empty body");
       return null;
     }
+    console.log("Analytics CSV loaded:", text.length);
     return { kind, text, entry, fetchPath };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[analytics] CSV fetch error:", fetchPath, msg);
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.error("Analytics CSV failed:", fetchPath, err);
     return null;
   }
 }

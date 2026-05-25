@@ -14,9 +14,7 @@ import {
   type SalesPlanAveragePriceByObjectType,
 } from "@/lib/averagePricePerSqm/buildSalesPlanAveragePriceByObjectType";
 import {
-  clearMarketingAveragePricePerSqmCsvLocalStorage,
   marketingAveragePricePerSqmCsvDocIsValid,
-  readMarketingAveragePricePerSqmCsvFromLocalStorage,
   type MarketingAveragePricePerSqmCsvStoredV1,
 } from "@/lib/marketingAveragePricePerSqmCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
@@ -64,8 +62,6 @@ export function useAveragePricePerSqmBlock({
     datasetKey: "averagePricePerSqm",
     importKind: "average_price_per_sqm",
     validate: marketingAveragePricePerSqmCsvDocIsValid,
-    readLocalForMigration: readMarketingAveragePricePerSqmCsvFromLocalStorage,
-    clearLocal: clearMarketingAveragePricePerSqmCsvLocalStorage,
   });
 
   const doc = useExternalDoc ? externalDoc ?? null : internalImport.doc;

@@ -134,8 +134,6 @@ export function InstallmentAreaSection({
     datasetKey: "installmentArea",
     importKind: "installment_area",
     validate: marketingInstallmentAreaCsvDocIsValid,
-    readLocalForMigration: readMarketingInstallmentAreaCsvFromLocalStorage,
-    clearLocal: clearMarketingInstallmentAreaCsvLocalStorage,
   });
   const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentAreaCsvParseDiagnostics | null>(null);
   const updatedLabel = formatMarketingImportUpdatedLabel(doc?.updatedAt, doc?.uploadedBy);
