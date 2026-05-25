@@ -8,7 +8,6 @@ import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { useMarketingDealsFeedOptional } from "@/components/marketing/marketingDealsFeedContext";
 import { useMarketingPresentationLight } from "@/components/marketing/marketingPresentationLightContext";
-import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { filterByObject } from "@/lib/marketingMockData";
 import {
@@ -68,7 +67,6 @@ export function SqmPriceDynamicsSection({
   const subCls = presDark ? "text-slate-400" : "text-slate-600";
 
   return (
-    <div className={marketingAnalyticsMajorSectionClass(presDark)}>
     <section className={shellClass} aria-labelledby="sqm-price-dynamics-heading">
       <h3
         id="sqm-price-dynamics-heading"
@@ -90,6 +88,5 @@ export function SqmPriceDynamicsSection({
         />
       )}
     </section>
-    </div>
   );
 }

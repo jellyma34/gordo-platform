@@ -14,7 +14,6 @@ import {
   type MarketingInstallmentForecastCsvStoredV1,
 } from "@/lib/marketingInstallmentForecastCsv";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
-import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { MPL_PREMIUM_CHART_SHELL } from "@/lib/marketingPremiumUi";
 import { INSTALLMENT_FORECAST_CSV_MAX_BYTES } from "@/lib/parseInstallmentForecastCsv";
 import type { InstallmentForecastCsvParseDiagnostics } from "@/lib/planDataSource/installmentForecast/types";
@@ -125,13 +124,10 @@ export function InstallmentForecastSection({
     : "inline-flex items-center gap-1.5 rounded-lg border border-slate-300/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:border-slate-400 disabled:opacity-40";
 
   return (
-    <div
-      className={`${marketingAnalyticsMajorSectionClass(presDark)} ${
+    <section
+      className={`relative min-w-0 ${shellClass} ${
         dragOver && isEditMode ? (presDark ? "ring-2 ring-amber-500/40" : "ring-2 ring-amber-400/50") : ""
       }`}
-    >
-    <section
-      className={`relative min-w-0 ${shellClass}`}
       aria-labelledby="installment-forecast-heading"
       onDragOver={
         isEditMode
@@ -232,6 +228,5 @@ export function InstallmentForecastSection({
         />
       )}
     </section>
-    </div>
   );
 }

@@ -1,13 +1,7 @@
 /**
- * Единый rhythm между смысловыми блоками маркетинговой аналитики
- * (ДДУ → стоимость проекта → выбытие → прогноз → …).
+ * Rhythm внутри одного смыслового блока (сегменты: машино-места, кладовые).
+ * Крупные section breaks — {@link MarketingAnalyticsSectionIsland}.
  */
-
-/** Крупный разрыв + мягкий divider перед новым разделом. */
-export function marketingAnalyticsMajorSectionClass(presDark: boolean): string {
-  const border = presDark ? "border-white/10" : "border-[#EEF2F7]";
-  return `relative min-w-0 w-full mt-24 border-t pt-10 ${border}`;
-}
 
 /** Divider между сегментами внутри одного блока (машино-места, кладовые). */
 export function marketingAnalyticsSegmentBorderColor(presDark: boolean): string {

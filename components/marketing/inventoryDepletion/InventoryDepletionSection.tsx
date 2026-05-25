@@ -22,7 +22,6 @@ import {
   inventoryDepletionBundleHasSales,
 } from "@/lib/inventoryDepletionFromDeals";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
-import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 
 type Props = {
@@ -131,7 +130,6 @@ export function InventoryDepletionSection({
   const showDiagnostics = !loading && dealsLoaded > 0 && !hasSales;
 
   return (
-    <div className={marketingAnalyticsMajorSectionClass(presDark)}>
     <section className={shellClass} aria-labelledby="inventory-depletion-heading">
       <h3 id="inventory-depletion-heading" className={`mb-1 text-sm font-semibold tracking-tight ${titleCls}`}>
         Выбытие объектов
@@ -211,6 +209,5 @@ export function InventoryDepletionSection({
         </div>
       )}
     </section>
-    </div>
   );
 }

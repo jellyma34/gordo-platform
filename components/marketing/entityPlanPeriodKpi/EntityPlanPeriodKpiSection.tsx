@@ -87,13 +87,19 @@ export function EntityPlanPeriodKpiSection({
     : "mt-6 min-w-0 border-t pt-5 md:mt-7 md:pt-6";
   const shellStyle = embedded || leadingSection ? undefined : { borderColor };
   const premiumLayout = cardsLayout === "ddu-revenue-premium";
-  const entityTitleCls = embedded
-    ? `text-base font-bold leading-snug tracking-tight sm:text-lg ${sectionLabelCls}`
-    : premiumLayout
-      ? presentation
-        ? `mt-0.5 text-base font-bold leading-tight tracking-tight ${sectionLabelCls}`
-        : `mt-1 text-lg font-bold leading-tight tracking-tight sm:text-xl ${sectionLabelCls}`
+  const premiumEntityHeadingTone = presDark ? "text-slate-100" : "text-[#0F172A]";
+  const entityTitleCls = premiumLayout
+    ? embedded
+      ? `text-[24px] font-semibold leading-[1] tracking-[-0.03em] ${premiumEntityHeadingTone}`
+      : `mt-4 text-[40px] font-semibold leading-[1] tracking-[-0.04em] xl:text-[44px] ${premiumEntityHeadingTone}`
+    : embedded
+      ? `text-base font-bold leading-snug tracking-tight sm:text-lg ${sectionLabelCls}`
       : `mt-2 text-xl font-bold leading-tight tracking-tight sm:text-2xl ${sectionLabelCls}`;
+  const sectionHeadingCls = premiumLayout
+    ? presentation
+      ? `text-[13px] font-bold leading-snug tracking-tight sm:text-sm ${titleCls}`
+      : `text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`
+    : `text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`;
   const headerMb = premiumLayout
     ? presentation
       ? "mb-2"
@@ -101,7 +107,7 @@ export function EntityPlanPeriodKpiSection({
     : embedded
       ? "mb-4"
       : "mb-5 min-w-0 md:mb-6";
-  const showEntityTitle = !(premiumLayout && presentation && leadingSection);
+  const showEntityTitle = Boolean(entityLabel?.trim());
   const premiumPlanVolume =
     premiumLayout && projectVolumeCompactCurrency
       ? {
@@ -128,9 +134,9 @@ export function EntityPlanPeriodKpiSection({
     return (
       <div className={shellCls} style={shellStyle}>
         {!embedded ? (
-          <h2 className={`text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`}>{sectionTitle}</h2>
+          <h2 className={sectionHeadingCls}>{sectionTitle}</h2>
         ) : null}
-        {showEntityTitle ? <p className={entityTitleCls}>{entityLabel}</p> : null}
+        {showEntityTitle ? <h3 className={entityTitleCls}>{entityLabel}</h3> : null}
         <p className={`mt-6 py-10 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>{emptyMessage}</p>
       </div>
     );
@@ -140,19 +146,9 @@ export function EntityPlanPeriodKpiSection({
     <div className={shellCls} style={shellStyle}>
       <div className={`${headerMb} min-w-0`}>
         {!embedded ? (
-          <h2
-            className={`font-bold leading-snug tracking-tight ${titleCls} ${
-              premiumLayout
-                ? presentation
-                  ? "text-[13px] sm:text-sm"
-                  : "text-sm sm:text-[15px]"
-                : "text-base sm:text-lg"
-            }`}
-          >
-            {sectionTitle}
-          </h2>
+          <h2 className={sectionHeadingCls}>{sectionTitle}</h2>
         ) : null}
-        {showEntityTitle ? <p className={entityTitleCls}>{entityLabel}</p> : null}
+        {showEntityTitle ? <h3 className={entityTitleCls}>{entityLabel}</h3> : null}
       </div>
 
       <div className={railLayoutCls}>

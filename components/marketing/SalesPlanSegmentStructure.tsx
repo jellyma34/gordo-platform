@@ -1,5 +1,6 @@
 "use client";
 
+import { LayoutDashboard } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
 
 import {
@@ -8,6 +9,11 @@ import {
   type NormalizedDealRow,
 } from "@/components/marketing/DealsSection";
 import { MarketingDealSegmentHeader } from "@/components/marketing/MarketingDealSegmentHeader";
+import {
+  MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE,
+  MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS,
+  type MarketingDealSegmentIconWrapTone,
+} from "@/lib/marketingDealSegmentIdentity";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
 import type { MarketingDealsJsonFeed } from "@/components/marketing/useMarketingDealsJson";
 import {
@@ -34,11 +40,60 @@ import {
 } from "@/lib/marketingRevenueFactCsv";
 import { resolveFactRevenueBySegmentForStructure } from "@/lib/resolveFactRevenueForSalesStructure";
 import { uploadMarketingRevenueFactCsvFile } from "@/lib/marketingRevenueFactCsvUpload";
-import { compactRub, formatAvgPricePerM2Rub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import { compactRub, formatAvgPricePerM2Rub, formatFactReceiptRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
 
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
 
 const SEGMENT_ORDER: DealSegmentKey[] = ["apartment", "parking", "storage", "commercial", "other"];
+
+/** Сегменты, входящие в карточку «По проекту» (сумма KPI по типам объектов). */
+const PROJECT_STRUCTURE_SEGMENTS: readonly DealSegmentKey[] = ["apartment", "parking", "storage", "commercial"];
+
+type SalesStructureCardRow = {
+  isProject?: boolean;
+  key: DealSegmentKey;
+  count: number;
+  sum: number;
+  factRevenue: number;
+  avg: number;
+  share: number;
+  soldAreaM2: number;
+  inventoryTotal: number | null;
+};
+
+/** Визуал карточки «По проекту» — тот же каркас, чуть насыщеннее фон / обводка. */
+const PROJECT_VISUAL_PRESENTATION: SegmentVisual = {
+  card: "bg-gradient-to-br from-indigo-800/52 via-slate-900/40 to-slate-900/58 border border-indigo-400/30",
+  glow: "shadow-[0_16px_40px_rgba(99,102,241,0.32)]",
+  insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_40px_rgba(99,102,241,0.18)]",
+  hoverGlow: "hover:shadow-[0_24px_48px_rgba(99,102,241,0.42)]",
+  radial: "radial-gradient(circle at 18% 15%, rgba(129,140,248,0.32), transparent 52%)",
+  sheen: "linear-gradient(125deg, rgba(129,140,248,0.26) 0%, transparent 40%, rgba(255,255,255,0.05) 100%)",
+  barFill: "rgba(129, 140, 248, 0.92)",
+  value: "text-indigo-50",
+  tertiary: "text-slate-500/85",
+};
+
+const PROJECT_VISUAL_WORK: SegmentVisual = {
+  card: "bg-gradient-to-br from-white via-indigo-50/70 to-slate-100/80 border border-indigo-200/80 ring-1 ring-indigo-100/90",
+  glow: "shadow-[0_6px_28px_rgba(99,102,241,0.14)]",
+  insetGlow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.98)]",
+  hoverGlow: "hover:shadow-[0_10px_32px_rgba(99,102,241,0.18)]",
+  radial: "radial-gradient(circle at 18% 15%, rgba(99,102,241,0.16), transparent 58%)",
+  sheen: "linear-gradient(125deg, rgba(99,102,241,0.14) 0%, transparent 48%, rgba(255,255,255,0.5) 100%)",
+  barFill: "rgba(79, 70, 229, 0.88)",
+  value: "text-indigo-950",
+  tertiary: "text-slate-400",
+};
+
+const PROJECT_VISUAL_PREMIUM: SegmentVisual = {
+  ...PROJECT_VISUAL_WORK,
+  card: "border border-indigo-200/70 bg-gradient-to-br from-white/92 via-indigo-50/55 to-slate-50/65 shadow-[0_12px_28px_rgba(99,102,241,0.1)] ring-1 ring-indigo-100/80",
+  glow: "",
+  insetGlow: "",
+  hoverGlow:
+    "hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(99,102,241,0.14)] transition-[transform,box-shadow] duration-200 ease-out",
+};
 
 /** Одна строка на lg+, равные доли на всю ширину дашборда (как блоки графиков ниже). */
 function segmentKpiGridLgClass(cardCount: number): string {
@@ -46,7 +101,50 @@ function segmentKpiGridLgClass(cardCount: number): string {
   if (cardCount === 2) return "lg:grid-cols-2";
   if (cardCount === 3) return "lg:grid-cols-3";
   if (cardCount === 4) return "lg:grid-cols-[repeat(4,minmax(0,1fr))]";
-  return "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
+  if (cardCount === 5) return "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
+  return "lg:grid-cols-[repeat(6,minmax(0,1fr))]";
+}
+
+function aggregateProjectStructureMetrics(segments: readonly SalesStructureCardRow[]): SalesStructureCardRow {
+  const count = segments.reduce((s, m) => s + m.count, 0);
+  const sum = segments.reduce((s, m) => s + m.sum, 0);
+  const factRevenue = segments.reduce((s, m) => s + m.factRevenue, 0);
+  const soldAreaM2 = segments.reduce((s, m) => s + m.soldAreaM2, 0);
+  const inventorySum = segments.reduce((s, m) => s + (m.inventoryTotal ?? 0), 0);
+  return {
+    isProject: true,
+    key: "apartment",
+    count,
+    sum,
+    factRevenue,
+    avg: count > 0 ? sum / count : 0,
+    share: 1,
+    soldAreaM2,
+    inventoryTotal: inventorySum > 0 ? inventorySum : null,
+  };
+}
+
+function ProjectStructureCardHeader({
+  iconWrapTone,
+  labelTone,
+  className = "",
+}: {
+  iconWrapTone: MarketingDealSegmentIconWrapTone;
+  labelTone: "work" | "dark";
+  className?: string;
+}) {
+  const wrap = MARKETING_DEAL_SEGMENT_ICON_WRAP_CLASS[iconWrapTone];
+  const labelClass = `${MARKETING_DEAL_SEGMENT_HEADER_TITLE_BASE} ${
+    labelTone === "dark" ? "text-indigo-300/95" : "text-indigo-800/95"
+  }`;
+  return (
+    <div className={`flex min-w-0 items-center gap-3 ${className}`.trim()}>
+      <div className={wrap} aria-hidden>
+        <LayoutDashboard className="h-5 w-5 shrink-0 text-indigo-500" strokeWidth={2} />
+      </div>
+      <span className={labelClass}>По проекту</span>
+    </div>
+  );
 }
 
 /**
@@ -537,21 +635,21 @@ export function SalesPlanSegmentStructure({
     onCsvSelected: onRevenueFactCsvSelected,
   };
 
+  const inventoryPools = useMemo(
+    () => ({
+      apartments: apartmentsRevenuePool,
+      parking: parkingRevenuePool,
+      storages: storagesRevenuePool,
+      commercialInventoryUnits,
+    }),
+    [apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool, commercialInventoryUnits],
+  );
+
   const cards = useMemo(() => {
     const totalSum = filteredRows.reduce((s, r) => s + r.sumRub, 0);
     const grouped = groupDealsBySegment(filteredRows);
-    const out: Array<{
-      key: DealSegmentKey;
-      count: number;
-      sum: number;
-      factRevenue: number;
-      avg: number;
-      share: number;
-      soldAreaM2: number;
-    }> = [];
-    for (const key of SEGMENT_ORDER) {
-      const list = grouped[key];
-      if (list.length === 0) continue;
+
+    const buildSegmentRow = (key: DealSegmentKey, list: NormalizedDealRow[]): SalesStructureCardRow => {
       const sum = list.reduce((s, r) => s + r.sumRub, 0);
       const count = list.length;
       const soldAreaM2 = list.reduce((s, r) => {
@@ -572,8 +670,7 @@ export function SalesPlanSegmentStructure({
         if (fromCsvPool != null) share = fromCsvPool;
       }
       const factRevenue = key === "other" ? 0 : factRevenueBySegment[key as DealsAnalyticsSegmentKey];
-
-      out.push({
+      return {
         key,
         count,
         sum,
@@ -581,10 +678,31 @@ export function SalesPlanSegmentStructure({
         avg: count > 0 ? sum / count : 0,
         share,
         soldAreaM2,
-      });
+        inventoryTotal: resolveSegmentInventoryTotal(key, inventoryPools),
+      };
+    };
+
+    const segmentCards: SalesStructureCardRow[] = [];
+    for (const key of SEGMENT_ORDER) {
+      const list = grouped[key];
+      if (!list?.length) continue;
+      segmentCards.push(buildSegmentRow(key, list));
     }
-    return out;
-  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool, factRevenueBySegment]);
+    if (segmentCards.length === 0) return [];
+
+    const projectSourceRows: SalesStructureCardRow[] = PROJECT_STRUCTURE_SEGMENTS.map((key) =>
+      buildSegmentRow(key, grouped[key] ?? []),
+    );
+    const projectCard = aggregateProjectStructureMetrics(projectSourceRows);
+    return [projectCard, ...segmentCards];
+  }, [
+    filteredRows,
+    apartmentsRevenuePool,
+    parkingRevenuePool,
+    storagesRevenuePool,
+    factRevenueBySegment,
+    inventoryPools,
+  ]);
 
   if (loadingDeals) {
     return (
@@ -631,11 +749,18 @@ export function SalesPlanSegmentStructure({
       ) : null}
       <div className={gridClass}>
         {cards.map((c) => {
-          const vs = presDark
-            ? SEGMENT_VISUAL_PRESENTATION[c.key]
-            : mplPremium && presentation
-              ? SEGMENT_VISUAL_PREMIUM[c.key]
-              : SEGMENT_VISUAL_WORK[c.key];
+          const isProject = c.isProject === true;
+          const vs = isProject
+            ? presDark
+              ? PROJECT_VISUAL_PRESENTATION
+              : mplPremium && presentation
+                ? PROJECT_VISUAL_PREMIUM
+                : PROJECT_VISUAL_WORK
+            : presDark
+              ? SEGMENT_VISUAL_PRESENTATION[c.key]
+              : mplPremium && presentation
+                ? SEGMENT_VISUAL_PREMIUM[c.key]
+                : SEGMENT_VISUAL_WORK[c.key];
           const sharePct = Math.min(100, Math.max(0, c.share * 100));
           const iconWrapTone = presDark
             ? "dark"
@@ -646,7 +771,7 @@ export function SalesPlanSegmentStructure({
                 : "work";
           const labelTone = presDark ? "dark" : "work";
           return (
-            <div key={c.key} className="flex h-full min-h-0 min-w-0 flex-col">
+            <div key={isProject ? "project" : c.key} className="flex h-full min-h-0 min-w-0 flex-col">
               <div
                 className={`sales-structure-card group relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${segmentCardRadius} ${vs.card} ${vs.glow} ${vs.insetGlow} ${vs.hoverGlow} transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:z-[1]`}
               >
@@ -668,20 +793,19 @@ export function SalesPlanSegmentStructure({
                   aria-hidden
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-2.5 py-2.5 sm:px-3 sm:py-3">
-                  <MarketingDealSegmentHeader
-                    segment={c.key}
-                    iconWrapTone={iconWrapTone}
-                    labelTone={labelTone}
-                    className="mb-1"
-                  />
+                  {isProject ? (
+                    <ProjectStructureCardHeader iconWrapTone={iconWrapTone} labelTone={labelTone} className="mb-1" />
+                  ) : (
+                    <MarketingDealSegmentHeader
+                      segment={c.key}
+                      iconWrapTone={iconWrapTone}
+                      labelTone={labelTone}
+                      className="mb-1"
+                    />
+                  )}
                   <SegmentStructurePrimaryKpi
                     count={c.count}
-                    inventoryTotal={resolveSegmentInventoryTotal(c.key, {
-                      apartments: apartmentsRevenuePool,
-                      parking: parkingRevenuePool,
-                      storages: storagesRevenuePool,
-                      commercialInventoryUnits,
-                    })}
+                    inventoryTotal={c.inventoryTotal}
                     sumRub={c.sum}
                     valueClass={vs.value}
                     presDark={presDark}
@@ -693,7 +817,7 @@ export function SalesPlanSegmentStructure({
                     <div
                       className={`mt-0.5 text-[14px] font-medium leading-tight ${presDark ? "text-slate-50" : "text-[#111827]"}`}
                     >
-                      {compactRub(c.factRevenue)}
+                      {formatFactReceiptRub(c.factRevenue)}
                     </div>
                   </div>
                   <div className="mt-1.5 tabular-nums leading-snug">
@@ -712,7 +836,7 @@ export function SalesPlanSegmentStructure({
                       {c.soldAreaM2 > 0 ? formatAvgPricePerM2Rub(c.sum / c.soldAreaM2) : "—"}
                     </div>
                   </div>
-                  {!presentation ? (
+                  {!presentation && !isProject ? (
                   <div className="mt-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className={`text-[10px] font-medium tracking-normal ${vs.tertiary}`}>Доля выручки</span>

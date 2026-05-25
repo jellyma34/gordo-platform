@@ -31,7 +31,6 @@ import {
 } from "@/lib/marketingProjectValueCsv";
 import { formatMarketingImportUpdatedLabel } from "@/lib/marketingImportUpdatedLabel";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
-import { marketingAnalyticsMajorSectionClass } from "@/lib/marketingAnalyticsSectionShell";
 import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
 import {
   selectProjectValueCommercialPlanSliceForKpi,
@@ -228,7 +227,7 @@ export function ProjectValueSection({
 
   return (
     <div
-      className={`${marketingAnalyticsMajorSectionClass(presDark)} ${
+      className={`relative min-w-0 w-full ${
         dragOver && isEditMode ? (presDark ? "ring-2 ring-amber-500/40" : "ring-2 ring-amber-400/50") : ""
       }`}
       onDragOver={

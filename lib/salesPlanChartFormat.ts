@@ -148,6 +148,14 @@ export function compactRub(n: number): string {
     : rubFmt.format(n);
 }
 
+/** Полная сумма ₽ для KPI «Факт поступлений» в «Структура продаж» (без млн/тыс). */
+export function formatFactReceiptRub(rub: number): string {
+  if (!Number.isFinite(rub)) return "—";
+  const rounded = Math.round(rub);
+  const sign = rounded < 0 ? "−" : "";
+  return `${sign}${Math.abs(rounded).toLocaleString("ru-RU")} ₽`;
+}
+
 /** Короткие подписи на графиках cashflow: «1 млн», «350 млн» (без «₽» в строке). */
 export function formatCompactCashflowRub(n: number): string {
   const sign = n < 0 ? "−" : "";

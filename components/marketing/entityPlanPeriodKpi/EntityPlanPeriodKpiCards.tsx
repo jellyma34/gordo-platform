@@ -224,6 +224,17 @@ function deviationToneClass(dev: number, presDark: boolean, presentation: boolea
   return presDark ? "text-rose-300" : presentation ? "text-rose-700" : "text-rose-700";
 }
 
+/** Цвет signed KPI (напр. «Увеличение стоимости объекта»): только value, не заголовок. */
+function signedMetricValueColor(value: number, presDark: boolean): string {
+  if (!Number.isFinite(value) || value === 0) {
+    return presDark ? "#e2e8f0" : "#0F172A";
+  }
+  if (value < 0) {
+    return presDark ? "#fb7185" : "#E11D48";
+  }
+  return presDark ? "#34d399" : "#059669";
+}
+
 function runnerFillColor(hue: ApartmentKpiHue, presDark: boolean): string {
   if (presDark) {
     if (hue === "green") return "#34d399";
@@ -789,7 +800,7 @@ function KpiSingleMetricCardBody({
   const valueStyle = compactTypo
     ? { fontSize: kpiValueSizeCompact, fontWeight: 700, lineHeight: 1.15 }
     : { fontSize: "clamp(28px, 5vw, 36px)", fontWeight: 700, lineHeight: 1.1 };
-  const color = presDark ? theme.ringStrokeDark : "#0f172a";
+  const color = signedMetricValueColor(value, presDark);
 
   if (usesCompactCurrencyLabels(theme, density)) {
     const parts = compactCurrencyParts(theme, value);

@@ -1,6 +1,7 @@
 "use client";
 
 import { DduRevenueSection } from "@/components/marketing/dduRevenue/DduRevenueSection";
+import { MarketingAnalyticsSectionIsland } from "@/components/marketing/MarketingAnalyticsSectionIsland";
 import { InventoryDepletionSection } from "@/components/marketing/inventoryDepletion/InventoryDepletionSection";
 import { InstallmentForecastSection } from "@/components/marketing/installmentForecast/InstallmentForecastSection";
 import { ProjectValueSection } from "@/components/marketing/projectValue/ProjectValueSection";
@@ -29,38 +30,46 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
         objectId={objectId}
       />
 
-      <ProjectValueSection
-        presentation={presentation}
-        presDark={presDark}
-        mplPremium={mplLight}
-        isEditMode={!presentation}
-        period={period}
-        objectId={objectId}
-      />
+      <MarketingAnalyticsSectionIsland presDark={presDark} id="marketing-project-value">
+        <ProjectValueSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplLight}
+          isEditMode={!presentation}
+          period={period}
+          objectId={objectId}
+        />
+      </MarketingAnalyticsSectionIsland>
 
-      <InventoryDepletionSection
-        presentation={presentation}
-        presDark={presDark}
-        mplPremium={mplLight}
-        period={period}
-        objectId={objectId}
-      />
+      <MarketingAnalyticsSectionIsland presDark={presDark} id="marketing-inventory-depletion">
+        <InventoryDepletionSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplLight}
+          period={period}
+          objectId={objectId}
+        />
+      </MarketingAnalyticsSectionIsland>
 
-      <InstallmentForecastSection
-        presentation={presentation}
-        presDark={presDark}
-        mplPremium={mplLight}
-        isEditMode={!presentation}
-        period={period}
-      />
+      <MarketingAnalyticsSectionIsland presDark={presDark} id="marketing-installment-forecast">
+        <InstallmentForecastSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplLight}
+          isEditMode={!presentation}
+          period={period}
+        />
+      </MarketingAnalyticsSectionIsland>
 
-      <SqmPriceDynamicsSection
-        presentation={presentation}
-        presDark={presDark}
-        mplPremium={mplLight}
-        period={period}
-        objectId={objectId}
-      />
+      <MarketingAnalyticsSectionIsland presDark={presDark} id="marketing-sqm-price-dynamics">
+        <SqmPriceDynamicsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplLight}
+          period={period}
+          objectId={objectId}
+        />
+      </MarketingAnalyticsSectionIsland>
     </div>
   );
 }
