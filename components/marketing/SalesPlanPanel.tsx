@@ -1421,10 +1421,10 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setRevenueFactCsvDoc(null);
     };
     (async () => {
-      const { hydrateSupplementalMarketingFromPublic } = await import(
-        "@/lib/analytics/hydrateSupplementalMarketingFromPublic"
+      const { hydrateSupplementalMarketingDatasets } = await import(
+        "@/lib/analytics/hydrateMarketingFromServer"
       );
-      const serverDatasets = await hydrateSupplementalMarketingFromPublic(paymentPlanProjectId);
+      const serverDatasets = await hydrateSupplementalMarketingDatasets(paymentPlanProjectId);
       if (cancelled) return;
 
       if (serverDatasets.investors) applyFromInvestorsDoc(serverDatasets.investors);
@@ -1978,10 +1978,13 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         setSegmentExecutionCsvWarnings(Array.isArray(result.warnings) ? result.warnings : []);
         throw new Error(result.error);
       }
-      setSegmentExecutionCharts(result.charts);
+      console.log("CSV uploaded");
+      console.log("Reloading analytics...");
+      setSegmentExecutionCharts({ ...result.charts });
       setSegmentExecutionCsvError(null);
       setSegmentExecutionCsvMeta(result.meta);
       setSegmentExecutionCsvWarnings(result.warnings);
+      console.log("Segment chart updated", result.charts);
     } catch (e) {
       if (e instanceof Error && e.message) throw e;
       const msg = "Не удалось прочитать CSV исполнения плана продаж.";

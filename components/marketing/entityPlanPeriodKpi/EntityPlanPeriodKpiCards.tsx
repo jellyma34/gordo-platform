@@ -460,13 +460,20 @@ function KpiBarValueLabel({
   );
 }
 
-function KpiSectionDivider({ presDark }: { presDark: boolean }) {
+function KpiSectionDivider({
+  presDark,
+  density = "default",
+}: {
+  presDark: boolean;
+  density?: EntityKpiCardsDensity;
+}) {
+  const UI = kpiUiTokens(density);
   return (
     <div
       className="w-full shrink-0"
       style={{
-        borderTop: presDark ? "1px solid rgba(255,255,255,0.1)" : `1px solid ${ENTITY_KPI_UI.dividerColor}`,
-        margin: `${ENTITY_KPI_UI.dividerMarginY}px 0`,
+        borderTop: presDark ? "1px solid rgba(255,255,255,0.1)" : `1px solid ${UI.dividerColor}`,
+        margin: `${UI.dividerMarginY}px 0`,
       }}
       aria-hidden
     />
@@ -477,11 +484,14 @@ function KpiExecutionRunner({
   widthPercent,
   hue,
   presDark,
+  density = "default",
 }: {
   widthPercent: number;
   hue: ApartmentKpiHue;
   presDark: boolean;
+  density?: EntityKpiCardsDensity;
 }) {
+  const UI = kpiUiTokens(density);
   const animW = useSmoothScalar(widthPercent, 600);
   const w = Math.min(100, Math.max(0, animW));
   const fill = runnerFillColor(hue, presDark);
@@ -490,8 +500,8 @@ function KpiExecutionRunner({
     <div
       className="relative w-full shrink-0 overflow-visible rounded-full"
       style={{
-        height: ENTITY_KPI_UI.runnerHeight,
-        backgroundColor: presDark ? "rgba(255,255,255,0.12)" : ENTITY_KPI_UI.runnerTrack,
+        height: UI.runnerHeight,
+        backgroundColor: presDark ? "rgba(255,255,255,0.12)" : UI.runnerTrack,
         borderRadius: 999,
       }}
       role="progressbar"
@@ -507,8 +517,8 @@ function KpiExecutionRunner({
           <span
             className="absolute right-0 top-1/2 z-[1] -translate-y-1/2 translate-x-1/2 rounded-full bg-white"
             style={{
-              width: ENTITY_KPI_UI.runnerKnob,
-              height: ENTITY_KPI_UI.runnerKnob,
+              width: UI.runnerKnob,
+              height: UI.runnerKnob,
               boxShadow: "0 0 0 2px rgba(255,255,255,0.95), 0 2px 6px rgba(15,23,42,0.08)",
             }}
             aria-hidden
@@ -779,7 +789,7 @@ function ThemedKpiFactPlanCardBody({
           factBarLabel={factBarLabel}
         />
       </div>
-      <KpiSectionDivider presDark={presDark} />
+      <KpiSectionDivider presDark={presDark} density={density} />
       <div className="flex w-full items-center justify-between gap-3 whitespace-nowrap py-0.5">
         <span style={deviationLabelStyle}>Отклонение</span>
         <span
@@ -811,9 +821,13 @@ function ThemedKpiFactPlanCardBody({
           )}
         </span>
       </div>
-      {hideExecutionPct ? null : <KpiSectionDivider presDark={presDark} />}
+      {hideExecutionPct ? null : <KpiSectionDivider presDark={presDark} density={density} />}
       {hideExecutionPct ? null : (
-        <div className="mt-auto w-full shrink-0 space-y-2.5 pb-0.5">
+        <div
+          className={`mt-auto w-full shrink-0 pb-0.5 ${
+            isPremiumDashboardDensity(density) ? "space-y-2" : "space-y-2.5"
+          }`}
+        >
           <div className="flex w-full items-start justify-between gap-3">
             <span className="shrink-0 pt-0.5" style={deviationLabelStyle}>
               Выполнение
@@ -828,7 +842,7 @@ function ThemedKpiFactPlanCardBody({
               </span>
             )}
           </div>
-          <KpiExecutionRunner widthPercent={runnerW} hue={hue ?? "red"} presDark={presDark} />
+          <KpiExecutionRunner widthPercent={runnerW} hue={hue ?? "red"} presDark={presDark} density={density} />
         </div>
       )}
     </div>

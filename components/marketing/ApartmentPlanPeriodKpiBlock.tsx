@@ -1105,7 +1105,7 @@ export function ApartmentPlanPeriodKpiBlock({
       <div
         className={`relative min-w-0 overflow-hidden px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-3.5 md:px-6 md:pt-5 md:pb-4 ${shellCls}`}
       >
-        <div className="mb-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <h2 className={`min-w-0 text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`}>
             Выполнение плана отчетного периода
           </h2>
@@ -1252,14 +1252,14 @@ export function ApartmentPlanPeriodKpiBlock({
         </div>
       ) : null}
 
-        <div className="flex min-w-0 flex-col gap-2 sm:gap-2.5">
+        <div className="flex min-w-0 flex-col gap-1.5">
           <AnalyticsAccordionSection
             title="Проект"
             count={projectCount}
             defaultExpanded
-            accent
             presDark={presDark}
             presentation={presentation}
+            mplPremium={mplPremium}
           >
             <ReportingPeriodProjectSegment
               data={safeProjectKpi}
@@ -1275,6 +1275,7 @@ export function ApartmentPlanPeriodKpiBlock({
             count={apartmentCount}
             presDark={presDark}
             presentation={presentation}
+            mplPremium={mplPremium}
           >
             <ReportingPeriodApartmentsSegment
               data={debouncedData}
@@ -1291,6 +1292,7 @@ export function ApartmentPlanPeriodKpiBlock({
             count={parkingCount}
             presDark={presDark}
             presentation={presentation}
+            mplPremium={mplPremium}
           >
             <ParkingPlanPeriodKpiSection
               data={parkingPlanPeriodKpi}
@@ -1309,6 +1311,7 @@ export function ApartmentPlanPeriodKpiBlock({
             count={storageCount}
             presDark={presDark}
             presentation={presentation}
+            mplPremium={mplPremium}
           >
             <StoragePlanPeriodKpiSection
               data={storagePlanPeriodKpi}
@@ -1322,7 +1325,12 @@ export function ApartmentPlanPeriodKpiBlock({
             />
           </AnalyticsAccordionSection>
 
-          <AnalyticsAccordionSection title="Коммерция" presDark={presDark} presentation={presentation}>
+          <AnalyticsAccordionSection
+            title="Коммерция"
+            presDark={presDark}
+            presentation={presentation}
+            mplPremium={mplPremium}
+          >
             <EntityPlanPeriodKpiSection
               entityLabel=""
               illustrationSegment="commercial"

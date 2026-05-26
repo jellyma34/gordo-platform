@@ -3,6 +3,9 @@
 import { useCallback, useId, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
+import { resolveAnalyticsSegmentSurface } from "@/components/marketing/analytics/analyticsDashboardShell";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
+
 type Props = {
   title: string;
   /** Опционально: «Квартиры (79)». */
@@ -10,59 +13,59 @@ type Props = {
   defaultExpanded?: boolean;
   presDark: boolean;
   presentation: boolean;
+  mplPremium?: boolean;
   children: ReactNode;
   className?: string;
-  /** Чуть выделенный стиль (блок «Проект»). */
+  /** @deprecated Единый стиль сегментов — флаг не меняет оформление. */
   accent?: boolean;
 };
 
+/**
+ * Компактный collapsible-сегмент внутри analytics shell (тонкая рамка, мягкий hover, как вкладки ДДУ).
+ */
 export function AnalyticsAccordionSection({
   title,
   count,
   defaultExpanded = false,
   presDark,
   presentation,
+  mplPremium = false,
   children,
   className = "",
-  accent = false,
 }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const panelId = useId();
   const headerId = useId();
+  const surface = resolveAnalyticsSegmentSurface(presDark, presentation, mplPremium);
 
   const toggle = useCallback(() => setExpanded((v) => !v), []);
 
   const countLabel =
     count != null && Number.isFinite(count) && count > 0 ? ` (${Math.round(count)})` : "";
 
-  const headerCls = presDark
-    ? "text-slate-100 hover:bg-white/[0.06]"
+  const borderCls = presDark ? "border-white/10" : presentation ? "border-black/[0.06]" : "border-slate-200/70";
+
+  const shellBg = presDark
+    ? expanded
+      ? "bg-white/[0.04]"
+      : "bg-transparent"
     : presentation
-      ? "text-mpl-text hover:bg-black/[0.03]"
-      : "text-[#0F172A] hover:bg-slate-50/90";
+      ? expanded
+        ? "bg-white/70"
+        : "bg-white/40"
+      : expanded
+        ? "bg-white/80"
+        : "bg-white/50";
 
-  const chevronCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
+  const chevronCls = presDark ? "text-slate-500" : "text-slate-400";
 
-  const borderColor = presDark
-    ? accent
-      ? "rgba(99,102,241,0.35)"
-      : "rgba(255,255,255,0.08)"
-    : accent
-      ? "rgba(99,102,241,0.28)"
-      : "rgba(226,232,240,0.65)";
+  const panelBorder = presDark ? "border-white/8" : presentation ? "border-black/[0.05]" : "border-slate-200/60";
 
-  const shellCls = accent
-    ? presDark
-      ? "bg-indigo-950/25 shadow-[0_6px_24px_rgba(0,0,0,0.18)] ring-1 ring-indigo-500/20"
-      : presentation
-        ? "bg-gradient-to-br from-indigo-50/70 via-white/90 to-white shadow-[0_6px_22px_rgba(99,102,241,0.1)] ring-1 ring-indigo-200/70"
-        : "bg-gradient-to-br from-indigo-50/55 via-white to-white shadow-[0_6px_20px_rgba(99,102,241,0.08)] ring-1 ring-indigo-100/80"
-    : "";
+  const headerTabCls = segmentedControlTabClass(expanded, surface);
 
   return (
     <div
-      className={`min-w-0 rounded-xl border ${shellCls} ${className}`.trim()}
-      style={{ borderColor }}
+      className={`min-w-0 overflow-hidden rounded-lg border ${borderCls} ${shellBg} ${className}`.trim()}
       data-accordion-expanded={expanded ? "true" : "false"}
     >
       <button
@@ -70,19 +73,19 @@ export function AnalyticsAccordionSection({
         id={headerId}
         aria-expanded={expanded}
         aria-controls={panelId}
-        className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left transition-colors duration-200 ease-out sm:px-4 sm:py-3 ${headerCls}`}
+        className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20 sm:px-3.5 ${headerTabCls}`}
         onClick={toggle}
       >
-        <span className="min-w-0 truncate text-[15px] font-semibold leading-snug tracking-tight sm:text-base">
+        <span className="min-w-0 truncate text-[13px] font-medium leading-snug tracking-tight">
           {title}
           {countLabel ? (
-            <span className={`font-medium tabular-nums ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+            <span className={`font-normal tabular-nums ${presDark ? "text-slate-500" : "text-slate-500"}`}>
               {countLabel}
             </span>
           ) : null}
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform duration-300 ease-out motion-reduce:transition-none ${chevronCls} ${
+          className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${chevronCls} ${
             expanded ? "rotate-180" : "rotate-0"
           }`}
           aria-hidden
@@ -93,15 +96,15 @@ export function AnalyticsAccordionSection({
         id={panelId}
         role="region"
         aria-labelledby={headerId}
-        className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+        className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
         style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div
-          className={`min-h-0 overflow-hidden transition-opacity duration-300 ease-out motion-reduce:transition-none ${
+          className={`min-h-0 overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none ${
             expanded ? "opacity-100" : "opacity-0"
           }`}
         >
-          <div className="border-t px-3.5 pb-4 pt-3 sm:px-4 sm:pb-5 sm:pt-3.5" style={{ borderColor }}>
+          <div className={`border-t px-3 pb-3 pt-2 sm:px-3.5 sm:pb-3.5 sm:pt-2.5 ${panelBorder}`}>
             {expanded ? children : null}
           </div>
         </div>

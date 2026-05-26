@@ -127,7 +127,7 @@ async function persistPublicAnalyticsCsv(
 ): Promise<void> {
   const entry = analyticsCsvRegistryEntry(kind);
   await persistAnalyticsCsv(kind, text, {
-    updatedAt,
+    uploadedAt: updatedAt,
     uploadedBy,
     sourceFile: fileName || entry.fileName,
   });

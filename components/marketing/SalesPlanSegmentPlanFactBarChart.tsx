@@ -14,7 +14,11 @@ import { useMarketingPresentationLight, useMarketingPresVisual } from "@/compone
 import { DEALS_ANALYTICS_SEGMENT_KEYS, type DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { buildSegmentFactSeriesFromDeals } from "@/lib/buildSegmentFactSeriesFromDeals";
 import { buildSegmentPlanRubByExecKeyFromUnits } from "@/lib/buildSegmentPlanRubFromUnitsExecution";
-import type { SegmentExecutionChartsPayload } from "@/lib/marketingSegmentExecutionCsv";
+import {
+  segmentExecutionChartsHaveData,
+  segmentExecutionPlanFactBarRowsForChartPeriod,
+  type SegmentExecutionChartsPayload,
+} from "@/lib/marketingSegmentExecutionCsv";
 import type { SegmentExecutionSegmentKey } from "@/lib/parseSegmentExecutionCsv";
 import {
   unitsExecutionChartsHaveRows,
@@ -198,8 +202,11 @@ export function SalesPlanSegmentPlanFactBarChart({
   const handleSegmentExecutionCsvUpload = useCallback(
     async (file: File) => {
       if (!onSegmentExecutionCsvUpload) return;
+      console.log("CSV uploaded");
+      console.log("Reloading analytics...");
       await onSegmentExecutionCsvUpload(file);
       applyDefaultChartFilters();
+      console.log("Segment chart updated");
     },
     [onSegmentExecutionCsvUpload, applyDefaultChartFilters],
   );
@@ -236,12 +243,21 @@ export function SalesPlanSegmentPlanFactBarChart({
     return normalizeMonthKey(planReportAsOfYmd) ?? planReportAsOfYmd.slice(0, 7);
   }, [planReportAsOfYmd]);
 
+  const csvMonthKeys = useMemo(() => {
+    const monthly = segmentExecutionCharts?.monthlyByPeriodKey;
+    if (!monthly) return [];
+    return Object.keys(monthly)
+      .filter((k) => /^\d{4}-\d{2}$/.test(k))
+      .sort((a, b) => a.localeCompare(b));
+  }, [segmentExecutionCharts]);
+
   const monthOptionsForSelect = useMemo(() => {
     const out = new Set(sortedMonthKeys);
+    for (const mk of csvMonthKeys) out.add(mk);
     out.add(SEGMENT_CHART_DEFAULT_MONTH);
     if (anchorMonthKey) out.add(anchorMonthKey);
     return [...out].sort();
-  }, [sortedMonthKeys, anchorMonthKey]);
+  }, [sortedMonthKeys, csvMonthKeys, anchorMonthKey]);
 
   const quarterOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -282,6 +298,24 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [periodMode, userQuarterId, quarterOptions, planReportAsOfYmd]);
 
   const hasUnitsPlanSource = unitsExecutionChartsHaveRows(unitsExecutionCharts);
+  const useSegmentExecutionCsv = segmentExecutionChartsHaveData(segmentExecutionCharts);
+
+  const segmentChartPeriodOpts = useMemo(
+    () => ({
+      periodMode,
+      monthKey: periodMode === "month" ? monthKeyForFilter : null,
+      quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
+    }),
+    [periodMode, monthKeyForFilter, quarterIdForFilter],
+  );
+
+  const csvBarRows = useMemo(
+    () =>
+      useSegmentExecutionCsv
+        ? segmentExecutionPlanFactBarRowsForChartPeriod(segmentExecutionCharts, segmentChartPeriodOpts)
+        : null,
+    [useSegmentExecutionCsv, segmentExecutionCharts, segmentChartPeriodOpts],
+  );
 
   const periodFilterOptions = useMemo(
     () => ({
@@ -315,6 +349,23 @@ export function SalesPlanSegmentPlanFactBarChart({
   );
 
   const segmentBarRowsAll = useMemo(() => {
+    if (useSegmentExecutionCsv) {
+      const merged = (csvBarRows ?? []).filter(
+        (row) => Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9,
+      );
+      if (process.env.NODE_ENV === "development") {
+        console.log("Segment chart updated", {
+          source: "segment-execution-csv",
+          periodMode,
+          monthKey: periodMode === "month" ? monthKeyForFilter : null,
+          quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
+          rows: merged,
+        });
+        console.table(merged);
+      }
+      return merged;
+    }
+
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, periodFilterOptions);
     const stagnantMonth =
       periodMode === "month" && monthKeyForFilter != null
@@ -351,6 +402,8 @@ export function SalesPlanSegmentPlanFactBarChart({
     }
     return merged;
   }, [
+    useSegmentExecutionCsv,
+    csvBarRows,
     dealsRows,
     periodMode,
     periodFilterOptions,
@@ -391,7 +444,8 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [segmentScope]);
 
   /** Нет сделок вовсе (режим «Все» / пустой JSON) — не путать с нулевым фактом за выбранный месяц. */
-  const showEmptyOverlay = rows.length === 0 && dealsRows.length === 0 && !hasUnitsPlanSource;
+  const showEmptyOverlay =
+    rows.length === 0 && !useSegmentExecutionCsv && dealsRows.length === 0 && !hasUnitsPlanSource;
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {
@@ -459,7 +513,11 @@ export function SalesPlanSegmentPlanFactBarChart({
             </div>
           ) : null}
         </div>
-        {!presentation && hasUnitsPlanSource ? (
+        {!presentation && useSegmentExecutionCsv ? (
+          <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
+            План и факт — из загруженного CSV исполнения по сегментам.
+          </p>
+        ) : !presentation && hasUnitsPlanSource ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
             Факт — сделки JSON; план — накопительный план в штуках × средняя стоимость сегмента.
           </p>
@@ -543,6 +601,7 @@ export function SalesPlanSegmentPlanFactBarChart({
       <div className="relative h-[300px] min-h-[280px] w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
+            key={`segment-plan-fact-${useSegmentExecutionCsv ? "csv" : "deals"}-${periodMode}-${monthKeyForFilter ?? ""}-${quarterIdForFilter ?? ""}-${displayRows.map((r) => `${r.name}:${r.fact}:${r.plan}`).join("|")}`}
             data={displayRows}
             margin={{ top: 28, right: 8, left: 8, bottom: 8 }}
             barCategoryGap={barCategoryGapPct}

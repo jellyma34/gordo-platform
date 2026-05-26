@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { hydrateMarketingDocFromPublicCsv } from "@/lib/analytics/hydrateMarketingDocFromPublicCsv";
+import { hydrateMarketingDocFromServer } from "@/lib/analytics/hydrateMarketingFromServer";
+import { loadAnalyticsRegistry } from "@/lib/analytics/loadAnalyticsRegistry";
+import { analyticsCsvRegistryEntry } from "@/lib/analytics/analyticsCsvRegistry";
 import { deleteMarketingImport, uploadMarketingImportFile } from "@/lib/marketingCsvServerClient";
 import type { MarketingImportKind } from "@/lib/marketingImportKinds";
 
@@ -15,11 +17,13 @@ type Options<T> = {
 };
 
 /**
- * Hydration только из static assets `public/data/analytics/*.csv`.
- * Upload сохраняет на сервер + в public (для следующего git push).
+ * Hydration: server storage API (runtime FS + `public/data/analytics/`),
+ * fallback — static assets из git/deploy.
+ * Upload → POST marketing/storage → persist CSV → refresh.
  */
 export function useMarketingImportDoc<T>(opts: Options<T>) {
   const { projectId, importKind, validate, uploadedBy = "—" } = opts;
+  const datasetKey = analyticsCsvRegistryEntry(importKind).datasetKey;
 
   const [doc, setDoc] = useState<T | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -30,23 +34,28 @@ export function useMarketingImportDoc<T>(opts: Options<T>) {
     setHydrated(false);
     setError(null);
     try {
-      const fromPublic = await hydrateMarketingDocFromPublicCsv(importKind, validate, projectId);
-      if (fromPublic.ok) {
-        setDoc(fromPublic.doc);
+      const fromServer = await hydrateMarketingDocFromServer(
+        projectId,
+        importKind,
+        datasetKey,
+        validate,
+      );
+      if (fromServer.ok) {
+        setDoc(fromServer.doc);
         return;
       }
-      if (fromPublic.error) {
-        setError(fromPublic.error);
+      if (fromServer.error) {
+        setError(fromServer.error);
       }
       setDoc(null);
     } finally {
       setHydrated(true);
     }
-  }, [importKind, projectId, validate]);
+  }, [datasetKey, importKind, projectId, validate]);
 
   useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    void loadAnalyticsRegistry(projectId).then(() => hydrate());
+  }, [hydrate, projectId]);
 
   const uploadFile = useCallback(
     async (file: File) => {

@@ -1,3 +1,4 @@
+import type { SegmentPlanFactBarRow } from "@/components/marketing/SalesPlanSegmentPlanFactBarChart";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import {
@@ -178,6 +179,63 @@ export type SegmentExecutionChartPeriodOpts = {
  * Накопительный PLAN из CSV (`квартиры сумма`, `паркинг сумма`, …) до выбранного периода.
  * FACT не возвращается — факт только из JSON сделок в UI графика.
  */
+function planFactRowsToBarRows(rows: readonly SegmentExecutionPlanFactRow[]): SegmentPlanFactBarRow[] {
+  return rows.map((r) => ({
+    name: r.segment,
+    fact: r.fact,
+    plan: r.plan,
+  }));
+}
+
+/**
+ * План/факт для bar chart «Выполнение плана продаж по сегментам» из CSV segment_execution.
+ * При помесячном CSV: месяц — срез месяца; квартал — сумма месяцев квартала; все — накопительный planFactRows.
+ */
+export function segmentExecutionPlanFactBarRowsForChartPeriod(
+  payload: SegmentExecutionChartsPayload | null | undefined,
+  opts: SegmentExecutionChartPeriodOpts,
+): SegmentPlanFactBarRow[] | null {
+  if (!payload) return null;
+
+  const monthly = payload.monthlyByPeriodKey;
+  if (monthly && Object.keys(monthly).length > 0) {
+    if (opts.periodMode === "month") {
+      const canon = opts.monthKey ? normalizeMonthKey(opts.monthKey) ?? opts.monthKey : null;
+      if (canon && /^\d{4}-\d{2}$/.test(canon)) {
+        const monthRows = monthly[canon];
+        if (monthRows?.length) return planFactRowsToBarRows(monthRows);
+      }
+    }
+
+    if (opts.periodMode === "quarter" && opts.quarterId) {
+      const q = parseQuarterId(opts.quarterId);
+      if (q) {
+        const qKeys = monthKeysInQuarter(q.year, q.quarter).filter((k) => monthly[k]?.length);
+        if (qKeys.length > 0) {
+          return planFactRowsToBarRows(sumSegmentPlanFactRows(qKeys.map((k) => monthly[k]!)));
+        }
+      }
+    }
+
+    if (opts.periodMode === "all") {
+      const pf = resolveSegmentExecutionPlanFactRows(payload);
+      if (pf.length > 0) return planFactRowsToBarRows(pf);
+    }
+
+    const through = resolveThroughPeriodKey(monthly, opts);
+    if (through) {
+      const keys = sortedMonthlyPeriodKeys(monthly).filter((k) => k <= through);
+      const chunks = keys.map((k) => monthly[k]!).filter((rows) => rows.length > 0);
+      if (chunks.length > 0) return planFactRowsToBarRows(sumSegmentPlanFactRows(chunks));
+    }
+    return null;
+  }
+
+  const pf = resolveSegmentExecutionPlanFactRows(payload);
+  if (!pf.length) return null;
+  return planFactRowsToBarRows(pf);
+}
+
 export function segmentExecutionCumulativePlanForChartPeriod(
   payload: SegmentExecutionChartsPayload | null | undefined,
   opts: SegmentExecutionChartPeriodOpts,

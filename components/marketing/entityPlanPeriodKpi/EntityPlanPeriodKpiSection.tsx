@@ -118,11 +118,13 @@ export function EntityPlanPeriodKpiSection({
       : `text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`
     : `text-base font-semibold leading-snug tracking-tight sm:text-lg ${titleCls}`;
   const headerMb = premiumLayout
-    ? presentation
+    ? embedded || leadingSection
       ? "mb-2"
-      : "mb-3"
+      : presentation
+        ? "mb-2"
+        : "mb-3"
     : embedded
-      ? "mb-4"
+      ? "mb-3"
       : "mb-5 min-w-0 md:mb-6";
   const showEntityTitle = Boolean(entityLabel?.trim());
   const premiumPlanVolume =
