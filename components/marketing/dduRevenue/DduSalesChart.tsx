@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
+import { BlockMonthSelector } from "@/components/marketing/BlockMonthSelector";
 import {
   AnalyticsSegmentLayout,
   type AnalyticsObjectTab,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/dduRevenue/useDduRevenueSalesBlock";
 import { formatDduRevenueRubWithoutCurrency } from "@/lib/dduRevenuePeriodKpi";
 import type { MarketingDduRevenueCsvStoredV1 } from "@/lib/marketingDduRevenueCsv";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import {
   APARTMENT_ROOM_TYPE_TAB_ORDER,
   apartmentRoomTypeConfig,
@@ -61,12 +63,19 @@ export function DduSalesChart({
   error: externalError,
   showRoomTypeFilter = true,
 }: Props) {
+  const [blockMonthKey, setBlockMonthKey] = useState<string>(() => {
+    const mk = typeof currentPeriodKey === "string" ? normalizeMonthKey(currentPeriodKey) : null;
+    if (mk) return mk;
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
   const internalBlock = useDduRevenueSalesBlock(
     externalBlock
       ? {
           period,
           objectId,
-          currentPeriodKey,
+          currentPeriodKey: blockMonthKey,
           doc: externalBlock.doc,
           hydrated: externalBlock.hydrated,
           loading: externalBlock.busy,
@@ -75,7 +84,7 @@ export function DduSalesChart({
       : {
           period,
           objectId,
-          currentPeriodKey,
+          currentPeriodKey: blockMonthKey,
           doc,
           hydrated,
           loading,
@@ -142,6 +151,24 @@ export function DduSalesChart({
   const spacingCls =
     sectionSpacing === "sales-plan" ? "mt-6 mb-6" : sectionSpacing === "inline" ? "" : "";
   const tabEmpty = !showSkeleton && !activeSlice.hasData;
+
+  const monthOptions = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of block.dealRowsForFact) {
+      const mk = normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null);
+      if (mk) out.add(mk);
+    }
+    const cur = normalizeMonthKey(blockMonthKey);
+    if (cur) out.add(cur);
+    return [...out].sort();
+  }, [block.dealRowsForFact, blockMonthKey]);
+
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    if (!monthOptions.includes(blockMonthKey)) {
+      setBlockMonthKey(monthOptions[monthOptions.length - 1]!);
+    }
+  }, [blockMonthKey, monthOptions]);
 
   const objectTabs: AnalyticsObjectTab[] = useMemo(
     () =>
@@ -256,6 +283,18 @@ export function DduSalesChart({
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
+        headerControls={
+          monthOptions.length ? (
+            <BlockMonthSelector
+              value={blockMonthKey}
+              options={monthOptions}
+              onChange={setBlockMonthKey}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={presentation && mplPremium}
+            />
+          ) : null
+        }
         showRoomTypeFilter={showRoomTypeFilter}
         objectTabs={objectTabs}
         activeObjectType={activeObjectType}

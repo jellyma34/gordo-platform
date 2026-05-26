@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 
+import { BlockMonthSelector } from "@/components/marketing/BlockMonthSelector";
 import { AnalyticsAccordionSection } from "@/components/marketing/analytics/AnalyticsAccordionSection";
 import { analyticsDashboardShellClass } from "@/components/marketing/analytics/analyticsDashboardShell";
 import { ParkingPlanPeriodKpiSection } from "@/components/marketing/ParkingPlanPeriodKpiSection";
@@ -953,6 +954,9 @@ type Props = {
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
+  monthKey?: string;
+  monthOptions?: readonly string[];
+  onMonthKeyChange?: (monthKey: string) => void;
   isEditMode?: boolean;
   csvHydrated?: boolean;
   csvLoading?: boolean;
@@ -974,6 +978,9 @@ export function ApartmentPlanPeriodKpiBlock({
   presentation,
   presDark,
   mplPremium,
+  monthKey,
+  monthOptions,
+  onMonthKeyChange,
   isEditMode = false,
   csvHydrated = true,
   csvLoading = false,
@@ -1109,8 +1116,19 @@ export function ApartmentPlanPeriodKpiBlock({
           <h2 className={`min-w-0 text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`}>
             Выполнение плана отчетного периода
           </h2>
-          {isEditMode && onCsvUpload ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex min-w-0 flex-wrap items-start gap-3 sm:justify-end">
+            {monthKey && monthOptions?.length && onMonthKeyChange ? (
+              <BlockMonthSelector
+                value={monthKey}
+                options={monthOptions}
+                onChange={onMonthKeyChange}
+                presDark={presDark}
+                presentation={presentation}
+                mplPremium={presentation && mplPremium}
+              />
+            ) : null}
+            {isEditMode && onCsvUpload ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
               {hasCsv && csvMeta ? (
                 <span
                   className={`hidden max-w-[14rem] truncate text-xs font-semibold tabular-nums sm:block ${mutedCls}`}
@@ -1145,8 +1163,9 @@ export function ApartmentPlanPeriodKpiBlock({
                   Сбросить
                 </button>
               ) : null}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         {isEditMode && onCsvUpload && hasCsv && csvMeta ? (
           <p className={`mb-3 truncate text-[11px] font-semibold tabular-nums sm:hidden ${mutedCls}`} title={csvMeta.fileName}>

@@ -15,6 +15,9 @@ export type ReportingPeriodPlanExecutionSectionProps = {
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
+  monthKey?: string;
+  monthOptions?: readonly string[];
+  onMonthKeyChange?: (monthKey: string) => void;
   isEditMode?: boolean;
   csvHydrated?: boolean;
   csvLoading?: boolean;

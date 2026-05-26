@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { BlockMonthSelector } from "@/components/marketing/BlockMonthSelector";
 import { AnalyticsKpiCard } from "@/components/marketing/analytics/AnalyticsKpiCard";
 import { AnalyticsPlanFactCard } from "@/components/marketing/analytics/AnalyticsPlanFactCard";
 import {
@@ -16,6 +17,7 @@ import {
   useProjectCostSalesBlock,
   type UseProjectCostSalesBlockArgs,
 } from "@/lib/projectCost/useProjectCostSalesBlock";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { formatProjectValueWithoutCurrency } from "@/lib/projectValuePeriodKpi";
 import { SALES_PLAN_OBJECT_TYPE_TAB_ORDER, type SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
 
@@ -36,7 +38,14 @@ export function ProjectCostAnalyticsSection({
   currentPeriodKey,
   className = "",
 }: Props) {
-  const block = useProjectCostSalesBlock({ period, objectId, currentPeriodKey });
+  const [blockMonthKey, setBlockMonthKey] = useState<string>(() => {
+    const mk = typeof currentPeriodKey === "string" ? normalizeMonthKey(currentPeriodKey) : null;
+    if (mk) return mk;
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const block = useProjectCostSalesBlock({ period, objectId, currentPeriodKey: blockMonthKey });
 
   const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>("all");
 
@@ -78,6 +87,24 @@ export function ProjectCostAnalyticsSection({
   const tabEmpty = !showSkeleton && !activeSlice.hasData;
   const panelKey = activeObjectType;
 
+  const monthOptions = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of dealRowsForFact) {
+      const mk = normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null);
+      if (mk) out.add(mk);
+    }
+    const cur = normalizeMonthKey(blockMonthKey);
+    if (cur) out.add(cur);
+    return [...out].sort();
+  }, [blockMonthKey, dealRowsForFact]);
+
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    if (!monthOptions.includes(blockMonthKey)) {
+      setBlockMonthKey(monthOptions[monthOptions.length - 1]!);
+    }
+  }, [blockMonthKey, monthOptions]);
+
   const kpiProps = {
     entityLabel: activeSlice.definition.label,
     illustrationSegment: activeSlice.definition.illustrationSegment,
@@ -104,6 +131,18 @@ export function ProjectCostAnalyticsSection({
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
+        headerControls={
+          monthOptions.length ? (
+            <BlockMonthSelector
+              value={blockMonthKey}
+              options={monthOptions}
+              onChange={setBlockMonthKey}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={presentation && mplPremium}
+            />
+          ) : null
+        }
         showRoomTypeFilter={false}
         objectTabs={objectTabs}
         activeObjectType={activeObjectType}

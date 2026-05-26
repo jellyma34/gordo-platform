@@ -169,6 +169,7 @@ import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeed
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import {
   Area,
   Bar,
@@ -2079,7 +2080,83 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       marketingDealsFiltered,
     ],
   );
-  const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => receiptsPlanFactMonthly, [receiptsPlanFactMonthly]);
+  const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => {
+    const isPeriodKey = (pk: string): boolean => /^\d{4}-\d{2}$/.test(pk.trim());
+
+    const hasPaymentPlan = paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
+    const hasPaymentFact = paymentFactByPeriodKey != null && Object.keys(paymentFactByPeriodKey).length > 0;
+
+    const planMap = hasPaymentPlan ? paymentPlanByPeriodKey! : null;
+    const factMap = hasPaymentFact ? paymentFactByPeriodKey! : null;
+
+    // В блоке «Исполнение плана продаж» факт не должен продолжаться после отчётного месяца
+    // (никаких carry-forward / fill / интерполяции через будущие точки).
+    const cutoffKey =
+      (period === "month" ? report.planAnalytics.month.currentPeriodKey : report.planAnalytics.quarter.currentPeriodKey) ??
+      null;
+
+    const receiptsByPk = new Map(receiptsPlanFactMonthly.map((p) => [p.periodKey.trim(), p]));
+
+    const keys = new Set<string>();
+
+    if (planMap) {
+      for (const k of Object.keys(planMap)) {
+        if (isPeriodKey(k)) keys.add(k.trim());
+      }
+    } else {
+      // fallback: если нет sales-plan.csv, используем план из receipts-plan-fact.csv
+      for (const p of receiptsPlanFactMonthly) {
+        if (isPeriodKey(p.periodKey)) keys.add(p.periodKey.trim());
+      }
+    }
+
+    if (factMap) {
+      for (const k of Object.keys(factMap)) {
+        if (isPeriodKey(k)) keys.add(k.trim());
+      }
+    } else {
+      // fallback: если нет системного fact, берём факт из receipts-plan-fact.csv
+      for (const p of receiptsPlanFactMonthly) {
+        if (isPeriodKey(p.periodKey)) keys.add(p.periodKey.trim());
+      }
+    }
+
+    const sorted = [...keys].sort((a, b) => a.localeCompare(b));
+
+    const full = sorted.map((periodKey) => {
+      const receipt = receiptsByPk.get(periodKey);
+      const planRubRaw = planMap ? planMap[periodKey] : receipt?.planRub ?? null;
+      const factRubRaw = factMap ? factMap[periodKey] : receipt?.factRub ?? null;
+
+      const planRub =
+        cutoffKey && periodKey > cutoffKey
+          ? null
+          : planRubRaw == null || !Number.isFinite(planRubRaw)
+            ? null
+            : planRubRaw;
+      const factRub =
+        cutoffKey && periodKey > cutoffKey
+          ? null
+          : factRubRaw == null || !Number.isFinite(factRubRaw) || factRubRaw <= 0
+            ? null
+            : factRubRaw;
+
+      return { periodKey, planRub, factRub };
+    });
+
+    // Обрезаем пустые месяцы слева/справа, критерий только по nullability (0 — валидное значение).
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < full.length; i++) {
+      const r = full[i]!;
+      if (r.planRub != null || r.factRub != null) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    if (first < 0 || last < 0) return full;
+    return full.slice(first, last + 1);
+  }, [paymentPlanByPeriodKey, paymentFactByPeriodKey, receiptsPlanFactMonthly, period, report.planAnalytics.month.currentPeriodKey, report.planAnalytics.quarter.currentPeriodKey]);
   const cashflowPlanScale = 1;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasAnyPaymentCsv
@@ -2145,9 +2222,41 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   );
   const analytics = period === "month" ? report.planAnalytics.month : report.planAnalytics.quarter;
   const seriesPoints = period === "month" ? report.series.month : report.series.quarter;
+
+  const reportingPeriodMonthOptions = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of marketingDealsFiltered) {
+      const mk = normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null);
+      if (mk) out.add(mk);
+    }
+    const csvRows = apartmentPlanKpiDoc?.rows ?? [];
+    for (const r of csvRows) {
+      const mk = normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null);
+      if (mk) out.add(mk);
+    }
+    const cur = normalizeMonthKey(analytics.currentPeriodKey);
+    if (cur) out.add(cur);
+    return [...out].sort();
+  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc?.rows, marketingDealsFiltered]);
+
+  const [reportingPeriodMonthKey, setReportingPeriodMonthKey] = useState<string>(() => {
+    const mk = normalizeMonthKey(analytics.currentPeriodKey);
+    if (mk) return mk;
+    if (reportingPeriodMonthOptions.length) return reportingPeriodMonthOptions[reportingPeriodMonthOptions.length - 1]!;
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  useEffect(() => {
+    if (!reportingPeriodMonthOptions.length) return;
+    if (!reportingPeriodMonthOptions.includes(reportingPeriodMonthKey)) {
+      setReportingPeriodMonthKey(reportingPeriodMonthOptions[reportingPeriodMonthOptions.length - 1]!);
+    }
+  }, [reportingPeriodMonthKey, reportingPeriodMonthOptions]);
+
   const apartmentPlanPeriodKpi = useMemo(() => {
     try {
-      const currentKey = analytics.currentPeriodKey;
+      const currentKey = reportingPeriodMonthKey;
       const dealRowsForFact = marketingDealsFiltered;
       const dealFacts =
         dealsFeed.loading && dealRowsForFact.length === 0
@@ -2233,11 +2342,11 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       console.error("apartmentPlanPeriodKpi:", e);
       return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0, dealFactDebug: null };
     }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
+  }, [apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period, reportingPeriodMonthKey]);
 
   const projectPlanPeriodKpi = useMemo(() => {
     try {
-      const currentKey = analytics.currentPeriodKey;
+      const currentKey = reportingPeriodMonthKey;
       const dealRowsForFact = marketingDealsFiltered;
       const hasCsv = Array.isArray(apartmentPlanKpiDoc?.rows) && (apartmentPlanKpiDoc?.rows?.length ?? 0) > 0;
       const projectSummary = apartmentPlanKpiDoc?.biReportMeta?.projectSummary ?? null;
@@ -2255,11 +2364,11 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       console.error("projectPlanPeriodKpi:", e);
       return { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 };
     }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, period]);
+  }, [apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, period, reportingPeriodMonthKey]);
 
   const parkingPlanBundle = useMemo(() => {
     try {
-      const currentKey = analytics.currentPeriodKey;
+      const currentKey = reportingPeriodMonthKey;
       const dealRowsForFact = marketingDealsFiltered;
       const rows = apartmentPlanKpiDoc?.rows;
       const planCsvType =
@@ -2325,14 +2434,14 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         periodKpi: { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 },
       };
     }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
+  }, [apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period, reportingPeriodMonthKey]);
 
   const parkingPlanPeriodKpi = parkingPlanBundle.periodKpi;
   const parkingPlanAnalyticsBreakdown = parkingPlanBundle.breakdown;
 
   const storagePlanBundle = useMemo(() => {
     try {
-      const currentKey = analytics.currentPeriodKey;
+      const currentKey = reportingPeriodMonthKey;
       const dealRowsForFact = marketingDealsFiltered;
       const rows = apartmentPlanKpiDoc?.rows;
       const planCsvType =
@@ -2398,7 +2507,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         periodKpi: { hasCsvPlan: false as const, factMonth: 0, factCumulative: 0 },
       };
     }
-  }, [analytics.currentPeriodKey, apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period]);
+  }, [apartmentPlanKpiDoc, dealsFeed.loading, marketingDealsFiltered, objectId, period, reportingPeriodMonthKey]);
 
   const storagePlanPeriodKpi = storagePlanBundle.periodKpi;
   const storagePlanAnalyticsBreakdown = storagePlanBundle.breakdown;
@@ -4251,6 +4360,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
             presentation={presentation}
             presDark={presDark}
             mplPremium={mplPremium}
+            monthKey={reportingPeriodMonthKey}
+            monthOptions={reportingPeriodMonthOptions}
+            onMonthKeyChange={setReportingPeriodMonthKey}
             isEditMode={planChromeEditMode}
             csvHydrated={apartmentPlanKpiHydrated}
             csvLoading={apartmentPlanKpiLoading}

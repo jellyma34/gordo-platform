@@ -28,6 +28,7 @@ type Props = {
   presDark: boolean;
   presentation: boolean;
   mplPremium?: boolean;
+  headerControls?: ReactNode;
   objectTabs: readonly AnalyticsObjectTab[];
   activeObjectType: SalesPlanObjectTypeKey;
   onObjectTypeChange: (key: SalesPlanObjectTypeKey) => void;
@@ -48,6 +49,7 @@ export function AnalyticsSegmentLayout({
   presDark,
   presentation,
   mplPremium = false,
+  headerControls,
   objectTabs,
   activeObjectType,
   onObjectTypeChange,
@@ -71,7 +73,10 @@ export function AnalyticsSegmentLayout({
   return (
     <div className={`w-full min-w-0 max-w-none ${className}`.trim()}>
       <div className={`relative min-w-0 overflow-hidden px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-3.5 md:px-6 md:pt-5 md:pb-4 ${shellCls}`}>
-        <h2 className={`mb-3 text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`}>{title}</h2>
+        <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <h2 className={`min-w-0 text-sm font-bold leading-snug tracking-tight sm:text-[15px] ${titleCls}`}>{title}</h2>
+          {headerControls ? <div className="flex shrink-0 items-end gap-3">{headerControls}</div> : null}
+        </div>
 
         <div
           className={`${pillsWrapCls} min-w-0 ${showRoomTypeFilter ? "mb-3" : "mb-2"}`}

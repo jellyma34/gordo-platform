@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 
+import { BlockMonthSelector } from "@/components/marketing/BlockMonthSelector";
 import { AnalyticsKpiCard } from "@/components/marketing/analytics/AnalyticsKpiCard";
 import {
   AnalyticsSegmentLayout,
@@ -11,8 +12,11 @@ import {
 } from "@/components/marketing/analytics/AnalyticsSegmentLayout";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import { DDU_REVENUE_KPI_THEME } from "@/lib/entityKpiTheme";
+import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { resolveAveragePriceActiveSlice } from "@/lib/averagePricePerSqm/resolveAveragePriceActiveSlice";
 import { formatAveragePricePerSqmCompact } from "@/lib/averagePricePerSqmPeriodKpi";
+import { buildSalesPlanAveragePriceApartmentByRoomType } from "@/lib/averagePricePerSqm/buildSalesPlanAveragePriceApartmentByRoomType";
+import { buildSalesPlanAveragePriceByObjectType } from "@/lib/averagePricePerSqm/buildSalesPlanAveragePriceByObjectType";
 import {
   useAveragePricePerSqmBlock,
   type AveragePricePerSqmBlockState,
@@ -47,6 +51,43 @@ export function AveragePriceAnalyticsSection({
   const internalBlock = useAveragePricePerSqmBlock(externalBlock ? { doc: externalBlock.doc, hydrated: externalBlock.hydrated, loading: externalBlock.busy, error: externalBlock.error } : {});
   const block = externalBlock ?? internalBlock;
 
+  const monthOptions = useMemo(() => {
+    const rows = block.doc?.rows ?? [];
+    const out = new Set<string>();
+    for (const r of rows) {
+      const mk = normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null);
+      if (mk) out.add(mk);
+    }
+    return [...out].sort();
+  }, [block.doc?.rows]);
+
+  const [blockMonthKey, setBlockMonthKey] = useState<string>(() => {
+    if (monthOptions.length) return monthOptions[monthOptions.length - 1]!;
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    if (!monthOptions.includes(blockMonthKey)) {
+      setBlockMonthKey(monthOptions[monthOptions.length - 1]!);
+    }
+  }, [blockMonthKey, monthOptions]);
+
+  const filteredDoc = useMemo(() => {
+    if (!block.doc?.rows?.length) return block.doc;
+    if (!monthOptions.length) return block.doc;
+    const mk = normalizeMonthKey(blockMonthKey) ?? blockMonthKey;
+    const filteredRows = block.doc.rows.filter((r) => normalizeMonthKey((r as { monthKey?: string | null }).monthKey ?? null) === mk);
+    return { ...block.doc, rows: filteredRows };
+  }, [block.doc, blockMonthKey, monthOptions.length]);
+
+  const salesPlanByObjectType = useMemo(() => buildSalesPlanAveragePriceByObjectType({ doc: filteredDoc ?? null }), [filteredDoc]);
+  const apartmentByRoomType = useMemo(
+    () => buildSalesPlanAveragePriceApartmentByRoomType({ doc: filteredDoc ?? null }).byRoomType,
+    [filteredDoc],
+  );
+
   const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>("all");
   const [activeRoomType, setActiveRoomType] = useState<ApartmentRoomTypeFilterKey>("all");
 
@@ -58,8 +99,8 @@ export function AveragePriceAnalyticsSection({
     updatedLabel,
     uploadCsv,
     clearCsv,
-    salesPlanByObjectType,
-    apartmentByRoomType,
+    salesPlanByObjectType: _ignoredSalesPlanByObjectType,
+    apartmentByRoomType: _ignoredApartmentByRoomType,
   } = block;
 
   const activeSlice = useMemo(
@@ -204,6 +245,18 @@ export function AveragePriceAnalyticsSection({
         presDark={presDark}
         presentation={presentation}
         mplPremium={mplPremium}
+        headerControls={
+          monthOptions.length ? (
+            <BlockMonthSelector
+              value={blockMonthKey}
+              options={monthOptions}
+              onChange={setBlockMonthKey}
+              presDark={presDark}
+              presentation={presentation}
+              mplPremium={presentation && mplPremium}
+            />
+          ) : null
+        }
         showRoomTypeFilter
         objectTabs={objectTabs}
         activeObjectType={activeObjectType}
