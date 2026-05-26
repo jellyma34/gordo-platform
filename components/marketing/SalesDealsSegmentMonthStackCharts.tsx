@@ -232,7 +232,9 @@ function SegmentMonthBarChart({
   );
 
   return (
-    <div className={`${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}>
+    <div
+      className={`w-full min-w-0 max-w-none ${chartWellClass(presDark, presentation)} ${infographicMode ? "px-2.5 pb-2 pt-2 sm:px-3 sm:pb-2 sm:pt-2" : "px-2 pb-1.5 pt-2 sm:px-2.5 sm:pb-2 sm:pt-2"}`}
+    >
       <div
         className={`mb-1.5 pl-10 pr-1 sm:pl-[2.6rem] text-[10px] font-medium tracking-normal ${presDark ? "text-slate-200" : DEALS_LABEL}`}
       >
@@ -408,7 +410,7 @@ function SegmentAnalyticsCard({
           </div>
         )}
 
-        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${presentation ? "md:gap-4" : "md:gap-3"}`}>
+        <div className="flex w-full min-w-0 max-w-none flex-col gap-4">
           <SegmentMonthBarChart
             title="По месяцам — шт."
             rows={model.months}
