@@ -291,29 +291,58 @@ export type SqmPriceChartDatum = {
   monthLabel: string;
 };
 
+export type SqmPriceChartMode = "monthly" | "cumulative";
+
+function monthPointValue(m: SqmPriceDynamicsMonthPoint): number | null {
+  if (
+    m.dealCount > 0 &&
+    m.avgPricePerSqmRub != null &&
+    Number.isFinite(m.avgPricePerSqmRub) &&
+    m.avgPricePerSqmRub > 0
+  ) {
+    return m.avgPricePerSqmRub;
+  }
+  return null;
+}
+
 /** Данные графика на общем timeline (все месяцы globalMin…globalMax). */
 export function buildSqmPriceChartData(
   series: SqmPriceDynamicsSeriesModel,
   timelineMonthKeys: readonly string[],
+  mode: SqmPriceChartMode = "monthly",
 ): SqmPriceChartDatum[] {
-  const valueByMonth = new Map<string, number | null>();
-  for (const m of series.months) {
-    if (
-      m.dealCount > 0 &&
-      m.avgPricePerSqmRub != null &&
-      Number.isFinite(m.avgPricePerSqmRub) &&
-      m.avgPricePerSqmRub > 0
-    ) {
-      valueByMonth.set(m.monthKey, m.avgPricePerSqmRub);
-    }
+  const monthByKey = new Map(series.months.map((m) => [m.monthKey, m]));
+
+  if (mode === "monthly") {
+    return timelineMonthKeys.map((mk) => {
+      const m = monthByKey.get(mk);
+      const value = m ? monthPointValue(m) : null;
+      return {
+        month: mk,
+        value,
+        labelShort: formatMonthKeyShortRuYY(mk),
+        monthLabel: sqmPriceDynamicsMonthTooltipLabel(mk),
+      };
+    });
   }
 
-  return timelineMonthKeys.map((mk) => ({
-    month: mk,
-    value: valueByMonth.get(mk) ?? null,
-    labelShort: formatMonthKeyShortRuYY(mk),
-    monthLabel: sqmPriceDynamicsMonthTooltipLabel(mk),
-  }));
+  let cumPrice = 0;
+  let cumArea = 0;
+  return timelineMonthKeys.map((mk) => {
+    const m = monthByKey.get(mk);
+    if (m) {
+      cumPrice += m.totalPriceRub;
+      cumArea += m.totalAreaM2;
+    }
+    const value =
+      cumArea > 0 && cumPrice > 0 ? Math.round(cumPrice / cumArea) : null;
+    return {
+      month: mk,
+      value,
+      labelShort: formatMonthKeyShortRuYY(mk),
+      monthLabel: sqmPriceDynamicsMonthTooltipLabel(mk),
+    };
+  });
 }
 
 /** Изменение ₽/м²: последний месяц с value vs первый (на общем timeline). */

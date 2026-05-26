@@ -4389,6 +4389,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
           hasMarketingLeadsCsv={marketingLeadsMeta != null}
           onMarketingLeadsCsvUpload={uploadMarketingLeadsCsvHandler}
           onMarketingLeadsCsvClear={clearMarketingLeadsCsvHandler}
+          period={period}
+          objectId={objectId}
         />
       </>
 

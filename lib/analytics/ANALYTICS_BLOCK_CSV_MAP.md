@@ -11,6 +11,8 @@
 | Средняя стоимость объекта | `average_price_per_sqm` | `avg-price.csv` |
 | Общая площадь | `total_area` | `total-area.csv` |
 | Приведенная площадь | `reduced_area` | `reduced-area.csv` |
+| Выбытие объектов (план KPI) | `apartment_plan` | `apartment-plan.csv` |
+| Динамика стоимости м² | *(сделки JSON)* | — |
 | Segment execution charts | `segment_execution` | `segment-execution.csv` |
 
 Loader: `loadAnalyticsCsv` → `fetch('/data/analytics/<file>')` → `POST /api/analytics/parse`.

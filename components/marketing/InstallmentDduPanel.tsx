@@ -45,7 +45,6 @@ export function InstallmentDduPanel({ presentation, period, objectId }: Props) {
         <InventoryDepletionSection
           presentation={presentation}
           presDark={presDark}
-          mplPremium={mplLight}
           period={period}
           objectId={objectId}
         />

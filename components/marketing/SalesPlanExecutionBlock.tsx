@@ -35,8 +35,11 @@ import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
 import { AveragePriceAnalyticsSection } from "@/components/marketing/averagePricePerSqm/AveragePriceAnalyticsSection";
 import { TotalAreaAnalyticsSection } from "@/components/marketing/totalArea/TotalAreaAnalyticsSection";
+import { InventoryDepletionSection } from "@/components/marketing/inventoryDepletion/InventoryDepletionSection";
 import { ReducedAreaAnalyticsSection } from "@/components/marketing/reducedArea/ReducedAreaAnalyticsSection";
+import { SqmPriceDynamicsSection } from "@/components/marketing/sqmPriceDynamics/SqmPriceDynamicsSection";
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
+import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
 import {
   cashflowYAxisScale,
@@ -164,6 +167,8 @@ type Props = {
   hasMarketingLeadsCsv?: boolean;
   onMarketingLeadsCsvUpload?: (file: File) => Promise<void>;
   onMarketingLeadsCsvClear?: () => Promise<void>;
+  period?: MarketingPeriodGranularity;
+  objectId?: string;
 };
 
 export function SalesPlanExecutionBlock({
@@ -190,6 +195,8 @@ export function SalesPlanExecutionBlock({
   hasMarketingLeadsCsv = false,
   onMarketingLeadsCsvUpload,
   onMarketingLeadsCsvClear,
+  period = "month",
+  objectId = "all",
 }: Props) {
   const data = dataset;
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -314,6 +321,23 @@ export function SalesPlanExecutionBlock({
           presDark={presDark}
           mplPremium={mplPremium}
           showCsvUpload={isEditMode}
+        />
+
+        <InventoryDepletionSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          period={period}
+          objectId={objectId}
+          showCsvUpload={isEditMode}
+        />
+
+        <SqmPriceDynamicsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          period={period}
+          objectId={objectId}
         />
 
         <MarketingLeadsCsvSection
