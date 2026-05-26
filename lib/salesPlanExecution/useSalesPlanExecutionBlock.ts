@@ -18,6 +18,8 @@ export type UseSalesPlanExecutionBlockArgs = {
   currentPeriodKey?: string;
   /** Помесячный план/факт (₽) из CSV — тот же ряд, что у legacy PlanExecutionMonthlyPlanFactLineCard. */
   monthlyPlanVsFact?: readonly PlanVsFactMonthlyRubPoint[] | null;
+  /** Сделки JSON: в режиме «Помесячно» обнуляют факт в месяцах без новых продаж. */
+  dealRows?: readonly { dealDateMs: number }[] | null;
   hasPlanFactCsv?: boolean;
 };
 
@@ -32,6 +34,7 @@ export function useSalesPlanExecutionBlock({
   objectId = "all",
   currentPeriodKey = defaultDashboardPeriodKey(),
   monthlyPlanVsFact = null,
+  dealRows = null,
   hasPlanFactCsv = false,
 }: UseSalesPlanExecutionBlockArgs = {}) {
   const [chartMode, setChartMode] = useState<SalesPlanExecutionChartMode>("monthly");
@@ -39,13 +42,13 @@ export function useSalesPlanExecutionBlock({
   const periodGran: "month" | "quarter" = period === "quarter" ? "quarter" : "month";
 
   const mergedRows = useMemo(
-    () => resolveSalesPlanExecutionMergedRows(periodGran, objectId, monthlyPlanVsFact),
-    [monthlyPlanVsFact, objectId, periodGran],
+    () => resolveSalesPlanExecutionMergedRows(periodGran, objectId, monthlyPlanVsFact, dealRows),
+    [monthlyPlanVsFact, dealRows, objectId, periodGran],
   );
 
   const chartRows = useMemo(
-    () => buildSalesPlanExecutionChartRows(mergedRows, chartMode),
-    [chartMode, mergedRows],
+    () => buildSalesPlanExecutionChartRows(mergedRows, chartMode, dealRows),
+    [chartMode, dealRows, mergedRows],
   );
 
   const summary = useMemo(

@@ -70,6 +70,7 @@ import {
   type MarketingApartmentPlanCsvStoredV1,
 } from "@/lib/marketingApartmentPlanCsv";
 import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
+import { useMarketingDashboardStore } from "@/lib/marketingDashboardStore";
 import {
   APARTMENT_PLAN_CSV_MAX_BYTES,
   getPlanCalculationStrategy,
@@ -158,6 +159,11 @@ import {
   readMarketingCsvFileDecoded,
 } from "@/src/shared/lib/csv/parseInvestorsCsv";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
+import {
+  alignPlanVsFactToReportingTimeline,
+  applyStagnantDealMonthZeroPlanVsFact,
+  SALES_PLAN_EXECUTION_REPORTING_PERIOD_KEYS,
+} from "@/lib/salesPlanExecution/buildSalesPlanExecutionData";
 import { filterNormalizedDealsForMarketingObject, SalesPlanSegmentStructure } from "@/components/marketing/SalesPlanSegmentStructure";
 import { DduSalesChart } from "@/components/marketing/dduRevenue/DduSalesChart";
 import { ProjectCostAnalyticsSection } from "@/components/marketing/projectCost/ProjectCostAnalyticsSection";
@@ -1422,37 +1428,36 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       setRevenueFactCsvDoc(null);
     };
     (async () => {
-      const { hydrateSupplementalMarketingDatasets } = await import(
-        "@/lib/analytics/hydrateMarketingFromServer"
-      );
-      const serverDatasets = await hydrateSupplementalMarketingDatasets(paymentPlanProjectId);
+      await useMarketingDashboardStore.getState().hydrateSupplemental({ projectId: paymentPlanProjectId });
+      const { docs, charts } = useMarketingDashboardStore.getState();
       if (cancelled) return;
 
-      if (serverDatasets.investors) applyFromInvestorsDoc(serverDatasets.investors);
+      if (docs.investors) applyFromInvestorsDoc(docs.investors);
       else resetInvestorsUi();
 
-      if (serverDatasets.segmentExecution) applyFromSegmentExecutionDoc(serverDatasets.segmentExecution);
+      if (docs.segmentExecution) applyFromSegmentExecutionDoc(docs.segmentExecution);
       else resetSegmentExecutionUi();
 
-      if (serverDatasets.unitsExecution) applyFromUnitsDoc(serverDatasets.unitsExecution);
+      if (charts.unitsExecutionCharts) setUnitsExecutionCharts(charts.unitsExecutionCharts);
+      if (docs.unitsExecution) applyFromUnitsDoc(docs.unitsExecution);
       else resetUnitsUi();
 
-      if (serverDatasets.apartments) applyFromApartmentsDoc(serverDatasets.apartments);
+      if (docs.apartments) applyFromApartmentsDoc(docs.apartments);
       else resetApartmentsUi();
 
-      if (serverDatasets.parking) applyFromParkingDoc(serverDatasets.parking);
+      if (docs.parking) applyFromParkingDoc(docs.parking);
       else resetParkingUi();
 
-      if (serverDatasets.storages) applyFromStoragesDoc(serverDatasets.storages);
+      if (docs.storages) applyFromStoragesDoc(docs.storages);
       else resetStoragesUi();
 
-      if (serverDatasets.receiptsPlanFact) applyFromReceiptsPlanFactDoc(serverDatasets.receiptsPlanFact);
+      if (docs.receiptsPlanFact) applyFromReceiptsPlanFactDoc(docs.receiptsPlanFact);
       else resetReceiptsPlanFactUi();
 
-      if (serverDatasets.marketingLeads) applyFromMarketingLeadsDoc(serverDatasets.marketingLeads);
+      if (docs.marketingLeads) applyFromMarketingLeadsDoc(docs.marketingLeads);
       else resetMarketingLeadsUi();
 
-      if (serverDatasets.revenueFact) applyFromRevenueFactDoc(serverDatasets.revenueFact);
+      if (docs.revenueFact) applyFromRevenueFactDoc(docs.revenueFact);
       else resetRevenueFactUi();
     })()
       .catch(() => {
@@ -2081,82 +2086,34 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
     ],
   );
   const monthlyPlanVsFactChart = useMemo((): PlanVsFactMonthlyRubPoint[] => {
-    const isPeriodKey = (pk: string): boolean => /^\d{4}-\d{2}$/.test(pk.trim());
-
     const hasPaymentPlan = paymentPlanByPeriodKey != null && Object.keys(paymentPlanByPeriodKey).length > 0;
     const hasPaymentFact = paymentFactByPeriodKey != null && Object.keys(paymentFactByPeriodKey).length > 0;
 
     const planMap = hasPaymentPlan ? paymentPlanByPeriodKey! : null;
     const factMap = hasPaymentFact ? paymentFactByPeriodKey! : null;
-
-    // В блоке «Исполнение плана продаж» факт не должен продолжаться после отчётного месяца
-    // (никаких carry-forward / fill / интерполяции через будущие точки).
-    const cutoffKey =
-      (period === "month" ? report.planAnalytics.month.currentPeriodKey : report.planAnalytics.quarter.currentPeriodKey) ??
-      null;
-
     const receiptsByPk = new Map(receiptsPlanFactMonthly.map((p) => [p.periodKey.trim(), p]));
 
-    const keys = new Set<string>();
-
-    if (planMap) {
-      for (const k of Object.keys(planMap)) {
-        if (isPeriodKey(k)) keys.add(k.trim());
-      }
-    } else {
-      // fallback: если нет sales-plan.csv, используем план из receipts-plan-fact.csv
-      for (const p of receiptsPlanFactMonthly) {
-        if (isPeriodKey(p.periodKey)) keys.add(p.periodKey.trim());
-      }
-    }
-
-    if (factMap) {
-      for (const k of Object.keys(factMap)) {
-        if (isPeriodKey(k)) keys.add(k.trim());
-      }
-    } else {
-      // fallback: если нет системного fact, берём факт из receipts-plan-fact.csv
-      for (const p of receiptsPlanFactMonthly) {
-        if (isPeriodKey(p.periodKey)) keys.add(p.periodKey.trim());
-      }
-    }
-
-    const sorted = [...keys].sort((a, b) => a.localeCompare(b));
-
-    const full = sorted.map((periodKey) => {
+    const sparse = SALES_PLAN_EXECUTION_REPORTING_PERIOD_KEYS.map((periodKey) => {
       const receipt = receiptsByPk.get(periodKey);
-      const planRubRaw = planMap ? planMap[periodKey] : receipt?.planRub ?? null;
-      const factRubRaw = factMap ? factMap[periodKey] : receipt?.factRub ?? null;
-
-      const planRub =
-        cutoffKey && periodKey > cutoffKey
-          ? null
-          : planRubRaw == null || !Number.isFinite(planRubRaw)
-            ? null
-            : planRubRaw;
-      const factRub =
-        cutoffKey && periodKey > cutoffKey
-          ? null
-          : factRubRaw == null || !Number.isFinite(factRubRaw) || factRubRaw <= 0
-            ? null
-            : factRubRaw;
-
-      return { periodKey, planRub, factRub };
+      const planRubRaw = planMap
+        ? Object.prototype.hasOwnProperty.call(planMap, periodKey)
+          ? planMap[periodKey]
+          : null
+        : (receipt?.planRub ?? null);
+      const factRubRaw = factMap
+        ? Object.prototype.hasOwnProperty.call(factMap, periodKey)
+          ? factMap[periodKey]
+          : null
+        : (receipt?.factRub ?? null);
+      return { periodKey, planRub: planRubRaw, factRub: factRubRaw };
     });
 
-    // Обрезаем пустые месяцы слева/справа, критерий только по nullability (0 — валидное значение).
-    let first = -1;
-    let last = -1;
-    for (let i = 0; i < full.length; i++) {
-      const r = full[i]!;
-      if (r.planRub != null || r.factRub != null) {
-        if (first < 0) first = i;
-        last = i;
-      }
-    }
-    if (first < 0 || last < 0) return full;
-    return full.slice(first, last + 1);
-  }, [paymentPlanByPeriodKey, paymentFactByPeriodKey, receiptsPlanFactMonthly, period, report.planAnalytics.month.currentPeriodKey, report.planAnalytics.quarter.currentPeriodKey]);
+    const aligned = alignPlanVsFactToReportingTimeline(sparse);
+    return applyStagnantDealMonthZeroPlanVsFact(
+      aligned,
+      marketingDealsFiltered.length > 0 ? marketingDealsFiltered : null,
+    );
+  }, [paymentPlanByPeriodKey, paymentFactByPeriodKey, receiptsPlanFactMonthly, marketingDealsFiltered]);
   const cashflowPlanScale = 1;
   const salesStartLabel = periodKeyToRuChartLabel(marketingMockData.projectSalesStartPeriodKey);
   const cashflowPlanNote = hasAnyPaymentCsv
@@ -4318,6 +4275,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         objectId={objectId}
         currentPeriodKey={analytics.currentPeriodKey}
         monthlyPlanVsFact={monthlyPlanVsFactChart}
+        dealRows={dealsFeed.loading ? [] : marketingDealsFiltered}
         hasPlanFactCsv={receiptsPlanFactMeta != null}
         isEditMode={planChromeEditMode}
         planFactCsvHydrated={receiptsPlanFactHydrated}

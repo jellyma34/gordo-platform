@@ -55,6 +55,8 @@ export function reconcileSegmentExecutionDoc(
 ): MarketingSegmentExecutionStoredV1 {
   const raw = doc.rawText?.trim();
   if (!raw) return doc;
+  const needsReconcile = (doc.planFactRows ?? []).length > 0 && (doc.planFactRows ?? []).every((r) => Math.abs(r.plan) < 1e-9);
+  if (!needsReconcile) return doc;
   const parsed = parseSegmentExecutionCsv(raw);
   if (!parsed.ok) return doc;
   return {

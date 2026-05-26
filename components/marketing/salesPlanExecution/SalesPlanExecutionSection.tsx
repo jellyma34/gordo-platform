@@ -11,6 +11,7 @@ import type { MarketingPeriodGranularity } from "@/components/marketing/Marketin
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { UploadPlanFactCsvButton } from "@/components/marketing/UploadPlanFactCsvButton";
 import { PlanFactChart } from "@/components/marketing/salesPlanExecution/PlanFactChart";
+import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import type { PlanVsFactMonthlyRubPoint } from "@/lib/planExecutionPlanVsFactChart";
 import {
   useSalesPlanExecutionBlock,
@@ -23,6 +24,7 @@ type Props = UseSalesPlanExecutionBlockArgs & {
   mplPremium?: boolean;
   className?: string;
   monthlyPlanVsFact?: readonly PlanVsFactMonthlyRubPoint[] | null;
+  dealRows?: readonly NormalizedDealRow[];
   hasPlanFactCsv?: boolean;
   isEditMode?: boolean;
   planFactCsvHydrated?: boolean;
@@ -43,6 +45,7 @@ export function SalesPlanExecutionSection({
   objectId = "all",
   currentPeriodKey,
   monthlyPlanVsFact = null,
+  dealRows = [],
   hasPlanFactCsv = false,
   isEditMode = false,
   planFactCsvHydrated = true,
@@ -56,6 +59,7 @@ export function SalesPlanExecutionSection({
     objectId,
     currentPeriodKey,
     monthlyPlanVsFact,
+    dealRows: dealRows.length > 0 ? dealRows : null,
     hasPlanFactCsv,
   });
   const { chartMode, setChartMode, chartRows, hasData, currentPeriodKey: periodKey } = block;

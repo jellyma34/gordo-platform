@@ -171,8 +171,20 @@ export function PlanFactChart({
                   stroke: presDark ? "rgba(148,163,184,0.28)" : "rgba(100,116,139,0.22)",
                 }}
               />
-              <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
-              <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
+              <Line
+                {...cashflowInflowPlanLineProps(presDark)}
+                type={chartMode === "monthly" ? "linear" : "monotone"}
+                dataKey="plan"
+                name="План"
+                connectNulls={false}
+              />
+              <Line
+                {...cashflowInflowFactLineProps(presDark)}
+                type={chartMode === "monthly" ? "linear" : "monotone"}
+                dataKey="fact"
+                name="Факт"
+                connectNulls={false}
+              />
               <CashflowDynamicsSvgLabels
                 chartData={chartData}
                 presDark={presDark}

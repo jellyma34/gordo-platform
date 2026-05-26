@@ -87,7 +87,7 @@ export function InstallmentForecastChart({
     [data, mode],
   );
 
-  const { yTicks, yDomainMax } = useMemo(
+  const { ticks: yTicks, domainMax: yDomainMax } = useMemo(
     () => cashflowChartYAxisScale(valuesForMode, { headroom: 1.12 }),
     [valuesForMode],
   );

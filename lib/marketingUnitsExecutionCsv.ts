@@ -121,6 +121,12 @@ export function reconcileUnitsExecutionDoc(
 ): MarketingUnitsExecutionStoredV1 {
   const text = (csvText ?? doc.rawText ?? "").trim();
   if (!text) return doc;
+  const alreadyHasDerived =
+    (doc.segments?.length ?? 0) > 0 &&
+    (doc.byMonth != null && Object.keys(doc.byMonth).length > 0) &&
+    Number.isFinite(doc.totals?.planCumulative) &&
+    Number.isFinite(doc.totals?.factCumulative);
+  if (alreadyHasDerived) return doc;
   const parsed = parseSalesUnitsExecutionCsv(text);
   if (!parsed.ok || parsed.segments.length === 0) return doc;
   const byMonth = buildUnitsExecutionByMonthFromBase(parsed.segments);
