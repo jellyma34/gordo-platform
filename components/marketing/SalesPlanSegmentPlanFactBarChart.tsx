@@ -29,7 +29,6 @@ import {
   filterDealsForSegmentChartPeriod,
   type SegmentChartPeriodMode,
 } from "@/lib/filterDealsForSegmentChartPeriod";
-import { isStagnantDealMonthNoNewSales } from "@/lib/marketingDealMonthCumulative";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { CASHFLOW_INFLOW_PLAN } from "@/lib/cashflowInflowChartSeries";
 import {
@@ -142,6 +141,10 @@ const DEAL_TO_EXEC_SEGMENT: Record<DealsAnalyticsSegmentKey, SegmentExecutionSeg
   storage: "storage",
   commercial: "commercial",
 };
+
+function segmentBarRowHasData(row: SegmentPlanFactBarRow): boolean {
+  return Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9;
+}
 
 type Props = {
   dealsRows: NormalizedDealRow[];
@@ -366,7 +369,7 @@ export function SalesPlanSegmentPlanFactBarChart({
               ? (csvRow?.plan ?? 0)
               : 0;
         return { name, fact, plan };
-      }).filter((row) => Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9);
+      });
       if (process.env.NODE_ENV === "development") {
         console.log("Segment chart updated", {
           source: "segment-execution-csv",
@@ -387,13 +390,6 @@ export function SalesPlanSegmentPlanFactBarChart({
     }
 
     const byPeriod = filterDealsForSegmentChartPeriod(dealsRows, periodMode, periodFilterOptions);
-    const stagnantMonth =
-      periodMode === "month" && monthKeyForFilter != null
-        ? isStagnantDealMonthNoNewSales(dealsRows, monthKeyForFilter)
-        : false;
-    const showZeroSalesSegments =
-      (periodMode === "month" && monthKeyForFilter != null && (stagnantMonth || byPeriod.length === 0)) ||
-      (periodMode === "quarter" && quarterIdForFilter != null && byPeriod.length === 0);
 
     const merged: SegmentPlanFactBarRow[] = DEALS_ANALYTICS_SEGMENT_KEYS.map((key) => {
       const execKey = DEAL_TO_EXEC_SEGMENT[key];
@@ -402,10 +398,7 @@ export function SalesPlanSegmentPlanFactBarChart({
         fact: factSeries[key],
         plan: planSeries?.get(execKey) ?? 0,
       };
-    }).filter(
-      (row) =>
-        showZeroSalesSegments || Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9,
-    );
+    });
 
     if (process.env.NODE_ENV === "development") {
       console.table(merged);
@@ -438,7 +431,8 @@ export function SalesPlanSegmentPlanFactBarChart({
   useEffect(() => {
     if (segmentScope === "all") return;
     const label = DEAL_SEGMENT_LABEL_RU[segmentScope];
-    if (!segmentBarRowsAll.some((r) => r.name === label)) setSegmentScope("all");
+    const row = segmentBarRowsAll.find((r) => r.name === label);
+    if (row == null || !segmentBarRowHasData(row)) setSegmentScope("all");
   }, [segmentScope, segmentBarRowsAll]);
 
   const hasSegmentPlanBar = useMemo(
@@ -470,10 +464,12 @@ export function SalesPlanSegmentPlanFactBarChart({
   const displayRows = showEmptyOverlay ? emptyPlaceholderRows : rows;
 
   const segmentSelectOptions = useMemo(() => {
-    const withData = new Set(segmentBarRowsAll.map((r) => r.name));
     return [
       { value: "all" as const, label: "Все" },
-      ...DEAL_SEGMENT_KEYS.filter((k) => withData.has(DEAL_SEGMENT_LABEL_RU[k])).map((k) => ({
+      ...DEAL_SEGMENT_KEYS.filter((k) => {
+        const row = segmentBarRowsAll.find((r) => r.name === DEAL_SEGMENT_LABEL_RU[k]);
+        return row != null && segmentBarRowHasData(row);
+      }).map((k) => ({
         value: k,
         label: DEAL_SEGMENT_LABEL_RU[k],
       })),
