@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { LabelProps } from "recharts";
 
 import {
   createMarketingDealsStyleMonthTickRenderer,
@@ -11,6 +12,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -23,6 +25,7 @@ import {
   formatCashflowAxisTick,
   formatCashflowChartUnitTooltip,
 } from "@/lib/chartFormatters";
+import { formatCashflowChartUnitInteger } from "@/lib/cashflowChartUnits";
 import type { InstallmentForecastChartPoint } from "@/lib/buildInstallmentForecastChartData";
 
 export type ForecastChartMode = "monthly" | "cumulative";
@@ -104,12 +107,14 @@ export function InstallmentForecastChart({
   const lineStroke = presDark ? "#38bdf8" : "#2563eb";
   const areaStroke = presDark ? "#7dd3fc" : "#3b82f6";
 
+  const monthlyValueLabelFill = lineStroke;
+
   const toggleShell = presDark
     ? "inline-flex rounded-xl border border-slate-600/50 bg-slate-800/60 p-1"
     : "inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm";
 
   const chartMargin = {
-    top: 12,
+    top: mode === "monthly" ? 20 : 12,
     right: 12,
     left: 4,
     bottom: MARKETING_DEALS_STYLE_MONTH_X_AXIS.height,
@@ -185,7 +190,35 @@ export function InstallmentForecastChart({
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
-              />
+              >
+                <LabelList
+                  dataKey="amountUnit"
+                  content={(props: LabelProps) => {
+                    const cx = Number(props.x);
+                    const cy = Number(props.y);
+                    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+                    const v = typeof props.value === "number" ? props.value : Number(props.value);
+                    if (!Number.isFinite(v) || v <= 0) return null;
+                    const text = formatCashflowChartUnitInteger(v, false);
+                    if (!text) return null;
+                    return (
+                      <text
+                        key={`inst-monthly-lbl-${props.index ?? 0}`}
+                        x={cx}
+                        y={cy - 10}
+                        textAnchor="middle"
+                        dominantBaseline="alphabetic"
+                        fill={monthlyValueLabelFill}
+                        fontSize={12}
+                        fontWeight={700}
+                        className="tabular-nums pointer-events-none"
+                      >
+                        {text}
+                      </text>
+                    );
+                  }}
+                />
+              </Area>
             </AreaChart>
           ) : (
             <LineChart data={data} margin={chartMargin}>
