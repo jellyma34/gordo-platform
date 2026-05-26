@@ -40,7 +40,22 @@ import {
 } from "@/lib/marketingRevenueFactCsv";
 import { resolveFactRevenueBySegmentForStructure } from "@/lib/resolveFactRevenueForSalesStructure";
 import { uploadMarketingRevenueFactCsvFile } from "@/lib/marketingRevenueFactCsvUpload";
-import { compactRub, formatAvgPricePerM2Rub, formatFactReceiptRub, numFmt, rubFmt } from "@/lib/salesPlanChartFormat";
+import {
+  marketingProjectValueCsvDocIsValid,
+  type MarketingProjectValueCsvStoredV1,
+} from "@/lib/marketingProjectValueCsv";
+import { marketingPaymentPlanProjectIdFromEnv } from "@/lib/marketingPaymentPlanStore";
+import { resolveSalesStructureProjectVolumeTotalRub } from "@/lib/resolveSalesStructureProjectVolumeTotal";
+import { useMarketingImportDoc } from "@/lib/useMarketingImportDoc";
+import {
+  compactRub,
+  formatAvgPricePerM2Rub,
+  formatFactReceiptRub,
+  formatNumberWithoutCurrency,
+  marketingKpiInlineSecondaryMetricClass,
+  numFmt,
+  rubFmt,
+} from "@/lib/salesPlanChartFormat";
 
 const shareFmt = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
 
@@ -59,6 +74,8 @@ type SalesStructureCardRow = {
   share: number;
   soldAreaM2: number;
   inventoryTotal: number | null;
+  /** Общий объём проекта (CSV project_value) — знаменатель «из …» у выручки (только «По проекту»). */
+  projectVolumeTotal?: number | null;
 };
 
 /** Визуал карточки «По проекту» — тот же каркас, чуть насыщеннее фон / обводка. */
@@ -177,6 +194,7 @@ function ProjectStructureSummaryHero({
       ? PROJECT_VISUAL_PREMIUM
       : PROJECT_VISUAL_WORK;
   const muted = presDark ? "text-slate-500" : "text-slate-400";
+  const inlineSecondary = marketingKpiInlineSecondaryMetricClass(presDark ? "dark" : "work");
   const metricValue = presDark ? "text-slate-50" : "text-[#111827]";
   const heroTitle = presDark
     ? "text-[13px] font-semibold tracking-tight text-indigo-200/95"
@@ -217,7 +235,7 @@ function ProjectStructureSummaryHero({
           aria-hidden
         />
         <div className="relative px-4 py-4 sm:px-5 sm:py-4 md:px-6 md:py-4">
-          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between md:gap-8 lg:gap-10">
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between md:gap-8 lg:gap-10">
             <div className="min-w-0 flex-1">
               <ProjectStructureCardHeader
                 iconWrapTone={iconWrapTone}
@@ -232,24 +250,26 @@ function ProjectStructureSummaryHero({
                   {numFmt.format(card.count)}
                 </span>
                 {card.inventoryTotal != null && card.inventoryTotal > 0 ? (
-                  <span className={`shrink-0 text-[13px] font-normal leading-none tabular-nums sm:text-sm ${muted} opacity-60`}>
-                    из {numFmt.format(card.inventoryTotal)} шт
-                  </span>
+                  <span className={inlineSecondary}>из {numFmt.format(card.inventoryTotal)} шт</span>
                 ) : (
-                  <span className={`shrink-0 text-[13px] font-normal leading-none sm:text-sm ${muted} opacity-60`}>шт</span>
+                  <span className={inlineSecondary}>шт</span>
                 )}
               </div>
-              <div className={`mt-2 text-xl font-semibold leading-none tabular-nums sm:mt-2.5 sm:text-2xl ${vs.value}`}>
-                {compactRub(card.sum)}
+              <div className="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 sm:mt-2.5">
+                <span className={`text-xl font-semibold leading-none tabular-nums sm:text-2xl ${vs.value}`}>
+                  {compactRub(card.sum)}
+                </span>
+                {card.projectVolumeTotal != null && card.projectVolumeTotal > 0 ? (
+                  <span className={inlineSecondary}>из {formatNumberWithoutCurrency(card.projectVolumeTotal)}</span>
+                ) : null}
               </div>
             </div>
             <div
-              className={`grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-3 md:max-w-[min(100%,26rem)] md:grid-cols-1 md:gap-3.5 md:border-l md:pl-6 lg:max-w-[22rem] lg:pl-8 ${
+              className={`grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-4 md:max-w-[min(100%,20rem)] md:grid-cols-1 md:gap-5 md:self-center md:border-l md:pl-6 lg:max-w-[18rem] lg:gap-5 lg:pl-8 ${
                 presDark ? "md:border-white/10" : "md:border-indigo-200/55"
               }`}
             >
               {metric("Факт поступлений", formatFactReceiptRub(card.factRevenue))}
-              {metric("Средний чек", rubFmt.format(card.avg))}
               {metric("Средняя стоимость м²", avgPriceM2)}
             </div>
           </div>
@@ -664,6 +684,18 @@ export function SalesPlanSegmentStructure({
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const segmentCardRadius = mplPremium && presentation && !presDark ? "rounded-[18px]" : "rounded-xl";
 
+  const paymentPlanProjectId = useMemo(() => marketingPaymentPlanProjectIdFromEnv(), []);
+  const { doc: projectValueDoc } = useMarketingImportDoc<MarketingProjectValueCsvStoredV1>({
+    projectId: paymentPlanProjectId,
+    datasetKey: "projectValue",
+    importKind: "project_value",
+    validate: marketingProjectValueCsvDocIsValid,
+  });
+  const projectVolumeTotalRub = useMemo(
+    () => resolveSalesStructureProjectVolumeTotalRub(projectValueDoc),
+    [projectValueDoc],
+  );
+
   const filteredRows = useMemo(
     () => filterNormalizedDealsForMarketingObject(dealsFeed.rows, objectId),
     [dealsFeed.rows, objectId],
@@ -808,16 +840,12 @@ export function SalesPlanSegmentStructure({
     const projectSourceRows: SalesStructureCardRow[] = PROJECT_STRUCTURE_SEGMENTS.map((key) =>
       buildSegmentRow(key, grouped[key] ?? []),
     );
-    const projectCard = aggregateProjectStructureMetrics(projectSourceRows);
+    const projectCard: SalesStructureCardRow = {
+      ...aggregateProjectStructureMetrics(projectSourceRows),
+      projectVolumeTotal: projectVolumeTotalRub,
+    };
     return { projectCard, segmentCards };
-  }, [
-    filteredRows,
-    apartmentsRevenuePool,
-    parkingRevenuePool,
-    storagesRevenuePool,
-    factRevenueBySegment,
-    inventoryPools,
-  ]);
+  }, [filteredRows, apartmentsRevenuePool, parkingRevenuePool, storagesRevenuePool, factRevenueBySegment, inventoryPools, projectVolumeTotalRub]);
 
   if (loadingDeals) {
     return (

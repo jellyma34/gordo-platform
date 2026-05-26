@@ -5,6 +5,23 @@ export const rubFmt = new Intl.NumberFormat("ru-RU", {
 });
 export const numFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 
+/**
+ * Серый inline-суффикс KPI рядом с основным значением («из 169 шт», «из 1 530 105 630»).
+ * Baseline-aligned, font-normal, tabular-nums.
+ */
+export const MARKETING_KPI_INLINE_SECONDARY_METRIC_CLASS = {
+  work: "shrink-0 text-[13px] font-normal leading-none tabular-nums text-slate-400 opacity-60 sm:text-sm",
+  dark: "shrink-0 text-[13px] font-normal leading-none tabular-nums text-slate-500 opacity-60 sm:text-sm",
+} as const;
+
+export type MarketingKpiInlineSecondaryMetricTone = keyof typeof MARKETING_KPI_INLINE_SECONDARY_METRIC_CLASS;
+
+export function marketingKpiInlineSecondaryMetricClass(
+  tone: MarketingKpiInlineSecondaryMetricTone,
+): string {
+  return MARKETING_KPI_INLINE_SECONDARY_METRIC_CLASS[tone];
+}
+
 /** Полное целое с разделением тысяч пробелами, без символа валюты: «1 530 105 630». */
 export function formatNumberWithoutCurrency(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
