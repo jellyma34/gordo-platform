@@ -134,6 +134,7 @@ export function SalesPlanExecutionSection({
         {showDashboard ? (
           <PlanFactChart
             rows={chartRows}
+            chartMode={chartMode}
             chartKey={chartAnimKey}
             presDark={presDark}
             presentation={presentation}

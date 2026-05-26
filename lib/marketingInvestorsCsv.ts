@@ -448,7 +448,7 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     commercial: pickSegmentPlanColumn(headerRow, matchCommercial),
   };
   const hasPerSegmentPlanCols = Object.values(segmentPlanCols).some((idx) => idx != null);
-  const hasSumPlanCols =
+  const hasSumFactCols =
     colMap.apartmentsFactSum != null ||
     colMap.parkingFactSum != null ||
     colMap.storageFactSum != null ||
@@ -462,13 +462,13 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     normalized:
       colMap.salesPlan != null ? normalizeCsvHeaderLabel(headerRow[colMap.salesPlan] ?? "") : null,
   });
-  if (colMap.salesPlan == null && !hasPerSegmentPlanCols && !hasSumPlanCols) {
+  if (colMap.salesPlan == null && !hasPerSegmentPlanCols && !hasSumFactCols) {
     warnings.push(
-      "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или «… сумма» по сегментам.",
+      "Колонка «План продаж» не найдена — столбцы плана на графике могут быть пустыми. Добавьте колонку «План продаж» или «… план» по сегментам.",
     );
-  } else if (!hasPerSegmentPlanCols && hasSumPlanCols) {
+  } else if (!hasPerSegmentPlanCols && hasSumFactCols) {
     warnings.push(
-      "План по сегментам: «квартиры сумма», «паркинг сумма», «кладовые сумма», «коммерция сумма» (₽).",
+      "Факт по сегментам: «квартиры сумма», «паркинг сумма», «кладовые сумма», «коммерция сумма» (₽). План — из колонок «… план» или «План продаж».",
     );
   }
 
@@ -490,9 +490,8 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
     const periodKey = investorsCsvRowPeriodKey(month, year);
     if (!periodKey) continue;
 
-    /** План (₽): явные колонки «… план» или «квартиры сумма» / «паркинг сумма» / «кладовые сумма». */
-    const planAtSum = (explicit: number | null, sumCol: number | null) =>
-      explicit != null ? numAt(row, explicit) : numAtFact(row, sumCol);
+    /** План (₽): только явные колонки «… план»; «… сумма» — только факт. */
+    const planAtExplicit = (explicit: number | null) => (explicit != null ? numAt(row, explicit) : 0);
 
     parsedRows.push({
       rowIndex1: lineIdx + 1,
@@ -500,10 +499,10 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
       periodKey,
       year,
       month,
-      apartmentsPlan: planAtSum(segmentPlanCols.apartments, colMap.apartmentsFactSum),
-      parkingPlan: planAtSum(segmentPlanCols.parking, colMap.parkingFactSum),
-      storagePlan: planAtSum(segmentPlanCols.storage, colMap.storageFactSum),
-      commercialPlan: planAtSum(segmentPlanCols.commercial, colMap.commercialFactSum),
+      apartmentsPlan: planAtExplicit(segmentPlanCols.apartments),
+      parkingPlan: planAtExplicit(segmentPlanCols.parking),
+      storagePlan: planAtExplicit(segmentPlanCols.storage),
+      commercialPlan: planAtExplicit(segmentPlanCols.commercial),
       apartmentsFact: numAtFact(row, colMap.apartmentsFactSum),
       parkingFact: numAtFact(row, colMap.parkingFactSum),
       storageFact: numAtFact(row, colMap.storageFactSum),
@@ -544,16 +543,14 @@ export function parseMarketingInvestorsCsv(text: string): ParseMarketingInvestor
   let plansBySegment: Record<MacroCategoryKey, number>;
   let hasSegmentPlan = false;
 
-  if (hasPerSegmentPlanCols || hasSumPlanCols) {
+  if (hasPerSegmentPlanCols) {
     plansBySegment = {
       apartments: reportRow.apartmentsPlan,
       parking: reportRow.parkingPlan,
       storage: reportRow.storagePlan,
       commercial: reportRow.commercialPlan,
     };
-    if (hasPerSegmentPlanCols) {
-      warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
-    }
+    warnings.push("План по сегментам: из отдельных колонок плана (последний месяц).");
     hasSegmentPlan = plansHaveValues(plansBySegment);
   } else if (planTotal > 0 && totalFact > 0) {
     plansBySegment = distributeSalesPlanByFactShare(planTotal, factsAtReport);

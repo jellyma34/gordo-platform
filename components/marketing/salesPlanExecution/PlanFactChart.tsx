@@ -3,7 +3,11 @@
 import { useMemo } from "react";
 
 import { CashflowInflowChartLegendToolbar } from "@/components/marketing/CashflowInflowChartLegend";
-import { CashflowTooltip } from "@/components/marketing/SalesPlanCashflowDynamicsChart";
+import {
+  CashflowDynamicsSvgLabels,
+  CashflowTooltip,
+} from "@/components/marketing/SalesPlanCashflowDynamicsChart";
+import type { CashflowChartRow } from "@/lib/buildCashflowSeries";
 import {
   createMarketingDealsStyleMonthTickRenderer,
   MARKETING_DEALS_STYLE_MONTH_X_AXIS,
@@ -26,14 +30,20 @@ import {
   cashflowInflowFactLineProps,
   cashflowInflowPlanLineProps,
 } from "@/lib/cashflowInflowChartSeries";
-import type { SalesPlanExecutionChartRow } from "@/lib/salesPlanExecution/buildSalesPlanExecutionData";
+import type {
+  SalesPlanExecutionChartMode,
+  SalesPlanExecutionChartRow,
+} from "@/lib/salesPlanExecution/buildSalesPlanExecutionData";
 
-const CHART_MARGIN_TOP = 40;
-const CHART_MARGIN_BOTTOM = 72;
+/** Как у «Динамика поступлений…» — место для подписей над точками. */
+const CHART_MARGIN_TOP_LIGHT = 20;
+const CHART_MARGIN_TOP_DARK = 16;
+const CHART_MARGIN_BOTTOM = 64;
 const CHART_MARGIN_LEFT = 10;
 
 type Props = {
   rows: readonly SalesPlanExecutionChartRow[];
+  chartMode: SalesPlanExecutionChartMode;
   chartKey: string;
   presDark: boolean;
   presentation: boolean;
@@ -43,22 +53,30 @@ type Props = {
 
 export function PlanFactChart({
   rows,
+  chartMode,
   chartKey,
   presDark,
   presentation,
   mplPremium,
   emptyMessage = "Нет данных для графика план / факт",
 }: Props) {
-  const chartData = useMemo(
-    () =>
-      rows.map((r) => ({
+  const chartData = useMemo((): CashflowChartRow[] => {
+    return rows.map((r) => {
+      const planUnit = rubToCashflowChartUnit(r.plan);
+      const factUnit = rubToCashflowChartUnit(r.fact);
+      const deviation =
+        planUnit != null && factUnit != null && Number.isFinite(planUnit) && Number.isFinite(factUnit)
+          ? factUnit - planUnit
+          : null;
+      return {
         periodKey: r.periodKey,
         label: r.label,
-        plan: rubToCashflowChartUnit(r.plan),
-        fact: rubToCashflowChartUnit(r.fact),
-      })),
-    [rows],
-  );
+        plan: planUnit,
+        fact: factUnit,
+        deviation,
+      };
+    });
+  }, [rows]);
 
   const { yDomainMax, yTicks } = useMemo(() => {
     const vals = chartData.flatMap((d) => [d.plan, d.fact].filter((x): x is number => x != null));
@@ -110,12 +128,18 @@ export function PlanFactChart({
         className="mb-1.5"
       />
       <div className="min-w-0 overflow-visible pb-1">
-        <div className="h-[280px] min-h-[280px] w-full overflow-visible sm:h-[300px] sm:min-h-[300px] [&_svg]:overflow-visible">
-          <ResponsiveContainer width="100%" height="100%" className="!overflow-visible [&_svg]:overflow-visible">
+        <div className="h-[320px] min-h-[320px] w-full overflow-visible [&_svg]:overflow-visible">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minHeight={320}
+            className="!overflow-visible [&_svg]:overflow-visible"
+            style={{ overflow: "visible" }}
+          >
             <LineChart
               data={chartData}
               margin={{
-                top: CHART_MARGIN_TOP,
+                top: presDark ? CHART_MARGIN_TOP_DARK : CHART_MARGIN_TOP_LIGHT,
                 right: 18,
                 left: CHART_MARGIN_LEFT,
                 bottom: CHART_MARGIN_BOTTOM,
@@ -149,6 +173,14 @@ export function PlanFactChart({
               />
               <Line type="monotone" dataKey="plan" name="План" {...cashflowInflowPlanLineProps(presDark)} />
               <Line type="monotone" dataKey="fact" name="Факт" {...cashflowInflowFactLineProps(presDark)} />
+              <CashflowDynamicsSvgLabels
+                chartData={chartData}
+                presDark={presDark}
+                mode={chartMode}
+                presentation={presentation}
+                planFactExecutionLabels
+                yGridTickValues={yTicks}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>

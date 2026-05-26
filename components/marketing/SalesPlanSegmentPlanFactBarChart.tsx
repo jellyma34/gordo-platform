@@ -16,6 +16,7 @@ import { buildSegmentFactSeriesFromDeals } from "@/lib/buildSegmentFactSeriesFro
 import { buildSegmentPlanRubByExecKeyFromUnits } from "@/lib/buildSegmentPlanRubFromUnitsExecution";
 import {
   segmentExecutionChartsHaveData,
+  segmentExecutionHasSegmentPlan,
   segmentExecutionPlanFactBarRowsForChartPeriod,
   type SegmentExecutionChartsPayload,
 } from "@/lib/marketingSegmentExecutionCsv";
@@ -350,12 +351,31 @@ export function SalesPlanSegmentPlanFactBarChart({
 
   const segmentBarRowsAll = useMemo(() => {
     if (useSegmentExecutionCsv) {
-      const merged = (csvBarRows ?? []).filter(
-        (row) => Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9,
-      );
+      const csvByName = new Map((csvBarRows ?? []).map((r) => [r.name, r]));
+      const csvHasExplicitPlan = segmentExecutionHasSegmentPlan(segmentExecutionCharts);
+      const merged: SegmentPlanFactBarRow[] = DEALS_ANALYTICS_SEGMENT_KEYS.map((key) => {
+        const execKey = DEAL_TO_EXEC_SEGMENT[key];
+        const name = DEAL_SEGMENT_LABEL_RU[key];
+        const csvRow = csvByName.get(name);
+        const fact = csvRow?.fact ?? 0;
+        const planFromUnits = planSeries?.get(execKey) ?? 0;
+        const plan =
+          hasUnitsPlanSource && Math.abs(planFromUnits) > 1e-9
+            ? planFromUnits
+            : csvHasExplicitPlan
+              ? (csvRow?.plan ?? 0)
+              : 0;
+        return { name, fact, plan };
+      }).filter((row) => Math.abs(row.fact) > 1e-9 || Math.abs(row.plan) > 1e-9);
       if (process.env.NODE_ENV === "development") {
         console.log("Segment chart updated", {
           source: "segment-execution-csv",
+          factSource: "segment-execution-csv-sum",
+          planSource: hasUnitsPlanSource
+            ? "units-plan-cumulative-x-avg-price"
+            : csvHasExplicitPlan
+              ? "segment-execution-csv-plan-columns"
+              : "none",
           periodMode,
           monthKey: periodMode === "month" ? monthKeyForFilter : null,
           quarterId: periodMode === "quarter" ? quarterIdForFilter : null,
@@ -404,6 +424,7 @@ export function SalesPlanSegmentPlanFactBarChart({
   }, [
     useSegmentExecutionCsv,
     csvBarRows,
+    segmentExecutionCharts,
     dealsRows,
     periodMode,
     periodFilterOptions,
@@ -515,7 +536,11 @@ export function SalesPlanSegmentPlanFactBarChart({
         </div>
         {!presentation && useSegmentExecutionCsv ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>
-            План и факт — из загруженного CSV исполнения по сегментам.
+            {hasUnitsPlanSource
+              ? "Факт — CSV исполнения по сегментам; план — накопительный план в штуках × средняя стоимость сегмента."
+              : segmentExecutionHasSegmentPlan(segmentExecutionCharts)
+                ? "План и факт — из загруженного CSV исполнения по сегментам."
+                : "Факт — CSV исполнения по сегментам."}
           </p>
         ) : !presentation && hasUnitsPlanSource ? (
           <p className={`mt-1 text-[11px] ${presDark ? "text-slate-400" : "text-slate-500"}`}>

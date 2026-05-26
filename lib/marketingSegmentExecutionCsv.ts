@@ -175,10 +175,7 @@ export type SegmentExecutionChartPeriodOpts = {
   quarterId?: string | null;
 };
 
-/**
- * Накопительный PLAN из CSV (`квартиры сумма`, `паркинг сумма`, …) до выбранного периода.
- * FACT не возвращается — факт только из JSON сделок в UI графика.
- */
+/** plan/fact из CSV segment_execution (суммы — факт; план — только колонки «… план»). */
 function planFactRowsToBarRows(rows: readonly SegmentExecutionPlanFactRow[]): SegmentPlanFactBarRow[] {
   return rows.map((r) => ({
     name: r.segment,

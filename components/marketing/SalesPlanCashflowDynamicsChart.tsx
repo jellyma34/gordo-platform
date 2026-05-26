@@ -592,12 +592,18 @@ function CashflowPointLabelsOverlay({
   );
 
   const factIndices = useMemo(
-    () => (mode === "monthly" && factCandidates ? new Set(factCandidates.map((c) => c.index)) : null),
-    [mode, factCandidates],
+    () =>
+      mode === "monthly" && factCandidates && !planFactExecutionLabels
+        ? new Set(factCandidates.map((c) => c.index))
+        : null,
+    [mode, factCandidates, planFactExecutionLabels],
   );
   const planIndices = useMemo(
-    () => (mode === "monthly" && planCandidates ? new Set(planCandidates.map((c) => c.index)) : null),
-    [mode, planCandidates],
+    () =>
+      mode === "monthly" && planCandidates && !planFactExecutionLabels
+        ? new Set(planCandidates.map((c) => c.index))
+        : null,
+    [mode, planCandidates, planFactExecutionLabels],
   );
 
   const formatLabel = useMemo(
@@ -621,7 +627,8 @@ function CashflowPointLabelsOverlay({
       formatLabel,
       factIndices,
       planIndices,
-      planLabelBelowPoint: planFactExecutionLabels,
+      /** План всегда над точкой (как «Динамика поступлений»); planFactExecutionLabels — только «все точки». */
+      planLabelBelowPoint: false,
       firstPointFactLabelExtraDownPx:
         mode === "cumulative" ? CUMULATIVE_FIRST_FACT_LABEL_Y_EXTRA_DOWN_PX : 0,
     });
