@@ -92,6 +92,7 @@ export function StoragePlanPeriodKpiSection({
         leadingSection={leadingSection}
         cardsLayout="ddu-revenue-premium"
         cardsDensity="ddu-revenue-premium"
+        metricIncludesCurrency={false}
         showEmpty
         emptyMessage="Нет данных по кладовым"
       />
@@ -112,6 +113,7 @@ export function StoragePlanPeriodKpiSection({
       leadingSection={leadingSection}
       cardsLayout="ddu-revenue-premium"
       cardsDensity="ddu-revenue-premium"
+      metricIncludesCurrency={false}
       skeleton={csvLoading}
     >
       {!presentation ? (

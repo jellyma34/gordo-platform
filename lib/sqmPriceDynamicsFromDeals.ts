@@ -8,6 +8,7 @@ import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { inferApartmentPlanTypeKeyFromDeal, type ApartmentPlanTypeKey } from "@/lib/apartmentPlanTypeKpi";
 import type { DealsAnalyticsSegmentKey } from "@/lib/buildDealsSegmentMonthAnalytics";
 import { formatMonthKeyShortRuYY } from "@/lib/normalizeMonthKey";
+import { marketingMockData } from "@/lib/marketingMockData";
 
 export type SqmPriceDynamicsSeriesKey = ApartmentPlanTypeKey | DealsAnalyticsSegmentKey;
 
@@ -92,17 +93,24 @@ export function buildSqmDynamicsMonthRange(fromMonthKey: string, toMonthKey: str
 }
 
 /**
- * Единый timeline по всем сделкам JSON: min/max месяц продажи (без среза по сегменту).
+ * Единая ось времени ₽/м²: `salesStart` проекта → конец отчётного горизонта (не по фактическим сделкам).
+ * Для текущего проекта: 2025-11 … 2026-05.
  */
-export function globalTimelineFromAllDeals(rows: readonly NormalizedDealRow[]): string[] {
-  const months: string[] = [];
-  for (const r of rows) {
-    const mk = resolveSqmDynamicsMonthKey(r);
-    if (mk) months.push(mk);
-  }
-  if (months.length === 0) return [];
-  months.sort();
-  return buildSqmDynamicsMonthRange(months[0]!, months[months.length - 1]!);
+export function resolveSqmPriceDynamicsTimelineMonthKeys(): string[] {
+  const start = marketingMockData.projectSalesStartPeriodKey;
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const projectEnd = marketingMockData.projectCashflowFactThroughPeriodKey;
+  const end = currentMonthKey > projectEnd ? currentMonthKey : projectEnd;
+  if (!start || start > end) return buildSqmDynamicsMonthRange(start, start);
+  return buildSqmDynamicsMonthRange(start, end);
+}
+
+/**
+ * @deprecated Используйте {@link resolveSqmPriceDynamicsTimelineMonthKeys}.
+ */
+export function globalTimelineFromAllDeals(_rows: readonly NormalizedDealRow[]): string[] {
+  return resolveSqmPriceDynamicsTimelineMonthKeys();
 }
 
 function dealPriceAndArea(row: NormalizedDealRow): { priceRub: number; areaM2: number } | null {
@@ -222,7 +230,7 @@ export function buildSqmPriceDynamicsBundle(rows: readonly NormalizedDealRow[]):
     }
   }
 
-  const timelineMonthKeys = globalTimelineFromAllDeals(rows);
+  const timelineMonthKeys = resolveSqmPriceDynamicsTimelineMonthKeys();
 
   const seriesRows: SqmPriceDynamicsSeriesModel[] = SQM_PRICE_DYNAMICS_DISPLAY_ROWS.map((meta) => {
     if (meta.id === "parking" || meta.id === "storage") {

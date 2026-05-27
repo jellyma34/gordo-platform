@@ -10,6 +10,7 @@ import {
 } from "@/components/marketing/analytics/analyticsDashboardShell";
 import type { ApartmentRoomTypeFilterKey } from "@/lib/roomTypeNormalized";
 import type { SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
 export type AnalyticsObjectTab = {
   key: SalesPlanObjectTypeKey;
@@ -23,7 +24,7 @@ export type AnalyticsRoomTab = {
   hasData: boolean;
 };
 
-type Props = {
+type Props = MarketingPdfRenderProps & {
   title: string;
   presDark: boolean;
   presentation: boolean;
@@ -62,6 +63,9 @@ export function AnalyticsSegmentLayout({
   children,
   className = "",
   showRoomTypeFilter = false,
+  pdfRender = false,
+  forcedObjectType,
+  hideInteractiveControls = false,
 }: Props) {
   const shellCls = analyticsDashboardShellClass(presDark, presentation, mplPremium);
   const segmentSurface = resolveAnalyticsSegmentSurface(presDark, presentation, mplPremium);
@@ -69,6 +73,8 @@ export function AnalyticsSegmentLayout({
   const pillsWrapCls = presDark
     ? "flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     : "flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+  const effectiveObjectType = forcedObjectType ?? activeObjectType;
+  const showSegmentTabs = !hideInteractiveControls && !pdfRender;
 
   return (
     <div className={`w-full min-w-0 max-w-none ${className}`.trim()}>
@@ -79,12 +85,12 @@ export function AnalyticsSegmentLayout({
         </div>
 
         <div
-          className={`${pillsWrapCls} min-w-0 ${showRoomTypeFilter ? "mb-3" : "mb-2"}`}
+          className={`${pillsWrapCls} min-w-0 ${showRoomTypeFilter ? "mb-3" : "mb-2"} ${showSegmentTabs ? "" : "hidden"}`}
           role="tablist"
           aria-label="Тип объекта"
         >
           {objectTabs.map((tab) => {
-            const active = activeObjectType === tab.key;
+            const active = effectiveObjectType === tab.key;
             return (
               <button
                 key={tab.key}
@@ -102,7 +108,7 @@ export function AnalyticsSegmentLayout({
           })}
         </div>
 
-        {showRoomTypeFilter && roomTabs?.length && activeObjectType === "apartments" ? (
+        {showRoomTypeFilter && roomTabs?.length && effectiveObjectType === "apartments" && showSegmentTabs ? (
           <div
             className={`${pillsWrapCls} mb-3 min-w-0 pl-0.5`}
             role="tablist"

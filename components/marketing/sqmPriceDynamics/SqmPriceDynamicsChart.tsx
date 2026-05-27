@@ -68,15 +68,17 @@ export function SqmPriceDynamicsChart({
   }, [series.overallAvgPricePerSqmRub, values]);
   const changePct = useMemo(() => sqmPricePeriodChangePct(chartData), [chartData]);
 
+  const monthTickCount = Math.max(1, timelineMonthKeys.length);
+
   const monthXTick = useMemo(
     () =>
       createMarketingDealsStyleMonthTickRenderer({
         presDark,
-        tickCount: Math.max(1, timelineMonthKeys.length),
+        tickCount: monthTickCount,
         translateYPx: 4,
-        labelRotateDeg: timelineMonthKeys.length > 8 ? -35 : 0,
+        labelRotateDeg: monthTickCount > 8 ? -35 : 0,
       }),
-    [presDark, timelineMonthKeys.length],
+    [presDark, monthTickCount],
   );
 
   const hasData =
@@ -134,7 +136,7 @@ export function SqmPriceDynamicsChart({
               {...MARKETING_DEALS_STYLE_MONTH_X_AXIS}
               tick={monthXTick}
               tickMargin={6}
-              height={timelineMonthKeys.length > 8 ? 44 : 32}
+              height={monthTickCount > 8 ? 44 : 32}
             />
             <YAxis
               domain={yScale.domain}
@@ -150,9 +152,9 @@ export function SqmPriceDynamicsChart({
             <Tooltip
               cursor={{ stroke: axisColor, strokeOpacity: 0.35 }}
               isAnimationActive={false}
-              formatter={(v: number) => {
-                if (v == null || !Number.isFinite(Number(v))) return ["—", ""];
-                return [formatSqmPriceRub(Number(v)), ""];
+              formatter={(v: number | null) => {
+                if (v == null || !Number.isFinite(Number(v))) return ["—", "₽/м²"];
+                return [formatSqmPriceRub(Number(v)), "₽/м²"];
               }}
               labelFormatter={(_, payload) => {
                 const row = payload?.[0]?.payload as { monthLabel?: string } | undefined;
@@ -181,9 +183,25 @@ export function SqmPriceDynamicsChart({
               name="₽/м²"
               stroke={series.accentHex}
               strokeWidth={2}
-              dot={{ r: 3, fill: series.accentHex, strokeWidth: 0 }}
-              activeDot={{ r: 4, fill: series.accentHex, strokeWidth: 0 }}
-              connectNulls={chartMode === "cumulative"}
+              dot={(props) => {
+                const v = (props as { payload?: { value?: number | null } }).payload?.value;
+                if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return null;
+                const { cx, cy } = props;
+                if (cx == null || cy == null) return null;
+                return (
+                  <circle cx={cx} cy={cy} r={3} fill={series.accentHex} stroke="none" />
+                );
+              }}
+              activeDot={(props) => {
+                const v = (props as { payload?: { value?: number | null } }).payload?.value;
+                if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return null;
+                const { cx, cy } = props;
+                if (cx == null || cy == null) return null;
+                return (
+                  <circle cx={cx} cy={cy} r={4} fill={series.accentHex} stroke="none" />
+                );
+              }}
+              connectNulls
               isAnimationActive={false}
             >
               <LabelList

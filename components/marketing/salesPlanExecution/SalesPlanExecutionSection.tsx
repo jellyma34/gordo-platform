@@ -17,8 +17,10 @@ import {
   useSalesPlanExecutionBlock,
   type UseSalesPlanExecutionBlockArgs,
 } from "@/lib/salesPlanExecution/useSalesPlanExecutionBlock";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
-type Props = UseSalesPlanExecutionBlockArgs & {
+type Props = UseSalesPlanExecutionBlockArgs &
+  MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium?: boolean;
@@ -53,6 +55,9 @@ export function SalesPlanExecutionSection({
   onPlanFactCsvUpload,
   onPlanFactCsvClear,
   className = "",
+  pdfRender = false,
+  forcedChartMode,
+  hideInteractiveControls = false,
 }: Props) {
   const block = useSalesPlanExecutionBlock({
     period,
@@ -63,6 +68,7 @@ export function SalesPlanExecutionSection({
     hasPlanFactCsv,
   });
   const { chartMode, setChartMode, chartRows, hasData, currentPeriodKey: periodKey } = block;
+  const effectiveChartMode = forcedChartMode ?? chartMode;
 
   const shellCls = analyticsDashboardShellClass(presDark, presentation, mplPremium);
   const segmentSurface = resolveAnalyticsSegmentSurface(presDark, presentation, mplPremium);
@@ -71,7 +77,7 @@ export function SalesPlanExecutionSection({
     ? "flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     : "flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
-  const chartAnimKey = `${periodKey}-${chartMode}`;
+  const chartAnimKey = `${periodKey}-${effectiveChartMode}`;
 
   const showDashboard = useMemo(
     () => hasData || (monthlyPlanVsFact?.length ?? 0) > 0,
@@ -112,22 +118,22 @@ export function SalesPlanExecutionSection({
                 onClear={onPlanFactCsvClear}
               />
             ) : null}
-            <div className={pillsWrapCls} role="tablist" aria-label="Режим графика">
+            <div className={`${pillsWrapCls} ${hideInteractiveControls ? "hidden" : ""}`} role="tablist" aria-label="Режим графика">
               <button
                 type="button"
                 role="tab"
-                aria-selected={chartMode === "monthly"}
+                aria-selected={effectiveChartMode === "monthly"}
                 onClick={() => setChartMode("monthly")}
-                className={segmentedControlTabClass(chartMode === "monthly", segmentSurface)}
+                className={segmentedControlTabClass(effectiveChartMode === "monthly", segmentSurface)}
               >
                 Помесячно
               </button>
               <button
                 type="button"
                 role="tab"
-                aria-selected={chartMode === "cumulative"}
+                aria-selected={effectiveChartMode === "cumulative"}
                 onClick={() => setChartMode("cumulative")}
-                className={segmentedControlTabClass(chartMode === "cumulative", segmentSurface)}
+                className={segmentedControlTabClass(effectiveChartMode === "cumulative", segmentSurface)}
               >
                 Нарастающим итогом
               </button>
@@ -138,7 +144,7 @@ export function SalesPlanExecutionSection({
         {showDashboard ? (
           <PlanFactChart
             rows={chartRows}
-            chartMode={chartMode}
+            chartMode={effectiveChartMode}
             chartKey={chartAnimKey}
             presDark={presDark}
             presentation={presentation}

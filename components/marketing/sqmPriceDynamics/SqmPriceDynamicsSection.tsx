@@ -12,11 +12,13 @@ import { useMarketingDealsFeedOptional } from "@/components/marketing/marketingD
 import { filterByObject } from "@/lib/marketingMockData";
 import {
   buildSqmPriceDynamicsBundle,
+  resolveSqmPriceDynamicsTimelineMonthKeys,
   SQM_PRICE_DYNAMICS_DISPLAY_ROWS,
   type SqmPriceChartMode,
 } from "@/lib/sqmPriceDynamicsFromDeals";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
-type Props = {
+type Props = MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium?: boolean;
@@ -29,9 +31,13 @@ export function SqmPriceDynamicsSection({
   presDark,
   mplPremium = false,
   objectId = "all",
+  pdfRender = false,
+  forcedChartMode,
+  hideInteractiveControls = false,
 }: Props) {
   const dealsFeed = useMarketingDealsFeedOptional();
   const [chartMode, setChartMode] = useState<SqmPriceChartMode>("monthly");
+  const effectiveChartMode = forcedChartMode ?? chartMode;
 
   const dealRowsForFact = useMemo(() => {
     const rows = dealsFeed?.rows ?? [];
@@ -53,12 +59,17 @@ export function SqmPriceDynamicsSection({
     }));
   }, [bundle.rows]);
 
+  const timelineMonthKeys = useMemo(() => {
+    if (bundle.timelineMonthKeys.length > 0) return bundle.timelineMonthKeys;
+    return resolveSqmPriceDynamicsTimelineMonthKeys();
+  }, [bundle.timelineMonthKeys]);
+
   const loading = Boolean(dealsFeed?.loading && dealRowsForFact.length === 0);
   const subCls = presDark ? "text-slate-400" : "text-slate-600";
 
-  const headerRight = (
+  const headerRight = hideInteractiveControls ? null : (
     <AnalyticsChartModeToggle
-      mode={chartMode}
+      mode={effectiveChartMode}
       onModeChange={setChartMode}
       presDark={presDark}
       presentation={presentation}
@@ -85,9 +96,9 @@ export function SqmPriceDynamicsSection({
       ) : (
         <SqmPriceDynamicsGrid
           rows={displayRows}
-          timelineMonthKeys={bundle.timelineMonthKeys}
+          timelineMonthKeys={timelineMonthKeys}
           presDark={presDark}
-          chartMode={chartMode}
+          chartMode={effectiveChartMode}
         />
       )}
     </AnalyticsSectionShell>

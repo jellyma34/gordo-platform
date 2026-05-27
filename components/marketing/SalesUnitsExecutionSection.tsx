@@ -31,6 +31,7 @@ import {
   unitsExecutionMonthLabelRu,
 } from "@/lib/unitsExecutionMonths";
 import type { UnitsExecutionValueMode } from "@/lib/unitsExecutionValueMode";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
 export type UnitsPlanFactChartRow = { key: string; segment: string; plan: number; fact: number };
 export type UnitsCompletionChartRow = {
@@ -76,7 +77,7 @@ export function buildUnitsCompletionChartRows(segments: readonly UnitsExecutionS
   });
 }
 
-type Props = {
+type Props = MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium: boolean;
@@ -144,6 +145,9 @@ export function SalesUnitsExecutionSection({
   data,
   dealsRows = [],
   unitsCsvError = null,
+  pdfRender = false,
+  forcedChartMode,
+  hideInteractiveControls = false,
 }: Props) {
   const mplLight = useMarketingPresentationLight();
   const segmentSurface =
@@ -151,6 +155,7 @@ export function SalesUnitsExecutionSection({
 
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(DEFAULT_UNITS_EXECUTION_MONTH);
   const [valueMode, setValueMode] = useState<UnitsExecutionValueMode>("cumulative");
+  const effectiveValueMode = (forcedChartMode as UnitsExecutionValueMode | undefined) ?? valueMode;
 
   const monthKeys = useMemo(() => {
     const fromDeals = [
@@ -175,11 +180,11 @@ export function SalesUnitsExecutionSection({
         : (monthKeys[monthKeys.length - 1] ?? DEFAULT_UNITS_EXECUTION_MONTH));
 
   const monthSlice = useMemo(
-    () => resolveUnitsExecutionMonthSlice(data, effectiveMonthKey, dealsRows, valueMode),
-    [data, effectiveMonthKey, dealsRows, valueMode],
+    () => resolveUnitsExecutionMonthSlice(data, effectiveMonthKey, dealsRows, effectiveValueMode),
+    [data, effectiveMonthKey, dealsRows, effectiveValueMode],
   );
 
-  const isMonthlyMode = valueMode === "monthly";
+  const isMonthlyMode = effectiveValueMode === "monthly";
 
   const planFactChartRows = useMemo(
     () => buildUnitsPlanFactChartRows(monthSlice?.segments ?? []),
@@ -268,18 +273,23 @@ export function SalesUnitsExecutionSection({
     <p className={`flex min-h-[200px] items-center justify-center px-3 text-center text-xs ${mutedCls}`}>{text}</p>
   );
 
+  const topDividerCls =
+    !presentation &&
+    (presDark ? "border-white/10" : "border-slate-200/70");
+
   return (
     <div
-      className={`mt-6 w-full min-w-0 border-t pt-6 ${
-        presDark ? "border-white/10" : presentation ? "border-mpl-border/70" : "border-slate-200/70"
-      }`}
+      className={`w-full min-w-0 ${!presentation ? `mt-6 border-t pt-6 ${topDividerCls}` : ""}`.trim()}
     >
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <h3 className={`min-w-0 text-sm font-semibold tracking-tight sm:text-base ${titleCls}`}>
+      <div className="mb-3 flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-3">
+        <h2
+          id="sales-units-exec-heading"
+          className={`min-w-0 text-sm font-semibold tracking-tight sm:text-base ${titleCls}`}
+        >
           Исполнение плана продаж (штуки) накопительным итогом
-        </h3>
-        {!hydrating && hasFileData ? (
-          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+        </h2>
+        {!hydrating && hasFileData && !hideInteractiveControls ? (
+          <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <button
                 type="button"
@@ -296,21 +306,23 @@ export function SalesUnitsExecutionSection({
                 Накопительно
               </button>
             </div>
-            <label className="flex flex-col gap-1 sm:items-end">
-              <span className={filterLabelCls}>Отчётный месяц</span>
-              <select
-                value={effectiveMonthKey}
-                onChange={(e) => setSelectedMonthKey(e.target.value)}
-                className={monthSelectCls}
-                aria-label="Отчётный месяц исполнения плана в штуках"
-              >
-                {monthKeys.map((mk) => (
-                  <option key={mk} value={mk}>
-                    {unitsExecutionMonthLabelRu(mk)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isMonthlyMode ? (
+              <label className="flex flex-col gap-1 sm:items-end">
+                <span className={filterLabelCls}>Отчётный месяц</span>
+                <select
+                  value={effectiveMonthKey}
+                  onChange={(e) => setSelectedMonthKey(e.target.value)}
+                  className={monthSelectCls}
+                  aria-label="Отчётный месяц исполнения плана в штуках"
+                >
+                  {monthKeys.map((mk) => (
+                    <option key={mk} value={mk}>
+                      {unitsExecutionMonthLabelRu(mk)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         ) : null}
       </div>

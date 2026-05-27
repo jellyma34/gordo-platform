@@ -57,6 +57,7 @@ export function ReportingPeriodProjectSegment({
       leadingSection
       cardsLayout="ddu-revenue-premium"
       cardsDensity="ddu-revenue-premium"
+      metricIncludesCurrency={false}
       projectVolumeUnits={projectVolumeUnits}
       skeleton={skeleton}
       showEmpty={showEmpty}

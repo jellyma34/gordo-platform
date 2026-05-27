@@ -27,10 +27,12 @@ import {
   type ApartmentRoomTypeFilterKey,
 } from "@/lib/roomTypeNormalized";
 import { SALES_PLAN_OBJECT_TYPE_TAB_ORDER, type SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
 export type DduSalesChartSectionSpacing = "sales-plan" | "inline" | "none";
 
-type Props = UseDduRevenueSalesBlockArgs & {
+type Props = UseDduRevenueSalesBlockArgs &
+  MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium?: boolean;
@@ -62,6 +64,10 @@ export function DduSalesChart({
   loading,
   error: externalError,
   showRoomTypeFilter = true,
+  pdfRender = false,
+  forcedObjectType,
+  forcedRoomType,
+  hideInteractiveControls = false,
 }: Props) {
   const [blockMonthKey, setBlockMonthKey] = useState<string>(() => {
     const mk = typeof currentPeriodKey === "string" ? normalizeMonthKey(currentPeriodKey) : null;
@@ -93,8 +99,11 @@ export function DduSalesChart({
   );
   const block = externalBlock ?? internalBlock;
 
-  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>("all");
-  const [activeRoomType, setActiveRoomType] = useState<ApartmentRoomTypeFilterKey>("all");
+  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>(forcedObjectType ?? "all");
+  const [activeRoomType, setActiveRoomType] = useState<ApartmentRoomTypeFilterKey>(forcedRoomType ?? "all");
+
+  const resolvedObjectType = forcedObjectType ?? activeObjectType;
+  const resolvedRoomType = forcedRoomType ?? activeRoomType;
 
   const {
     busy,
@@ -114,17 +123,18 @@ export function DduSalesChart({
         salesPlanByObjectType,
         apartmentByRoomType,
         filter: {
-          objectType: activeObjectType,
+          objectType: resolvedObjectType,
           roomType:
-            showRoomTypeFilter && activeObjectType === "apartments" ? activeRoomType : null,
+            showRoomTypeFilter && resolvedObjectType === "apartments" ? resolvedRoomType : null,
         },
       }),
-    [activeObjectType, activeRoomType, apartmentByRoomType, salesPlanByObjectType, showRoomTypeFilter],
+    [resolvedObjectType, resolvedRoomType, apartmentByRoomType, salesPlanByObjectType, showRoomTypeFilter],
   );
 
   useEffect(() => {
+    if (pdfRender && forcedObjectType) return;
     if (!showRoomTypeFilter || activeObjectType !== "apartments") setActiveRoomType("all");
-  }, [activeObjectType, showRoomTypeFilter]);
+  }, [activeObjectType, showRoomTypeFilter, pdfRender, forcedObjectType]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -284,7 +294,7 @@ export function DduSalesChart({
         presentation={presentation}
         mplPremium={mplPremium}
         headerControls={
-          monthOptions.length ? (
+          hideInteractiveControls || !monthOptions.length ? null : (
             <BlockMonthSelector
               value={blockMonthKey}
               options={monthOptions}
@@ -293,18 +303,22 @@ export function DduSalesChart({
               presentation={presentation}
               mplPremium={presentation && mplPremium}
             />
-          ) : null
+          )
         }
         showRoomTypeFilter={showRoomTypeFilter}
         objectTabs={objectTabs}
-        activeObjectType={activeObjectType}
+        activeObjectType={resolvedObjectType}
         onObjectTypeChange={setActiveObjectType}
         roomTabs={roomTabs}
-        activeRoomType={activeRoomType}
+        activeRoomType={resolvedRoomType}
         onRoomTypeChange={setActiveRoomType}
         error={err}
-        headerExtra={headerExtra}
+        headerExtra={hideInteractiveControls ? null : headerExtra}
         panelKey={panelKey}
+        pdfRender={pdfRender}
+        forcedObjectType={forcedObjectType}
+        forcedRoomType={forcedRoomType}
+        hideInteractiveControls={hideInteractiveControls}
         className={
           dragOver && showCsvUpload
             ? presDark

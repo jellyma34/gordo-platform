@@ -9,8 +9,9 @@ import type { StoragePlanAnalyticsBreakdown } from "@/lib/storagePlanAnalytics";
 import type { StoragePlanPeriodKpiUiData } from "@/lib/storagePlanPeriodKpi";
 import type { ProjectPlanPeriodKpiUiData } from "@/lib/projectPlanPeriodKpi";
 import type { ApartmentPlanCsvParseDiagnostics } from "@/lib/planDataSource/types";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
-export type ReportingPeriodPlanExecutionSectionProps = {
+export type ReportingPeriodPlanExecutionSectionProps = MarketingPdfRenderProps & {
   data: ApartmentPlanPeriodKpiUiData;
   presentation: boolean;
   presDark: boolean;

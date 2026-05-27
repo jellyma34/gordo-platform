@@ -175,6 +175,7 @@ import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeed
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
 import { useMarketingPresentationLight, useMarketingPresVisual } from "@/components/marketing/marketingPresentationLightContext";
+import { SalesPlanMarketingPdfBlocks } from "@/components/reports/marketingPdf/SalesPlanMarketingPdfBlocks";
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import {
   Area,
@@ -779,9 +780,11 @@ type Props = {
   objectId: string;
   /** Начальный сценарий слайда (из query при переходе из пояснения). */
   initialPlanScenario?: PlanScenario;
+  /** Скрытый полный PDF-отчёт (все сегменты и режимы). */
+  pdfMode?: boolean;
 };
 
-export function SalesPlanPanel({ presentation, period, objectId, initialPlanScenario }: Props) {
+export function SalesPlanPanel({ presentation, period, objectId, initialPlanScenario, pdfMode = false }: Props) {
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
   const isPresentationMode = presentation;
@@ -3608,6 +3611,72 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       return presDark ? "border-l-emerald-400/80 text-slate-200" : "border-l-emerald-600 text-slate-800";
     return presDark ? "border-l-slate-500 text-slate-300" : "border-l-slate-400 text-slate-700";
   };
+
+  if (pdfMode) {
+    return (
+      <SalesPlanMarketingPdfBlocks
+        presentation={presentation}
+        presDark={presDark}
+        mplPremium={mplPremium}
+        period={period}
+        objectId={objectId}
+        currentPeriodKey={analytics.currentPeriodKey}
+        dealsFeed={dealsFeed}
+        marketingDealsFiltered={marketingDealsFiltered}
+        apartmentsCsvDoc={apartmentsCsvDoc}
+        parkingCsvDoc={parkingCsvDoc}
+        storagesCsvDoc={storagesCsvDoc}
+        commercialInventoryUnits={commercialInventoryUnits ?? 0}
+        revenueFactCsvDoc={revenueFactCsvDoc}
+        paymentPlanProjectId={paymentPlanProjectId}
+        cashflowSeriesBase={cashflowSeriesBase}
+        cashflowPlanScale={cashflowPlanScale}
+        hasPlanMonths={hasPlanMonths}
+        cashflowPlanNote={cashflowPlanNote}
+        paymentPlanHydrated={paymentPlanHydrated}
+        hasAnyPaymentCsv={hasAnyPaymentCsv}
+        paymentFactUnavailableReason={paymentFactUnavailableReason}
+        paymentZaydetMonthVerify={paymentZaydetMonthVerify}
+        monthlyPlanVsFactChart={monthlyPlanVsFactChart}
+        planChromeEditMode={planChromeEditMode}
+        receiptsPlanFactHydrated={receiptsPlanFactHydrated}
+        receiptsPlanFactLoading={receiptsPlanFactLoading}
+        receiptsPlanFactMeta={receiptsPlanFactMeta}
+        uploadPlanVsFactCsvFile={uploadPlanVsFactCsvFile}
+        clearPlanVsFactCsv={clearPlanVsFactCsv}
+        apartmentPlanPeriodKpi={apartmentPlanPeriodKpi}
+        reportingPeriodMonthOptions={reportingPeriodMonthOptions}
+        parkingPlanPeriodKpi={parkingPlanPeriodKpi}
+        parkingPlanAnalyticsBreakdown={parkingPlanAnalyticsBreakdown}
+        storagePlanPeriodKpi={storagePlanPeriodKpi}
+        storagePlanAnalyticsBreakdown={storagePlanAnalyticsBreakdown}
+        projectPlanPeriodKpi={projectPlanPeriodKpi}
+        apartmentPlanKpiHydrated={apartmentPlanKpiHydrated}
+        apartmentPlanKpiLoading={apartmentPlanKpiLoading}
+        apartmentPlanKpiError={apartmentPlanKpiError}
+        apartmentPlanKpiDoc={apartmentPlanKpiDoc}
+        apartmentPlanKpiFailedDiagnostics={apartmentPlanKpiFailedDiagnostics}
+        uploadApartmentPlanKpiCsv={uploadApartmentPlanKpiCsv}
+        clearApartmentPlanKpiCsv={clearApartmentPlanKpiCsv}
+        reportAsOfYmd={report.asOf}
+        segmentExecutionCharts={segmentExecutionCharts}
+        segmentExecutionCsvError={segmentExecutionCsvError}
+        segmentExecutionCsvLoading={segmentExecutionCsvLoading}
+        segmentExecutionCsvMeta={segmentExecutionCsvMeta}
+        uploadSegmentExecutionCsvFile={uploadSegmentExecutionCsvFile}
+        clearMarketingSegmentExecutionCsv={clearMarketingSegmentExecutionCsv}
+        executionDataset={executionDataset}
+        unitsExecutionCharts={unitsExecutionCharts}
+        unitsCsvError={unitsCsvError}
+        marketingLeadsCharts={marketingLeadsCharts}
+        marketingLeadsHydrated={marketingLeadsHydrated}
+        marketingLeadsLoading={marketingLeadsLoading}
+        marketingLeadsMeta={marketingLeadsMeta}
+        uploadMarketingLeadsCsvHandler={uploadMarketingLeadsCsvHandler}
+        clearMarketingLeadsCsvHandler={clearMarketingLeadsCsvHandler}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">

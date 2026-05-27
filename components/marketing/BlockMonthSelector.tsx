@@ -6,6 +6,9 @@ import {
   MPL_PREMIUM_FILTER_SELECT_12,
   MPL_PREMIUM_FILTER_SELECT_95,
 } from "@/lib/marketingPremiumUi";
+import { MARKETING_BLOCK_REPORTING_MONTH_LABEL } from "@/lib/marketingBlockLabels";
+
+export { MARKETING_BLOCK_REPORTING_MONTH_LABEL };
 
 function monthKeyLabelRu(monthKey: string): string {
   const [y, m] = monthKey.split("-").map(Number);
@@ -27,7 +30,7 @@ export function BlockMonthSelector({
   presDark,
   presentation,
   mplPremium,
-  label = "Месяц",
+  label = MARKETING_BLOCK_REPORTING_MONTH_LABEL,
   selectMinWidthPx = 190,
   disabled = false,
   className = "",

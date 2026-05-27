@@ -93,6 +93,7 @@ export function ParkingPlanPeriodKpiSection({
         leadingSection={leadingSection}
         cardsLayout="ddu-revenue-premium"
         cardsDensity="ddu-revenue-premium"
+        metricIncludesCurrency={false}
         showEmpty
         emptyMessage="Нет данных по машино-местам"
       />
@@ -113,6 +114,7 @@ export function ParkingPlanPeriodKpiSection({
       leadingSection={leadingSection}
       cardsLayout="ddu-revenue-premium"
       cardsDensity="ddu-revenue-premium"
+      metricIncludesCurrency={false}
       skeleton={csvLoading}
     >
       {!presentation ? (

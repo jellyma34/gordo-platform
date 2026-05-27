@@ -20,8 +20,10 @@ import {
 import { normalizeMonthKey } from "@/lib/normalizeMonthKey";
 import { formatProjectValueWithoutCurrency } from "@/lib/projectValuePeriodKpi";
 import { SALES_PLAN_OBJECT_TYPE_TAB_ORDER, type SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
-type Props = UseProjectCostSalesBlockArgs & {
+type Props = UseProjectCostSalesBlockArgs &
+  MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium?: boolean;
@@ -37,6 +39,9 @@ export function ProjectCostAnalyticsSection({
   objectId = "all",
   currentPeriodKey,
   className = "",
+  pdfRender = false,
+  forcedObjectType,
+  hideInteractiveControls = false,
 }: Props) {
   const [blockMonthKey, setBlockMonthKey] = useState<string>(() => {
     const mk = typeof currentPeriodKey === "string" ? normalizeMonthKey(currentPeriodKey) : null;
@@ -47,7 +52,8 @@ export function ProjectCostAnalyticsSection({
 
   const block = useProjectCostSalesBlock({ period, objectId, currentPeriodKey: blockMonthKey });
 
-  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>("all");
+  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>(forcedObjectType ?? "all");
+  const resolvedObjectType = forcedObjectType ?? activeObjectType;
 
   const {
     error,
@@ -60,7 +66,7 @@ export function ProjectCostAnalyticsSection({
     dealRowsForFact,
   } = block;
 
-  const activeSlice = salesPlanByObjectType[activeObjectType];
+  const activeSlice = salesPlanByObjectType[resolvedObjectType];
 
   const objectTabs: AnalyticsObjectTab[] = useMemo(
     () =>
@@ -75,17 +81,17 @@ export function ProjectCostAnalyticsSection({
   const entityAnalytics = useMemo(
     () =>
       resolveProjectValueEntityAnalytics({
-        objectType: activeObjectType,
+        objectType: resolvedObjectType,
         doc,
         dealRows: dealRowsForFact,
         periodGran,
         currentPeriodKey: resolvedPeriodKey,
       }),
-    [activeObjectType, resolvedPeriodKey, dealRowsForFact, doc, periodGran],
+    [resolvedObjectType, resolvedPeriodKey, dealRowsForFact, doc, periodGran],
   );
 
   const tabEmpty = !showSkeleton && !activeSlice.hasData;
-  const panelKey = activeObjectType;
+  const panelKey = resolvedObjectType;
 
   const monthOptions = useMemo(() => {
     const out = new Set<string>();
@@ -122,7 +128,7 @@ export function ProjectCostAnalyticsSection({
   };
 
   const showPlanFactAnalytics =
-    entityAnalytics?.hasData && !showSkeleton && !presentation && activeObjectType !== "commercial";
+    entityAnalytics?.hasData && !showSkeleton && !presentation && resolvedObjectType !== "commercial";
 
   return (
     <div className={`project-cost-analytics ${ANALYTICS_SECTION_SPACING_CLASS} ${className}`.trim()}>
@@ -132,7 +138,7 @@ export function ProjectCostAnalyticsSection({
         presentation={presentation}
         mplPremium={mplPremium}
         headerControls={
-          monthOptions.length ? (
+          hideInteractiveControls || !monthOptions.length ? null : (
             <BlockMonthSelector
               value={blockMonthKey}
               options={monthOptions}
@@ -141,14 +147,17 @@ export function ProjectCostAnalyticsSection({
               presentation={presentation}
               mplPremium={presentation && mplPremium}
             />
-          ) : null
+          )
         }
         showRoomTypeFilter={false}
         objectTabs={objectTabs}
-        activeObjectType={activeObjectType}
+        activeObjectType={resolvedObjectType}
         onObjectTypeChange={setActiveObjectType}
         error={error}
         panelKey={panelKey}
+        pdfRender={pdfRender}
+        forcedObjectType={forcedObjectType}
+        hideInteractiveControls={hideInteractiveControls}
       >
         {showSkeleton ? (
           <AnalyticsKpiCard {...kpiProps} skeleton />

@@ -30,6 +30,7 @@ import {
   YAxis,
 } from "@/components/charting/rechartsClient";
 import type { MarketingPaymentZaydetMonthVerifyRow } from "@/lib/paymentScheduleCsv";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 import {
   cashflowInflowFactLineProps,
   cashflowInflowPlanLineProps,
@@ -858,7 +859,7 @@ export function CashflowDynamicsSvgLabels({
   );
 }
 
-type Props = {
+type Props = MarketingPdfRenderProps & {
   rows: CashflowSeriesRow[];
   planScale: number;
   /** true — только при загруженном CSV плана поступлений. */
@@ -1008,18 +1009,22 @@ export function SalesPlanCashflowDynamicsChart({
   factUnavailableMessage,
   zaydetMonthVerify,
   showZaydetCsvDebugTable,
+  pdfRender = false,
+  forcedChartMode,
+  hideInteractiveControls = false,
 }: Props) {
   const [mode, setMode] = useState<CashflowChartMode>("monthly");
+  const effectiveMode = forcedChartMode ?? mode;
   const mplPremium = useMarketingPresentationLight();
   const presDark = useMarketingPresVisual(presentation) === "presDark";
 
   const chartData = useMemo(
     () =>
-      cashflowRowsForChart(rows, mode, planScale, {
+      cashflowRowsForChart(rows, effectiveMode, planScale, {
         factThroughPeriodKey: factThroughPeriodKey ?? null,
         includePlanSeries,
       }),
-    [rows, mode, planScale, factThroughPeriodKey, includePlanSeries],
+    [rows, effectiveMode, planScale, factThroughPeriodKey, includePlanSeries],
   );
 
   const { yDomainMax, yTicks } = useMemo(() => {
@@ -1092,18 +1097,18 @@ export function SalesPlanCashflowDynamicsChart({
           >
             Динамика поступлений от заключенных сделок в периоде
           </h3>
-          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <div className={`flex shrink-0 flex-wrap gap-2 sm:justify-end ${hideInteractiveControls ? "hidden" : ""}`}>
             <button
               type="button"
               onClick={() => setMode("monthly")}
-              className={segmentedControlTabClass(mode === "monthly", segmentSurface)}
+              className={segmentedControlTabClass(effectiveMode === "monthly", segmentSurface)}
             >
               Помесячно
             </button>
             <button
               type="button"
               onClick={() => setMode("cumulative")}
-              className={segmentedControlTabClass(mode === "cumulative", segmentSurface)}
+              className={segmentedControlTabClass(effectiveMode === "cumulative", segmentSurface)}
             >
               Нарастающим итогом
             </button>
@@ -1233,7 +1238,7 @@ export function SalesPlanCashflowDynamicsChart({
             <CashflowDynamicsSvgLabels
               chartData={chartData}
               presDark={presDark}
-              mode={mode}
+              mode={effectiveMode}
               presentation={presentation}
               yGridTickValues={yTicks}
             />

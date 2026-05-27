@@ -27,8 +27,10 @@ import {
   type ApartmentRoomTypeFilterKey,
 } from "@/lib/roomTypeNormalized";
 import { SALES_PLAN_OBJECT_TYPE_TAB_ORDER, type SalesPlanObjectTypeKey } from "@/lib/salesPlanByObjectType";
+import type { MarketingPdfRenderProps } from "@/utils/pdf/marketingPdfRenderProps";
 
-type Props = UseReducedAreaBlockArgs & {
+type Props = UseReducedAreaBlockArgs &
+  MarketingPdfRenderProps & {
   presentation: boolean;
   presDark: boolean;
   mplPremium?: boolean;
@@ -46,6 +48,10 @@ export function ReducedAreaAnalyticsSection({
   showCsvUpload = false,
   className = "",
   block: externalBlock,
+  pdfRender = false,
+  forcedObjectType,
+  forcedRoomType,
+  hideInteractiveControls = false,
 }: Props) {
   const internalBlock = useReducedAreaBlock(
     externalBlock
@@ -91,8 +97,10 @@ export function ReducedAreaAnalyticsSection({
     [filteredDoc],
   );
 
-  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>("all");
-  const [activeRoomType, setActiveRoomType] = useState<ApartmentRoomTypeFilterKey>("all");
+  const [activeObjectType, setActiveObjectType] = useState<SalesPlanObjectTypeKey>(forcedObjectType ?? "all");
+  const [activeRoomType, setActiveRoomType] = useState<ApartmentRoomTypeFilterKey>(forcedRoomType ?? "all");
+  const resolvedObjectType = forcedObjectType ?? activeObjectType;
+  const resolvedRoomType = forcedRoomType ?? activeRoomType;
 
   const {
     busy,
@@ -112,16 +120,17 @@ export function ReducedAreaAnalyticsSection({
         salesPlanByObjectType,
         apartmentByRoomType,
         filter: {
-          objectType: activeObjectType,
-          roomType: activeObjectType === "apartments" ? activeRoomType : null,
+          objectType: resolvedObjectType,
+          roomType: resolvedObjectType === "apartments" ? resolvedRoomType : null,
         },
       }),
-    [activeObjectType, activeRoomType, apartmentByRoomType, salesPlanByObjectType],
+    [resolvedObjectType, resolvedRoomType, apartmentByRoomType, salesPlanByObjectType],
   );
 
   useEffect(() => {
-    if (activeObjectType !== "apartments") setActiveRoomType("all");
-  }, [activeObjectType]);
+    if (pdfRender && forcedObjectType) return;
+    if (resolvedObjectType !== "apartments") setActiveRoomType("all");
+  }, [resolvedObjectType, pdfRender, forcedObjectType]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -181,7 +190,7 @@ export function ReducedAreaAnalyticsSection({
     sectionTitle: SECTION_TITLE,
   };
 
-  const panelKey = `${activeObjectType}-${activeObjectType === "apartments" ? activeRoomType : "—"}`;
+  const panelKey = `${resolvedObjectType}-${resolvedObjectType === "apartments" ? resolvedRoomType : "—"}`;
 
   const headerExtra = showCsvUpload ? (
     <div className="mb-3 flex min-w-0 flex-wrap items-center justify-end gap-2">
@@ -248,7 +257,7 @@ export function ReducedAreaAnalyticsSection({
         presentation={presentation}
         mplPremium={mplPremium}
         headerControls={
-          monthOptions.length ? (
+          hideInteractiveControls || !monthOptions.length ? null : (
             <BlockMonthSelector
               value={blockMonthKey}
               options={monthOptions}
@@ -257,18 +266,22 @@ export function ReducedAreaAnalyticsSection({
               presentation={presentation}
               mplPremium={presentation && mplPremium}
             />
-          ) : null
+          )
         }
         showRoomTypeFilter
         objectTabs={objectTabs}
-        activeObjectType={activeObjectType}
+        activeObjectType={resolvedObjectType}
         onObjectTypeChange={setActiveObjectType}
         roomTabs={roomTabs}
-        activeRoomType={activeRoomType}
+        activeRoomType={resolvedRoomType}
         onRoomTypeChange={setActiveRoomType}
         error={err}
-        headerExtra={headerExtra}
+        headerExtra={hideInteractiveControls ? null : headerExtra}
         panelKey={panelKey}
+        pdfRender={pdfRender}
+        forcedObjectType={forcedObjectType}
+        forcedRoomType={forcedRoomType}
+        hideInteractiveControls={hideInteractiveControls}
         className={
           dragOver && showCsvUpload
             ? presDark

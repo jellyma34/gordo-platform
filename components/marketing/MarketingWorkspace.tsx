@@ -135,15 +135,17 @@ export function MarketingWorkspace({
     <MarketingDealsFeedProvider>
       <section className={outer}>
         <div className={contentWell}>
-          <div
-            className="min-w-0 bg-white"
-            data-marketing-pdf-export-root={presentation ? true : undefined}
-          >
+          <div className="min-w-0 bg-white">
             {panel}
           </div>
           {presentation ? (
             <div className="flex justify-center py-16" data-pdf-exclude>
-              <MarketingPdfExport reportTitle={pdfReportTitle} period={period} objectId={objectId} />
+              <MarketingPdfExport
+                reportTitle={pdfReportTitle}
+                period={period}
+                objectId={objectId}
+                activeTab={activeTab}
+              />
             </div>
           ) : null}
         </div>

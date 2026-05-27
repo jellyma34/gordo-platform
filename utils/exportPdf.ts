@@ -195,6 +195,76 @@ function addCanvasMultipage(pdf: jsPDF, canvas: HTMLCanvasElement, startNewPage:
   }
 }
 
+/** Adds one canvas as page(s); keeps block on new page(s) without splitting mid-chart when it fits. */
+function addCanvasBlockPages(
+  pdf: jsPDF,
+  canvas: HTMLCanvasElement,
+  startNewPage: boolean,
+  title?: string,
+): void {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - PDF_MARGIN_MM * 2;
+  const contentHeight = pageHeight - PDF_MARGIN_MM * 2;
+  const titleReserve = title ? 8 : 0;
+  const usableHeight = contentHeight - titleReserve;
+
+  const imgWidth = contentWidth;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+  if (startNewPage) pdf.addPage();
+
+  let y = PDF_MARGIN_MM;
+  if (title) {
+    pdf.setFontSize(10);
+    pdf.setTextColor(51, 65, 85);
+    const lines = pdf.splitTextToSize(title, contentWidth);
+    pdf.text(lines, PDF_MARGIN_MM, y + 4);
+    y += titleReserve;
+  }
+
+  if (imgHeight <= usableHeight) {
+    pdf.addImage(imgData, "JPEG", PDF_MARGIN_MM, y, imgWidth, imgHeight);
+    return;
+  }
+
+  addCanvasMultipage(pdf, canvas, false);
+}
+
+export async function exportMarketingPdfBlocksToPdf(
+  blocks: readonly HTMLElement[],
+  meta: PdfExportMeta,
+  options?: CaptureOptions & {
+    getBlockTitle?: (block: HTMLElement, index: number) => string | undefined;
+    captureBlock?: (block: HTMLElement, index: number) => Promise<HTMLCanvasElement>;
+  },
+): Promise<void> {
+  const { jsPDF } = await loadPdfLibs();
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  const logoDataUrl = await loadLogoPngDataUrl();
+
+  addCoverPage(pdf, meta, logoDataUrl);
+
+  const prevScroll = window.scrollY;
+  window.scrollTo(0, 0);
+
+  try {
+    for (let i = 0; i < blocks.length; i += 1) {
+      const block = blocks[i]!;
+      const title =
+        options?.getBlockTitle?.(block, i) ?? block.getAttribute("data-pdf-section-title") ?? undefined;
+      const canvas = options?.captureBlock
+        ? await options.captureBlock(block, i)
+        : await captureElementToCanvas(block, options);
+      addCanvasBlockPages(pdf, canvas, true, title);
+    }
+    pdf.save(meta.fileName);
+  } finally {
+    window.scrollTo(0, prevScroll);
+  }
+}
+
 export async function exportElementToPdf(
   element: HTMLElement,
   meta: PdfExportMeta,

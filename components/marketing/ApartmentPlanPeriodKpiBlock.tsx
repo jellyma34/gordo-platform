@@ -971,6 +971,8 @@ type Props = {
   storagePlanPeriodKpi?: StoragePlanPeriodKpiUiData | null;
   storagePlanAnalyticsBreakdown?: StoragePlanAnalyticsBreakdown | null;
   projectPlanPeriodKpi?: ProjectPlanPeriodKpiUiData | null;
+  forceExpanded?: boolean;
+  hideInteractiveControls?: boolean;
 };
 
 export function ApartmentPlanPeriodKpiBlock({
@@ -995,6 +997,8 @@ export function ApartmentPlanPeriodKpiBlock({
   storagePlanPeriodKpi = null,
   storagePlanAnalyticsBreakdown = null,
   projectPlanPeriodKpi = null,
+  forceExpanded = false,
+  hideInteractiveControls = false,
 }: Props) {
   const safeData: ApartmentPlanPeriodKpiUiData =
     data && typeof data === "object"
@@ -1117,7 +1121,7 @@ export function ApartmentPlanPeriodKpiBlock({
             Выполнение плана отчетного периода
           </h2>
           <div className="flex min-w-0 flex-wrap items-start gap-3 sm:justify-end">
-            {monthKey && monthOptions?.length && onMonthKeyChange ? (
+            {monthKey && monthOptions?.length && onMonthKeyChange && !hideInteractiveControls ? (
               <BlockMonthSelector
                 value={monthKey}
                 options={monthOptions}
@@ -1279,6 +1283,7 @@ export function ApartmentPlanPeriodKpiBlock({
             presDark={presDark}
             presentation={presentation}
             mplPremium={mplPremium}
+            forceExpanded={forceExpanded}
           >
             <ReportingPeriodProjectSegment
               data={safeProjectKpi}
@@ -1295,6 +1300,7 @@ export function ApartmentPlanPeriodKpiBlock({
             presDark={presDark}
             presentation={presentation}
             mplPremium={mplPremium}
+            forceExpanded={forceExpanded}
           >
             <ReportingPeriodApartmentsSegment
               data={debouncedData}
@@ -1312,6 +1318,7 @@ export function ApartmentPlanPeriodKpiBlock({
             presDark={presDark}
             presentation={presentation}
             mplPremium={mplPremium}
+            forceExpanded={forceExpanded}
           >
             <ParkingPlanPeriodKpiSection
               data={parkingPlanPeriodKpi}
@@ -1331,6 +1338,7 @@ export function ApartmentPlanPeriodKpiBlock({
             presDark={presDark}
             presentation={presentation}
             mplPremium={mplPremium}
+            forceExpanded={forceExpanded}
           >
             <StoragePlanPeriodKpiSection
               data={storagePlanPeriodKpi}
@@ -1349,6 +1357,7 @@ export function ApartmentPlanPeriodKpiBlock({
             presDark={presDark}
             presentation={presentation}
             mplPremium={mplPremium}
+            forceExpanded={forceExpanded}
           >
             <EntityPlanPeriodKpiSection
               entityLabel=""
@@ -1372,6 +1381,7 @@ export function ApartmentPlanPeriodKpiBlock({
               leadingSection
               cardsLayout="ddu-revenue-premium"
               cardsDensity="ddu-revenue-premium"
+              metricIncludesCurrency={false}
               showEmpty
               emptyMessage="Нет данных по коммерции"
             />

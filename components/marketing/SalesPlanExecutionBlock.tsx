@@ -41,6 +41,13 @@ import { SqmPriceDynamicsSection } from "@/components/marketing/sqmPriceDynamics
 import { SalesUnitsExecutionSection } from "@/components/marketing/SalesUnitsExecutionSection";
 import type { MarketingPeriodGranularity } from "@/components/marketing/MarketingFilters";
 import type { MarketingLeadsCsvChartBundle } from "@/lib/marketingLeadsCsv";
+import { MarketingPdfSectionBlock } from "@/components/reports/MarketingPdfSectionBlock";
+import {
+  buildMarketingPdfObjectSegmentVariants,
+  MARKETING_PDF_CHART_MODE_LABELS,
+  MARKETING_PDF_CHART_MODES,
+  marketingPdfSnapshotKey,
+} from "@/utils/pdf/marketingPdfSections";
 import {
   cashflowYAxisScale,
   compactRub,
@@ -169,6 +176,8 @@ type Props = {
   onMarketingLeadsCsvClear?: () => Promise<void>;
   period?: MarketingPeriodGranularity;
   objectId?: string;
+  /** PDF: все сегменты и режимы как отдельные блоки. */
+  pdfRender?: boolean;
 };
 
 export function SalesPlanExecutionBlock({
@@ -197,6 +206,7 @@ export function SalesPlanExecutionBlock({
   onMarketingLeadsCsvClear,
   period = "month",
   objectId = "all",
+  pdfRender = false,
 }: Props) {
   const data = dataset;
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -210,7 +220,6 @@ export function SalesPlanExecutionBlock({
         ? "mb-7 rounded-2xl border border-mpl-border bg-mpl-card px-5 pb-5 pt-4 shadow-sm sm:px-6 sm:pb-6 sm:pt-4"
         : "mb-7 rounded-2xl border border-slate-200/70 bg-white px-5 pb-5 pt-4 shadow-[0_4px_24px_rgba(15,23,42,0.04)] sm:px-6 sm:pb-6 sm:pt-4";
 
-  const titleCls = presDark ? "text-slate-100" : presentation ? "text-mpl-text" : "text-slate-950";
   const mutedCls = presDark ? "text-slate-400" : presentation ? "text-mpl-muted" : "text-slate-500";
   const thCls = presDark
     ? "border-b border-white/10 bg-slate-900/50 px-2.5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400"
@@ -273,14 +282,135 @@ export function SalesPlanExecutionBlock({
     ? "min-w-0 overflow-x-auto rounded-xl border border-white/10 bg-slate-900/25"
     : "min-w-0 overflow-x-auto rounded-xl border border-slate-200/70 bg-white/50 shadow-inner shadow-slate-200/30";
 
-  return (
-    <section className={shell} aria-labelledby="sales-plan-exec-heading">
-      <div className="mb-2 sm:mb-3">
-        <h2 id="sales-plan-exec-heading" className={`text-base font-semibold tracking-tight sm:text-lg ${titleCls}`}>
-          Исполнение плана продаж
-        </h2>
-      </div>
+  const pdfChartProps = { pdfRender: true, hideInteractiveControls: true } as const;
+  const objectSegments = buildMarketingPdfObjectSegmentVariants({ includeRoomTypes: true });
 
+  if (pdfRender) {
+    return (
+      <div className="flex flex-col gap-8">
+        {MARKETING_PDF_CHART_MODES.map((mode) => (
+          <MarketingPdfSectionBlock
+            key={`units-exec-${mode}`}
+            sectionTitle="Исполнение плана продаж (штуки)"
+            modeLabel={MARKETING_PDF_CHART_MODE_LABELS[mode]}
+            blockKey={marketingPdfSnapshotKey(["units-exec", mode])}
+          >
+            <SalesUnitsExecutionSection
+              presentation={presentation}
+              presDark={presDark}
+              mplPremium={mplPremium}
+              data={unitsExecutionCharts}
+              dealsRows={unitsExecutionDealsRows}
+              unitsCsvError={unitsCsvError}
+              forcedChartMode={mode}
+              {...pdfChartProps}
+            />
+          </MarketingPdfSectionBlock>
+        ))}
+
+        {objectSegments.map((variant) => (
+          <MarketingPdfSectionBlock
+            key={`avg-price-${variant.objectType}-${variant.roomType ?? "all"}`}
+            sectionTitle="Средняя стоимость объекта по общей площади, руб./кв.м"
+            segmentLabel={variant.segmentLabel}
+            blockKey={marketingPdfSnapshotKey(["avg-price", variant.objectType, variant.roomType])}
+          >
+            <AveragePriceAnalyticsSection
+              presentation={presentation}
+              presDark={presDark}
+              mplPremium={mplPremium}
+              forcedObjectType={variant.objectType}
+              forcedRoomType={variant.roomType}
+              {...pdfChartProps}
+            />
+          </MarketingPdfSectionBlock>
+        ))}
+
+        {objectSegments.map((variant) => (
+          <MarketingPdfSectionBlock
+            key={`total-area-${variant.objectType}-${variant.roomType ?? "all"}`}
+            sectionTitle="Общая площадь, кв.м"
+            segmentLabel={variant.segmentLabel}
+            blockKey={marketingPdfSnapshotKey(["total-area", variant.objectType, variant.roomType])}
+          >
+            <TotalAreaAnalyticsSection
+              presentation={presentation}
+              presDark={presDark}
+              mplPremium={mplPremium}
+              forcedObjectType={variant.objectType}
+              forcedRoomType={variant.roomType}
+              {...pdfChartProps}
+            />
+          </MarketingPdfSectionBlock>
+        ))}
+
+        {objectSegments.map((variant) => (
+          <MarketingPdfSectionBlock
+            key={`reduced-area-${variant.objectType}-${variant.roomType ?? "all"}`}
+            sectionTitle="Приведенная площадь, кв.м"
+            segmentLabel={variant.segmentLabel}
+            blockKey={marketingPdfSnapshotKey(["reduced-area", variant.objectType, variant.roomType])}
+          >
+            <ReducedAreaAnalyticsSection
+              presentation={presentation}
+              presDark={presDark}
+              mplPremium={mplPremium}
+              forcedObjectType={variant.objectType}
+              forcedRoomType={variant.roomType}
+              {...pdfChartProps}
+            />
+          </MarketingPdfSectionBlock>
+        ))}
+
+        <MarketingPdfSectionBlock sectionTitle="Выбытие объектов" blockKey="inventory-depletion">
+          <InventoryDepletionSection
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            period={period}
+            objectId={objectId}
+          />
+        </MarketingPdfSectionBlock>
+
+        {MARKETING_PDF_CHART_MODES.map((mode) => (
+          <MarketingPdfSectionBlock
+            key={`sqm-dynamics-${mode}`}
+            sectionTitle="Динамика стоимости м²"
+            modeLabel={MARKETING_PDF_CHART_MODE_LABELS[mode]}
+            blockKey={marketingPdfSnapshotKey(["sqm-dynamics", mode])}
+          >
+            <SqmPriceDynamicsSection
+              presentation={presentation}
+              presDark={presDark}
+              mplPremium={mplPremium}
+              period={period}
+              objectId={objectId}
+              forcedChartMode={mode}
+              {...pdfChartProps}
+            />
+          </MarketingPdfSectionBlock>
+        ))}
+
+        <MarketingPdfSectionBlock sectionTitle="Маркетинг — лиды" blockKey="marketing-leads">
+          <MarketingLeadsCsvSection
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            isEditMode={false}
+            charts={marketingLeadsCharts}
+            csvHydrated={marketingLeadsCsvHydrated}
+            csvLoading={marketingLeadsCsvLoading}
+            hasCsv={hasMarketingLeadsCsv}
+            onCsvUpload={onMarketingLeadsCsvUpload}
+            onCsvClear={onMarketingLeadsCsvClear}
+          />
+        </MarketingPdfSectionBlock>
+      </div>
+    );
+  }
+
+  return (
+    <section className={shell} aria-labelledby="sales-units-exec-heading">
       <div className="flex min-w-0 w-full flex-col gap-3 sm:gap-4">
         {!presentation ? (
           <ExecutionMacroChartsBlock
