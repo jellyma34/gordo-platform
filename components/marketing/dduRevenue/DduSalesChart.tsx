@@ -158,8 +158,7 @@ export function DduSalesChart({
     [uploadCsv],
   );
 
-  const spacingCls =
-    sectionSpacing === "sales-plan" ? "mt-6 mb-6" : sectionSpacing === "inline" ? "" : "";
+  const spacingCls = "";
   const tabEmpty = !showSkeleton && !activeSlice.hasData;
 
   const monthOptions = useMemo(() => {
@@ -202,7 +201,7 @@ export function DduSalesChart({
     : null;
 
   const kpiSectionProps = {
-    entityLabel: activeSlice.definition.label,
+    entityLabel: "",
     illustrationSegment: activeSlice.definition.illustrationSegment,
     theme: DDU_REVENUE_KPI_THEME,
     cardsData: activeSlice.cardsData,

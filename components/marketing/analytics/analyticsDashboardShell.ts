@@ -43,4 +43,11 @@ export function analyticsSecondaryRoomPillClass(active: boolean, surface: Segmen
     : `${base} text-slate-600 ring-1 ring-slate-200/80 hover:bg-slate-50`;
 }
 
-export const ANALYTICS_SECTION_SPACING_CLASS = "my-6";
+/** Vertical gap between cards inside «Структура продаж» (Квартиры / ММ / …). */
+export const MARKETING_DASHBOARD_CARD_GAP_CLASS = "gap-3";
+
+/** Unified vertical rhythm between major dashboard sections (same as card gap above). */
+export const MARKETING_DASHBOARD_SECTION_STACK_CLASS = `flex flex-col ${MARKETING_DASHBOARD_CARD_GAP_CLASS}`;
+
+/** @deprecated Prefer {@link MARKETING_DASHBOARD_SECTION_STACK_CLASS} on the page stack; no per-section margins. */
+export const ANALYTICS_SECTION_SPACING_CLASS = "";

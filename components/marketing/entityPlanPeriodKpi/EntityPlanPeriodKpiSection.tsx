@@ -127,6 +127,8 @@ export function EntityPlanPeriodKpiSection({
       ? "mb-3"
       : "mb-5 min-w-0 md:mb-6";
   const showEntityTitle = Boolean(entityLabel?.trim());
+  const showSectionTitle = !embedded && Boolean(sectionTitle?.trim());
+  const showHeader = showSectionTitle || showEntityTitle;
   const premiumPlanVolume =
     premiumLayout && projectVolumeCompactCurrency
       ? {
@@ -154,9 +156,7 @@ export function EntityPlanPeriodKpiSection({
   if (showEmpty) {
     return (
       <div className={shellCls} style={shellStyle}>
-        {!embedded ? (
-          <h2 className={sectionHeadingCls}>{sectionTitle}</h2>
-        ) : null}
+        {showSectionTitle ? <h2 className={sectionHeadingCls}>{sectionTitle}</h2> : null}
         {showEntityTitle ? <h3 className={entityTitleCls}>{entityLabel}</h3> : null}
         <p className={`mt-6 py-10 text-center text-sm ${presDark ? "text-slate-400" : "text-slate-500"}`}>{emptyMessage}</p>
       </div>
@@ -165,12 +165,12 @@ export function EntityPlanPeriodKpiSection({
 
   return (
     <div className={shellCls} style={shellStyle}>
-      <div className={`${headerMb} min-w-0`}>
-        {!embedded ? (
-          <h2 className={sectionHeadingCls}>{sectionTitle}</h2>
-        ) : null}
-        {showEntityTitle ? <h3 className={entityTitleCls}>{entityLabel}</h3> : null}
-      </div>
+      {showHeader ? (
+        <div className={`${headerMb} min-w-0`}>
+          {showSectionTitle ? <h2 className={sectionHeadingCls}>{sectionTitle}</h2> : null}
+          {showEntityTitle ? <h3 className={entityTitleCls}>{entityLabel}</h3> : null}
+        </div>
+      ) : null}
 
       <div className={railLayoutCls}>
         {premiumLayout ? null : projectVolumeUnits ? (

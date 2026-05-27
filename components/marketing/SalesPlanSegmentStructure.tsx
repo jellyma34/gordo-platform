@@ -849,7 +849,7 @@ export function SalesPlanSegmentStructure({
 
   if (loadingDeals) {
     return (
-      <div className="mb-7 w-full min-w-0 max-w-none">
+      <div className="w-full min-w-0 max-w-none">
         <SalesStructureBlockHeader {...headerProps} />
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>Загрузка сделок…</p>
       </div>
@@ -858,7 +858,7 @@ export function SalesPlanSegmentStructure({
 
   if (loadError) {
     return (
-      <div className="mb-7 w-full min-w-0 max-w-none">
+      <div className="w-full min-w-0 max-w-none">
         <SalesStructureBlockHeader {...headerProps} />
         <p className={`text-xs ${presDark ? "text-slate-500" : presentation ? "text-mpl-muted" : "text-slate-600"}`}>{loadError}</p>
       </div>
@@ -867,7 +867,7 @@ export function SalesPlanSegmentStructure({
 
   if (!structureCards) {
     return (
-      <div className="mb-7 w-full min-w-0 max-w-none">
+      <div className="w-full min-w-0 max-w-none">
         <SalesStructureBlockHeader {...headerProps} />
         {!presentation && revenueFactCsvDocIsValid(revenueFactCsv) ? (
           <RevenueFactCsvDiagnostics doc={revenueFactCsv!} presDark={presDark} />
@@ -891,7 +891,7 @@ export function SalesPlanSegmentStructure({
   const labelTone = presDark ? "dark" : "work";
 
   return (
-    <div className="mb-7 w-full min-w-0 max-w-none">
+    <div className="w-full min-w-0 max-w-none">
       <SalesStructureBlockHeader {...headerProps} />
       {!presentation && revenueFactCsvDocIsValid(revenueFactCsv) ? (
         <RevenueFactCsvDiagnostics doc={revenueFactCsv!} presDark={presDark} />

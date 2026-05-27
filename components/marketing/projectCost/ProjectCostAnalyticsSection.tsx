@@ -112,7 +112,7 @@ export function ProjectCostAnalyticsSection({
   }, [blockMonthKey, monthOptions]);
 
   const kpiProps = {
-    entityLabel: activeSlice.definition.label,
+    entityLabel: "",
     illustrationSegment: activeSlice.definition.illustrationSegment,
     theme: PROJECT_VALUE_KPI_THEME,
     cardsData: activeSlice.cardsData,

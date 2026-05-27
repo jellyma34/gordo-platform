@@ -501,12 +501,12 @@ export function SalesPlanSegmentPlanFactBarChart({
     <div
       className={
         presDark
-          ? "mb-7 overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5"
+          ? "overflow-visible rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-5"
           : presentation && mplLight
-            ? `mb-7 overflow-visible p-4 sm:p-5 ${MPL_PREMIUM_CHART_SHELL}`
+            ? `overflow-visible p-4 sm:p-5 ${MPL_PREMIUM_CHART_SHELL}`
             : presentation
-              ? "mb-7 overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
-              : "mb-7 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+              ? "overflow-visible rounded-2xl border border-mpl-border bg-mpl-chart p-4 shadow-sm sm:p-5"
+              : "overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       }
     >
       <div className="mb-3">

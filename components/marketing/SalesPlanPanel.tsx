@@ -170,7 +170,7 @@ import { ProjectCostAnalyticsSection } from "@/components/marketing/projectCost/
 import { SalesPlanExecutionSection } from "@/components/marketing/salesPlanExecution/SalesPlanExecutionSection";
 import { InstallmentForecastSection } from "@/components/marketing/installmentForecast/InstallmentForecastSection";
 import { ReportingPeriodPlanExecutionSection } from "@/components/marketing/reportingPeriodPlanExecution/ReportingPeriodPlanExecutionSection";
-import { ANALYTICS_SECTION_SPACING_CLASS } from "@/components/marketing/analytics/analyticsDashboardShell";
+import { MARKETING_DASHBOARD_SECTION_STACK_CLASS } from "@/components/marketing/analytics/analyticsDashboardShell";
 import { useMarketingDealsFeed } from "@/components/marketing/marketingDealsFeedContext";
 import { MarketingDealsDynamicsSection } from "@/components/marketing/MarketingDealsDynamicsSection";
 import { MPL_PREMIUM_GLASS_MAIN } from "@/lib/marketingPremiumUi";
@@ -3679,7 +3679,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={MARKETING_DASHBOARD_SECTION_STACK_CLASS}>
       {!isPresentationMode ? (
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3815,7 +3815,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         period={period}
         objectId={objectId}
         currentPeriodKey={analytics.currentPeriodKey}
-        sectionSpacing="sales-plan"
+        sectionSpacing="none"
       />
 
       <ProjectCostAnalyticsSection
@@ -3831,8 +3831,8 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         <div
           className={
             presDark
-              ? "mb-3 rounded-lg border border-slate-600/50 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-300"
-              : "mb-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-[11px] text-slate-700"
+              ? "rounded-lg border border-slate-600/50 bg-slate-900/40 px-3 py-2.5 text-[11px] text-slate-300"
+              : "rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-[11px] text-slate-700"
           }
         >
           <div className="flex flex-col gap-3">
@@ -4369,7 +4369,7 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
         />
 
         <div
-          className={`installment-forecast-on-sales-plan w-full min-w-0 max-w-none ${ANALYTICS_SECTION_SPACING_CLASS}`}
+          className="installment-forecast-on-sales-plan w-full min-w-0 max-w-none"
           data-analytics-section="installment-forecast"
         >
           <InstallmentForecastSection
@@ -4464,9 +4464,9 @@ export function SalesPlanPanel({ presentation, period, objectId, initialPlanScen
       </>
 
       {showLowerAnalyticsSections ? (
-        <div className="flex flex-col gap-4">
+        <div className={MARKETING_DASHBOARD_SECTION_STACK_CLASS}>
       {/* KPI summary */}
-      <KpiDashboard mode="work" items={dynamicsKpiItems} className="mb-7 w-full min-w-0" />
+      <KpiDashboard mode="work" items={dynamicsKpiItems} className="w-full min-w-0" />
 
       {/* Sales Velocity */}
       <div className={card}>
