@@ -5,6 +5,7 @@ SQLAlchemy engine + session для ingestion-модуля.
 держит собственный DeclarativeBase, чтобы Base.metadata содержала
 только ingestion-таблицы — это важно для Alembic autogenerate.
 """
+
 from __future__ import annotations
 
 from typing import Iterator
@@ -22,17 +23,34 @@ class Base(DeclarativeBase):
 
 def _build_engine() -> Engine:
     url = (settings.database_url or "").strip()
+
     if not url:
         raise RuntimeError(
-            "DATABASE_URL не задан. Установите его в окружении (backend/.env "
-            "или Railway Variables) перед запуском ingestion."
+            "DATABASE_URL не задан. Установите его в окружении "
+            "(backend/.env или Railway Variables) перед запуском ingestion."
         )
-    if not url.startswith(("postgresql://", "postgresql+psycopg2://")):
-        raise RuntimeError("DATABASE_URL должен начинаться с postgresql://")
+
+    if not url.startswith(
+        (
+            "postgresql://",
+            "postgresql+psycopg2://",
+            "sqlite:///",
+        )
+    ):
+        raise RuntimeError(
+            "DATABASE_URL должен начинаться с "
+            "postgresql:// или sqlite:///"
+        )
+
+    connect_args = {}
+
+    if url.startswith("sqlite"):
+        connect_args = {"check_same_thread": False}
+
     return create_engine(
         url,
-        pool_pre_ping=True,
-        pool_recycle=1800,
+        connect_args=connect_args,
+        pool_pre_ping=not url.startswith("sqlite"),
         future=True,
     )
 
@@ -52,6 +70,7 @@ SessionLocal = sessionmaker(
 def get_db() -> Iterator[Session]:
     """FastAPI dependency."""
     db = SessionLocal()
+
     try:
         yield db
     finally:

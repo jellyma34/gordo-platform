@@ -127,7 +127,7 @@ def ensure_entity_history_table() -> None:
         id SERIAL PRIMARY KEY,
         entity_id INTEGER NOT NULL,
         entity_type VARCHAR(32) NOT NULL DEFAULT 'gpr',
-        data JSONB NOT NULL,
+        data JSON NOT NULL,
         changed_by INTEGER NOT NULL REFERENCES users(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )

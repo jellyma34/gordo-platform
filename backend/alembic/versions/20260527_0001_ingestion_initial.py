@@ -57,7 +57,7 @@ def upgrade() -> None:
         sa.Column("rows_total", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("rows_ok", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("rows_failed", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("extra", postgresql.JSONB(astext_type=sa.Text())),
+        sa.Column("extra", postgresql.JSON(astext_type=sa.Text())),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -111,7 +111,7 @@ def upgrade() -> None:
         sa.Column("period_label", sa.String(length=64)),
         sa.Column("metric_name", sa.String(length=128)),
         sa.Column("metric_value", sa.Numeric(20, 4)),
-        sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("payload", postgresql.JSON(astext_type=sa.Text()), nullable=False),
         sa.Column("is_normalized", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("normalization_error", sa.Text()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -197,7 +197,7 @@ def upgrade() -> None:
         ),
         sa.Column("code", sa.String(length=64), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
-        sa.Column("context", postgresql.JSONB(astext_type=sa.Text())),
+        sa.Column("context", postgresql.JSON(astext_type=sa.Text())),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
     op.create_index("ix_ingest_parse_error_log_upload_id", "ingest_parse_error_log", ["upload_id"])

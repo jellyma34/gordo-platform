@@ -10,7 +10,7 @@ SQLAlchemy модели ingestion-системы.
       сырые файлы как есть (метаданные + ссылка на blob в storage/raw).
 
   staging_marketing_data
-      "сырые строки" из распарсенного файла, схема почти free-form (JSONB).
+      "сырые строки" из распарсенного файла, схема почти free-form (JSON).
       Здесь хранится всё, что распарсилось — до нормализации.
 
   fact_marketing_metrics
@@ -46,7 +46,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .session import Base
@@ -114,7 +114,7 @@ class RawUpload(Base):
     rows_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Произвольная мета (отправитель в Telegram, caption и т.п.)
-    extra: Mapped[dict | None] = mapped_column(JSONB)
+    extra: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -141,7 +141,7 @@ class RawUpload(Base):
 class StagingMarketingRow(Base):
     """
     Одна строка из распарсенного файла. Все колонки исходного файла
-    кладутся как есть в `payload` (JSONB), плюс нормализованные хелпер-поля:
+    кладутся как есть в `payload` (), плюс нормализованные хелпер-поля:
     raw_project_name, period_label, metric_name, metric_value — если parser
     их смог выделить.
 
@@ -165,7 +165,7 @@ class StagingMarketingRow(Base):
     metric_name: Mapped[str | None] = mapped_column(String(128))
     metric_value: Mapped[float | None] = mapped_column(Numeric(20, 4))
 
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     is_normalized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     normalization_error: Mapped[str | None] = mapped_column(Text)
@@ -340,7 +340,7 @@ class ParseErrorLog(Base):
 
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    context: Mapped[dict | None] = mapped_column(JSONB)
+    context: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
