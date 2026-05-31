@@ -322,7 +322,7 @@ export function GPRForecastChart({
                         "Сегодня:",
                         `  факт: ${m.factNow == null ? "—" : `${m.factNow}%`}`,
                         `  план: ${m.planAtToday == null ? "—" : `${m.planAtToday}%`}`,
-                        `  отставание от плана: ${lagLine}`,
+                        `  отставание готовности от плана: ${lagLine}`,
                         `  ТМЦ: ${m.tmcPct == null ? "—" : `${m.tmcPct}%`}`,
                         `  тендеры: ${m.tenderPct == null ? "—" : `${m.tenderPct}%`}`,
                       ];
@@ -405,11 +405,11 @@ export function GPRForecastChart({
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" aria-hidden />
-            умеренное отставание от плана (до 12 п.п.)
+            умеренное отставание готовности (до 12 п.п.)
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#ef4444]" aria-hidden />
-            сильное отставание от плана (свыше 12 п.п.)
+            сильное отставание готовности (свыше 12 п.п.)
           </span>
         </div>
       ) : null}

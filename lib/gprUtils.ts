@@ -207,6 +207,44 @@ export function planFactEndDeviationDays(
   return Math.round((endDay - planDay) / MS_PER_DAY);
 }
 
+/**
+ * Отклонение по сроку для UI строительного раздела (дни):
+ * отрицательное — отставание, положительное — опережение.
+ * См. {@link planFactEndDeviationDays} (знак инвертирован для единообразия с подписью в аналитике).
+ */
+export function gprScheduleDeviationDisplayDays(
+  planEnd: string | null | undefined,
+  factEnd: string | null | undefined,
+  asOf: Date = new Date(),
+): number | null {
+  const endDelay = planFactEndDeviationDays(planEnd, factEnd, asOf);
+  return endDelay === null ? null : -endDelay;
+}
+
+export function gprTaskScheduleDeviationDisplayDays(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): number | null {
+  return gprScheduleDeviationDisplayDays(task.planEnd, task.factEnd, asOf);
+}
+
+/** Форматирование отклонения по сроку (отриц. — отставание, положит. — опережение). */
+export function formatGprScheduleDeviationDisplayDays(
+  d: number | null,
+  opts?: { decimals?: boolean },
+): string {
+  if (d === null) return "—";
+  const rounded =
+    opts?.decimals === true ? Math.round(d * 10) / 10 : Math.round(d);
+  if (rounded === 0) return "0 дн.";
+  const sign = rounded > 0 ? "+" : "";
+  const body =
+    opts?.decimals === true && !Number.isInteger(rounded)
+      ? rounded.toFixed(1).replace(/\.0$/, "")
+      : String(rounded);
+  return `${sign}${body} дн.`;
+}
+
 function roundProgress(n: number): number {
   return Math.round(n * 10) / 10;
 }

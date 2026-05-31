@@ -24,10 +24,9 @@ import {
 } from "@/lib/gprTmcDependency";
 import {
   GPR_DEP_KPI_THRESHOLD_DAYS,
-  formatDeviationDays,
-  formatAvgDeviationDays,
+  formatGprProgressDeltaPp,
   stageDeviationDotColor,
-  deviationListValueStyle,
+  gprProgressDeviationListStyle,
   KpiMiniIconRuler,
   KpiMiniIconChart,
   KpiMiniIconAlert,
@@ -37,7 +36,7 @@ import {
   buildAvgDeviationExplanation,
 } from "./gprDependencyKpiShared";
 import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
-import { toDate } from "@/lib/gprUtils";
+import { formatGprScheduleDeviationDisplayDays, toDate } from "@/lib/gprUtils";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
@@ -159,9 +158,9 @@ export function GPRTenderDependencyChart({
 
   const avgValueColor = useMemo(() => {
     if (kpiStats.avgDev === null) return "#e2e8f0";
-    if (kpiStats.avgDev < 0) return "#22c55e";
-    if (kpiStats.avgDev > 0) return "#ef4444";
-    return "#e2e8f0";
+    if (kpiStats.avgDev >= 0) return "#22c55e";
+    if (kpiStats.avgDev <= -GPR_DEP_KPI_THRESHOLD_DAYS) return "#ef4444";
+    return "#f59e0b";
   }, [kpiStats.avgDev]);
 
   const [kpiExplain, setKpiExplain] = useState<GprDepKpiExplainKey | null>(null);
@@ -325,11 +324,9 @@ export function GPRTenderDependencyChart({
               const f = factArr[i];
               const lines: string[] = [];
               if (p != null && f != null) {
-                const dev = f - p;
-                const sign = dev > 0 ? "+" : "";
-                lines.push(`Отклонение по %: ${sign}${dev} п.п.`);
+                lines.push(`Отклонение готовности: ${formatGprProgressDeltaPp(f - p)}`);
               }
-              lines.push(`Отклонение по сроку: ${formatDeviationDays(row.deviationDays)}`);
+              lines.push(`Отклонение по сроку: ${formatGprScheduleDeviationDisplayDays(row.deviationDays)}`);
               lines.push("");
               lines.push(
                 `Тендеры: всего ${row.tenderStats.total}, с договором ${row.tenderStats.completed}, отставание договора >14 дн.: ${row.tenderStats.delayed}, риск 1–14 дн.: ${row.tenderStats.riskContracts}`,
@@ -390,9 +387,9 @@ export function GPRTenderDependencyChart({
                     </span>
                     <span
                       className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
-                      style={deviationListValueStyle(d)}
+                      style={gprProgressDeviationListStyle(d)}
                     >
-                      {formatDeviationDays(d)}
+                      {formatGprScheduleDeviationDisplayDays(d)}
                     </span>
                   </li>
                 );
@@ -442,9 +439,11 @@ export function GPRTenderDependencyChart({
                   className="value mt-0.5 text-base font-bold tabular-nums"
                   style={{ color: avgValueColor }}
                 >
-                  {kpiStats.avgDev === null ? "—" : formatAvgDeviationDays(kpiStats.avgDev)}
+                  {kpiStats.avgDev === null
+                    ? "—"
+                    : formatGprScheduleDeviationDisplayDays(kpiStats.avgDev, { decimals: true })}
                 </div>
-                <div className="text-[11px] text-slate-500">по проекту</div>
+                <div className="text-[11px] text-slate-500">по сроку, дни</div>
               </>
             </GprDepKpiAccordionCard>
 

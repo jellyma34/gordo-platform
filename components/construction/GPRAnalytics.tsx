@@ -1,20 +1,23 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   calculateDeviation,
   filterByPeriod,
   filterZhDomPlanFactTasksTo205Branch,
   flattenTasks,
+  formatGprScheduleDeviationDisplayDays,
   getActualProgressPercent,
   getPlannedProgressPercent,
   getProjectStats,
   getStatusByDeviation,
   getStatusByGprProgressDelta,
+  gprTaskScheduleDeviationDisplayDays,
   normalizeGprCodeFinal,
   partIdToProjectPartKey,
+  planFactEndDeviationDays,
   planRootStageCode,
   PROJECT_PART_KEY_TO_ID,
   PROJECT_PARTS,
@@ -90,6 +93,7 @@ import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
+import { buildGprScheduleDeviationInsight } from "@/lib/gprScheduleDeviationInsight";
 import {
   CartesianGrid,
   Cell,
@@ -505,24 +509,321 @@ function buildAggregateProgressPopoverExplanation(
 
 const STATUS_DISTRIBUTION_POPOVER_MAX_TASKS = 5;
 
-function formatDeviationForStatusDistributionPopover(_status: Traffic, deltaPp: number | null): string {
-  if (deltaPp === null) return "—";
-  if (deltaPp >= 0) return `+${deltaPp} п.п.`;
-  return `${deltaPp} п.п.`;
+function formatDeviationForStatusDistributionPopover(_status: Traffic, deviationDays: number | null): string {
+  return formatGprScheduleDeviationDisplayDays(deviationDays);
+}
+
+/** Склонение «день / дня / дней» для подсказок. */
+function russianDaysWord(n: number): string {
+  const a = Math.abs(Math.round(n));
+  const mod10 = a % 10;
+  const mod100 = a % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "дней";
+  if (mod10 === 1) return "день";
+  if (mod10 >= 2 && mod10 <= 4) return "дня";
+  return "дней";
+}
+
+/** Верхняя граница шкалы отклонений по модулю (динамически по данным группы). */
+function stageDeviationScaleMax(rows: { deviation: number | null }[]): number {
+  const abs = rows
+    .map((r) => r.deviation)
+    .filter((d): d is number => d !== null)
+    .map((d) => Math.abs(d));
+  if (abs.length === 0) return 20;
+  const peak = Math.max(...abs, 1);
+  if (peak <= 20) return 20;
+  if (peak <= 60) return Math.ceil(peak / 10) * 10;
+  if (peak <= 200) return Math.ceil(peak / 25) * 25;
+  return Math.ceil(peak / 50) * 50;
+}
+
+function formatStageDeviationScaleTick(n: number): string {
+  if (n === 0) return "0";
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
+function stageDeviationStatusColor(status: Traffic | "green" | "yellow" | "red" | "gray"): string {
+  if (status === "green") return COLORS.green;
+  if (status === "yellow") return COLORS.yellow;
+  if (status === "red") return COLORS.red;
+  return COLORS.gray;
+}
+
+function stageDeviationRowTooltip(
+  deviation: number | null,
+  factDuration: number | null,
+  planDuration: number | null,
+  clipped: boolean,
+): string {
+  const lines: string[] = [];
+  if (deviation !== null) {
+    const abs = Math.abs(Math.round(deviation));
+    const sign = deviation > 0 ? "+" : deviation < 0 ? "−" : "";
+    lines.push(`Отклонение: ${sign}${abs} ${russianDaysWord(abs)}`);
+  } else {
+    lines.push("Отклонение: нет данных");
+  }
+  if (factDuration != null) {
+    lines.push(`Факт: ${factDuration} ${russianDaysWord(factDuration)}`);
+  } else {
+    lines.push("Факт: —");
+  }
+  if (planDuration != null) {
+    lines.push(`План: ${planDuration} ${russianDaysWord(planDuration)}`);
+  } else {
+    lines.push("План: —");
+  }
+  if (clipped) {
+    lines.push("Значение выходит за пределы отображаемой шкалы.");
+  }
+  return lines.join("\n");
+}
+
+function StageDeviationTaskHoverCard({
+  task,
+  asOf,
+  pointer,
+  tmcItems,
+}: {
+  task: GPRTask;
+  asOf: Date;
+  pointer: { x: number; y: number };
+  tmcItems: TMCItem[];
+}) {
+  const insight = useMemo(
+    () => buildGprScheduleDeviationInsight(task, asOf, { tmcItems }),
+    [task, asOf, tmcItems],
+  );
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState(() => ({ top: pointer.y + 14, left: pointer.x + 14 }));
+
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const margin = 12;
+    const rect = el.getBoundingClientRect();
+    let top = pointer.y + 14;
+    let left = pointer.x + 14;
+    if (left + rect.width > window.innerWidth - margin) {
+      left = Math.max(margin, pointer.x - rect.width - 14);
+    }
+    if (top + rect.height > window.innerHeight - margin) {
+      top = Math.max(margin, pointer.y - rect.height - 14);
+    }
+    setPos({ top, left });
+  }, [pointer.x, pointer.y, insight]);
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      role="tooltip"
+      className="pointer-events-none fixed z-[250] w-[min(320px,calc(100vw-24px))] rounded-xl border border-slate-500/45 bg-[#1e293b] p-3.5 shadow-2xl shadow-black/50"
+      style={{ top: pos.top, left: pos.left }}
+    >
+      <div className="text-sm font-semibold leading-snug text-slate-100">{task.name}</div>
+      <div className="my-2.5 border-t border-white/10" aria-hidden />
+      <div className="space-y-2.5 text-[11px] leading-snug">
+        <div>
+          <div className="font-semibold uppercase tracking-wide text-slate-500">План</div>
+          <div className="mt-1 text-slate-300">
+            <div>Начало: {insight.planStartLabel}</div>
+            <div>Окончание: {insight.planEndLabel}</div>
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold uppercase tracking-wide text-slate-500">Факт</div>
+          <div className="mt-1 text-slate-300">
+            <div>Начало: {insight.factStartLabel}</div>
+            <div>Окончание: {insight.factEndLabel}</div>
+          </div>
+        </div>
+        <div className="border-t border-white/10 pt-2.5">
+          <div className="text-slate-200">
+            <span className="text-slate-400">{insight.deviationHeading}: </span>
+            <span className="font-semibold tabular-nums">{insight.deviationLabel}</span>
+          </div>
+          <div className="mt-1 text-slate-300">
+            <span className="text-slate-400">Статус: </span>
+            <span className="font-medium text-slate-100">{insight.badge.label}</span>
+          </div>
+        </div>
+        {insight.reasonLines.length > 0 ? (
+          <div className="border-t border-white/10 pt-2.5">
+            <div className="font-semibold text-slate-400">Причина отклонения:</div>
+            <ul className="mt-1.5 space-y-1 text-slate-300">
+              {insight.reasonLines.map((line) => (
+                <li key={line}>• {line}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function StageDeviationScaleRow({
+  task,
+  asOf,
+  tmcItems,
+  deviation,
+  endDelay,
+  factDuration,
+  planDuration,
+  scaleMax,
+}: {
+  task: GPRTask;
+  asOf: Date;
+  tmcItems: TMCItem[];
+  deviation: number | null;
+  endDelay: number | null;
+  factDuration: number | null;
+  planDuration: number | null;
+  scaleMax: number;
+}) {
+  const taskName = task.name.trim() || "—";
+  const insight = useMemo(
+    () => buildGprScheduleDeviationInsight(task, asOf, { tmcItems }),
+    [task, asOf, tmcItems],
+  );
+  const [hoverPointer, setHoverPointer] = useState<{ x: number; y: number } | null>(null);
+  const [portalMounted, setPortalMounted] = useState(false);
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+  const status: Traffic = endDelay === null ? "gray" : (getStatusByDeviation(endDelay) as Traffic);
+  const color = stageDeviationStatusColor(status);
+  const raw = deviation ?? 0;
+  const clipped = deviation !== null && Math.abs(raw) > scaleMax;
+  const normalized =
+    deviation === null ? 0 : raw > scaleMax ? scaleMax : raw < -scaleMax ? -scaleMax : raw;
+  const percent = scaleMax > 0 ? normalized / scaleMax : 0;
+  const dotLeftPct = 50 + percent * 50;
+  const minLeft = Math.min(50, dotLeftPct);
+  const barWidth = Math.abs(dotLeftPct - 50);
+  const deviationLabel =
+    deviation === null
+      ? "—"
+      : `${formatGprScheduleDeviationDisplayDays(deviation)}${clipped ? " →" : ""}`;
+
+  return (
+    <div className="grid grid-cols-12 items-start gap-3 rounded-xl border border-slate-700/60 bg-slate-900/20 p-3 transition-colors hover:border-slate-600/70 hover:bg-slate-900/30">
+      <div className="col-span-12 min-w-0 md:col-span-4">
+        <span
+          className="block cursor-help break-words text-sm font-semibold leading-snug text-slate-100 underline decoration-slate-600/80 decoration-dotted underline-offset-[3px] hover:text-sky-100"
+          onMouseEnter={(e) => setHoverPointer({ x: e.clientX, y: e.clientY })}
+          onMouseMove={(e) => setHoverPointer({ x: e.clientX, y: e.clientY })}
+          onMouseLeave={() => setHoverPointer(null)}
+          onFocus={(e) => setHoverPointer({ x: e.clientX, y: e.clientY })}
+          onBlur={() => setHoverPointer(null)}
+          tabIndex={0}
+          role="button"
+          aria-label={`${taskName}: подробности по срокам`}
+        >
+          {taskName}
+        </span>
+        <div className="mt-2 space-y-1.5">
+          <span className={insight.badge.className}>
+            <span aria-hidden>{insight.badge.icon}</span>
+            {insight.badge.label}
+          </span>
+          <div className="space-y-0.5 text-[11px] leading-snug text-slate-400">
+            <div>
+              <span className="text-slate-500">План: </span>
+              <span className="tabular-nums text-slate-300">{insight.planRangeInline}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Факт: </span>
+              <span className="tabular-nums text-slate-300">{insight.factRangeInline}</span>
+            </div>
+          </div>
+        </div>
+        {portalMounted && hoverPointer ? (
+          <StageDeviationTaskHoverCard
+            task={task}
+            asOf={asOf}
+            pointer={hoverPointer}
+            tmcItems={tmcItems}
+          />
+        ) : null}
+      </div>
+      <div
+        className="col-span-12 md:col-span-5"
+        title={stageDeviationRowTooltip(deviation, factDuration, planDuration, clipped)}
+      >
+        <div className="relative h-10 w-full max-w-full overflow-visible px-2 sm:px-4">
+          <div className="absolute left-0 right-0 top-[calc(50%+6px)] -translate-y-1/2 border-t border-white/10" />
+          <div className="absolute left-1/2 top-[calc(50%+6px)] h-4 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded bg-white/30" />
+          {deviation !== null ? (
+            <>
+              <div
+                className="absolute top-[calc(50%+6px)] h-px -translate-y-1/2"
+                style={{
+                  left: `${minLeft}%`,
+                  width: `${barWidth}%`,
+                  backgroundColor: color,
+                }}
+              />
+              <div
+                className="absolute top-[calc(50%+6px)] -translate-x-1/2 -translate-y-1/2"
+                style={{ left: `${dotLeftPct}%` }}
+              >
+                <span
+                  className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap text-xs font-bold tabular-nums leading-none"
+                  style={{ color }}
+                >
+                  {deviationLabel}
+                </span>
+                <span
+                  className="block h-3 w-3 rounded-full"
+                  style={{
+                    backgroundColor: color,
+                    boxShadow: `0 0 12px ${color}`,
+                  }}
+                  aria-hidden
+                />
+              </div>
+            </>
+          ) : (
+            <span className="absolute left-1/2 top-[calc(50%+6px)] -translate-x-1/2 -translate-y-1/2 text-xs font-semibold tabular-nums text-slate-500">
+              —
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="col-span-12 space-y-0.5 text-right text-xs leading-snug md:col-span-3">
+        <div className="tabular-nums text-slate-200">
+          <span className="text-slate-500">Факт: </span>
+          {factDuration != null ? `${factDuration} дн.` : "—"}
+        </div>
+        <div className="tabular-nums text-slate-400">
+          <span className="text-slate-500">План: </span>
+          {planDuration != null ? `${planDuration} дн.` : "—"}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StatusDistributionTaskChunk({
   rows,
   status,
   showDeviation,
+  showAll = false,
+  maxItems = STATUS_DISTRIBUTION_POPOVER_MAX_TASKS,
 }: {
   rows: TrafficRow[];
   status: Traffic;
   showDeviation: boolean;
+  /** Показать все задачи (панель под диаграммой в презентации). */
+  showAll?: boolean;
+  maxItems?: number;
 }) {
-  const limit = STATUS_DISTRIBUTION_POPOVER_MAX_TASKS;
-  const shown = rows.slice(0, limit);
-  const rest = rows.length - shown.length;
+  const shown = showAll ? rows : rows.slice(0, maxItems);
+  const rest = showAll ? 0 : rows.length - shown.length;
   return (
     <>
       <ul className="mt-1.5 space-y-1 text-[11px] leading-snug text-slate-300">
@@ -543,6 +844,17 @@ function StatusDistributionTaskChunk({
 }
 
 type Traffic = "green" | "yellow" | "red" | "gray";
+
+const STATUS_DISTRIBUTION_SEGMENT_META: Record<
+  Traffic,
+  { label: string; emoji: string; showDeviation: boolean }
+> = {
+  green: { label: "В срок", emoji: "🟢", showDeviation: true },
+  yellow: { label: "Риск", emoji: "🟡", showDeviation: true },
+  red: { label: "Отставание", emoji: "🔴", showDeviation: true },
+  gray: { label: "Нет данных", emoji: "⚪", showDeviation: false },
+};
+
 type GroupKey = "prep" | "build" | "network" | "improve";
 
 /** Иконки этапов (inline SVG — цвет через `currentColor` у родителя). */
@@ -990,12 +1302,16 @@ function KvartalyGanttChartPanel({ model, gprAsOf }: { model: KvartalyGanttModel
                   }
                   if (dev !== null) {
                     if (dev < 0) {
-                      lines.push(`Отставание: ${Math.abs(dev)} п.п.`);
+                      lines.push(`Отставание готовности: ${Math.abs(dev)} п.п.`);
                     } else if (dev > 0) {
-                      lines.push(`Опережение: ${dev} п.п.`);
+                      lines.push(`Опережение готовности: ${dev} п.п.`);
                     } else {
-                      lines.push(`По плану (0 п.п.)`);
+                      lines.push(`По плану готовности (0 п.п.)`);
                     }
+                  }
+                  const scheduleDev = gprTaskScheduleDeviationDisplayDays(task, gprAsOf);
+                  if (scheduleDev !== null) {
+                    lines.push(`Отклонение по сроку: ${formatGprScheduleDeviationDisplayDays(scheduleDev)}`);
                   }
                 }
                 const pk = task.projectPartKey ?? partIdToProjectPartKey(task.partId);
@@ -1310,9 +1626,10 @@ function trafficStatusForTask(task: GPRTask, asOf: Date): {
   const planDays = daysInclusive(task.planStart, task.planEnd);
   if (planDays === null) return { status: "gray", planDays: null, factDays: null, deviationDays: null };
   const factDays = daysInclusive(task.factStart, task.factEnd);
-  const deviationDays = calculateDeviation(task, asOf);
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  const deviationDays = endDelay === null ? null : -endDelay;
   if (deviationDays === null) return { status: "gray", planDays, factDays, deviationDays: null };
-  const st = getStatusByGprProgressDelta(deviationDays);
+  const st = getStatusByDeviation(endDelay);
   return { status: st as Traffic, planDays, factDays, deviationDays };
 }
 
@@ -1356,7 +1673,7 @@ export function GPRAnalytics({
   /** Дата отчёта для плана/факта (п.п.); иначе «сегодня». */
   reportDate?: Date | string | null;
 }) {
-  /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих разборов и раскрываемых KPI. */
+  /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих popover; детали статусов — под диаграммой по клику. */
   const presentationAnalyticsSkin = mode === "view";
   const dependencyAnalyticDepth = presentationAnalyticsSkin ? "presentation" : "work";
   const isProjectWide = activePartScope === "project";
@@ -1843,8 +2160,14 @@ export function GPRAnalytics({
     left: number;
   } | null>(null);
   const [statusDistributionPopoverEntered, setStatusDistributionPopoverEntered] = useState(false);
+  const [statusDistributionSelectedSegment, setStatusDistributionSelectedSegment] =
+    useState<Traffic | null>(null);
   const statusDistributionCardRef = useRef<HTMLButtonElement>(null);
   const statusDistributionPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setStatusDistributionSelectedSegment(null);
+  }, [activePartScope]);
 
   useEffect(() => {
     if (!statusDistributionPopoverOpen) return;
@@ -1987,6 +2310,10 @@ export function GPRAnalytics({
     setStatusDistributionPopoverOpen(true);
   };
 
+  const handleStatusDistributionSegmentClick = (status: Traffic) => {
+    setStatusDistributionSelectedSegment((prev) => (prev === status ? null : status));
+  };
+
   const aggregateLagDaysRounded =
     aggTotalDeviation !== null && aggTotalDeviation > 0
       ? Math.round(aggTotalDeviation)
@@ -2058,10 +2385,10 @@ export function GPRAnalytics({
               <p className="mt-1 text-xl font-semibold text-rose-600">{metrics.overdue}</p>
             </div>
             <div className="rounded bg-slate-50 p-3">
-              <p className="text-slate-500">Среднее отклонение на {gprReportDateLabel}</p>
+              <p className="text-slate-500">Среднее отклонение готовности на {gprReportDateLabel}</p>
               <p className="mt-1 text-xl font-semibold text-slate-900">
                 {metrics.avgDeviation > 0 ? "+" : ""}
-                {metrics.avgDeviation} п.п.
+                {metrics.avgDeviation} %
               </p>
             </div>
           </div>
@@ -2113,7 +2440,7 @@ export function GPRAnalytics({
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
-                    <div className="text-xs text-[#E6EDF3]/70">Отклонение на {gprReportDateLabel}</div>
+                    <div className="text-xs text-[#E6EDF3]/70">Отклонение готовности, %</div>
                     <div
                       className="mt-1 text-lg font-semibold tabular-nums"
                       style={{
@@ -2127,7 +2454,7 @@ export function GPRAnalytics({
                                 : COLORS.red,
                       }}
                     >
-                      {deviationLabel} п.п.
+                      {deviationLabel}%
                     </div>
                   </div>
                 </div>
@@ -2572,23 +2899,221 @@ export function GPRAnalytics({
         </div>
 
         <>
+          {presentationAnalyticsSkin ? (
+            <div className="flex h-full min-w-0 w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm sm:p-6">
+              <div className="flex flex-col gap-2">
+                <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
+                  <h3 className="text-lg font-semibold leading-snug text-slate-50">Распределение статусов</h3>
+                </div>
+                <p className="text-xs leading-snug text-slate-300">
+                  Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
+                </p>
+              </div>
+              <div className="relative mt-4 h-[220px] w-full shrink-0">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                    <defs>
+                      <linearGradient id="greenGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#16a34a" />
+                        <stop offset="100%" stopColor="#22c55e" />
+                      </linearGradient>
+                      <linearGradient id="yellowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#d97706" />
+                        <stop offset="100%" stopColor="#f59e0b" />
+                      </linearGradient>
+                      <linearGradient id="redGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#dc2626" />
+                        <stop offset="100%" stopColor="#ef4444" />
+                      </linearGradient>
+                      <linearGradient id="grayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#6b7280" />
+                        <stop offset="100%" stopColor="#9ca3af" />
+                      </linearGradient>
+                    </defs>
+                    <Pie
+                      data={statusDonutData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={52}
+                      outerRadius={78}
+                      paddingAngle={2}
+                      stroke="rgba(255,255,255,0.18)"
+                      style={{ cursor: "pointer" }}
+                      onClick={(_, index) => {
+                        const entry = statusDonutData[index];
+                        if (entry) handleStatusDistributionSegmentClick(entry.status);
+                      }}
+                    >
+                      {statusDonutData.map((entry) => {
+                        const selected = statusDistributionSelectedSegment === entry.status;
+                        return (
+                          <Cell
+                            key={entry.status}
+                            fill={entry.fill}
+                            stroke={selected ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.18)"}
+                            strokeWidth={selected ? 3 : 1}
+                            style={{ cursor: "pointer", outline: "none" }}
+                          />
+                        );
+                      })}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div
+                  className="pointer-events-none absolute left-1/2 flex flex-col items-center justify-center text-center"
+                  style={{
+                    top: "calc(10px + (100% - 20px) * 0.45)",
+                    transform: "translate(-50%, -50%)",
+                  }}
+                >
+                  <div
+                    aria-hidden
+                    className="absolute left-1/2 top-1/2 aspect-square rounded-full"
+                    style={{
+                      width: "min(100px, 26%)",
+                      minWidth: 76,
+                      maxWidth: 104,
+                      transform: "translate(-50%, -50%)",
+                      backgroundColor: "rgba(255,255,255,0.04)",
+                      backdropFilter: "blur(12px)",
+                      WebkitBackdropFilter: "blur(12px)",
+                      boxShadow: "0 0 32px rgba(255,255,255,0.06)",
+                    }}
+                  />
+                  <svg
+                    className="relative z-[1] cursor-help font-sans pointer-events-auto"
+                    width={120}
+                    height={72}
+                    viewBox="0 0 120 72"
+                    overflow="visible"
+                    role="img"
+                    aria-label={STATUS_DISTRIBUTION_RISK_EXPLANATION}
+                  >
+                    <text
+                      x={60}
+                      y={36}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      style={{
+                        fontFamily:
+                          "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+                      }}
+                    >
+                      <title>{STATUS_DISTRIBUTION_RISK_EXPLANATION}</title>
+                      <tspan
+                        x={60}
+                        dy={-6}
+                        fontSize={32}
+                        fontWeight={700}
+                        style={{
+                          fill: statusDistributionProjectRisk.mainColor,
+                          fontVariantNumeric: "tabular-nums",
+                          textShadow: statusDistributionProjectRisk.textGlow,
+                        }}
+                      >
+                        {statusDistributionProjectRisk.mainText}
+                      </tspan>
+                      <tspan
+                        x={60}
+                        dy={18}
+                        fontSize={12}
+                        fontWeight={500}
+                        style={{ fill: "#A3B3C7" }}
+                      >
+                        Риск проекта
+                      </tspan>
+                    </text>
+                  </svg>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                {STATUS_DISTRIBUTION_RISK_EXPLANATION}
+              </p>
+              <div className="mt-4 w-full">
+                <AnalyticsLegendList>
+                  <AnalyticsLegendItem
+                    markerColor={COLORS.green}
+                    label="В срок"
+                    value={traffic.counts.green}
+                  />
+                  <AnalyticsLegendItem
+                    markerColor={COLORS.yellow}
+                    label="Риск"
+                    value={traffic.counts.yellow}
+                  />
+                  <AnalyticsLegendItem
+                    markerColor={COLORS.red}
+                    label="Отставание"
+                    value={traffic.counts.red}
+                  />
+                  <AnalyticsLegendItem
+                    markerColor={COLORS.gray}
+                    label="Нет данных"
+                    value={traffic.counts.gray}
+                  />
+                </AnalyticsLegendList>
+              </div>
+              <div
+                className={`grid transition-[grid-template-rows,opacity] duration-[250ms] ease-out ${
+                  statusDistributionSelectedSegment ? "opacity-100" : "opacity-0"
+                }`}
+                style={{
+                  gridTemplateRows: statusDistributionSelectedSegment ? "1fr" : "0fr",
+                }}
+                aria-hidden={!statusDistributionSelectedSegment}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  {statusDistributionSelectedSegment ? (
+                    <div
+                      className="pt-4 opacity-100 transition-opacity duration-[250ms] ease-out"
+                      role="region"
+                      aria-label="Детали выбранного статуса"
+                    >
+                      <div className="border-t border-slate-600/50" />
+                      <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Детали выбранного статуса
+                      </div>
+                      {(() => {
+                        const seg = statusDistributionSelectedSegment;
+                        const meta = STATUS_DISTRIBUTION_SEGMENT_META[seg];
+                        const rows = statusDistributionGroups[seg];
+                        const count = traffic.counts[seg];
+                        return (
+                          <div className="mt-3">
+                            <div className="text-xs font-semibold text-slate-100">
+                              {meta.emoji} {meta.label}: {count}
+                            </div>
+                            {rows.length > 0 ? (
+                              <div className="mt-2 max-h-[min(280px,40vh)] overflow-y-auto">
+                                <StatusDistributionTaskChunk
+                                  rows={rows}
+                                  status={seg}
+                                  showDeviation={meta.showDeviation}
+                                  showAll
+                                />
+                              </div>
+                            ) : (
+                              <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : (
           <button
             type="button"
-            ref={presentationAnalyticsSkin ? undefined : statusDistributionCardRef}
-            onClick={presentationAnalyticsSkin ? undefined : handleStatusDistributionClick}
-            disabled={presentationAnalyticsSkin}
-            aria-expanded={presentationAnalyticsSkin ? undefined : statusDistributionPopoverOpen}
-            aria-haspopup={presentationAnalyticsSkin ? undefined : "dialog"}
-            title={
-              presentationAnalyticsSkin
-                ? undefined
-                : "Нажмите для детализации по задачам"
-            }
-            className={`flex h-full min-w-0 w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm sm:p-6 ${
-              presentationAnalyticsSkin
-                ? "cursor-default opacity-100"
-                : "cursor-pointer transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a]"
-            }`}
+            ref={statusDistributionCardRef}
+            onClick={handleStatusDistributionClick}
+            aria-expanded={statusDistributionPopoverOpen}
+            aria-haspopup="dialog"
+            title="Нажмите для детализации по задачам"
+            className="flex h-full min-w-0 w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a] sm:p-6"
           >
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
@@ -2738,6 +3263,7 @@ export function GPRAnalytics({
               </AnalyticsLegendList>
             </div>
           </button>
+          )}
           {!presentationAnalyticsSkin &&
             aggregatePortalMounted &&
             statusDistributionPopoverOpen &&
@@ -2867,7 +3393,7 @@ export function GPRAnalytics({
                       <div className="mt-1 text-xs text-[#E6EDF3]/80">
                         План: {planDays ?? "—"} дн. • Факт: {factDays ?? "—"} дн.
                         {" • "}
-                        Откл. (п.п.):{" "}
+                        Откл. (дн.):{" "}
                         <span
                           className="font-semibold tabular-nums"
                           style={{
@@ -2883,9 +3409,7 @@ export function GPRAnalytics({
                         >
                           {deviationDays === null
                             ? "—"
-                            : deviationDays > 0
-                              ? `+${deviationDays}`
-                              : deviationDays}
+                            : formatGprScheduleDeviationDisplayDays(deviationDays)}
                         </span>
                         {" • "}
                         Период: {fmt(task.planStart)} — {fmt(task.planEnd)}
@@ -2910,10 +3434,10 @@ export function GPRAnalytics({
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         <p className="mt-2 text-xs text-slate-300">
-          Отклонение на {gprReportDateLabel} (п.п.): отрицательное значение — отставание, положительное — опережение.
+          Среднее отклонение от графика (дни) на {gprReportDateLabel}: отрицательное значение — отставание,
+          положительное — опережение.
         </p>
         {(() => {
-          const MAX = 20;
           const allowedGroupKeys = isProjectWide
             ? gprStageGroupKeysProjectWide()
             : gprStageGroupKeysForProjectPart(activeProjectPart);
@@ -2921,11 +3445,12 @@ export function GPRAnalytics({
           const devRows = flatTasks
             .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
             .map((t) => {
-              const deviation = calculateDeviation(t, gprReportAsOf);
+              const endDelay = planFactEndDeviationDays(t.planEnd, t.factEnd, gprReportAsOf);
+              const deviation = gprTaskScheduleDeviationDisplayDays(t, gprReportAsOf);
               const planDuration = daysInclusive(t.planStart, t.planEnd);
               const factDuration = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
               const group = inferGroup(t);
-              return { task: t, deviation, planDuration, factDuration, group };
+              return { task: t, deviation, endDelay, planDuration, factDuration, group };
             });
 
           const groupCards = allowedGroupKeys
@@ -2937,7 +3462,9 @@ export function GPRAnalytics({
               const avg = withDev.length
                 ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
                 : 0;
-              const critical = withDev.filter((r) => getStatusByGprProgressDelta(r.deviation) === "red").length;
+              const critical = withDev.filter(
+                (r) => r.endDelay !== null && getStatusByDeviation(r.endDelay) === "red",
+              ).length;
               const label = gprStageDisplayTitle(tasksForActivePart, g);
               return {
                 key: g,
@@ -2973,7 +3500,7 @@ export function GPRAnalytics({
                     const avgText =
                       g.withDevCount === 0
                         ? "—"
-                        : `${g.avg > 0 ? "+" : ""}${g.avg.toFixed(1)} п.п.`;
+                        : formatGprScheduleDeviationDisplayDays(g.avg, { decimals: true });
                     const iconIsLate = g.withDevCount > 0 && g.avg < 0;
                     const iconShellClass = iconIsLate
                       ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
@@ -3047,83 +3574,46 @@ export function GPRAnalytics({
                   >
                     {active.label}
                   </div>
+                  {(() => {
+                    const scaleMax = stageDeviationScaleMax(active.rows);
+                    const half = scaleMax / 2;
+                    return (
                   <div>
                     <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
-                      <div className="relative h-6 text-[11px] text-slate-400">
-                        <span className="absolute left-0 -translate-x-0">−20</span>
-                        <span className="absolute left-1/4 -translate-x-1/2">−10</span>
-                        <span className="absolute left-1/2 -translate-x-1/2 text-slate-200">0</span>
-                        <span className="absolute left-3/4 -translate-x-1/2">+10</span>
-                        <span className="absolute right-0 translate-x-0">+20</span>
+                      <div className="relative h-6 text-[11px] tabular-nums text-slate-400">
+                        <span className="absolute left-0">{formatStageDeviationScaleTick(-scaleMax)}</span>
+                        <span className="absolute left-1/4 -translate-x-1/2">
+                          {formatStageDeviationScaleTick(-half)}
+                        </span>
+                        <span className="absolute left-1/2 -translate-x-1/2 font-medium text-slate-200">0</span>
+                        <span className="absolute left-3/4 -translate-x-1/2">
+                          {formatStageDeviationScaleTick(half)}
+                        </span>
+                        <span className="absolute right-0">{formatStageDeviationScaleTick(scaleMax)}</span>
                       </div>
+                      <p className="mt-1 text-center text-[10px] text-slate-500">
+                        дни · шкала ±{scaleMax} от нуля (отставание ← · опережение →)
+                      </p>
                     </div>
 
                     <div className="relative z-10 mt-3 space-y-3">
-                      {active.rows.map((r, i) => {
-                        const deviation = r.deviation;
-                        const status =
-                          deviation === null ? "gray" : getStatusByGprProgressDelta(deviation);
-                        const color =
-                          status === "green"
-                            ? COLORS.green
-                            : status === "yellow"
-                              ? COLORS.yellow
-                              : status === "red"
-                                ? COLORS.red
-                                : COLORS.gray;
-                        const raw = deviation ?? 0;
-                        const normalized = raw > MAX ? MAX : raw < -MAX ? -MAX : raw;
-                        const percent = normalized / MAX; // -1..1
-                        const dotLeftPct = 50 + percent * 50;
-                        const minLeft = Math.min(50, dotLeftPct);
-                        const width = Math.abs(dotLeftPct - 50);
-                        const clipped = Math.abs(raw) > MAX;
-                        const clipMark = !clipped ? "" : raw > 0 ? " →" : " ←";
-                        return (
-                          <div
-                            key={`dev-line-${active.key}-${r.task.id}-${i}`}
-                            className="grid grid-cols-12 items-start gap-3 rounded-xl border border-slate-700/60 bg-slate-900/20 p-3"
-                          >
-                            <div className="col-span-12 min-w-0 text-sm font-semibold leading-snug text-slate-100 md:col-span-3 line-clamp-2 break-words">
-                              {r.task.name}
-                            </div>
-                            <div className="col-span-12 md:col-span-7">
-                              <div className="relative h-7 w-full max-w-full overflow-visible px-2 sm:px-6">
-                                <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-white/10" />
-                                <div className="absolute left-1/2 top-1/2 h-4 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded bg-white/30" />
-                                <div
-                                  className="absolute top-1/2 h-px -translate-y-1/2"
-                                  style={{
-                                    left: `${minLeft}%`,
-                                    width: `${width}%`,
-                                    backgroundColor: color,
-                                  }}
-                                />
-                                <div
-                                  className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
-                                  style={{
-                                    left: `${dotLeftPct}%`,
-                                    backgroundColor: color,
-                                    boxShadow: `0 0 12px ${color}`,
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <div className="col-span-12 text-right text-sm text-slate-200 md:col-span-2">
-                              <div className="font-semibold tabular-nums" style={{ color }}>
-                                {deviation === null
-                                  ? "—"
-                                  : `${deviation > 0 ? `+${deviation}` : deviation} п.п.${clipMark}`}
-                              </div>
-                              <div className="text-xs text-slate-400">
-                                {r.factDuration ?? "—"} / {r.planDuration ?? "—"} дн
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {active.rows.map((r, i) => (
+                        <StageDeviationScaleRow
+                          key={`dev-line-${active.key}-${r.task.id}-${i}`}
+                          task={r.task}
+                          asOf={gprReportAsOf}
+                          tmcItems={tmcItemsForPart}
+                          deviation={r.deviation}
+                          endDelay={r.endDelay}
+                          factDuration={r.factDuration}
+                          planDuration={r.planDuration}
+                          scaleMax={scaleMax}
+                        />
+                      ))}
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               ) : null}
             </div>

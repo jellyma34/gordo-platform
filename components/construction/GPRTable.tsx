@@ -20,6 +20,7 @@ import {
   getPlannedProgressPercent,
   getActualProgressPercent,
   getStatusByGprProgressDelta,
+  gprTaskScheduleDeviationDisplayDays,
   durationDays,
   GPR_CODE_FORMAT_RE,
   gprParentCode,
@@ -1049,16 +1050,25 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
             {rowsForRender.map((task) => {
               const hasChildren = hasChildrenById.get(task.id) ?? false;
               const deviation = calculateDeviation(task);
+              const scheduleDev = gprTaskScheduleDeviationDisplayDays(task);
               const planPct = getPlannedProgressPercent(task);
               const factPct = getActualProgressPercent(task);
               const deltaLine =
-                deviation === null || deviation === undefined
+                scheduleDev === null
                   ? "—"
+                  : scheduleDev < 0
+                    ? `Отставание: ${Math.abs(scheduleDev)} дн.`
+                    : scheduleDev > 0
+                      ? `Опережение: ${scheduleDev} дн.`
+                      : "По плану (0 дн.)";
+              const readinessLine =
+                deviation === null || deviation === undefined
+                  ? null
                   : deviation < 0
-                    ? `Отставание: ${Math.abs(deviation)} п.п.`
+                    ? `Готовность: отставание ${Math.abs(deviation)} п.п.`
                     : deviation > 0
-                      ? `Опережение: ${deviation} п.п.`
-                      : "По плану (0 п.п.)";
+                      ? `Готовность: опережение ${deviation} п.п.`
+                      : "Готовность: по плану";
               const blockedReasons = blockedReasonsByTaskId.get(task.id) ?? [];
               const status = blockedReasons.length > 0 ? "blocked" : getStatus(task);
               const planDuration = durationDays(task.planStart, task.planEnd);
@@ -1210,6 +1220,7 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
                       <div
                         className="text-sm font-semibold leading-tight"
                         style={{ color: deviationHex(deviation) }}
+                        title={readinessLine ?? undefined}
                       >
                         {deltaLine}
                       </div>

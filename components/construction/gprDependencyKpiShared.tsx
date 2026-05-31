@@ -2,6 +2,8 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
+import { formatGprScheduleDeviationDisplayDays } from "@/lib/gprUtils";
+
 /** Порог по сроку (дн.) для KPI и заливки план/факт на графиках зависимостей. */
 export const GPR_DEP_KPI_THRESHOLD_DAYS = 14;
 
@@ -18,7 +20,7 @@ export function formatAvgDeviationDays(avg: number): string {
   return `${sign}${r} дн.`;
 }
 
-/** Отображение отклонения (п.п. по прогрессу на дату отчёта) по задачам ГПР. */
+/** Отображение отклонения готовности (п.п. по прогрессу на дату отчёта). */
 export function formatGprProgressDeltaPp(d: number | null): string {
   if (d === null) return "—";
   if (d === 0) return "0 п.п.";
@@ -102,13 +104,13 @@ export function buildAvgDeviationExplanation(
   const parts = rows
     .map((r) => r.deviationDays)
     .filter((d): d is number => d !== null)
-    .map((d) => formatGprProgressDeltaPp(d));
+    .map((d) => formatGprScheduleDeviationDisplayDays(d));
   if (parts.length === 0) {
-    return `Рассчитывается как среднее арифметическое отклонение${datePhrase} по этапам, когда появятся данные.`;
+    return `Рассчитывается как среднее арифметическое отклонение по сроку${datePhrase} по этапам, когда появятся данные.`;
   }
   const joined = parts.join(" и ");
-  const itog = avgDev === null ? "—" : formatGprProgressDeltaPp(avgDev);
-  return `Рассчитывается как среднее отклонение по этапам: (${joined}) → итог: ${itog}`;
+  const itog = avgDev === null ? "—" : formatGprScheduleDeviationDisplayDays(avgDev, { decimals: true });
+  return `Рассчитывается как среднее отклонение по сроку (дни) по этапам: (${joined}) → итог: ${itog}`;
 }
 
 export function GprDepKpiAccordionCard({

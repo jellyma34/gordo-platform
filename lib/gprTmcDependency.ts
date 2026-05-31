@@ -2,6 +2,7 @@ import { GPR_DATA } from "./gprData";
 import {
   calculateDeviation,
   durationDays,
+  gprTaskScheduleDeviationDisplayDays,
   normalizeGprCodeFinal,
   PROJECT_PART_KEY_TO_ID,
   toDate,
@@ -48,8 +49,10 @@ export type GprTmcDependencyPoint = {
   stageShort: string;
   planGpr: number | null;
   factGpr: number | null;
-  /** Отклонение прогресса к плану на дату: факт − план (п.п.; отриц. — отставание). */
+  /** Отклонение по сроку окончания (дни; отриц. — отставание, положит. — опережение). */
   deviationDays: number | null;
+  /** Отклонение готовности к плану на дату: факт − план (п.п.). */
+  progressDeltaPp: number | null;
   tmcSupply: number | null;
   impact: TmcImpactStatus;
   statusLabel: string;
@@ -220,7 +223,8 @@ export function buildGprTmcDependencySeries(
     const planGpr = plannedProgressBySchedule(task, todayIso);
     const factGpr = task ? Math.round(Math.min(100, Math.max(0, task.completion))) : null;
     const asOf = toDate(todayIso) ?? new Date();
-    const deviationDays = task ? calculateDeviation(task, asOf) : null;
+    const progressDeltaPp = task ? calculateDeviation(task, asOf) : null;
+    const deviationDays = task ? gprTaskScheduleDeviationDisplayDays(task, asOf) : null;
     const tmcSupply = tmcSupplyPercentForStage(tmcForChart, stageFull);
     const impact = tmcImpactStatus(tmcSupply);
     const zone: GprTmcDependencyPoint["zone"] =
@@ -234,6 +238,7 @@ export function buildGprTmcDependencySeries(
       planGpr,
       factGpr,
       deviationDays,
+      progressDeltaPp,
       tmcSupply,
       impact,
       statusLabel: tmcImpactStatusLabel(impact),
@@ -251,7 +256,10 @@ export type GprTenderDependencyPoint = {
   rootCode: string;
   planGpr: number | null;
   factGpr: number | null;
+  /** Отклонение по сроку окончания (дни; отриц. — отставание, положит. — опережение). */
   deviationDays: number | null;
+  /** Отклонение готовности к плану на дату: факт − план (п.п.). */
+  progressDeltaPp: number | null;
   tenderReadiness: number | null;
   tenderStats: { total: number; completed: number; delayed: number; riskContracts: number };
   insight: string;
@@ -327,7 +335,8 @@ export function buildGprTenderDependencySeries(
     const planGpr = plannedProgressBySchedule(task, todayIso);
     const factGpr = task ? Math.round(Math.min(100, Math.max(0, task.completion))) : null;
     const asOf = toDate(todayIso) ?? new Date();
-    const deviationDays = task ? calculateDeviation(task, asOf) : null;
+    const progressDeltaPp = task ? calculateDeviation(task, asOf) : null;
+    const deviationDays = task ? gprTaskScheduleDeviationDisplayDays(task, asOf) : null;
     const rootCode = GROUP_KEY_TO_ROOT_CODE[key];
     const tenderStats = tenderStatsForRoot(rootCode, tendersForPart);
     const tenderReadiness = getTenderReadiness(rootCode, tendersForPart);
@@ -343,6 +352,7 @@ export function buildGprTenderDependencySeries(
       planGpr,
       factGpr,
       deviationDays,
+      progressDeltaPp,
       tenderReadiness,
       tenderStats,
       insight,
