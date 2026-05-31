@@ -93,6 +93,10 @@ import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
 import { kvartalyRowsToGprTasksForAllParts } from "@/lib/kvartalyGpr";
 import { getProjectStatus } from "@/utils/status";
 import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDate";
+import {
+  computeGprStageFactCompletionPercent,
+  computeGprStageCompletionInsight,
+} from "@/lib/gprStageCompletion";
 import { buildGprScheduleDeviationInsight } from "@/lib/gprScheduleDeviationInsight";
 import {
   CartesianGrid,
@@ -389,7 +393,7 @@ const RESIDENTIAL_AGGREGATE_STAGE_TITLES: readonly [string, string] = [
 ];
 const RESIDENTIAL_WEIGHT_LABELS: readonly [string, string] = ["Подготовка", "Строительство"];
 
-/** Источник веса для взвешенного «Общий прогресс» (сумма нормированных весов = 1). */
+/** Источник веса для взвешенного «Выполнение ГПР» (сумма нормированных весов = 1). */
 type AggregateWeightBasis = "plannedWorkVolume" | "contractValue" | "planDuration" | "imputedUnit";
 
 type AggregateStageBreakdown = {
@@ -417,9 +421,10 @@ const AGGREGATE_WEIGHT_BASIS_RU: Record<AggregateWeightBasis, string> = {
 };
 
 const AGGREGATE_PROGRESS_TOOLTIP =
-  "Взвешенный прогресс по объёму/стоимости (если в данных нет объёма и стоимости — по длительности плана, явная догрузка веса см. в пояснении).";
+  "Взвешенное выполнение ГПР по корневым этапам: Σ(весᵢ × фактᵢ). Факт — rollup дочерних работ этапа (листья WBS) или поле completion корня. Вес: объём → стоимость → длительность плана.";
 
-const AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP = "Прогресс рассчитан с учётом веса этапов";
+const AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP =
+  "Факт выполнения по каждому корневому этапу (% из таблицы ГПР; на графиках — те же значения по этапам)";
 
 function shortWeightLabelForPart(name: string, index: number): string {
   const n = name.trim();
@@ -489,7 +494,7 @@ function buildAggregateProgressPopoverExplanation(
       const line =
         partKey === "residential" || partKey === "project"
           ? "Прогресс снижен из-за того, что этап строительства выполнен значительно меньше по сравнению с подготовкой."
-          : "Общий прогресс в большей степени ограничен вторым корневым этапом: он заметно отстаёт от первого.";
+          : "Выполнение ГПР в большей степени ограничено вторым корневым этапом: он заметно отстаёт от первого.";
       return scheduleLag
         ? [line, "Дополнительно зафиксировано отставание по срокам относительно плана."]
         : [line];
@@ -1521,8 +1526,7 @@ function computePartAggregateCore(
               : "Благоустройство"
             : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
-    const cRaw = Number(t.completion);
-    const c = Number.isFinite(cRaw) ? Math.max(0, Math.min(100, cRaw)) : 0;
+    const c = computeGprStageFactCompletionPercent(taskList, t, asOfSafe);
     const rw = resolveAggregateRawWeight(t, planD);
     rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, rw });
   }
@@ -2337,7 +2341,7 @@ export function GPRAnalytics({
       <div className="mt-2 flex items-end justify-between gap-4">
         <div className="min-w-0">
           <div className="text-xs leading-snug text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
-            Общий прогресс
+            Выполнение ГПР
           </div>
           <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
             {aggregateTotalProgressUi.display}
@@ -2345,7 +2349,7 @@ export function GPRAnalytics({
         </div>
         <div className="max-w-[min(100%,11rem)] shrink-0 text-right text-sm text-[#E6EDF3]/85 sm:max-w-none">
           <div className="text-[11px] leading-snug text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
-            Вклад этапов
+            По этапам
           </div>
           <div className="mt-1 text-base font-semibold tabular-nums leading-none text-[#E6EDF3]">
             {aggregateStagesKpiLine}
@@ -2401,6 +2405,7 @@ export function GPRAnalytics({
     <section className="min-w-0 space-y-4 overflow-x-clip">
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
+          const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
           const deviation = calculateDeviation(task, gprReportAsOf);
           const deviationLabel =
             deviation === null
@@ -2410,9 +2415,19 @@ export function GPRAnalytics({
                 : deviation > 0
                   ? `+${deviation}`
                   : "0";
-          const cNum = Number(task.completion);
-          const progressClamped = Math.max(0, Math.min(100, Number.isFinite(cNum) ? cNum : 0));
-          const isNoData = progressClamped === 0;
+          const progressClamped = Math.max(
+            0,
+            Math.min(100, Math.round(stageInsight.factPercent * 10) / 10),
+          );
+          const progressDisplay =
+            Math.abs(progressClamped - Math.round(progressClamped)) < 1e-6
+              ? `${Math.round(progressClamped)}%`
+              : `${progressClamped.toFixed(1)}%`;
+          const isNoData =
+            progressClamped === 0 &&
+            stageInsight.workInProgress === 0 &&
+            stageInsight.workCompleted === 0 &&
+            stageInsight.workWithFactDates === 0;
           const deviationUi = deviation === null ? null : getStatusByGprProgressDelta(deviation);
           const status: Traffic =
             isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
@@ -2424,6 +2439,8 @@ export function GPRAnalytics({
                 : status === "red"
                   ? COLORS.red
                   : "#64748b";
+          const progressBarWidth =
+            progressClamped > 0 ? progressClamped : isNoData ? 0 : Math.max(progressClamped, 4);
           return (
             <div
               key={task.id}
@@ -2433,10 +2450,25 @@ export function GPRAnalytics({
               <div>
                 <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{task.name}</div>
                 <div className="mt-2 flex items-end justify-between gap-4">
-                  <div>
-                    <div className="text-xs leading-snug text-[#E6EDF3]/85">% выполнения</div>
-                    <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-                      {progressClamped}%
+                  <div className="min-w-0">
+                    <div
+                      className="text-xs leading-snug text-[#E6EDF3]/85"
+                      title={stageInsight.tooltipText}
+                    >
+                      Факт выполнения
+                    </div>
+                    <div
+                      className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]"
+                      title={stageInsight.tooltipText}
+                    >
+                      {isNoData ? "—" : progressDisplay}
+                    </div>
+                    <div className="mt-0.5 text-[10px] leading-snug text-[#E6EDF3]/55">
+                      {stageInsight.source === "root_field"
+                        ? "корневая работа"
+                        : stageInsight.source === "leaf_rollup"
+                          ? "по листьям WBS"
+                          : "по дочерним работам"}
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#E6EDF3]/85">
@@ -2464,7 +2496,7 @@ export function GPRAnalytics({
                     <div
                       className="h-1.5 rounded-full"
                       style={{
-                        width: `${progressClamped}%`,
+                        width: `${progressBarWidth}%`,
                         backgroundColor: accent,
                       }}
                       aria-hidden
@@ -2505,7 +2537,7 @@ export function GPRAnalytics({
             <div
               ref={aggregatePopoverRef}
               role="dialog"
-              aria-label="Пояснение: общий прогресс"
+              aria-label="Пояснение: выполнение ГПР"
               className={`fixed z-[200] w-[min(360px,calc(100vw-24px))] max-h-[min(520px,85vh)] overflow-y-auto rounded-xl border border-slate-500/45 bg-[#1e293b] p-[14px] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
                 aggregatePopoverEntered ? "opacity-100 scale-100" : "opacity-0 scale-[0.98]"
               }`}
@@ -2517,11 +2549,11 @@ export function GPRAnalytics({
             >
               <div className="border-b border-white/10 pb-3">
                 <div className="text-sm font-semibold text-slate-100">
-                  Общий прогресс: {aggregateTotalProgressUi.display}
+                  Выполнение ГПР: {aggregateTotalProgressUi.display}
                 </div>
                 <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                  Формула: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × % выполнения<sub className="align-baseline text-[9px]">i</sub>
-                  ); веса нормированы, суммарно 100%. Приоритет веса: объём → стоимость → длительность плана.
+                  Взвешенное выполнение по корневым этапам: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × факт<sub className="align-baseline text-[9px]">i</sub>
+                  ); веса нормированы, суммарно 100%. Факт этапа — rollup дочерних работ (листья WBS) или поле completion корня; тот же расчёт, что на графиках «Факт ГПР». Приоритет веса: объём → стоимость → длительность плана.
                 </p>
               </div>
 
@@ -2535,7 +2567,7 @@ export function GPRAnalytics({
                       <li key={`agg-stage-${i}`}>
                         <span className="font-medium text-slate-200">{s.composeTitle}</span>
                         {": "}
-                        {Math.round(s.completion)}% выполнения
+                        {Math.round(s.completion)}% факт
                         {s.weightPercent != null
                           ? `, вес ${s.weightPercent}% (${AGGREGATE_WEIGHT_BASIS_RU[s.weightBasis]})`
                           : ""}

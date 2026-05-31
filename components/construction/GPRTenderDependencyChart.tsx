@@ -26,7 +26,7 @@ import {
   GPR_DEP_KPI_THRESHOLD_DAYS,
   formatGprProgressDeltaPp,
   stageDeviationDotColor,
-  gprProgressDeviationListStyle,
+  gprScheduleDeviationListStyle,
   KpiMiniIconRuler,
   KpiMiniIconChart,
   KpiMiniIconAlert,
@@ -358,7 +358,8 @@ export function GPRTenderDependencyChart({
       </div>
 
       <p className="mt-4 text-xs leading-relaxed text-slate-400">
-        Зелёная линия — факт ГПР, пунктир — готовность тендеров.
+        Серая линия — плановый % по графику на дату, зелёная — факт выполнения ГПР (% completion корневых работ),
+        пунктир — готовность тендеров. Сводное «Выполнение ГПР» в карточке — взвешенное по этапам.
         <br />
         Отставание тендеров от графика ГПР указывает на риск замедления работ.
       </p>
@@ -387,7 +388,7 @@ export function GPRTenderDependencyChart({
                     </span>
                     <span
                       className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
-                      style={gprProgressDeviationListStyle(d)}
+                      style={gprScheduleDeviationListStyle(d)}
                     >
                       {formatGprScheduleDeviationDisplayDays(d)}
                     </span>
@@ -416,7 +417,7 @@ export function GPRTenderDependencyChart({
                 <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
                   {GPR_DEP_KPI_THRESHOLD_DAYS} дней
                 </div>
-                <div className="text-[11px] text-slate-500">задержка</div>
+                <div className="text-[11px] text-slate-500">норматив платформы · по сроку</div>
               </>
             </GprDepKpiAccordionCard>
 
@@ -443,7 +444,7 @@ export function GPRTenderDependencyChart({
                     ? "—"
                     : formatGprScheduleDeviationDisplayDays(kpiStats.avgDev, { decimals: true })}
                 </div>
-                <div className="text-[11px] text-slate-500">по сроку, дни</div>
+                <div className="text-[11px] text-slate-500">корневые этапы · дни</div>
               </>
             </GprDepKpiAccordionCard>
 

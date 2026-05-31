@@ -9,6 +9,7 @@ import {
   type GPRTask,
   type ProjectPartKey,
 } from "./gprUtils";
+import { computeGprStageFactCompletionChartPercent } from "./gprStageCompletion";
 import {
   contractDeviationDays,
   getGprStageFromTenderCode,
@@ -115,10 +116,7 @@ function catalogStageName(groupKey: GprStageGroupKey): string {
  * Полное наименование этапа для UI: имя корневой задачи из ГПР, иначе строка из справочника работ.
  */
 export function gprStageDisplayTitle(tasks: GPRTask[], groupKey: GprStageGroupKey): string {
-  const root = tasks.find((t) => {
-    const level = t.level ?? t.code.split(".").length - 1;
-    return level === 1 && inferGroup(t) === groupKey;
-  });
+  const root = findRootByCode(tasks, GROUP_KEY_TO_ROOT_CODE[groupKey]);
   const name = root?.name?.trim();
   if (name) return name;
   return catalogStageName(groupKey);
@@ -205,24 +203,17 @@ export function buildGprTmcDependencySeries(
     return g !== null && allowedKeys.has(g);
   });
 
-  const roots = tasks.filter((t) => (t.level ?? t.code.split(".").length - 1) === 1);
-  const byGroup = new Map<GprStageGroupKey, GPRTask>();
-  for (const t of roots) {
-    const k = inferGroup(t);
-    if (!byGroup.has(k)) byGroup.set(k, t);
-  }
-
   return labels.map((stageShort) => {
     const key = CHART_SHORT_LABEL_TO_GROUP_KEY[stageShort];
     if (!key) {
       throw new Error(`Неизвестная подпись этапа на графике: ${stageShort}`);
     }
     const stageFull = GPR_TMC_STAGE_LABELS[key];
-    const task = byGroup.get(key) ?? null;
+    const task = findRootByCode(tasks, GROUP_KEY_TO_ROOT_CODE[key]);
     const stageTitle = gprStageDisplayTitle(tasks, key);
     const planGpr = plannedProgressBySchedule(task, todayIso);
-    const factGpr = task ? Math.round(Math.min(100, Math.max(0, task.completion))) : null;
     const asOf = toDate(todayIso) ?? new Date();
+    const factGpr = task ? computeGprStageFactCompletionChartPercent(tasks, task, asOf) : null;
     const progressDeltaPp = task ? calculateDeviation(task, asOf) : null;
     const deviationDays = task ? gprTaskScheduleDeviationDisplayDays(task, asOf) : null;
     const tmcSupply = tmcSupplyPercentForStage(tmcForChart, stageFull);
@@ -317,24 +308,17 @@ export function buildGprTenderDependencySeries(
 
   const labels = GPR_TMC_CHART_STAGE_SHORT_BY_PART[activeProjectPart] ?? [];
 
-  const roots = tasks.filter((t) => (t.level ?? t.code.split(".").length - 1) === 1);
-  const byGroup = new Map<GprStageGroupKey, GPRTask>();
-  for (const t of roots) {
-    const k = inferGroup(t);
-    if (!byGroup.has(k)) byGroup.set(k, t);
-  }
-
   return labels.map((stageShort) => {
     const key = CHART_SHORT_LABEL_TO_GROUP_KEY[stageShort];
     if (!key) {
       throw new Error(`Неизвестная подпись этапа на графике: ${stageShort}`);
     }
     const stageFull = GPR_TMC_STAGE_LABELS[key];
-    const task = byGroup.get(key) ?? null;
+    const task = findRootByCode(tasks, GROUP_KEY_TO_ROOT_CODE[key]);
     const stageTitle = gprStageDisplayTitle(tasks, key);
     const planGpr = plannedProgressBySchedule(task, todayIso);
-    const factGpr = task ? Math.round(Math.min(100, Math.max(0, task.completion))) : null;
     const asOf = toDate(todayIso) ?? new Date();
+    const factGpr = task ? computeGprStageFactCompletionChartPercent(tasks, task, asOf) : null;
     const progressDeltaPp = task ? calculateDeviation(task, asOf) : null;
     const deviationDays = task ? gprTaskScheduleDeviationDisplayDays(task, asOf) : null;
     const rootCode = GROUP_KEY_TO_ROOT_CODE[key];
@@ -504,7 +488,7 @@ export function buildGprForecastSeries(
   });
 }
 
-/** Корневые коды ГПР по части проекта (как в карточке «Общий прогресс»). */
+/** Корневые коды ГПР по части проекта (как в карточке «Выполнение ГПР»). */
 const PART_ROOT_CODES_FOR_FORECAST: Record<ProjectPartKey, readonly string[]> = {
   residential: ["2.04", "2.05"],
   parking: ["2.06", "2.07"],

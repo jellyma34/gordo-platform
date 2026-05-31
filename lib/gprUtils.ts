@@ -32,7 +32,7 @@ export type GPRTask = {
   /** Явная зона для диаграммы План/факт (`house` / `parking`); иначе выводится из объекта и partId. */
   planFactScope?: GprPlanFactScopeKey;
   /**
-   * Плановый объём работ (усл. ед., напр. тыс. м³ или нормо-часы) — приоритетный вес для «Общий прогресс».
+   * Плановый объём работ (усл. ед., напр. тыс. м³ или нормо-часы) — приоритетный вес для «Выполнение ГПР».
    * Если задано положительное значение, используется вместо contractValue и длительности плана.
    */
   plannedWorkVolume?: number | null;
@@ -266,9 +266,21 @@ export function getPlannedProgressPercent(task: GPRTask, asOf: Date = new Date()
   return roundProgress((100 * (dA - d0)) / totalMs);
 }
 
-/** Фактический % выполнения (карточка задачи). */
+/** Фактический % выполнения (поле completion задачи ГПР). */
+export function gprTaskFactCompletionPercent(task: GPRTask): number {
+  const raw = Number(task.completion);
+  if (!Number.isFinite(raw)) return 0;
+  return roundProgress(Math.min(100, Math.max(0, raw)));
+}
+
+/** Целое значение «Факт ГПР» для оси графиков (из того же completion). */
+export function gprTaskFactCompletionChartPercent(task: GPRTask): number {
+  return Math.round(gprTaskFactCompletionPercent(task));
+}
+
+/** @alias gprTaskFactCompletionPercent — единый источник «Факт выполнения ГПР (%)». */
 export function getActualProgressPercent(task: GPRTask): number {
-  return roundProgress(Math.min(100, Math.max(0, Number(task.completion) || 0)));
+  return gprTaskFactCompletionPercent(task);
 }
 
 /**
