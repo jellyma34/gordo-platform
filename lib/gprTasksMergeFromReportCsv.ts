@@ -1,4 +1,5 @@
 import {
+  gprPlanFactScopeFromTask,
   normalizeGprCodeFinal,
   type GPRTask,
   type GprPlanFactScopeKey,
@@ -28,6 +29,10 @@ function projectPartKeyFromObjectLabel(label: string): ProjectPartKey | undefine
   return undefined;
 }
 
+function objectTypeLabelFromPartId(partId: number): string {
+  return partId === 2 ? "Автостоянка" : "Жилой дом";
+}
+
 function slugForObjectType(label: string): string {
   const s = label
     .trim()
@@ -53,15 +58,21 @@ function inferPlanFactScope(objectType: string, partId: number): GprPlanFactScop
   return partId === 2 ? "parking" : "house";
 }
 
-function gprCsvRowToTask(row: GprReportCsvRow): GPRTask {
+function gprCsvRowToTask(
+  row: GprReportCsvRow,
+  opts?: { forcedPartId?: number; stableSuffix?: string },
+): GPRTask {
   const code = normalizeGprCodeFinal(row.code);
-  const objectType = row.objectType ?? "";
-  const scopeKey = `${code}${objectType}`;
+  const forcedPartId = opts?.forcedPartId === 1 || opts?.forcedPartId === 2 ? opts.forcedPartId : null;
+  const objectType = (row.objectType ?? "").trim() || (forcedPartId ? objectTypeLabelFromPartId(forcedPartId) : "");
+  const scopeKey = `${code}::${objectType}`;
   const otSlug = slugForObjectType(objectType);
-  const id = `${gprStableIdFromCode(code)}--${otSlug}--csv${row.sourceRowIndex}`;
+  const idSuffix = opts?.stableSuffix?.trim() || `${otSlug}--csv`;
+  const id = `${gprStableIdFromCode(code)}--${idSuffix}`;
   const partFromObject = inferPartIdFromObjectLabel(objectType);
-  const partId = partFromObject ?? inferPartIdFromGprCode(code);
-  const projectPartKey = projectPartKeyFromObjectLabel(objectType);
+  const partId = forcedPartId ?? partFromObject ?? inferPartIdFromGprCode(code);
+  const projectPartKey =
+    projectPartKeyFromObjectLabel(objectType) ?? (partId === 2 ? "parking" : "residential");
 
   return {
     id,
@@ -82,6 +93,13 @@ function gprCsvRowToTask(row: GprReportCsvRow): GPRTask {
     relatedTmcIds: [],
   };
 }
+
+/** Ключ слияния: часть проекта + шифр + объект CSV (жилой дом / автостоянка не затирают друг друга). */
+function taskIdentityKey(task: GPRTask): string {
+  const scope = gprPlanFactScopeFromTask(task);
+  const ot = slugForObjectType(task.objectType ?? "");
+  return `${task.partId}::${normalizeGprCodeFinal(task.code)}::${scope}::${ot}`;
+}
 export type GprCsvMergeStats = {
   /** Строк в файле после `split(/\\r?\\n/)` (включая пустые) */
   csvPapaRowCount: number;
@@ -101,18 +119,58 @@ export type GprCsvMergeStats = {
  * порядок как в файле. Параметр `baseTasks` не используется (оставлен для совместимости вызова).
  */
 export function mergeGprTasksFromReportCsv(
-  _baseTasks: GPRTask[],
+  baseTasks: GPRTask[],
   csvText: string,
+  options?: { forcedPartId?: number },
 ): { tasks: GPRTask[]; stats: GprCsvMergeStats } {
-  const { rows: parsedTasks, csvPapaRowCount } = parseGprReportCsvWithStats(csvText);
+  const { rows: parsedRows, csvPapaRowCount } = parseGprReportCsvWithStats(csvText);
+  const parsedRowCount = parsedRows.length;
+  const forcedPartId = options?.forcedPartId === 1 || options?.forcedPartId === 2 ? options.forcedPartId : null;
 
-  console.log("RAW TASKS:", parsedTasks.length);
+  const csvTasksRaw = parsedRows.map((row) =>
+    gprCsvRowToTask(row, {
+      forcedPartId: forcedPartId ?? undefined,
+      stableSuffix: forcedPartId === 1 ? "residential" : forcedPartId === 2 ? "parking" : undefined,
+    }),
+  );
 
-  const tasks = parsedTasks.map(gprCsvRowToTask);
+  // В одном файле — по одному ключу «часть + шифр + объект», последняя строка побеждает.
+  const csvByKey = new Map<string, GPRTask>();
+  for (const t of csvTasksRaw) {
+    csvByKey.set(taskIdentityKey(t), t);
+  }
+  const csvTasks = [...csvByKey.values()];
 
-  console.log("FINAL TASKS:", tasks.length);
+  const incomingPartIds = new Set(csvTasks.map((t) => t.partId));
+  const untouchedBase = baseTasks.filter((t) => !incomingPartIds.has(t.partId));
+  const targetBase = baseTasks.filter((t) => incomingPartIds.has(t.partId));
 
-  const parsedRowCount = parsedTasks.length;
+  const baseByKey = new Map<string, GPRTask>();
+  for (const t of targetBase) {
+    baseByKey.set(taskIdentityKey(t), t);
+  }
+
+  let updated = 0;
+  let added = 0;
+  const mergedForTargetParts = csvTasks.map((incoming) => {
+    const key = taskIdentityKey(incoming);
+    const existed = baseByKey.get(key);
+    if (existed) {
+      updated += 1;
+      return {
+        ...existed,
+        ...incoming,
+        id: existed.id,
+        globalTaskId: existed.globalTaskId || incoming.globalTaskId,
+        missingFromImport: false,
+      };
+    }
+    added += 1;
+    return incoming;
+  });
+
+  const tasks = [...untouchedBase, ...mergedForTargetParts];
+  const markedAbsentFromReport = Math.max(0, targetBase.length - updated);
 
   return {
     tasks,
@@ -122,9 +180,9 @@ export function mergeGprTasksFromReportCsv(
       mergedTaskCount: tasks.length,
       csvRowsApplied: parsedRowCount,
       csvRows: parsedRowCount,
-      updated: 0,
-      added: parsedRowCount,
-      markedAbsentFromReport: 0,
+      updated,
+      added,
+      markedAbsentFromReport,
     },
   };
 }

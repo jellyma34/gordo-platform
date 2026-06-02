@@ -112,18 +112,30 @@ export function getKvartalyRowStatus(row: KvartalyQuarterlyRow): KvartalySchedul
   return "отставание";
 }
 
-/** Жилой дом: все строки, кроме корня `2.05` (агрегат паркинга). Паркинг: только `2.05`. Сети `2.06.x` — в части «жилой дом». */
+/** Строка kvartaly относится к автостоянке: корень `2.05`, сети `2.06*`, благо `2.07*`. */
+function isKvartalyParkingWorkId(workId: string | null | undefined): boolean {
+  if (!workId) return false;
+  const w = workId.trim();
+  if (w === "2.05") return true;
+  if (w === "2.06" || w.startsWith("2.06.")) return true;
+  if (w === "2.07" || w.startsWith("2.07.")) return true;
+  return false;
+}
+
+/** Жилой дом: всё, кроме веток автостоянки. Паркинг: `2.05`, `2.06*`, `2.07*`. */
 export function kvartalyRowVisibleForPart(row: KvartalyQuarterlyRow, partId: number): boolean {
-  if (partId === PROJECT_PART_KEY_TO_ID.parking) return row.work_id === "2.05";
-  return row.work_id !== "2.05";
+  const parking = isKvartalyParkingWorkId(row.work_id);
+  if (partId === PROJECT_PART_KEY_TO_ID.parking) return parking;
+  return !parking;
 }
 
 /**
- * Часть проекта по строке JSON: `2.05` (корень паркинга) → автостоянка, остальное → жилой дом.
- * Соответствует `kvartalyRowVisibleForPart` / разделению объектов в ГПР.
+ * Часть проекта по строке JSON: автостоянка — `2.05` / `2.06*` / `2.07*`, остальное — жилой дом.
  */
 export function kvartalyRowPartId(row: KvartalyQuarterlyRow): number {
-  return row.work_id === "2.05" ? PROJECT_PART_KEY_TO_ID.parking : PROJECT_PART_KEY_TO_ID.residential;
+  return isKvartalyParkingWorkId(row.work_id)
+    ? PROJECT_PART_KEY_TO_ID.parking
+    : PROJECT_PART_KEY_TO_ID.residential;
 }
 
 function rowToGprTask(row: KvartalyQuarterlyRow, partId: number): GPRTask | null {

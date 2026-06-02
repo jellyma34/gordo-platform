@@ -78,6 +78,30 @@ function weightedFactPercent(items: GPRTask[]): number | null {
   return roundProgress(weighted);
 }
 
+function weightedPlanPercent(items: GPRTask[], asOf: Date): number | null {
+  if (items.length === 0) return null;
+  let raws = items.map((t) => rollupWeight(t));
+  const allZero = raws.every((w) => !Number.isFinite(w) || w <= 0);
+  if (allZero) {
+    raws = items.map(() => 1);
+  } else {
+    raws = raws.map((w) => (Number.isFinite(w) && w > 0 ? w : 1));
+  }
+  const sumRaw = raws.reduce((a, b) => a + b, 0);
+  if (sumRaw <= 0) return null;
+  let weighted = 0;
+  let usedWeight = 0;
+  for (let i = 0; i < items.length; i += 1) {
+    const plan = getPlannedProgressPercent(items[i]!, asOf);
+    if (plan === null) continue;
+    const w = (raws[i] ?? 0) / sumRaw;
+    weighted += w * plan;
+    usedWeight += w;
+  }
+  if (usedWeight <= 0) return null;
+  return roundProgress(weighted / usedWeight);
+}
+
 function countWorkStats(items: GPRTask[]): {
   workTotal: number;
   workCompleted: number;
@@ -161,7 +185,12 @@ export function computeGprStageCompletionInsight(
     statsSet = [rootTask];
   }
 
-  const planPercent = getPlannedProgressPercent(rootTask, asOf);
+  const planPercent =
+    source === "leaf_rollup"
+      ? weightedPlanPercent(leaves, asOf)
+      : source === "descendant_rollup"
+        ? weightedPlanPercent(descendants, asOf)
+        : getPlannedProgressPercent(rootTask, asOf);
   const stats = countWorkStats(statsSet);
   const partial = {
     factPercent,

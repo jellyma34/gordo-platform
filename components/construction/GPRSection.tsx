@@ -220,9 +220,10 @@ export function GPRSection({
       <ConstructionEditErrorBoundary>
         <GPRAnalytics
           tasks={taskList.filter((t) => !t.missingFromImport)}
+          allTasks={Array.isArray(allGprTasks) ? allGprTasks : taskList}
           mode="view"
           activePartScope={activePartScope}
-          planFactDataSource="kvartaly"
+          planFactDataSource="tasks"
           reportDate={reportDate}
         />
       </ConstructionEditErrorBoundary>

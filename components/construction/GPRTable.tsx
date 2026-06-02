@@ -530,15 +530,19 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
       if (!file || !onReplaceAllGprTasks) return;
       try {
         const text = await readCsvFileTextSmart(file);
-        const { tasks: merged, stats } = mergeGprTasksFromReportCsv(allTasks, text);
+        const { tasks: merged, stats } = mergeGprTasksFromReportCsv(allTasks, text, {
+          forcedPartId: activePartId,
+        });
         console.log("[GPR CSV import]", {
           csvPapaRowCount: stats.csvPapaRowCount,
           parsedRowCount: stats.parsedRowCount,
           finalTasks: merged.length,
         });
         onReplaceAllGprTasks(merged);
+        const importedForPart = stats.updated + stats.added;
+        const sourceLabel = partIdToProjectPartKey(activePartId) === "parking" ? "Автостоянка" : "Жилой дом";
         setCsvImportNotice(
-          `Файл: всего строк ${stats.csvPapaRowCount}, задач из непустых строк ${stats.parsedRowCount} (импорт без слияния, без перезаписи старых данных в памяти).`,
+          `Источник данных: ${sourceLabel}. Загружено задач: ${importedForPart}. CSV строк: ${stats.csvPapaRowCount}, задач: ${stats.parsedRowCount}, обновлено: ${stats.updated}, добавлено: ${stats.added}.`,
         );
       } catch (err) {
         setCsvImportNotice(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
@@ -1023,6 +1027,10 @@ export const GPRTable = forwardRef<GPRTableHandle, GPRTableProps>(function GPRTa
           {csvImportNotice ? (
             <p className="text-xs leading-snug text-slate-600">{csvImportNotice}</p>
           ) : null}
+          <p className="text-xs leading-snug text-slate-500">
+            Источник данных: {partIdToProjectPartKey(activePartId) === "parking" ? "Автостоянка" : "Жилой дом"} ·
+            Загружено задач: {draftTasks.length}
+          </p>
         </div>
 
         <div className="relative">

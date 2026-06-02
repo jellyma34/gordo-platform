@@ -15,6 +15,8 @@ import {
   getStatusByDeviation,
   getStatusByGprProgressDelta,
   gprTaskScheduleDeviationDisplayDays,
+  gprWbsLevelFromCode,
+  matchesGprCodeBranch,
   normalizeGprCodeFinal,
   partIdToProjectPartKey,
   planFactEndDeviationDays,
@@ -97,6 +99,12 @@ import {
   computeGprStageFactCompletionPercent,
   computeGprStageCompletionInsight,
 } from "@/lib/gprStageCompletion";
+import {
+  aggregateRootCodesForPart,
+  DEFAULT_AGGREGATE_ROOT_CODES_PROJECT,
+  findGprCsvRootTask,
+  resolveStageCardRootTasks,
+} from "@/lib/gprAggregateRoots";
 import { buildGprScheduleDeviationInsight } from "@/lib/gprScheduleDeviationInsight";
 import {
   CartesianGrid,
@@ -368,13 +376,19 @@ const COLORS = {
 const STATUS_DISTRIBUTION_RISK_EXPLANATION =
   "Процент риска рассчитывается на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический.";
 
-/** Корневые этапы для агрегата и порядка карточек по части проекта. */
+/** Временная диагностика источника данных виджетов ГПР (консоль + панель). */
+const SHOW_GPR_SCOPE_DEBUG =
+  process.env.NEXT_PUBLIC_GPR_PARKING_DEBUG === "1" ||
+  process.env.NEXT_PUBLIC_GPR_SCOPE_DEBUG === "1" ||
+  process.env.NODE_ENV === "development";
+
+/** Корневые этапы для агрегата и порядка карточек по части проекта (значения по умолчанию). */
 const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
   residential: ["2.04", "2.05"],
   parking: ["2.06", "2.07"],
 };
 
-const AGGREGATE_ROOT_CODES_PROJECT: readonly string[] = ["2.04", "2.05", "2.06", "2.07"];
+const AGGREGATE_ROOT_CODES_PROJECT = DEFAULT_AGGREGATE_ROOT_CODES_PROJECT;
 
 const PART_SHORT_TITLE: Record<ProjectPartKey, string> = {
   residential: "Жилой дом",
@@ -1442,6 +1456,58 @@ function resolveAggregateRawWeight(
   return { raw: 0, basis: "imputedUnit", imputation: "unitForMissingSource" };
 }
 
+function tasksUnderRootCode(taskList: GPRTask[], rootCode: string): GPRTask[] {
+  const root = normalizeGprCodeFinal(rootCode);
+  if (!root) return [];
+  return taskList.filter((t) => {
+    const c = normalizeGprCodeFinal(t.code);
+    return c.startsWith(`${root}.`);
+  });
+}
+
+function isLeafAmong(task: GPRTask, group: GPRTask[]): boolean {
+  const nc = normalizeGprCodeFinal(task.code);
+  if (!nc) return false;
+  return !group.some((t) => {
+    const oc = normalizeGprCodeFinal(t.code);
+    return oc !== nc && oc.startsWith(`${nc}.`);
+  });
+}
+
+/**
+ * Если у корневой строки нет собственного веса, пробуем агрегировать его по дочерним листьям.
+ * Приоритет базы такой же, как у платформы: объём → стоимость → длительность.
+ */
+function aggregateRootWeightFromDescendantLeaves(
+  taskList: GPRTask[],
+  rootTask: GPRTask,
+): { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] } | null {
+  const descendants = tasksUnderRootCode(taskList, rootTask.code);
+  if (descendants.length === 0) return null;
+  const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+  const base = leaves.length > 0 ? leaves : descendants;
+
+  const sumVol = base.reduce((acc, t) => {
+    const v = t.plannedWorkVolume;
+    return acc + (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  }, 0);
+  if (sumVol > 0) return { raw: sumVol, basis: "plannedWorkVolume", imputation: "none" };
+
+  const sumCost = base.reduce((acc, t) => {
+    const c = t.contractValue;
+    return acc + (typeof c === "number" && Number.isFinite(c) && c > 0 ? c : 0);
+  }, 0);
+  if (sumCost > 0) return { raw: sumCost, basis: "contractValue", imputation: "none" };
+
+  const sumPlanD = base.reduce((acc, t) => {
+    const d = daysInclusive(t.planStart, t.planEnd);
+    return acc + (d !== null && d > 0 ? d : 0);
+  }, 0);
+  if (sumPlanD > 0) return { raw: sumPlanD, basis: "planDuration", imputation: "none" };
+
+  return null;
+}
+
 /**
  * Общий % по части: sum_i(progress_i × w_i), где w_i нормированы к 1.
  * Вес: plannedWorkVolume → contractValue → длительность плана; при нуле — явная догрузка 1, при полном нуле — 1/n.
@@ -1494,6 +1560,7 @@ function computePartAggregateCore(
     weightShortLabel: string;
     c: number;
     planD: number | null;
+    hasDescendants: boolean;
     rw: { raw: number; basis: AggregateWeightBasis; imputation: AggregateStageBreakdown["imputation"] };
   };
   const rows: Row[] = [];
@@ -1501,11 +1568,7 @@ function computePartAggregateCore(
   for (const code of codes) {
     const codeStr = String(code ?? "").trim();
     if (!codeStr) continue;
-    const t = taskList.find((x) => {
-      const xc = String(x?.code ?? "").trim();
-      const lvl = x?.level ?? xc.split(".").length - 1;
-      return xc === codeStr && lvl === 1;
-    });
+    const t = findGprCsvRootTask(taskList, codeStr);
     if (!t) continue;
     const planD = daysInclusive(t.planStart, t.planEnd);
     const nameSafe = String(t.name ?? t.code ?? "").trim() || codeStr;
@@ -1527,8 +1590,14 @@ function computePartAggregateCore(
             : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
     const c = computeGprStageFactCompletionPercent(taskList, t, asOfSafe);
-    const rw = resolveAggregateRawWeight(t, planD);
-    rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, rw });
+    const descendants = tasksUnderRootCode(taskList, codeStr);
+    const hasDescendants = descendants.length > 0;
+    let rw = resolveAggregateRawWeight(t, planD);
+    if (rw.raw <= 0 && hasDescendants) {
+      const rolled = aggregateRootWeightFromDescendantLeaves(taskList, t);
+      if (rolled) rw = rolled;
+    }
+    rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, hasDescendants, rw });
   }
 
   if (rows.length === 0) {
@@ -1540,13 +1609,23 @@ function computePartAggregateCore(
   if (allZero) {
     raws = raws.map(() => 1);
     for (let i = 0; i < rows.length; i += 1) {
-      rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "equalAll" };
+      if (rows[i]!.hasDescendants) {
+        raws[i] = 0;
+        rows[i]!.rw = { raw: 0, basis: rows[i]!.rw.basis, imputation: rows[i]!.rw.imputation };
+      } else {
+        raws[i] = 1;
+        rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "equalAll" };
+      }
     }
   } else {
     for (let i = 0; i < raws.length; i += 1) {
       if (!Number.isFinite(raws[i]) || raws[i]! <= 0) {
-        raws[i] = 1;
-        rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "unitForMissingSource" };
+        if (rows[i]!.hasDescendants) {
+          raws[i] = 0;
+        } else {
+          raws[i] = 1;
+          rows[i]!.rw = { raw: 1, basis: "imputedUnit", imputation: "unitForMissingSource" };
+        }
       }
     }
   }
@@ -1661,14 +1740,91 @@ function kpiCard({
   );
 }
 
+function GprTopKpiCardLayout({
+  title,
+  leftLabel,
+  leftValue,
+  leftMeta,
+  rightLabel,
+  rightValue,
+  bottomLabel,
+  bottomValue,
+  bottomValueColorClassName,
+  leftValueTitle,
+  progressBarWidth,
+  progressBarColor,
+}: {
+  title: string;
+  leftLabel: string;
+  leftValue: string;
+  leftMeta?: string;
+  rightLabel: string;
+  rightValue: string;
+  bottomLabel: string;
+  bottomValue: string;
+  bottomValueColorClassName?: string;
+  leftValueTitle?: string;
+  progressBarWidth: number;
+  progressBarColor: string;
+}) {
+  return (
+    <div className="grid h-full grid-rows-[auto_1fr_auto_auto] gap-3">
+      <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{title}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+        <div className="min-w-0">
+          <div className="text-xs leading-snug text-[#E6EDF3]/85" title={leftValueTitle}>
+            {leftLabel}
+          </div>
+          <div
+            className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]"
+            title={leftValueTitle}
+          >
+            {leftValue}
+          </div>
+          <div className="mt-0.5 min-h-[0.875rem] text-[10px] leading-snug text-[#E6EDF3]/55">
+            {leftMeta ?? ""}
+          </div>
+        </div>
+        <div className="shrink-0 text-right text-sm text-[#E6EDF3]/85">
+          <div className="text-xs leading-snug text-[#E6EDF3]/70">{rightLabel}</div>
+          <div className="mt-1 text-lg font-semibold tabular-nums leading-none text-[#E6EDF3]">
+            {rightValue}
+          </div>
+        </div>
+      </div>
+      <div className="min-h-[2.5rem] text-right text-sm text-[#E6EDF3]/85">
+        <div className="text-xs leading-snug text-[#E6EDF3]/70">{bottomLabel}</div>
+        <div
+          className={`mt-1 text-lg font-semibold tabular-nums leading-none ${bottomValueColorClassName ?? "text-[#E6EDF3]"}`}
+        >
+          {bottomValue}
+        </div>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-white/10">
+        <div
+          className="h-1.5 rounded-full"
+          style={{
+            width: `${progressBarWidth}%`,
+            backgroundColor: progressBarColor,
+          }}
+          aria-hidden
+        />
+      </div>
+    </div>
+  );
+}
+
 export function GPRAnalytics({
   tasks,
+  allTasks,
   mode,
   activePartScope,
   planFactDataSource = "tasks",
   reportDate,
 }: {
   tasks: GPRTask[];
+  /** Полный список задач проекта (все partId) — для диагностики «всего в БД». */
+  allTasks?: GPRTask[];
   mode: "edit" | "view";
   /** Часть проекта или агрегат «Проект» для графиков и ТМЦ. */
   activePartScope: ConstructionObjectScope;
@@ -1702,39 +1858,65 @@ export function GPRAnalytics({
     [tasks, activePartScope, isProjectWide],
   );
 
+  /** Корневые шифры агрегата с учётом фактической структуры CSV (2.04/2.05 vs 2.06/2.07). */
+  const aggregateRootCodes = useMemo(
+    () =>
+      isProjectWide
+        ? AGGREGATE_ROOT_CODES_PROJECT
+        : aggregateRootCodesForPart(activeProjectPart, tasksForActivePart),
+    [isProjectWide, activeProjectPart, tasksForActivePart],
+  );
+
   /**
-   * Данные только для «План vs факт» и связанной временной шкалы:
-   * на «Жилой дом» — только шифры 2.05* (до суммирования и осей); на «Проект» — полный набор без отсечения по 2.05.
+   * «План vs Факт» по вкладкам объекта — только импорт CSV / БД (`partId`).
+   * Kvartaly допустим только на агрегате «Проект» (если явно задан).
+   */
+  const effectivePlanFactDataSource = useMemo((): "tasks" | "kvartaly" => {
+    if (!isProjectWide) return "tasks";
+    return planFactDataSource;
+  }, [planFactDataSource, isProjectWide]);
+
+  const fullTaskList = useMemo(
+    () => (Array.isArray(allTasks) && allTasks.length > 0 ? allTasks : tasks),
+    [allTasks, tasks],
+  );
+
+  /**
+   * Данные для «План vs факт»: ветки WBS выбранного объекта (2.04/2.05 для ЖД, 2.06/2.07 или 2.04/2.05 для стоянки).
    */
   const tasksForPlanFactAnalytics = useMemo(() => {
-    if (activePartScope !== PROJECT_PART_KEY_TO_ID.residential) {
-      return tasksForActivePart;
+    if (isProjectWide) return tasksForActivePart;
+    if (activePartScope === PROJECT_PART_KEY_TO_ID.residential) {
+      return tasksForActivePart.filter(
+        (t) => matchesGprCodeBranch(t.code, "2.04") || matchesGprCodeBranch(t.code, "2.05"),
+      );
     }
-    return filterZhDomPlanFactTasksTo205Branch(tasksForActivePart);
-  }, [tasksForActivePart, activePartScope]);
+    if (activePartScope === PROJECT_PART_KEY_TO_ID.parking) {
+      return tasksForActivePart.filter(
+        (t) =>
+          matchesGprCodeBranch(t.code, "2.06") ||
+          matchesGprCodeBranch(t.code, "2.07") ||
+          matchesGprCodeBranch(t.code, "2.04") ||
+          matchesGprCodeBranch(t.code, "2.05"),
+      );
+    }
+    return tasksForActivePart;
+  }, [tasksForActivePart, activePartScope, isProjectWide]);
 
   const partProgressAggregate = useMemo(
     () =>
       computePartAggregate(
         tasksForActivePart,
-        isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart],
+        aggregateRootCodes,
         aggregatePartKey,
         gprReportAsOf,
       ),
-    [tasksForActivePart, isProjectWide, activeProjectPart, aggregatePartKey, gprReportAsOf],
+    [tasksForActivePart, aggregateRootCodes, aggregatePartKey, gprReportAsOf],
   );
-  const orderedStageRoots = useMemo(() => {
-    const codes = isProjectWide ? AGGREGATE_ROOT_CODES_PROJECT : AGGREGATE_ROOT_CODES_BY_PART[activeProjectPart];
-    return codes
-      .map((code) =>
-        tasksForActivePart.find(
-          (t) =>
-            normalizeGprCodeFinal(t.code) === normalizeGprCodeFinal(code) &&
-            (t.level ?? normalizeGprCodeFinal(t.code).split(".").length - 1) === 1,
-        ),
-      )
-      .filter((t): t is GPRTask => t != null);
-  }, [tasksForActivePart, isProjectWide, activeProjectPart]);
+  const orderedStageRoots = useMemo(
+    () => resolveStageCardRootTasks(tasksForActivePart, aggregateRootCodes),
+    [tasksForActivePart, aggregateRootCodes],
+  );
 
   /** Реестр ТМЦ из `tmc_${projectId}` / legacy + seed; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
@@ -1761,8 +1943,10 @@ export function GPRAnalytics({
   const flatTasks = flattenTasks(tasksForActivePart);
   const kvartalyAllFlat = useMemo(
     () =>
-      planFactDataSource === "kvartaly" ? flattenTasks(kvartalyRowsToGprTasksForAllParts()) : [],
-    [planFactDataSource],
+      effectivePlanFactDataSource === "kvartaly"
+        ? flattenTasks(kvartalyRowsToGprTasksForAllParts())
+        : [],
+    [effectivePlanFactDataSource],
   );
   const residentialKvartalyTasks = useMemo(() => {
     const partResidential = kvartalyAllFlat.filter((t) => t.partId === PROJECT_PART_KEY_TO_ID.residential);
@@ -1806,20 +1990,20 @@ export function GPRAnalytics({
   }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {
-    if (planFactDataSource !== "kvartaly") return [];
+    if (effectivePlanFactDataSource !== "kvartaly") return [];
     if (planFactKvartalyGranularity === "aggregated") {
       return aggregateToMainProcesses(residentialKvartalyTasks);
     }
     return residentialKvartalyTasks;
-  }, [planFactDataSource, planFactKvartalyGranularity, residentialKvartalyTasks]);
+  }, [effectivePlanFactDataSource, planFactKvartalyGranularity, residentialKvartalyTasks]);
 
   const parkingKvartalyForChart = useMemo(() => {
-    if (planFactDataSource !== "kvartaly") return [];
+    if (effectivePlanFactDataSource !== "kvartaly") return [];
     if (planFactKvartalyGranularity === "aggregated") {
       return aggregateToMainProcesses(parkingKvartalyTasks);
     }
     return parkingKvartalyTasks;
-  }, [planFactDataSource, planFactKvartalyGranularity, parkingKvartalyTasks]);
+  }, [effectivePlanFactDataSource, planFactKvartalyGranularity, parkingKvartalyTasks]);
 
   const projectKvartalyForChart = useMemo(
     () => [...residentialKvartalyForChart, ...parkingKvartalyForChart],
@@ -1827,7 +2011,7 @@ export function GPRAnalytics({
   );
 
   const planFactFlatTasks = useMemo(() => {
-    if (planFactDataSource === "kvartaly") {
+    if (effectivePlanFactDataSource === "kvartaly") {
       if (isProjectWide) {
         return projectKvartalyForChart;
       }
@@ -1835,9 +2019,11 @@ export function GPRAnalytics({
         ? parkingKvartalyForChart
         : residentialKvartalyForChart;
     }
-    return flattenTasks(tasksForPlanFactAnalytics);
+    return flattenTasks(tasksForPlanFactAnalytics).filter(
+      (t) => isProjectWide || t.partId === activePartScope,
+    );
   }, [
-    planFactDataSource,
+    effectivePlanFactDataSource,
     isProjectWide,
     activePartScope,
     projectKvartalyForChart,
@@ -1856,18 +2042,18 @@ export function GPRAnalytics({
   }, [activePartScope, isProjectWide, tenderRevision]);
 
   const planFactFilteredTasks = useMemo(() => {
-    if (planFactDataSource === "kvartaly") return planFactFlatTasks;
+    if (effectivePlanFactDataSource === "kvartaly") return planFactFlatTasks;
     const args = periodFilterToArgs(planFactFilter);
     if (!args) return planFactFlatTasks;
     return filterByPeriod(planFactFlatTasks, args.filterType, args.value);
-  }, [planFactDataSource, planFactFlatTasks, planFactFilter]);
+  }, [effectivePlanFactDataSource, planFactFlatTasks, planFactFilter]);
 
   const quarterlyBucketsAll = useMemo((): QuarterlyAggregateBucket[] => {
-    if (planFactDataSource !== "kvartaly") return [];
+    if (effectivePlanFactDataSource !== "kvartaly") return [];
     return computeQuarterlyAggregatesFromTasks(planFactFlatTasks);
-  }, [planFactDataSource, planFactFlatTasks]);
+  }, [effectivePlanFactDataSource, planFactFlatTasks]);
 
-  const kvartalyGanttEnabled = planFactDataSource === "kvartaly";
+  const kvartalyGanttEnabled = effectivePlanFactDataSource === "kvartaly";
   const mRes = useKvartalyGanttModel(
     residentialKvartalyForChart,
     planFactFilter,
@@ -1901,15 +2087,15 @@ export function GPRAnalytics({
   /** Плановая дата окончания (часть проекта) — одна строка, без сравнений. */
   const planFactPlannedEndLine = useMemo(() => {
     const b =
-      planFactDataSource === "kvartaly"
+      effectivePlanFactDataSource === "kvartaly"
         ? aggregateWorksToProjectPlanFactBounds(planFactFlatTasks)
         : aggregateWorksToProjectPlanFactBounds(tasksForPlanFactAnalytics);
     if (!b?.planEnd) return null;
     return formatPlanEndMonthYearOnly(b.planEnd);
-  }, [planFactDataSource, planFactFlatTasks, tasksForPlanFactAnalytics]);
+  }, [effectivePlanFactDataSource, planFactFlatTasks, tasksForPlanFactAnalytics]);
 
   const planFactWorkTypeChartModel = useMemo(() => {
-    if (planFactDataSource !== "tasks") return null;
+    if (effectivePlanFactDataSource !== "tasks") return null;
     const workTypePart = isProjectWide ? "project" : activeProjectPart;
     return buildPlanFactWorkTypeChartModel(
       planFactFilteredTasks,
@@ -1918,7 +2104,7 @@ export function GPRAnalytics({
       planFactTasksBarLevel,
     );
   }, [
-    planFactDataSource,
+    effectivePlanFactDataSource,
     planFactFilteredTasks,
     isProjectWide,
     activeProjectPart,
@@ -1926,14 +2112,13 @@ export function GPRAnalytics({
     planFactTasksBarLevel,
   ]);
 
-  const showPlanFactTasksBarLevel =
-    planFactDataSource === "tasks" && (isProjectWide || activeProjectPart === "residential");
+  const showPlanFactTasksBarLevel = effectivePlanFactDataSource === "tasks";
 
   const planFactTasksChartHeightPx = useMemo(() => {
-    if (planFactDataSource !== "tasks" || !planFactWorkTypeChartModel) return null;
+    if (effectivePlanFactDataSource !== "tasks" || !planFactWorkTypeChartModel) return null;
     const n = planFactWorkTypeChartModel.labels.length;
     return Math.min(1200, Math.max(280, n * 22 + 140));
-  }, [planFactDataSource, planFactWorkTypeChartModel]);
+  }, [effectivePlanFactDataSource, planFactWorkTypeChartModel]);
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
@@ -1944,6 +2129,102 @@ export function GPRAnalytics({
     for (const r of rows) counts[r.status] += 1;
     return { counts, rows };
   }, [flatTasks, gprReportAsOf]);
+
+  const parkingGprDebug = useMemo(() => {
+    if (!SHOW_GPR_SCOPE_DEBUG) return null;
+
+    const dbTasksForScope = isProjectWide
+      ? fullTaskList.filter((t) => !t.missingFromImport)
+      : fullTaskList.filter((t) => t.partId === activePartScope && !t.missingFromImport);
+
+    const wrongPartInPlanFact = isProjectWide
+      ? 0
+      : planFactFilteredTasks.filter((t) => t.partId !== activePartScope).length;
+
+    const cardRootCodes = new Set(orderedStageRoots.map((t) => normalizeGprCodeFinal(t.code)));
+
+    const gprParticipantIds = new Set<string>();
+    for (const code of aggregateRootCodes) {
+      const root = findGprCsvRootTask(tasksForActivePart, code);
+      if (!root) continue;
+      gprParticipantIds.add(root.id);
+      const norm = normalizeGprCodeFinal(code);
+      for (const t of tasksForActivePart) {
+        const c = normalizeGprCodeFinal(t.code);
+        if (c === norm || c.startsWith(`${norm}.`)) gprParticipantIds.add(t.id);
+      }
+    }
+
+    const wbsSamples = planFactFilteredTasks.slice(0, 12).map((t) => ({
+      code: normalizeGprCodeFinal(t.code),
+      wbsLevel: gprWbsLevelFromCode(t.code, t.level),
+      partId: t.partId,
+      objectSource: t.objectType?.slice(0, 40) ?? `partId=${t.partId}`,
+      inTopCards: cardRootCodes.has(normalizeGprCodeFinal(t.code)),
+    }));
+
+    let activeTasks = 0;
+    let completedTasks = 0;
+    for (const t of flatTasks) {
+      const c = t.completion ?? 0;
+      if (t.factStart?.trim() || c > 0) activeTasks += 1;
+      if (t.factEnd?.trim() || c >= 100) completedTasks += 1;
+    }
+
+    const sourceLabel = isProjectWide ? "partId=1+2 (Проект)" : `partId=${activePartScope}`;
+
+    return {
+      activeTab: activePartLabel,
+      totalInDb: dbTasksForScope.length,
+      usedInWidgets: tasksForActivePart.length,
+      usedInPlanFact: planFactFilteredTasks.length,
+      usedInGpr: gprParticipantIds.size,
+      usedInStatus: flatTasks.length,
+      sourceLabel,
+      planFactSource: effectivePlanFactDataSource,
+      wrongPartInPlanFact,
+      activeTasks,
+      completedTasks,
+      calculatedPercent: partProgressAggregate.totalPercent,
+      aggregateCodes: aggregateRootCodes.join(", "),
+      resolvedRoots: orderedStageRoots.length,
+      cardRootCodes: [...cardRootCodes],
+      barLevel: planFactTasksBarLevel,
+      wbsSamples,
+    };
+  }, [
+    activePartLabel,
+    isProjectWide,
+    activePartScope,
+    fullTaskList,
+    planFactFilteredTasks,
+    tasksForActivePart,
+    aggregateRootCodes,
+    flatTasks,
+    effectivePlanFactDataSource,
+    partProgressAggregate.totalPercent,
+    orderedStageRoots,
+    planFactTasksBarLevel,
+  ]);
+
+  useEffect(() => {
+    if (!parkingGprDebug) return;
+    const d = parkingGprDebug;
+    const lines = [
+      `Активная вкладка: ${d.activeTab}`,
+      `Всего задач в БД: ${d.totalInDb}`,
+      `Использовано в План vs Факт: ${d.usedInPlanFact}`,
+      `Использовано в виджетах (статусы/ГПР): ${d.usedInWidgets}`,
+      `Источник: ${d.sourceLabel}`,
+      `Источник План vs Факт: ${d.planFactSource}`,
+    ];
+    if (d.wrongPartInPlanFact > 0) {
+      lines.push(`⚠ Чужих partId в План vs Факт: ${d.wrongPartInPlanFact}`);
+    }
+    lines.push(`Режим WBS: ${d.barLevel}`);
+    lines.push(`Корни карточек: ${d.cardRootCodes.join(", ") || "—"}`);
+    console.info(`[GPR scope debug]\n${lines.join("\n")}`, d);
+  }, [parkingGprDebug]);
 
   const {
     totalPercent: aggTotalPercent,
@@ -2322,6 +2603,8 @@ export function GPRAnalytics({
     aggTotalDeviation !== null && aggTotalDeviation > 0
       ? Math.round(aggTotalDeviation)
       : null;
+  const aggregateDeviationUi =
+    aggTotalDeviation === null ? null : getStatusByGprProgressDelta(aggTotalDeviation);
   const aggregateProblemsList = [
     aggregateProblemSignals.notPurchased ? "Не закуплен материал (из ТМЦ)" : null,
     aggregateLagDaysRounded !== null
@@ -2334,41 +2617,34 @@ export function GPRAnalytics({
   ].filter((x): x is string => x != null);
 
   const aggregateProgressCardMain = (
-    <div>
-      <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">
-        {PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-xs leading-snug text-[#E6EDF3]/85" title={AGGREGATE_PROGRESS_TOOLTIP}>
-            Выполнение ГПР
-          </div>
-          <div className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]">
-            {aggregateTotalProgressUi.display}
-          </div>
-        </div>
-        <div className="max-w-[min(100%,11rem)] shrink-0 text-right text-sm text-[#E6EDF3]/85 sm:max-w-none">
-          <div className="text-[11px] leading-snug text-[#E6EDF3]/70" title={AGGREGATE_STAGE_CONTRIBUTION_TOOLTIP}>
-            По этапам
-          </div>
-          <div className="mt-1 text-base font-semibold tabular-nums leading-none text-[#E6EDF3]">
-            {aggregateStagesKpiLine}
-          </div>
-        </div>
-      </div>
-      <div className="mt-3">
-        <div className="h-1.5 w-full rounded-full bg-white/10">
-          <div
-            className="h-1.5 rounded-full"
-            style={{
-              width: `${aggregateTotalProgressUi.widthPct}%`,
-              backgroundColor: accentAgg,
-            }}
-            aria-hidden
-          />
-        </div>
-      </div>
-    </div>
+    <GprTopKpiCardLayout
+      title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
+      leftLabel="Выполнение ГПР"
+      leftValue={aggregateTotalProgressUi.display}
+      leftMeta=""
+      rightLabel="По этапам"
+      rightValue={aggregateStagesKpiLine}
+      bottomLabel="Отклонение готовности, п.п."
+      bottomValue={
+        aggTotalDeviation === null
+          ? "—"
+          : `${aggTotalDeviation > 0 ? "+" : aggTotalDeviation < 0 ? "−" : ""}${Math.abs(
+              Math.round(aggTotalDeviation * 10) / 10,
+            )}%`
+      }
+      bottomValueColorClassName={
+        aggregateDeviationUi === null
+          ? "text-slate-400"
+          : aggregateDeviationUi === "green"
+            ? "text-emerald-400"
+            : aggregateDeviationUi === "yellow"
+              ? "text-amber-300"
+              : "text-rose-400"
+      }
+      leftValueTitle={AGGREGATE_PROGRESS_TOOLTIP}
+      progressBarWidth={aggregateTotalProgressUi.widthPct}
+      progressBarColor={accentAgg}
+    />
   );
 
   if (mode === "edit") {
@@ -2403,34 +2679,101 @@ export function GPRAnalytics({
 
   return (
     <section className="min-w-0 space-y-4 overflow-x-clip">
+      {parkingGprDebug ? (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-xs text-amber-100/90">
+          <p className="font-semibold text-amber-200">Debug · {parkingGprDebug.activeTab}</p>
+          <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            <p>Активная вкладка: {parkingGprDebug.activeTab}</p>
+            <p>Всего задач в БД: {parkingGprDebug.totalInDb}</p>
+            <p>Использовано в План vs Факт: {parkingGprDebug.usedInPlanFact}</p>
+            <p>Использовано в виджетах (статусы/ГПР): {parkingGprDebug.usedInWidgets}</p>
+            <p>Источник: {parkingGprDebug.sourceLabel}</p>
+            <p>Источник План vs Факт: {parkingGprDebug.planFactSource}</p>
+            <p>Использовано в ГПР (rollup): {parkingGprDebug.usedInGpr}</p>
+            <p>Использовано в статусах: {parkingGprDebug.usedInStatus}</p>
+            <p>
+              Рассчитанный %:{" "}
+              {parkingGprDebug.calculatedPercent === null
+                ? "—"
+                : `${parkingGprDebug.calculatedPercent}%`}
+            </p>
+            {parkingGprDebug.wrongPartInPlanFact > 0 ? (
+              <p className="text-red-300">
+                Чужих partId в План vs Факт: {parkingGprDebug.wrongPartInPlanFact}
+              </p>
+            ) : null}
+            <p>Режим WBS: {parkingGprDebug.barLevel}</p>
+            <p>Корни карточек: {parkingGprDebug.cardRootCodes.join(", ") || "—"}</p>
+          </div>
+          {parkingGprDebug.wbsSamples.length > 0 ? (
+            <div className="mt-3 overflow-x-auto">
+              <p className="mb-1 font-medium text-amber-200/90">WBS · План vs Факт (первые строки)</p>
+              <table className="w-full min-w-[480px] text-left text-[10px]">
+                <thead>
+                  <tr className="text-amber-200/70">
+                    <th className="pr-2">Уровень</th>
+                    <th className="pr-2">Код</th>
+                    <th className="pr-2">partId</th>
+                    <th className="pr-2">Объект</th>
+                    <th>Карточка</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parkingGprDebug.wbsSamples.map((row) => (
+                    <tr key={`${row.code}-${row.partId}`} className="border-t border-amber-500/20">
+                      <td className="py-0.5 pr-2 tabular-nums">{row.wbsLevel}</td>
+                      <td className="py-0.5 pr-2 font-mono">{row.code}</td>
+                      <td className="py-0.5 pr-2 tabular-nums">{row.partId}</td>
+                      <td className="py-0.5 pr-2">{row.objectSource}</td>
+                      <td className="py-0.5">{row.inTopCards ? "да" : "нет"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
-          const deviation = calculateDeviation(task, gprReportAsOf);
+          const plannedPercent = stageInsight.planPercent;
+          const progressDeltaPp =
+            plannedPercent === null ? null : Math.round((stageInsight.factPercent - plannedPercent) * 10) / 10;
           const deviationLabel =
-            deviation === null
+            progressDeltaPp === null
               ? "—"
-              : deviation < 0
-                ? `−${Math.abs(deviation)}`
-                : deviation > 0
-                  ? `+${deviation}`
+              : progressDeltaPp < 0
+                ? `−${Math.abs(progressDeltaPp)}`
+                : progressDeltaPp > 0
+                  ? `+${progressDeltaPp}`
                   : "0";
           const progressClamped = Math.max(
             0,
             Math.min(100, Math.round(stageInsight.factPercent * 10) / 10),
           );
+          const planClamped =
+            plannedPercent === null
+              ? null
+              : Math.max(0, Math.min(100, Math.round(plannedPercent * 10) / 10));
           const progressDisplay =
             Math.abs(progressClamped - Math.round(progressClamped)) < 1e-6
               ? `${Math.round(progressClamped)}%`
               : `${progressClamped.toFixed(1)}%`;
+          const planDisplay =
+            planClamped === null
+              ? "—"
+              : Math.abs(planClamped - Math.round(planClamped)) < 1e-6
+                ? `${Math.round(planClamped)}%`
+                : `${planClamped.toFixed(1)}%`;
           const isNoData =
             progressClamped === 0 &&
             stageInsight.workInProgress === 0 &&
             stageInsight.workCompleted === 0 &&
             stageInsight.workWithFactDates === 0;
-          const deviationUi = deviation === null ? null : getStatusByGprProgressDelta(deviation);
+          const deviationUi = progressDeltaPp === null ? null : getStatusByGprProgressDelta(progressDeltaPp);
           const status: Traffic =
-            isNoData || deviation === null ? "gray" : (deviationUi as Traffic);
+            isNoData || progressDeltaPp === null ? "gray" : (deviationUi as Traffic);
           const accent =
             status === "green"
               ? COLORS.green
@@ -2447,63 +2790,34 @@ export function GPRAnalytics({
               data-traffic-card={status}
               className="top-card card relative w-full overflow-hidden p-4"
             >
-              <div>
-                <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{task.name}</div>
-                <div className="mt-2 flex items-end justify-between gap-4">
-                  <div className="min-w-0">
-                    <div
-                      className="text-xs leading-snug text-[#E6EDF3]/85"
-                      title={stageInsight.tooltipText}
-                    >
-                      Факт выполнения
-                    </div>
-                    <div
-                      className="mt-1 text-[30px] font-bold tabular-nums leading-none text-[#E6EDF3]"
-                      title={stageInsight.tooltipText}
-                    >
-                      {isNoData ? "—" : progressDisplay}
-                    </div>
-                    <div className="mt-0.5 text-[10px] leading-snug text-[#E6EDF3]/55">
-                      {stageInsight.source === "root_field"
-                        ? "корневая работа"
-                        : stageInsight.source === "leaf_rollup"
-                          ? "по листьям WBS"
-                          : "по дочерним работам"}
-                    </div>
-                  </div>
-                  <div className="text-right text-sm text-[#E6EDF3]/85">
-                    <div className="text-xs text-[#E6EDF3]/70">Отклонение готовности, %</div>
-                    <div
-                      className="mt-1 text-lg font-semibold tabular-nums"
-                      style={{
-                        color:
-                          deviationUi === null
-                            ? COLORS.gray
-                            : deviationUi === "green"
-                              ? COLORS.green
-                              : deviationUi === "yellow"
-                                ? COLORS.yellow
-                                : COLORS.red,
-                      }}
-                    >
-                      {deviationLabel}%
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <div className="h-1.5 w-full rounded-full bg-white/10">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{
-                        width: `${progressBarWidth}%`,
-                        backgroundColor: accent,
-                      }}
-                      aria-hidden
-                    />
-                  </div>
-                </div>
-              </div>
+              <GprTopKpiCardLayout
+                title={task.name}
+                leftLabel="Факт выполнения"
+                leftValue={isNoData ? "—" : progressDisplay}
+                leftMeta={
+                  stageInsight.source === "root_field"
+                    ? "корневая работа"
+                    : stageInsight.source === "leaf_rollup"
+                      ? "по листьям WBS"
+                      : "по дочерним работам"
+                }
+                rightLabel="Плановая готовность"
+                rightValue={planDisplay}
+                bottomLabel="Отклонение готовности, п.п."
+                bottomValue={`${deviationLabel}%`}
+                bottomValueColorClassName={
+                  deviationUi === null
+                    ? "text-slate-400"
+                    : deviationUi === "green"
+                      ? "text-emerald-400"
+                      : deviationUi === "yellow"
+                        ? "text-amber-300"
+                        : "text-rose-400"
+                }
+                leftValueTitle={stageInsight.tooltipText}
+                progressBarWidth={progressBarWidth}
+                progressBarColor={accent}
+              />
             </div>
           );
         })}
@@ -2640,12 +2954,13 @@ export function GPRAnalytics({
                   onChange={(e) => setPlanFactTasksBarLevel(e.target.value as PlanFactTasksBarLevel)}
                   className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
                 >
-                  <option value="detailed">Детально (только конечные задачи)</option>
-                  <option value="summary">Сводно (только 2.05.XX)</option>
+                  <option value="simplified">Упрощённо (2.04 / 2.05)</option>
+                  <option value="detailed">Детально (2.05.XX / 2.04.XX)</option>
+                  <option value="full">Полная детализация (листья WBS)</option>
                 </select>
               </label>
             ) : null}
-            {planFactDataSource === "kvartaly" ? (
+            {effectivePlanFactDataSource === "kvartaly" ? (
               <label className="flex min-w-[170px] flex-col gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
                 <select
@@ -2703,7 +3018,7 @@ export function GPRAnalytics({
                 className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
               >
                 <option value="all">Все</option>
-                {planFactDataSource === "kvartaly"
+                {effectivePlanFactDataSource === "kvartaly"
                   ? [
                       ...timelineYearsAvailable.map((y) => (
                         <option key={`year-${y}`} value={`year:${y}`}>
@@ -2732,18 +3047,18 @@ export function GPRAnalytics({
             </label>
           </div>
 
-          {planFactDataSource === "kvartaly" && planFactFilter.filterType === "year" ? (
+          {effectivePlanFactDataSource === "kvartaly" && planFactFilter.filterType === "year" ? (
             <p className="mt-3 text-xs font-medium text-slate-400">
               Окно: {planFactFilter.value} год. Показаны работы, чей план пересекается с годом; полосы обрезаны по
               границам года.
             </p>
           ) : null}
-          {planFactDataSource === "kvartaly" && planFactFilter.filterType === "timelineQuarter" ? (
+          {effectivePlanFactDataSource === "kvartaly" && planFactFilter.filterType === "timelineQuarter" ? (
             <p className="mt-3 text-xs font-medium text-slate-400">
               Окно: квартал {formatQuarterDisplayLabel(planFactFilter.key)}. Работы с планом, пересекающим квартал.
             </p>
           ) : null}
-          {planFactDataSource === "tasks" && planFactFilter.filterType !== "all" ? (
+          {effectivePlanFactDataSource === "tasks" && planFactFilter.filterType !== "all" ? (
             <p className="mt-3 text-xs font-medium text-slate-400">
               Показаны работы, пересекающие выбранный период
             </p>
@@ -2751,7 +3066,7 @@ export function GPRAnalytics({
 
           <div
             className={`mt-4 w-full min-w-0 ${
-              planFactDataSource === "kvartaly"
+              effectivePlanFactDataSource === "kvartaly"
                 ? "overflow-hidden"
                 : planFactTasksChartHeightPx != null
                   ? "max-h-[min(85vh,1200px)] overflow-x-hidden overflow-y-auto"
@@ -2763,7 +3078,7 @@ export function GPRAnalytics({
                 : undefined
             }
           >
-            {planFactDataSource === "kvartaly" ? (
+            {effectivePlanFactDataSource === "kvartaly" ? (
               kvartalyAllFlat.length === 0 ? (
                 <div className="flex min-h-[280px] w-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
                   Нет строк в kvartaly_gpr_quarterly.json с корректными плановыми датами.

@@ -106,3 +106,23 @@ export function diffTendersImport(
     },
   };
 }
+
+/**
+ * Импорт с сохранением другой части проекта: если все строки CSV относятся к одному `partId`,
+ * заменяется только эта часть; остальные тендеры в реестре не удаляются.
+ */
+export function diffTendersImportScoped(
+  oldData: Tender[],
+  newData: Tender[],
+  parsedCsvRowCount?: number,
+): { result: Tender[]; stats: TenderImportDiffStats } {
+  const partIds = new Set(newData.map((t) => t.partId));
+  if (partIds.size === 1 && newData.length > 0) {
+    const partId = [...partIds][0]!;
+    const rest = oldData.filter((t) => t.partId !== partId);
+    const scopedOld = oldData.filter((t) => t.partId === partId);
+    const { result: scopedResult, stats } = diffTendersImport(scopedOld, newData, parsedCsvRowCount);
+    return { result: [...rest, ...scopedResult], stats };
+  }
+  return diffTendersImport(oldData, newData, parsedCsvRowCount);
+}

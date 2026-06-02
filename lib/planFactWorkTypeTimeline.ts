@@ -2,6 +2,7 @@ import {
   compareGprCodesByNumericPath,
   gprPlanFactCompositeKey,
   gprPlanFactScopeFromTask,
+  gprWbsLevelFromCode,
   matchesGprCodeBranch,
   normalizeGprCodeFinal,
   parseDateSafe,
@@ -37,6 +38,20 @@ export function formatPlanFactGridMonthLabel(d: Date): string {
   return `${RU_MONTH_SHORT[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
 }
 
+/**
+ * Подпись строки диаграммы «План vs Факт»: только шифр и «Этап работ» из CSV.
+ * @example `2.05.01 — Земляные работы`
+ */
+export function formatGprPlanFactBarLabel(code: string, stageName: string): string {
+  const codeDisp = normalizeGprCodeFinal(code);
+  const stage = String(stageName ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!codeDisp) return stage || "—";
+  if (!stage) return codeDisp;
+  return `${codeDisp} — ${stage}`;
+}
+
 /** «Плановая дата окончания» — только месяц и год, без дня. */
 export function formatPlanEndMonthYearOnly(iso: string): string {
   const d = new Date(`${iso.trim()}T12:00:00`);
@@ -52,6 +67,7 @@ const WORK_TYPE_GROUPS: Record<
     { key: "build", label: "Строительство", match: (c) => normalizeGprCodeFinal(c).startsWith("2.05") },
   ],
   parking: [
+    { key: "build", label: "Строительство", match: (c) => matchesGprCodeBranch(c, "2.05") },
     { key: "net", label: "Инженерные сети", match: (c) => matchesGprCodeBranch(c, "2.06") },
     { key: "improve", label: "Благоустройство", match: (c) => matchesGprCodeBranch(c, "2.07") },
   ],
@@ -111,6 +127,94 @@ function isoDayMs(iso: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
+function minIsoDate(isos: (string | null | undefined)[]): string | null {
+  let best: string | null = null;
+  let bestMs = Infinity;
+  for (const raw of isos) {
+    const iso = parseDateSafe(raw ?? undefined);
+    if (!iso) continue;
+    const ms = isoDayMs(iso);
+    if (ms == null || ms >= bestMs) continue;
+    bestMs = ms;
+    best = iso;
+  }
+  return best;
+}
+
+function maxIsoDate(isos: (string | null | undefined)[]): string | null {
+  let best: string | null = null;
+  let bestMs = -Infinity;
+  for (const raw of isos) {
+    const iso = parseDateSafe(raw ?? undefined);
+    if (!iso) continue;
+    const ms = isoDayMs(iso);
+    if (ms == null || ms <= bestMs) continue;
+    bestMs = ms;
+    best = iso;
+  }
+  return best;
+}
+
+export type PlanFactBarSchedule = {
+  planStart: string | null;
+  planEnd: string | null;
+  factStart: string | null;
+  factEnd: string | null;
+};
+
+/** Все работы ветки `root` / `root.*` в той же секции объекта, что и строка диаграммы. */
+export function collectPlanFactBranchTasks(rowTask: GPRTask, allTasks: GPRTask[]): GPRTask[] {
+  const root = normalizeGprCodeFinal(rowTask.code);
+  if (!root) return [rowTask];
+  const partition = planFactBarPartitionKey(rowTask);
+  const prefix = `${root}.`;
+  return allTasks.filter((t) => {
+    if (planFactBarPartitionKey(t) !== partition) return false;
+    const c = normalizeGprCodeFinal(t.code);
+    return c === root || c.startsWith(prefix);
+  });
+}
+
+/**
+ * Сроки агрегированной строки «План vs Факт» по дочерним работам ветки.
+ * План: MIN(plan_start), MAX(plan_end); факт: MIN(fact_start), MAX(fact_end) с продлением до today.
+ */
+export function aggregatePlanFactBranchSchedule(
+  branchTasks: GPRTask[],
+  todayIso: string,
+): PlanFactBarSchedule | null {
+  if (branchTasks.length === 0) return null;
+  const planStart = minIsoDate(branchTasks.map((t) => t.planStart));
+  const planEnd = maxIsoDate(branchTasks.map((t) => t.planEnd));
+  if (!planStart || !planEnd) return null;
+  const psm = isoDayMs(planStart);
+  const pem = isoDayMs(planEnd);
+  if (psm == null || pem == null || pem < psm) return null;
+  const factStart = minIsoDate(branchTasks.map((t) => t.factStart));
+  const factEnd = resolvePlanFactGroupChartFactEnd(branchTasks, todayIso);
+  return { planStart, planEnd, factStart, factEnd };
+}
+
+function resolvePlanFactBarRowSchedule(
+  rowTask: GPRTask,
+  allTasks: GPRTask[],
+  todayIso: string,
+  barLevel: PlanFactTasksBarLevel,
+): PlanFactBarSchedule | null {
+  if (barLevel === "full") {
+    const planStart = parseDateSafe(rowTask.planStart);
+    const planEnd = parseDateSafe(rowTask.planEnd);
+    if (!planStart || !planEnd) return null;
+    return {
+      planStart,
+      planEnd,
+      factStart: parseDateSafe(rowTask.factStart),
+      factEnd: resolvePlanFactChartFactEnd(rowTask, allTasks, todayIso),
+    };
+  }
+  return aggregatePlanFactBranchSchedule(collectPlanFactBranchTasks(rowTask, allTasks), todayIso);
+}
+
 export type PlanFactWorkTypeRowDetail = {
   planStart: string;
   planEnd: string;
@@ -138,8 +242,15 @@ const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
 const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
 const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
 
-/** Режим bar-chart 2.05* для таблицы задач: только листья или только уровень «2.05.XX» (3 сегмента). */
-export type PlanFactTasksBarLevel = "detailed" | "summary";
+/** Режим детализации bar-chart «План vs Факт» по уровням WBS. */
+export type PlanFactTasksBarLevel = "simplified" | "detailed" | "full";
+
+/** @deprecated Старые значения localStorage / URL — нормализация при чтении. */
+export function normalizePlanFactTasksBarLevel(raw: string | null | undefined): PlanFactTasksBarLevel {
+  if (raw === "summary" || raw === "simplified") return "simplified";
+  if (raw === "full") return "full";
+  return "detailed";
+}
 
 /**
  * Конечная задача по шифру внутри набора: нет другого кода в том же контексте, который является потомком `code`.
@@ -155,25 +266,107 @@ export function isLeafTask(code: string, allCodes: Iterable<string>): boolean {
   return true;
 }
 
-function gprCodeSegmentCount(normalizedCode: string): number {
-  return normalizedCode.split(".").filter((p) => p.length > 0).length;
+const RESIDENTIAL_PLAN_FACT_ROOTS = ["2.04", "2.05"] as const;
+const PARKING_PLAN_FACT_ROOTS = ["2.06", "2.07", "2.04", "2.05"] as const;
+const PROJECT_PLAN_FACT_ROOTS = ["2.04", "2.05", "2.06", "2.07"] as const;
+
+function planFactBranchRoots(partKey: PlanFactWorkTypePartKey): readonly string[] {
+  if (partKey === "parking") return PARKING_PLAN_FACT_ROOTS;
+  if (partKey === "project") return PROJECT_PLAN_FACT_ROOTS;
+  return RESIDENTIAL_PLAN_FACT_ROOTS;
 }
 
 /** Ключ разбиения: дом/паркинг и объект CSV не смешивают деревья шифров. */
-function residentialBarPartitionKey(task: GPRTask): string {
+function planFactBarPartitionKey(task: GPRTask): string {
   const scope = gprPlanFactScopeFromTask(task);
   const ot = (task.objectType ?? "").trim().replace(/\s+/g, " ");
   return `${task.partId ?? 0}|${scope}|${ot}`;
 }
 
-function filter205TasksForResidentialBar(
+/** Завершена для диаграммы: 100% и зафиксирована фактическая дата окончания. */
+export function isGprTaskPlanFactCompleted(task: GPRTask): boolean {
+  const completion = Number(task.completion) || 0;
+  return completion >= 100 && Boolean(parseDateSafe(task.factEnd));
+}
+
+/** Незавершённая работа (прогресс < 100% и/или нет fact_end при наличии факта). */
+export function isGprTaskPlanFactIncomplete(task: GPRTask): boolean {
+  if (isGprTaskPlanFactCompleted(task)) return false;
+  const completion = Number(task.completion) || 0;
+  if (completion > 0 || parseDateSafe(task.factStart)) return true;
+  return completion < 100;
+}
+
+/** Незавершённая строка или потомок `root.*` в той же секции объекта. */
+export function hasIncompletePlanFactBranchWork(
+  rowTask: GPRTask,
+  allTasks: GPRTask[],
+): boolean {
+  const root = normalizeGprCodeFinal(rowTask.code);
+  if (!root) return false;
+  const partition = planFactBarPartitionKey(rowTask);
+  const prefix = `${root}.`;
+
+  for (const t of allTasks) {
+    if (planFactBarPartitionKey(t) !== partition) continue;
+    const c = normalizeGprCodeFinal(t.code);
+    if (c !== root && !c.startsWith(prefix)) continue;
+    if (isGprTaskPlanFactIncomplete(t)) return true;
+  }
+  return false;
+}
+
+/** Продлевать факт до линии «Сегодня». */
+export function shouldExtendPlanFactFactEndToToday(
+  task: GPRTask,
+  allTasks: GPRTask[],
+): boolean {
+  return hasIncompletePlanFactBranchWork(task, allTasks);
+}
+
+/**
+ * Конечная дата фактической полосы: завершено → fact_end; иначе → today (отчётная дата).
+ */
+export function resolvePlanFactChartFactEnd(
+  task: GPRTask,
+  allTasks: GPRTask[],
+  todayIso: string,
+): string | null {
+  const fs = parseDateSafe(task.factStart);
+  if (!fs) return null;
+  if (shouldExtendPlanFactFactEndToToday(task, allTasks)) {
+    return parseDateSafe(todayIso) ?? todayIso.trim();
+  }
+  return parseDateSafe(task.factEnd);
+}
+
+/** Фактическая дата окончания для агрегата работ (группа). */
+export function resolvePlanFactGroupChartFactEnd(
+  works: GPRTask[],
+  todayIso: string,
+): string | null {
+  const hasAnyFact = works.some((t) => parseDateSafe(t.factStart) || (Number(t.completion) || 0) > 0);
+  if (!hasAnyFact) return null;
+  if (works.some((t) => isGprTaskPlanFactIncomplete(t))) {
+    return parseDateSafe(todayIso) ?? todayIso.trim();
+  }
+  return maxIsoDate(works.map((t) => t.factEnd));
+}
+
+function taskMatchesPlanFactBranch(task: GPRTask, roots: readonly string[]): boolean {
+  return roots.some((r) => matchesGprCodeBranch(task.code, r));
+}
+
+function filterGprTasksForPlanFactBarLevel(
   tasks: GPRTask[],
-  level: PlanFactTasksBarLevel,
+  barLevel: PlanFactTasksBarLevel,
+  partKey: PlanFactWorkTypePartKey,
 ): GPRTask[] {
-  const branch = tasks.filter((t) => normalizeGprCodeFinal(t.code).startsWith("2.05"));
+  const roots = planFactBranchRoots(partKey);
+  const branch = tasks.filter((t) => taskMatchesPlanFactBranch(t, roots));
   const partitions = new Map<string, GPRTask[]>();
   for (const t of branch) {
-    const k = residentialBarPartitionKey(t);
+    const k = planFactBarPartitionKey(t);
     const arr = partitions.get(k);
     if (arr) arr.push(t);
     else partitions.set(k, [t]);
@@ -182,27 +375,32 @@ function filter205TasksForResidentialBar(
   const out: GPRTask[] = [];
   for (const [, group] of partitions) {
     const normCodes = [...new Set(group.map((t) => normalizeGprCodeFinal(t.code)))];
-    if (level === "detailed") {
-      for (const t of group) {
-        const c = normalizeGprCodeFinal(t.code);
-        if (isLeafTask(c, normCodes)) out.push(t);
-      }
-    } else {
-      for (const t of group) {
-        const c = normalizeGprCodeFinal(t.code);
-        if (gprCodeSegmentCount(c) === 3) out.push(t);
+    for (const t of group) {
+      const c = normalizeGprCodeFinal(t.code);
+      const wbsLevel = gprWbsLevelFromCode(c, t.level);
+      if (barLevel === "simplified") {
+        if (wbsLevel !== 1) continue;
+        if (!roots.some((r) => c === normalizeGprCodeFinal(r))) continue;
+        out.push(t);
+      } else if (barLevel === "detailed") {
+        if (wbsLevel !== 2) continue;
+        out.push(t);
+      } else {
+        if (!isLeafTask(c, normCodes)) continue;
+        out.push(t);
       }
     }
   }
   return out;
 }
 
-function buildResidential205PlanFactChartModel(
+function buildGprPlanFactBarChartModel(
   tasks: GPRTask[],
   todayIso: string,
   barLevel: PlanFactTasksBarLevel,
+  partKey: PlanFactWorkTypePartKey,
 ): PlanFactWorkTypeChartModel | null {
-  const list = filter205TasksForResidentialBar(tasks, barLevel).sort((a, b) => {
+  const list = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
     const cmp = compareGprCodesByNumericPath(a.code, b.code);
     if (cmp !== 0) return cmp;
     return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
@@ -227,19 +425,15 @@ function buildResidential205PlanFactChartModel(
   const allDates: string[] = [];
 
   for (const task of list) {
-    const ps = parseDateSafe(task.planStart);
-    const pe = parseDateSafe(task.planEnd);
-    const fs = parseDateSafe(task.factStart);
-    const fe = parseDateSafe(task.factEnd);
+    const schedule = resolvePlanFactBarRowSchedule(task, tasks, todayIso, barLevel);
+    const ps = schedule?.planStart ?? null;
+    const pe = schedule?.planEnd ?? null;
+    const fs = schedule?.factStart ?? null;
+    const fe = schedule?.factEnd ?? null;
     const psm = isoDayMs(ps);
     const pem = isoDayMs(pe);
     const hasDates = Boolean(psm != null && pem != null && pem >= psm);
-    const scope = gprPlanFactScopeFromTask(task);
-    const nm = task.name.length > 52 ? `${task.name.slice(0, 49)}…` : task.name;
-    const codeDisp = normalizeGprCodeFinal(task.code);
-    const ot = (task.objectType ?? "").trim();
-    const otHint = ot ? ` · ${ot.replace(/\s+/g, " ").slice(0, 36)}` : "";
-    const label = `${scope}_${codeDisp}${otHint} · ${nm}`;
+    const label = formatGprPlanFactBarLabel(task.code, task.name);
     entries.push({ task, label, hasDates, ps, pe, fs, fe });
     if (hasDates && ps && pe) {
       allDates.push(ps, pe);
@@ -291,9 +485,9 @@ function buildResidential205PlanFactChartModel(
       if (pfS != null && pfE != null && pfE >= pfS) {
         planRanges.push([pfS, pfE]);
         planColors.push(PLAN_BAR);
-        if (e.fs && e.fe) {
+        if (e.fs) {
           const ffS = monthFloatFromIso(e.fs, originMonth);
-          const ffE = monthFloatFromIso(e.fe, originMonth);
+          const ffE = e.fe ? monthFloatFromIso(e.fe, originMonth) : null;
           if (ffS != null && ffE != null && ffE >= ffS) {
             factRanges.push([ffS, ffE]);
             factColors.push(overviewFactBarColor(e.ps, e.pe, e.fs, e.fe));
@@ -342,22 +536,24 @@ function buildResidential205PlanFactChartModel(
 
 /**
  * Модель горизонтального bar-chart «План vs факт».
- * Для «Жилой дом» и «Проект» — ветка `2.05*`: «Детально» — только листья дерева шифров; «Сводно» — только коды из трёх сегментов (`2.05.XX`). Разбиение по `partId`, области house/parking и `objectType`.
+ * Упрощённо — WBS level 1 (2.04, 2.05); детально — level 2; полная детализация — листья WBS.
  */
 export function buildPlanFactWorkTypeChartModel(
   tasks: GPRTask[],
   partKey: PlanFactWorkTypePartKey,
   todayIso: string,
-  residentialBarLevel: PlanFactTasksBarLevel = "detailed",
+  barLevel: PlanFactTasksBarLevel = "detailed",
 ): PlanFactWorkTypeChartModel | null {
   if (!Array.isArray(tasks) || tasks.length === 0) return null;
 
-  if (partKey === "residential" || partKey === "project") {
-    return buildResidential205PlanFactChartModel(tasks, todayIso, residentialBarLevel);
+  if (partKey === "residential" || partKey === "project" || partKey === "parking") {
+    return buildGprPlanFactBarChartModel(tasks, todayIso, barLevel, partKey);
   }
 
   const rows = buildPlanFactWorkTypeRows(tasks, partKey).filter((r) => r.bounds != null);
   if (rows.length === 0) return null;
+
+  const groups = partKey !== "project" ? WORK_TYPE_GROUPS[partKey as ProjectPartKey] : null;
 
   const allDates: string[] = [];
   for (const r of rows) {
@@ -365,7 +561,13 @@ export function buildPlanFactWorkTypeChartModel(
     if (!b) continue;
     allDates.push(b.planStart, b.planEnd);
     if (b.factStart) allDates.push(b.factStart);
-    if (b.factEnd) allDates.push(b.factEnd);
+    const groupDef = groups?.find((g) => g.key === r.key);
+    const groupWorks = groupDef
+      ? tasks.filter((t) => groupDef.match(normalizeGprCodeFinal(t.code)))
+      : tasks;
+    const factEndDisplay = resolvePlanFactGroupChartFactEnd(groupWorks, todayIso);
+    if (factEndDisplay) allDates.push(factEndDisplay);
+    else if (b.factEnd) allDates.push(b.factEnd);
   }
   if (allDates.length === 0) return null;
 
@@ -395,20 +597,27 @@ export function buildPlanFactWorkTypeChartModel(
     planRanges.push([ps, pe]);
     labels.push(r.label);
     planColors.push(PLAN_BAR);
+    const groupDef = groups?.find((g) => g.key === r.key);
+    const groupWorks = groupDef
+      ? tasks.filter((t) => groupDef.match(normalizeGprCodeFinal(t.code)))
+      : tasks;
+    const factEndDisplay = resolvePlanFactGroupChartFactEnd(groupWorks, todayIso);
     rowDetails.push({
       planStart: b.planStart,
       planEnd: b.planEnd,
       factStart: b.factStart,
-      factEnd: b.factEnd,
+      factEnd: factEndDisplay,
       hasDates: true,
     });
 
-    if (b.factStart && b.factEnd) {
+    if (b.factStart && factEndDisplay) {
       const fs = monthFloatFromIso(b.factStart, originMonth);
-      const fe = monthFloatFromIso(b.factEnd, originMonth);
+      const fe = monthFloatFromIso(factEndDisplay, originMonth);
       if (fs != null && fe != null && fe >= fs) {
         factRanges.push([fs, fe]);
-        factColors.push(overviewFactBarColor(b.planStart, b.planEnd, b.factStart, b.factEnd));
+        factColors.push(
+          overviewFactBarColor(b.planStart, b.planEnd, b.factStart, factEndDisplay),
+        );
       } else {
         factRanges.push(null);
         factColors.push(FACT_WEAK);

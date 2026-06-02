@@ -772,3 +772,354 @@ export function buildGprTimeForecastModel(
     axisMaxMs: axisEndMs,
   };
 }
+
+const TIMELINE_MONTH_SHORT_RU = [
+  "Янв",
+  "Фев",
+  "Мар",
+  "Апр",
+  "Май",
+  "Июн",
+  "Июл",
+  "Авг",
+  "Сен",
+  "Окт",
+  "Ноя",
+  "Дек",
+] as const;
+
+export function formatGprTimelineMonthLabel(monthMs: number): string {
+  const d = new Date(monthMs);
+  return `${TIMELINE_MONTH_SHORT_RU[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
+}
+
+function tasksForForecastPart(tasks: GPRTask[], part: ForecastPart): GPRTask[] {
+  if (part === "project") return tasks;
+  const partId = PROJECT_PART_KEY_TO_ID[part];
+  if (partId == null) return [];
+  return tasks.filter((t) => t.partId === partId);
+}
+
+function tendersForForecastPart(tenders: Tender[], part: ForecastPart): Tender[] {
+  if (part === "project") return tenders;
+  const partId = PROJECT_PART_KEY_TO_ID[part];
+  if (partId == null) return [];
+  return tenders.filter((t) => t.partId === partId);
+}
+
+function partTimelineBounds(
+  tasks: GPRTask[],
+  tenders: Tender[],
+  part: ForecastPart,
+  todayIso: string,
+): { startIso: string; endIso: string } | null {
+  const scopedTasks = tasksForForecastPart(tasks, part);
+  const scopedTenders = tendersForForecastPart(tenders, part);
+  let minS: string | null = null;
+  let maxE: string | null = null;
+
+  const consider = (iso: string | null | undefined) => {
+    const s = iso?.trim();
+    if (!s) return;
+    if (!minS || s < minS) minS = s;
+    if (!maxE || s > maxE) maxE = s;
+  };
+
+  for (const t of scopedTasks) {
+    consider(t.planStart);
+    consider(t.planEnd);
+    consider(t.factStart);
+    consider(t.factEnd);
+  }
+  for (const t of scopedTenders) {
+    consider(t.planStart);
+    consider(t.planContractDate);
+    consider(t.factStart);
+    consider(t.factContractDate);
+  }
+
+  if (!minS || !maxE) {
+    const roots = partPlanBounds(scopedTasks, part);
+    if (!roots) return null;
+    minS = roots.startIso;
+    maxE = roots.endIso;
+  }
+
+  if (todayIso > maxE) maxE = todayIso;
+  return { startIso: minS, endIso: maxE };
+}
+
+function endOfMonthIso(monthStartMs: number): string {
+  const d = new Date(monthStartMs);
+  d.setMonth(d.getMonth() + 1);
+  d.setDate(0);
+  return msToIso(d.getTime());
+}
+
+function factProgressAtDate(task: GPRTask, dateIso: string, todayIso: string): number {
+  const completion = Math.min(100, Math.max(0, Number(task.completion) || 0));
+  if (dateIso >= todayIso) return completion;
+
+  const ps = task.planStart?.trim();
+  const pe = task.planEnd?.trim();
+  const fs = task.factStart?.trim();
+  const fe = task.factEnd?.trim();
+
+  if (fs && fe) {
+    const t = dateToMs(dateIso);
+    const t0 = dateToMs(fs);
+    const t1 = dateToMs(fe);
+    if (t <= t0) return 0;
+    if (t >= t1) return completion;
+    if (t1 <= t0) return completion;
+    return Math.round((completion * (t - t0)) / (t1 - t0));
+  }
+
+  if (fs) {
+    const t = dateToMs(dateIso);
+    const t0 = dateToMs(fs);
+    const tToday = dateToMs(todayIso);
+    if (t < t0) return 0;
+    if (tToday <= t0) return completion;
+    return Math.round((completion * (t - t0)) / (tToday - t0));
+  }
+
+  if (ps && pe) {
+    const pp = plannedProgressBySchedule(task, dateIso);
+    if (pp != null) return Math.min(completion, pp);
+  }
+
+  return 0;
+}
+
+function weightedPlanGprAllTasksAtDate(scopedTasks: GPRTask[], dateIso: string): number | null {
+  let wSum = 0;
+  let dSum = 0;
+  for (const t of scopedTasks) {
+    const pd = durationDays(t.planStart, t.planEnd);
+    if (!Number.isFinite(pd) || pd <= 0) continue;
+    const pp = plannedProgressBySchedule(t, dateIso);
+    if (pp == null) continue;
+    wSum += pp * pd;
+    dSum += pd;
+  }
+  if (dSum <= 0) return null;
+  return Math.round((wSum / dSum) * 10) / 10;
+}
+
+function weightedFactGprAllTasksAtDate(
+  scopedTasks: GPRTask[],
+  dateIso: string,
+  todayIso: string,
+): number | null {
+  if (dateIso > todayIso) return null;
+  let wSum = 0;
+  let dSum = 0;
+  for (const t of scopedTasks) {
+    const pd = durationDays(t.planStart, t.planEnd);
+    if (!Number.isFinite(pd) || pd <= 0) continue;
+    const fp = factProgressAtDate(t, dateIso, todayIso);
+    wSum += fp * pd;
+    dSum += pd;
+  }
+  if (dSum <= 0) return null;
+  return Math.round((wSum / dSum) * 10) / 10;
+}
+
+function tenderPlanProgressAtDate(tender: Tender, dateIso: string): number | null {
+  const ps = tender.planStart?.trim();
+  const pe = tender.planContractDate?.trim();
+  if (ps && pe) {
+    return plannedProgressBySchedule(
+      { planStart: ps, planEnd: pe } as GPRTask,
+      dateIso,
+    );
+  }
+  if (pe) {
+    return dateToMs(dateIso) >= dateToMs(pe) ? 100 : 0;
+  }
+  return null;
+}
+
+function tenderFactProgressAtDate(tender: Tender, dateIso: string, todayIso: string): number | null {
+  if (dateIso > todayIso) return null;
+  const fc = tender.factContractDate?.trim();
+  if (fc) {
+    return dateToMs(dateIso) >= dateToMs(fc) ? 100 : 0;
+  }
+  const fs = tender.factStart?.trim();
+  const pe = tender.planContractDate?.trim();
+  if (fs && pe) {
+    const stub: GPRTask = {
+      id: tender.id,
+      globalTaskId: tender.id,
+      code: tender.code,
+      name: tender.name,
+      partId: tender.partId,
+      planStart: fs,
+      planEnd: pe,
+      completion: 0,
+    };
+    return factProgressAtDate(stub, dateIso, todayIso);
+  }
+  return 0;
+}
+
+function weightedPlanTendersAtDate(scopedTenders: Tender[], dateIso: string): number | null {
+  let wSum = 0;
+  let dSum = 0;
+  for (const t of scopedTenders) {
+    const pd = durationDays(t.planStart, t.planContractDate);
+    const w = pd != null && pd > 0 ? pd : 1;
+    const pp = tenderPlanProgressAtDate(t, dateIso);
+    if (pp == null) continue;
+    wSum += pp * w;
+    dSum += w;
+  }
+  if (dSum <= 0) return null;
+  return Math.round((wSum / dSum) * 10) / 10;
+}
+
+function weightedFactTendersAtDate(
+  scopedTenders: Tender[],
+  dateIso: string,
+  todayIso: string,
+): number | null {
+  if (dateIso > todayIso) return null;
+  let wSum = 0;
+  let dSum = 0;
+  for (const t of scopedTenders) {
+    const pd = durationDays(t.planStart, t.planContractDate);
+    const w = pd != null && pd > 0 ? pd : 1;
+    const fp = tenderFactProgressAtDate(t, dateIso, todayIso);
+    if (fp == null) continue;
+    wSum += fp * w;
+    dSum += w;
+  }
+  if (dSum <= 0) return null;
+  return Math.round((wSum / dSum) * 10) / 10;
+}
+
+export type GprTenderDependencyTimelinePoint = {
+  monthMs: number;
+  monthLabel: string;
+  planGpr: number | null;
+  factGpr: number | null;
+  planTenders: number | null;
+  factTenders: number | null;
+};
+
+export type GprTenderDependencyTimelineModel = {
+  todayIso: string;
+  todayMs: number;
+  points: GprTenderDependencyTimelinePoint[];
+  planSeries: GprTimeForecastPoint[];
+  factSeries: GprTimeForecastPoint[];
+  planTenderSeries: GprTimeForecastPoint[];
+  factTenderSeries: GprTimeForecastPoint[];
+  axisMinMs: number;
+  axisMaxMs: number;
+};
+
+/**
+ * Временной ряд для графика «ГПР — тендеры»: ось X — месяцы календаря проекта.
+ */
+export function buildGprTenderDependencyTimelineModel(
+  tasks: GPRTask[],
+  tenders: Tender[],
+  todayIso: string,
+  activeProjectPart: ForecastPart,
+): GprTenderDependencyTimelineModel | null {
+  const bounds = partTimelineBounds(tasks, tenders, activeProjectPart, todayIso);
+  if (!bounds) return null;
+
+  const scopedTasks = tasksForForecastPart(tasks, activeProjectPart);
+  const scopedTenders = tendersForForecastPart(tenders, activeProjectPart);
+  const todayMs = dateToMs(todayIso);
+  const startMs = dateToMs(bounds.startIso);
+  const endPlanMs = dateToMs(bounds.endIso);
+  const axisEndMs = Math.max(endPlanMs, todayMs) + 10 * 86400000;
+  const axisMinMs = Math.min(startMs, todayMs) - 5 * 86400000;
+
+  const monthMsList = eachMonthStartMs(bounds.startIso, msToIso(axisEndMs));
+  const points: GprTenderDependencyTimelinePoint[] = [];
+  const planSeries: GprTimeForecastPoint[] = [];
+  const factSeries: GprTimeForecastPoint[] = [];
+  const planTenderSeries: GprTimeForecastPoint[] = [];
+  const factTenderSeries: GprTimeForecastPoint[] = [];
+
+  for (const monthMs of monthMsList) {
+    const monthEndIso = endOfMonthIso(monthMs);
+    const planGpr = weightedPlanGprAllTasksAtDate(scopedTasks, monthEndIso);
+    const factGpr = weightedFactGprAllTasksAtDate(scopedTasks, monthEndIso, todayIso);
+    const planTenders = weightedPlanTendersAtDate(scopedTenders, monthEndIso);
+    const factTenders = weightedFactTendersAtDate(scopedTenders, monthEndIso, todayIso);
+
+    points.push({
+      monthMs,
+      monthLabel: formatGprTimelineMonthLabel(monthMs),
+      planGpr,
+      factGpr,
+      planTenders,
+      factTenders,
+    });
+
+    if (planGpr != null) planSeries.push({ x: monthMs, y: planGpr });
+    if (factGpr != null && monthMs <= todayMs) factSeries.push({ x: monthMs, y: factGpr });
+    if (planTenders != null) planTenderSeries.push({ x: monthMs, y: planTenders });
+    if (factTenders != null && monthMs <= todayMs) {
+      factTenderSeries.push({ x: monthMs, y: factTenders });
+    }
+  }
+
+  if (factSeries.length > 0) {
+    const hasToday = factSeries.some((p) => p.x === todayMs);
+    const factToday = weightedFactGprAllTasksAtDate(scopedTasks, todayIso, todayIso);
+    if (factToday != null && !hasToday) {
+      factSeries.push({ x: todayMs, y: factToday });
+      factSeries.sort((a, b) => a.x - b.x);
+    }
+  }
+
+  const factTendersToday = weightedFactTendersAtDate(scopedTenders, todayIso, todayIso);
+  if (factTendersToday != null && !factTenderSeries.some((p) => p.x === todayMs)) {
+    factTenderSeries.push({ x: todayMs, y: factTendersToday });
+    factTenderSeries.sort((a, b) => a.x - b.x);
+  }
+
+  if (points.length === 0) return null;
+
+  return {
+    todayIso,
+    todayMs,
+    points,
+    planSeries,
+    factSeries,
+    planTenderSeries,
+    factTenderSeries,
+    axisMinMs,
+    axisMaxMs: axisEndMs,
+  };
+}
+
+/** KPI графика «ГПР — тендеры» на дату отчёта (%). */
+export function gprTenderDependencyKpiAtDate(
+  tasks: GPRTask[],
+  tenders: Tender[],
+  todayIso: string,
+  part: ForecastPart,
+): {
+  planGpr: number | null;
+  factGpr: number | null;
+  planTenders: number | null;
+  factTenders: number | null;
+} {
+  const scopedTasks = tasksForForecastPart(tasks, part);
+  const scopedTenders = tendersForForecastPart(tenders, part);
+  return {
+    planGpr: weightedPlanGprAllTasksAtDate(scopedTasks, todayIso),
+    factGpr: weightedFactGprAllTasksAtDate(scopedTasks, todayIso, todayIso),
+    planTenders: weightedPlanTendersAtDate(scopedTenders, todayIso),
+    factTenders: weightedFactTendersAtDate(scopedTenders, todayIso, todayIso),
+  };
+}

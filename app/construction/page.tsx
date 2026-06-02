@@ -75,10 +75,13 @@ export default function ConstructionPage() {
       ? tasks
       : tasks.filter((task) => task.partId === activePartScope);
   const saveGprTasksForPart = (partTasks: GPRTask[]) => {
-    const partId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
+    const affectedPartIds =
+      activePartScope === "project" ? new Set<number>([1, 2]) : new Set<number>([activePartScope]);
     setTasks((prev) => [
-      ...prev.filter((task) => task.partId !== partId),
-      ...partTasks.map((task) => ({ ...task, partId })),
+      ...prev.filter((task) => !affectedPartIds.has(task.partId)),
+      ...(activePartScope === "project"
+        ? partTasks.map((task) => ({ ...task }))
+        : partTasks.map((task) => ({ ...task, partId: activePartScope }))),
     ]);
   };
 

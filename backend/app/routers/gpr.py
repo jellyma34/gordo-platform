@@ -62,11 +62,12 @@ def _kind_by_part_id(db: Session, part_id: int) -> str | None:
 
 
 def _kind_by_task(db: Session, task: GprTask) -> str | None:
-    # Код имеет приоритет: он стабилен и явно отражает секцию в ГПР.
-    by_code = _part_kind_from_code(task.code)
-    if by_code is not None:
-        return by_code
-    return _kind_by_part_id(db, task.part_id)
+    # Для изоляции объектов сначала используем part_id (каноничный источник секции).
+    by_part = _kind_by_part_id(db, task.part_id)
+    if by_part is not None:
+        return by_part
+    # Fallback только для старых данных без корректного part_id.
+    return _part_kind_from_code(task.code)
 
 
 
@@ -91,16 +92,17 @@ def _canonical_storage_part_id(db: Session, part_id: int) -> int:
 
 
 def _canonical_storage_part_id_for_task(db: Session, part_id: int, code: str | None) -> int:
-    # Если код явно указывает секцию, храним в каноничном id этой секции.
-    by_code = _part_kind_from_code(code)
-    if by_code is not None:
-        ids = _parts_by_kind(db, by_code)
+    # Приоритет у явного part_id из UI/импорта. По коду маршрутизируем только когда part_id не распознан.
+    by_part = _kind_by_part_id(db, part_id)
+    target_kind = by_part or _part_kind_from_code(code)
+    if target_kind is not None:
+        ids = _parts_by_kind(db, target_kind)
         if ids:
-            if by_code == "parking":
+            if target_kind == "parking":
                 for p in ids:
                     if "автостоян" in p.name.lower():
                         return p.id
-            if by_code == "house":
+            if target_kind == "house":
                 for p in ids:
                     if "жил" in p.name.lower():
                         return p.id
@@ -269,13 +271,17 @@ def list_gpr_tasks(
     db: Session = Depends(get_db),
 ):
     stmt = select(GprTask).order_by(GprTask.code)
-    rows = db.scalars(stmt).all()
     if part_id is not None:
         requested_kind = _kind_by_part_id(db, part_id)
         if requested_kind is not None:
-            rows = [t for t in rows if _kind_by_task(db, t) == requested_kind]
+            part_ids = [p.id for p in _parts_by_kind(db, requested_kind)]
+            if part_ids:
+                stmt = stmt.where(GprTask.part_id.in_(part_ids))
+            else:
+                stmt = stmt.where(GprTask.part_id == part_id)
         else:
-            rows = [t for t in rows if t.part_id == part_id]
+            stmt = stmt.where(GprTask.part_id == part_id)
+    rows = db.scalars(stmt).all()
     return [_to_task_item(task, 1 if _kind_by_task(db, task) == "house" else 2 if _kind_by_task(db, task) == "parking" else _response_part_id(db, task.part_id)) for task in rows]
 
 

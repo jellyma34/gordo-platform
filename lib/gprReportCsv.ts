@@ -1,6 +1,7 @@
 /**
  * Разбор экспорта отчёта ГПР: разделитель `;` или `,` (если в строке нет `;`), BOM снимается до разбивки по строкам.
- * Колонка 0 — шифр, колонка 1 — наименование; даты/прогресс — по фиксированным индексам при наличии ячеек.
+ * Колонки «ID Код» и «Этап работ» определяются по строке заголовка; иначе — 0 и 1.
+ * Поле `name` — только «Этап работ», не «Описание работ». Даты/прогресс — с фиксированных индексов.
  * Строки без дат не отбрасываются — поля дат остаются null.
  */
 
@@ -11,6 +12,7 @@ export type GprReportCsvRow = {
   objectType: string;
   rawCode: string;
   code: string;
+  /** Наименование этапа («Этап работ»), не «Описание работ». */
   name: string;
   planStart: string | null;
   planEnd: string | null;
@@ -79,6 +81,34 @@ function ensureWorkCode(rawTrimmed: string, rowIndex: number): string {
 /** Типичная разметка экспорта ГПР: план/факт начиная с 10-й колонки; короткие строки допускаются — недостающие ячейки = undefined. */
 const PLAN_START_IDX = 10;
 
+type GprReportCsvColumnMap = {
+  codeIdx: number;
+  stageIdx: number;
+};
+
+const DEFAULT_COLUMN_MAP: GprReportCsvColumnMap = { codeIdx: 0, stageIdx: 1 };
+
+function normalizeHeaderCell(cell: string): string {
+  return cell.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function detectColumnMapFromHeaderRow(cols: string[]): GprReportCsvColumnMap | null {
+  const norm = cols.map(normalizeHeaderCell);
+  const codeIdx = norm.findIndex((c) => c === "id код" || c.startsWith("id код"));
+  const stageIdx = norm.findIndex((c) => c === "этап работ" || c.startsWith("этап работ"));
+  if (codeIdx < 0 || stageIdx < 0) return null;
+  return { codeIdx, stageIdx };
+}
+
+function isGprReportHeaderRow(cols: string[]): boolean {
+  return detectColumnMapFromHeaderRow(cols) != null;
+}
+
+function isGprReportSubHeaderRow(cols: string[]): boolean {
+  const joined = cols.map(normalizeHeaderCell).join(" ");
+  return joined.includes("дата начала") && joined.includes("дата окончания");
+}
+
 /** Обёртки Excel: пробелы и завершающая точка у шифра в первой колонке (как в ТЗ импорта). */
 function normalizeCsvCodeRaw(raw: string): string {
   return raw.replace(/\s+/g, "").replace(/\.$/, "");
@@ -110,9 +140,19 @@ function firstCellLooksLikeTaskCode(cell: string): boolean {
   return /^\d+\.\d+/.test(t);
 }
 
-/** Текст названия секции из строки без шифра в первой колонке. */
-function sectionTitleFromCols(cols: string[]): string {
-  return cols.filter((c) => c.length > 0).join(" ").trim();
+/**
+ * Подпись объекта стройки из строки-секции (без шифра): только «Этап работ» / первая колонка,
+ * без склейки описаний, дат и прочих полей CSV.
+ */
+function sectionObjectLabelFromCols(cols: string[], map: GprReportCsvColumnMap): string {
+  const codeCell = (cols[map.codeIdx] ?? "").trim();
+  if (codeCell && firstCellLooksLikeTaskCode(codeCell)) return "";
+
+  const stageCell = (cols[map.stageIdx] ?? "").trim();
+  if (stageCell && normalizeHeaderCell(stageCell) !== "этап работ") return stageCell;
+
+  const firstNonEmpty = cols.find((c) => c.trim().length > 0);
+  return firstNonEmpty?.trim() ?? "";
 }
 
 export type ParseGprReportCsvResult = {
@@ -130,37 +170,48 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
   const normalized = text.replace(/^\uFEFF/, "");
   const rows = normalized.split(/\r?\n/);
 
-  console.log("TOTAL ROWS:", rows.length);
-
   const out: GprReportCsvRow[] = [];
   let currentObject = "";
+  let columnMap: GprReportCsvColumnMap = { ...DEFAULT_COLUMN_MAP };
 
   for (let i = 0; i < rows.length; i++) {
     const line = rows[i]!;
     if (line.trim() === "") continue;
 
     const cols = splitCsvLineToCols(line);
-    console.log("CSV ROW:", cols);
 
-    const firstCell = cols[0];
-    if (!firstCell || !String(firstCell).trim()) continue;
+    const detectedMap = detectColumnMapFromHeaderRow(cols);
+    if (detectedMap) {
+      columnMap = detectedMap;
+      continue;
+    }
+    if (isGprReportSubHeaderRow(cols)) continue;
 
-    if (!firstCellLooksLikeTaskCode(firstCell)) {
-      const title = sectionTitleFromCols(cols);
-      if (title.length > 0) {
-        currentObject = title;
-      }
+    const codeCell = cols[columnMap.codeIdx] ?? cols[0] ?? "";
+    const codeCellText = String(codeCell).trim();
+
+    if (!codeCellText) {
+      const title = sectionObjectLabelFromCols(cols, columnMap);
+      if (title.length > 0) currentObject = title;
       continue;
     }
 
-    const rawCode = cols[0] ?? "";
-    const nameCell = cols[1] ?? "";
+    if (!firstCellLooksLikeTaskCode(codeCellText)) {
+      if (isGprReportHeaderRow(cols)) continue;
+      const title = sectionObjectLabelFromCols(cols, columnMap);
+      if (title.length > 0) currentObject = title;
+      continue;
+    }
+
+    const rawCode = codeCell;
+    const stageCell = cols[columnMap.stageIdx] ?? "";
 
     const rawTrimmed = normalizeCsvCodeRaw(String(rawCode));
     const code = ensureWorkCode(rawTrimmed, i);
     const rawClean = code;
 
-    let name = String(nameCell).trim();
+    let name = String(stageCell).trim();
+    if (normalizeHeaderCell(name) === "этап работ") continue;
     if (!name) name = code;
 
     const planStart = ruDateCellToIsoOrNull(cols[PLAN_START_IDX]);
@@ -182,8 +233,6 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
       completion,
     });
   }
-
-  console.log("PARSED TASKS:", out.length);
 
   return { rows: out, csvPapaRowCount: rows.length };
 }

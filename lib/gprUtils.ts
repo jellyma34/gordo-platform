@@ -590,6 +590,22 @@ export function normalizeGprCodeFinal(raw: string): string {
     .join(".");
 }
 
+/** Число сегментов шифра: `2.05` → 2, `2.05.01` → 3. */
+export function gprCodeSegmentCount(code: string): number {
+  const c = normalizeGprCodeFinal(code);
+  if (!c) return 0;
+  return c.split(".").filter((p) => p.length > 0).length;
+}
+
+/** Уровень WBS по шифру: `2.05` → 1, `2.05.01` → 2, `2.05.01.01` → 3. */
+export function gprWbsLevelFromCode(code: string, taskLevel?: number): number {
+  if (typeof taskLevel === "number" && Number.isFinite(taskLevel) && taskLevel >= 1) {
+    return taskLevel;
+  }
+  const n = gprCodeSegmentCount(code);
+  return n > 0 ? n - 1 : 0;
+}
+
 export function gprPlanFactScopeFromTask(task: GPRTask): GprPlanFactScopeKey {
   if (task.planFactScope === "house" || task.planFactScope === "parking") {
     return task.planFactScope;

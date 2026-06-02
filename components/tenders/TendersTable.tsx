@@ -24,8 +24,8 @@ import {
   type TenderProcurementStatus,
   type TenderTraffic,
 } from "@/lib/tenderData";
-import { normalizeTenderCsvRows, parseTenderCsvFile } from "@/lib/tenderCsvImport";
-import { diffTendersImport, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
+import { importTenderCsvFile, type TenderCsvImportAudit } from "@/lib/tenderCsvImport";
+import { diffTendersImportScoped, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
 import { GprDateField } from "@/components/ui/GprDateField";
 import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
@@ -127,6 +127,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
+  const [importAudit, setImportAudit] = useState<TenderCsvImportAudit | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [trafficFilter, setTrafficFilter] = useState<"all" | TenderTraffic>("all");
@@ -238,8 +239,8 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       e.target.value = "";
       if (!file) return;
       try {
-        const rows = await parseTenderCsvFile(file);
-        const normalized = normalizeTenderCsvRows(rows);
+        const { tenders: normalized, audit } = await importTenderCsvFile(file);
+        setImportAudit(audit);
 
         if (normalized.length === 0) {
           setImportStats({
@@ -247,15 +248,21 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             added: 0,
             updated: 0,
             unchanged: 0,
-            skippedInvalid: rows.length,
+            skippedInvalid: audit.parsedRows,
           });
+          const sample = audit.skippedRows
+            .slice(0, 3)
+            .map((s) => `стр. ${s.rowIndex}: ${s.reason}`)
+            .join("; ");
           window.alert(
-            "В файле нет строк с полями «Шифр» и «Наименование» (или некорректный формат).",
+            `В файле нет пригодных строк (${audit.parsedRows} в CSV, пропущено ${audit.skipped}).` +
+              (sample ? ` Примеры: ${sample}.` : "") +
+              " Для реестра закупок: 2 строки шапки, данные с 3-й; колонка 2 — шифр (2.05.01), колонка 3 — наименование.",
           );
           return;
         }
 
-        const { result, stats } = diffTendersImport(items, normalized, rows.length);
+        const { result, stats } = diffTendersImportScoped(items, normalized, audit.parsedRows);
         setImportStats(stats);
         setItems(result);
         writeTenderSnapshotToStorage(projectId, result);
@@ -292,6 +299,23 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     });
     setIsModalOpen(true);
   };
+
+  const editingRow = useMemo(
+    () => (editingId ? items.find((x) => x.id === editingId) ?? null : null),
+    [editingId, items],
+  );
+
+  const editingPreview = useMemo(() => {
+    if (!editingRow) return null;
+    const deviation = contractDeviationDays(editingRow);
+    const traffic = tenderTrafficFromContract(editingRow);
+    return {
+      deviation,
+      traffic,
+      trafficLabel: tenderTrafficLabel(traffic),
+      lifecycle: tenderLifecycleLabel(editingRow),
+    };
+  }, [editingRow]);
 
   const openEdit = (row: Tender) => {
     setEditingId(row.id);
@@ -445,14 +469,29 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             <option value="gray">Нет договора</option>
           </select>
         </div>
-        {importStats ? (
+        {importStats || importAudit ? (
           <p className="mt-2 text-xs leading-snug text-slate-600">
-            Файл: {importStats.total} записей после разбора.
-            {importStats.skippedInvalid > 0 ? (
-              <> Пропущено строк без шифра/наименования: {importStats.skippedInvalid}.</>
+            {importAudit ? (
+              <>
+                CSV: всего строк {importAudit.parsedRows}, загружено {importAudit.loaded}, пропущено{" "}
+                {importAudit.skipped}
+                {importAudit.parseErrors > 0 ? `, ошибок парсера ${importAudit.parseErrors}` : ""}.
+                {importAudit.unmappedHeaders.length > 0 ? (
+                  <> Колонки без сопоставления: {importAudit.unmappedHeaders.slice(0, 6).join(", ")}
+                    {importAudit.unmappedHeaders.length > 6 ? "…" : ""}.</>
+                ) : null}{" "}
+              </>
+            ) : null}
+            В реестре: {importStats?.total ?? 0} позиций.
+            {importStats && importStats.skippedInvalid > 0 ? (
+              <> Не импортировано из файла: {importStats.skippedInvalid}.</>
             ) : null}{" "}
-            Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
-            {importStats.unchanged}.
+            {importStats ? (
+              <>
+                Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
+                {importStats.unchanged}.
+              </>
+            ) : null}
           </p>
         ) : null}
       </div>
@@ -471,6 +510,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
               <th className="px-2 py-2">Факт договора</th>
               <th className="px-2 py-2">Откл., дн</th>
               <th className="px-2 py-2">Стоимость</th>
+              <th className="px-2 py-2">Подрядчик</th>
               <th className="px-2 py-2">Статус</th>
               <th className="px-2 py-2">Комментарий</th>
               <th className="px-2 py-2 text-right">Действия</th>
@@ -516,6 +556,9 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
                   </td>
                   <td className="px-2 py-2 tabular-nums whitespace-nowrap">
                     {row.cost != null ? `${(row.cost / 1_000_000).toFixed(2)} млн` : "—"}
+                  </td>
+                  <td className="max-w-[140px] px-2 py-2 text-xs text-slate-700 break-words">
+                    {row.contractor ?? "—"}
                   </td>
                   <td className="px-2 py-2">
                     <span
@@ -563,6 +606,34 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             <h3 className="text-lg font-semibold text-slate-900">
               {editingId ? "Редактировать тендер" : "Добавить тендер"}
             </h3>
+            {editingPreview ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-4">
+                <div>
+                  <span className="text-slate-500">Цикл</span>
+                  <p className="font-medium">{editingPreview.lifecycle}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">По договору</span>
+                  <p className="font-medium">{editingPreview.trafficLabel}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Откл., дн</span>
+                  <p className="font-medium tabular-nums">
+                    {editingPreview.deviation === null
+                      ? "—"
+                      : editingPreview.deviation > 0
+                        ? `+${editingPreview.deviation}`
+                        : editingPreview.deviation}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-500">ID</span>
+                  <p className="truncate font-mono text-[11px]" title={form.id}>
+                    {form.id}
+                  </p>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <input
                 value={form.code}
