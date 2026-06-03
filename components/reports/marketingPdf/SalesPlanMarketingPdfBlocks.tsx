@@ -65,6 +65,8 @@ export type SalesPlanMarketingPdfBlocksProps = {
   paymentPlanHydrated: boolean;
   hasAnyPaymentCsv: boolean;
   paymentFactUnavailableReason: string | null;
+  paymentFactByPeriodKey: Record<string, number> | null;
+  installmentFactThroughPeriodKey: string | null;
   paymentZaydetMonthVerify: MarketingPaymentZaydetMonthVerifyRow[] | null;
   monthlyPlanVsFactChart: readonly PlanVsFactMonthlyRubPoint[] | null | undefined;
   planChromeEditMode: boolean;
@@ -338,6 +340,8 @@ export function SalesPlanMarketingPdfBlocks(props: SalesPlanMarketingPdfBlocksPr
           mplPremium={mplPremium}
           isEditMode={planChromeEditMode}
           period={period}
+          factByPeriodKey={props.paymentFactByPeriodKey}
+          factThroughPeriodKey={props.installmentFactThroughPeriodKey}
         />
       </MarketingPdfSectionBlock>
 

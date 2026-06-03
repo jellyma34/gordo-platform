@@ -1,5 +1,7 @@
 import {
   gprPlanFactScopeFromTask,
+  inferGprPartIdFromCode,
+  inferGprPartIdFromObjectLabel,
   normalizeGprCodeFinal,
   type GPRTask,
   type GprPlanFactScopeKey,
@@ -7,23 +9,8 @@ import {
 } from "@/lib/gprUtils";
 import { parseGprReportCsvWithStats, type GprReportCsvRow } from "@/lib/gprReportCsv";
 
-/** Часть проекта по префиксу шифра (2.06 / 2.07 → автостоянка). */
-export function inferPartIdFromGprCode(code: string): number {
-  const n = normalizeGprCodeFinal(code);
-  if (n.startsWith("2.06") || n.startsWith("2.07")) return 2;
-  return 1;
-}
-
-/** Подбор части проекта по подписи объекта из CSV (жилой дом / автостоянка). */
-function inferPartIdFromObjectLabel(label: string): number | null {
-  const l = label.toLowerCase();
-  if (l.includes("автостоянк") || l.includes("паркинг")) return 2;
-  if (l.includes("жилой")) return 1;
-  return null;
-}
-
 function projectPartKeyFromObjectLabel(label: string): ProjectPartKey | undefined {
-  const pid = inferPartIdFromObjectLabel(label);
+  const pid = inferGprPartIdFromObjectLabel(label);
   if (pid === 1) return "residential";
   if (pid === 2) return "parking";
   return undefined;
@@ -69,8 +56,8 @@ function gprCsvRowToTask(
   const otSlug = slugForObjectType(objectType);
   const idSuffix = opts?.stableSuffix?.trim() || `${otSlug}--csv`;
   const id = `${gprStableIdFromCode(code)}--${idSuffix}`;
-  const partFromObject = inferPartIdFromObjectLabel(objectType);
-  const partId = forcedPartId ?? partFromObject ?? inferPartIdFromGprCode(code);
+  const partFromObject = inferGprPartIdFromObjectLabel(objectType);
+  const partId = forcedPartId ?? partFromObject ?? inferGprPartIdFromCode(code);
   const projectPartKey =
     projectPartKeyFromObjectLabel(objectType) ?? (partId === 2 ? "parking" : "residential");
 

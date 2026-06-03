@@ -93,6 +93,51 @@ export function urlParamToPartScope(p: string | null | undefined): ConstructionO
   return 1;
 }
 
+/** Часть проекта по подписи объекта из CSV (жилой дом / автостоянка). */
+export function inferGprPartIdFromObjectLabel(label: string): 1 | 2 | null {
+  const l = label.toLowerCase();
+  if (l.includes("автостоянк") || l.includes("паркинг")) return 2;
+  if (l.includes("жилой")) return 1;
+  return null;
+}
+
+/** Часть проекта по префиксу шифра WBS (2.06 / 2.07 → автостоянка). */
+export function inferGprPartIdFromCode(code: string): 1 | 2 {
+  const n = normalizeGprCodeFinal(code);
+  if (n.startsWith("2.06") || n.startsWith("2.07")) return 2;
+  return 1;
+}
+
+/**
+ * Эффективный partId задачи для фильтрации по вкладкам «Жилой дом» / «Автостоянка».
+ * Если в API/импорте у всех строк partId=1, используем objectType / planFactScope / шифр WBS.
+ */
+export function resolveGprTaskEffectivePartId(task: GPRTask): 1 | 2 {
+  if (task.projectPartKey === "parking") return 2;
+  if (task.projectPartKey === "residential") return 1;
+  if (task.planFactScope === "parking") return 2;
+  if (task.planFactScope === "house") return 1;
+  const fromObject = task.objectType ? inferGprPartIdFromObjectLabel(task.objectType) : null;
+  if (fromObject != null) return fromObject;
+  const fromCode = inferGprPartIdFromCode(task.code);
+  const raw = Number(task.partId);
+  if (raw === 1 || raw === 2) {
+    return raw === fromCode ? (raw as 1 | 2) : fromCode;
+  }
+  return fromCode;
+}
+
+/** Задачи для выбранной вкладки объекта (до расчёта статусов, риска и виджетов). */
+export function filterGprTasksByObjectScope(
+  tasks: GPRTask[],
+  scope: ConstructionObjectScope,
+): GPRTask[] {
+  const base = tasks.filter((t) => !t.missingFromImport);
+  if (scope === "project") return base;
+  const want: 1 | 2 = scope === 2 ? 2 : 1;
+  return base.filter((t) => resolveGprTaskEffectivePartId(t) === want);
+}
+
 /**
  * Грязный шифр из CSV/PDF: пробелы, лишние точки.
  * Дальше по цепочке используйте {@link normalizeGprCodeFinal} для канона «только цифры.точки».

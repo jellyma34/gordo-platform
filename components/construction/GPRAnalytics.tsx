@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   calculateDeviation,
   filterByPeriod,
+  filterGprTasksByObjectScope,
   filterZhDomPlanFactTasksTo205Branch,
   flattenTasks,
   formatGprScheduleDeviationDisplayDays,
@@ -23,6 +24,7 @@ import {
   planRootStageCode,
   PROJECT_PART_KEY_TO_ID,
   PROJECT_PARTS,
+  resolveGprTaskEffectivePartId,
   type ConstructionObjectScope,
   type GPRTask,
   type PlanFactPeriodFilterType,
@@ -372,15 +374,121 @@ const COLORS = {
   card: "#1e293b",
 } as const;
 
-/** Пояснение к «Риск проекта (%)» в donut «Распределение статусов». */
-const STATUS_DISTRIBUTION_RISK_EXPLANATION =
-  "Процент риска рассчитывается на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический.";
-
-/** Временная диагностика источника данных виджетов ГПР (консоль + панель). */
-const SHOW_GPR_SCOPE_DEBUG =
-  process.env.NEXT_PUBLIC_GPR_PARKING_DEBUG === "1" ||
+/** Диагностика «Распределение статусов»: только edit/dev, не презентация (см. presentationAnalyticsSkin). */
+const SHOW_STATUS_DISTRIBUTION_DEBUG =
+  process.env.NEXT_PUBLIC_GPR_STATUS_DEBUG === "1" ||
   process.env.NEXT_PUBLIC_GPR_SCOPE_DEBUG === "1" ||
   process.env.NODE_ENV === "development";
+
+/** Диагностика источника данных виджетов ГПР: только edit/dev, не презентация. */
+const SHOW_GPR_SCOPE_DEBUG =
+  SHOW_STATUS_DISTRIBUTION_DEBUG ||
+  process.env.NEXT_PUBLIC_GPR_PARKING_DEBUG === "1";
+
+type GprScopeDebugData = {
+  activeTab: string;
+  totalInDb: number;
+  usedInWidgets: number;
+  usedInPlanFact: number;
+  usedInGpr: number;
+  usedInStatus: number;
+  sourceLabel: string;
+  planFactSource: string;
+  wrongPartInPlanFact: number;
+  calculatedPercent: number | null;
+  barLevel: string;
+  cardRootCodes: string[];
+  wbsSamples: Array<{
+    code: string;
+    wbsLevel: number;
+    partId: number;
+    objectSource: string;
+    inTopCards: boolean;
+  }>;
+};
+
+function GprScopeDebugPanel({ debug }: { debug: GprScopeDebugData }) {
+  return (
+    <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-xs text-amber-100/90">
+      <p className="font-semibold text-amber-200">Debug · {debug.activeTab}</p>
+      <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+        <p>Активная вкладка: {debug.activeTab}</p>
+        <p>Всего задач в БД: {debug.totalInDb}</p>
+        <p>Использовано в План vs Факт: {debug.usedInPlanFact}</p>
+        <p>Использовано в виджетах (статусы/ГПР): {debug.usedInWidgets}</p>
+        <p>Источник: {debug.sourceLabel}</p>
+        <p>Источник План vs Факт: {debug.planFactSource}</p>
+        <p>Использовано в ГПР (rollup): {debug.usedInGpr}</p>
+        <p>Использовано в статусах: {debug.usedInStatus}</p>
+        <p>
+          Рассчитанный %:{" "}
+          {debug.calculatedPercent === null ? "—" : `${debug.calculatedPercent}%`}
+        </p>
+        {debug.wrongPartInPlanFact > 0 ? (
+          <p className="text-red-300">
+            Чужих partId в План vs Факт: {debug.wrongPartInPlanFact}
+          </p>
+        ) : null}
+        <p>Режим WBS: {debug.barLevel}</p>
+        <p>Корни карточек: {debug.cardRootCodes.join(", ") || "—"}</p>
+      </div>
+      {debug.wbsSamples.length > 0 ? (
+        <div className="mt-3 overflow-x-auto">
+          <p className="mb-1 font-medium text-amber-200/90">WBS · План vs Факт (первые строки)</p>
+          <table className="w-full min-w-[480px] text-left text-[10px]">
+            <thead>
+              <tr className="text-amber-200/70">
+                <th className="pr-2">Уровень</th>
+                <th className="pr-2">Код</th>
+                <th className="pr-2">partId</th>
+                <th className="pr-2">Объект</th>
+                <th>Карточка</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debug.wbsSamples.map((row) => (
+                <tr key={`${row.code}-${row.partId}`} className="border-t border-amber-500/20">
+                  <td className="py-0.5 pr-2 tabular-nums">{row.wbsLevel}</td>
+                  <td className="py-0.5 pr-2 font-mono">{row.code}</td>
+                  <td className="py-0.5 pr-2 tabular-nums">{row.partId}</td>
+                  <td className="py-0.5 pr-2">{row.objectSource}</td>
+                  <td className="py-0.5">{row.inTopCards ? "да" : "нет"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type StatusDistributionDebugStats = {
+  scopeLabel: string;
+  activeScope: ConstructionObjectScope;
+  total: number;
+  partIds: number[];
+  rawPartIds: number[];
+  green: number;
+  yellow: number;
+  red: number;
+  gray: number;
+};
+
+function StatusDistributionDebugPanel({ stats }: { stats: StatusDistributionDebugStats }) {
+  return (
+    <div className="mt-3 rounded-lg border border-sky-500/35 bg-sky-950/25 px-3 py-2 text-[11px] leading-relaxed text-sky-100/90">
+      <p className="font-semibold text-sky-200">Распределение статусов · debug</p>
+      <p>Вкладка: {stats.scopeLabel} (scope={String(stats.activeScope)})</p>
+      <p>Всего задач: {stats.total}</p>
+      <p>Эффективные partId: {stats.partIds.length ? stats.partIds.join(", ") : "—"}</p>
+      <p>Сырые partId (поле task.partId): {stats.rawPartIds.length ? stats.rawPartIds.join(", ") : "—"}</p>
+      <p>
+        Зелёные: {stats.green} · Жёлтые: {stats.yellow} · Красные: {stats.red} · Нет данных: {stats.gray}
+      </p>
+    </div>
+  );
+}
 
 /** Корневые этапы для агрегата и порядка карточек по части проекта (значения по умолчанию). */
 const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
@@ -1852,11 +1960,19 @@ export function GPRAnalytics({
   const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
   const gprReportYmd = useMemo(() => toLocalYmd(gprReportAsOf), [gprReportAsOf]);
 
-  /** Задачи выбранного объекта или все части при «Проект». */
-  const tasksForActivePart = useMemo(
-    () => (isProjectWide ? tasks : tasks.filter((t) => t.partId === activePartScope)),
-    [tasks, activePartScope, isProjectWide],
+  const fullTaskList = useMemo(
+    () => (Array.isArray(allTasks) && allTasks.length > 0 ? allTasks : tasks),
+    [allTasks, tasks],
   );
+
+  /** Задачи выбранного объекта или все части при «Проект» (из полного списка, с эффективным partId). */
+  const tasksForActivePart = useMemo(
+    () => filterGprTasksByObjectScope(fullTaskList, activePartScope),
+    [fullTaskList, activePartScope],
+  );
+
+  /** Источник «Распределение статусов» — тот же набор, что и tasksForActivePart. */
+  const statusDistributionTasks = tasksForActivePart;
 
   /** Корневые шифры агрегата с учётом фактической структуры CSV (2.04/2.05 vs 2.06/2.07). */
   const aggregateRootCodes = useMemo(
@@ -1876,10 +1992,12 @@ export function GPRAnalytics({
     return planFactDataSource;
   }, [planFactDataSource, isProjectWide]);
 
-  const fullTaskList = useMemo(
-    () => (Array.isArray(allTasks) && allTasks.length > 0 ? allTasks : tasks),
-    [allTasks, tasks],
-  );
+  const statusDistributionScopeLabel = PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey];
+  const statusDistributionTitle = `Распределение статусов — ${statusDistributionScopeLabel}`;
+  const statusDistributionRiskCenterLabel = isProjectWide ? "Риск проекта" : "Риск";
+  const statusDistributionRiskExplanation = isProjectWide
+    ? "Процент риска по всему проекту на основе распределения статусов задач: жёлтые — умеренный риск, красные — критический."
+    : `Процент риска по задачам «${statusDistributionScopeLabel}»: жёлтые — умеренный риск, красные — критический.`;
 
   /**
    * Данные для «План vs факт»: ветки WBS выбранного объекта (2.04/2.05 для ЖД, 2.06/2.07 или 2.04/2.05 для стоянки).
@@ -2122,16 +2240,44 @@ export function GPRAnalytics({
 
   const traffic = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-    const rows: TrafficRow[] = flatTasks.map((t) => ({
+    const rows: TrafficRow[] = statusDistributionTasks.map((t) => ({
       task: t,
       ...trafficStatusForTask(t, gprReportAsOf),
     }));
     for (const r of rows) counts[r.status] += 1;
     return { counts, rows };
-  }, [flatTasks, gprReportAsOf]);
+  }, [statusDistributionTasks, gprReportAsOf]);
+
+  const statusDistributionDebugStats = useMemo((): StatusDistributionDebugStats | null => {
+    if (!SHOW_STATUS_DISTRIBUTION_DEBUG || presentationAnalyticsSkin) return null;
+    const effectivePartIds = new Set(statusDistributionTasks.map((t) => resolveGprTaskEffectivePartId(t)));
+    const rawPartIds = new Set(
+      statusDistributionTasks.map((t) => (Number.isFinite(Number(t.partId)) ? Number(t.partId) : 0)),
+    );
+    return {
+      scopeLabel: statusDistributionScopeLabel,
+      activeScope: activePartScope,
+      total: statusDistributionTasks.length,
+      partIds: [...effectivePartIds].sort((a, b) => a - b),
+      rawPartIds: [...rawPartIds].filter((id) => id > 0).sort((a, b) => a - b),
+      green: traffic.counts.green,
+      yellow: traffic.counts.yellow,
+      red: traffic.counts.red,
+      gray: traffic.counts.gray,
+    };
+  }, [
+    statusDistributionTasks,
+    statusDistributionScopeLabel,
+    activePartScope,
+    presentationAnalyticsSkin,
+    traffic.counts.green,
+    traffic.counts.yellow,
+    traffic.counts.red,
+    traffic.counts.gray,
+  ]);
 
   const parkingGprDebug = useMemo(() => {
-    if (!SHOW_GPR_SCOPE_DEBUG) return null;
+    if (!SHOW_GPR_SCOPE_DEBUG || presentationAnalyticsSkin) return null;
 
     const dbTasksForScope = isProjectWide
       ? fullTaskList.filter((t) => !t.missingFromImport)
@@ -2179,7 +2325,7 @@ export function GPRAnalytics({
       usedInWidgets: tasksForActivePart.length,
       usedInPlanFact: planFactFilteredTasks.length,
       usedInGpr: gprParticipantIds.size,
-      usedInStatus: flatTasks.length,
+      usedInStatus: statusDistributionTasks.length,
       sourceLabel,
       planFactSource: effectivePlanFactDataSource,
       wrongPartInPlanFact,
@@ -2201,10 +2347,12 @@ export function GPRAnalytics({
     tasksForActivePart,
     aggregateRootCodes,
     flatTasks,
+    statusDistributionTasks,
     effectivePlanFactDataSource,
     partProgressAggregate.totalPercent,
     orderedStageRoots,
     planFactTasksBarLevel,
+    presentationAnalyticsSkin,
   ]);
 
   useEffect(() => {
@@ -2673,67 +2821,13 @@ export function GPRAnalytics({
             </div>
           </div>
         </div>
+        {parkingGprDebug ? <GprScopeDebugPanel debug={parkingGprDebug} /> : null}
       </section>
     );
   }
 
   return (
     <section className="min-w-0 space-y-4 overflow-x-clip">
-      {parkingGprDebug ? (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-xs text-amber-100/90">
-          <p className="font-semibold text-amber-200">Debug · {parkingGprDebug.activeTab}</p>
-          <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-            <p>Активная вкладка: {parkingGprDebug.activeTab}</p>
-            <p>Всего задач в БД: {parkingGprDebug.totalInDb}</p>
-            <p>Использовано в План vs Факт: {parkingGprDebug.usedInPlanFact}</p>
-            <p>Использовано в виджетах (статусы/ГПР): {parkingGprDebug.usedInWidgets}</p>
-            <p>Источник: {parkingGprDebug.sourceLabel}</p>
-            <p>Источник План vs Факт: {parkingGprDebug.planFactSource}</p>
-            <p>Использовано в ГПР (rollup): {parkingGprDebug.usedInGpr}</p>
-            <p>Использовано в статусах: {parkingGprDebug.usedInStatus}</p>
-            <p>
-              Рассчитанный %:{" "}
-              {parkingGprDebug.calculatedPercent === null
-                ? "—"
-                : `${parkingGprDebug.calculatedPercent}%`}
-            </p>
-            {parkingGprDebug.wrongPartInPlanFact > 0 ? (
-              <p className="text-red-300">
-                Чужих partId в План vs Факт: {parkingGprDebug.wrongPartInPlanFact}
-              </p>
-            ) : null}
-            <p>Режим WBS: {parkingGprDebug.barLevel}</p>
-            <p>Корни карточек: {parkingGprDebug.cardRootCodes.join(", ") || "—"}</p>
-          </div>
-          {parkingGprDebug.wbsSamples.length > 0 ? (
-            <div className="mt-3 overflow-x-auto">
-              <p className="mb-1 font-medium text-amber-200/90">WBS · План vs Факт (первые строки)</p>
-              <table className="w-full min-w-[480px] text-left text-[10px]">
-                <thead>
-                  <tr className="text-amber-200/70">
-                    <th className="pr-2">Уровень</th>
-                    <th className="pr-2">Код</th>
-                    <th className="pr-2">partId</th>
-                    <th className="pr-2">Объект</th>
-                    <th>Карточка</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parkingGprDebug.wbsSamples.map((row) => (
-                    <tr key={`${row.code}-${row.partId}`} className="border-t border-amber-500/20">
-                      <td className="py-0.5 pr-2 tabular-nums">{row.wbsLevel}</td>
-                      <td className="py-0.5 pr-2 font-mono">{row.code}</td>
-                      <td className="py-0.5 pr-2 tabular-nums">{row.partId}</td>
-                      <td className="py-0.5 pr-2">{row.objectSource}</td>
-                      <td className="py-0.5">{row.inTopCards ? "да" : "нет"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
       <div className="top-cards">
         {orderedStageRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
@@ -3250,7 +3344,7 @@ export function GPRAnalytics({
             <div className="flex h-full min-w-0 w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm sm:p-6">
               <div className="flex flex-col gap-2">
                 <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
-                  <h3 className="text-lg font-semibold leading-snug text-slate-50">Распределение статусов</h3>
+                  <h3 className="text-lg font-semibold leading-snug text-slate-50">{statusDistributionTitle}</h3>
                 </div>
                 <p className="text-xs leading-snug text-slate-300">
                   Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
@@ -3336,7 +3430,7 @@ export function GPRAnalytics({
                     viewBox="0 0 120 72"
                     overflow="visible"
                     role="img"
-                    aria-label={STATUS_DISTRIBUTION_RISK_EXPLANATION}
+                    aria-label={statusDistributionRiskExplanation}
                   >
                     <text
                       x={60}
@@ -3348,7 +3442,7 @@ export function GPRAnalytics({
                           "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
                       }}
                     >
-                      <title>{STATUS_DISTRIBUTION_RISK_EXPLANATION}</title>
+                      <title>{statusDistributionRiskExplanation}</title>
                       <tspan
                         x={60}
                         dy={-6}
@@ -3369,14 +3463,14 @@ export function GPRAnalytics({
                         fontWeight={500}
                         style={{ fill: "#A3B3C7" }}
                       >
-                        Риск проекта
+                        {statusDistributionRiskCenterLabel}
                       </tspan>
                     </text>
                   </svg>
                 </div>
               </div>
               <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                {STATUS_DISTRIBUTION_RISK_EXPLANATION}
+                {statusDistributionRiskExplanation}
               </p>
               <div className="mt-4 w-full">
                 <AnalyticsLegendList>
@@ -3402,6 +3496,9 @@ export function GPRAnalytics({
                   />
                 </AnalyticsLegendList>
               </div>
+              {statusDistributionDebugStats ? (
+                <StatusDistributionDebugPanel stats={statusDistributionDebugStats} />
+              ) : null}
               <div
                 className={`grid transition-[grid-template-rows,opacity] duration-[250ms] ease-out ${
                   statusDistributionSelectedSegment ? "opacity-100" : "opacity-0"
@@ -3464,7 +3561,7 @@ export function GPRAnalytics({
           >
             <div className="flex flex-col gap-2">
               <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
-                <h3 className="text-lg font-semibold leading-snug text-slate-50">Распределение статусов</h3>
+                <h3 className="text-lg font-semibold leading-snug text-slate-50">{statusDistributionTitle}</h3>
               </div>
               <p className="text-xs leading-snug text-slate-300">
                 Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
@@ -3545,7 +3642,7 @@ export function GPRAnalytics({
                   viewBox="0 0 120 72"
                   overflow="visible"
                   role="img"
-                  aria-label={STATUS_DISTRIBUTION_RISK_EXPLANATION}
+                  aria-label={statusDistributionRiskExplanation}
                 >
                   <text
                     x={60}
@@ -3557,7 +3654,7 @@ export function GPRAnalytics({
                         "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
                     }}
                   >
-                    <title>{STATUS_DISTRIBUTION_RISK_EXPLANATION}</title>
+                    <title>{statusDistributionRiskExplanation}</title>
                     <tspan
                       x={60}
                       dy={-6}
@@ -3578,13 +3675,13 @@ export function GPRAnalytics({
                       fontWeight={500}
                       style={{ fill: "#A3B3C7" }}
                     >
-                      Риск проекта
+                      {statusDistributionRiskCenterLabel}
                     </tspan>
                   </text>
                 </svg>
               </div>
             </div>
-            <p className="mt-2 text-[11px] leading-snug text-slate-400">{STATUS_DISTRIBUTION_RISK_EXPLANATION}</p>
+            <p className="mt-2 text-[11px] leading-snug text-slate-400">{statusDistributionRiskExplanation}</p>
             <div className="mt-4 w-full">
               <AnalyticsLegendList>
                 <AnalyticsLegendItem
@@ -3609,6 +3706,9 @@ export function GPRAnalytics({
                 />
               </AnalyticsLegendList>
             </div>
+            {statusDistributionDebugStats ? (
+              <StatusDistributionDebugPanel stats={statusDistributionDebugStats} />
+            ) : null}
           </button>
           )}
           {!presentationAnalyticsSkin &&
@@ -3619,7 +3719,7 @@ export function GPRAnalytics({
               <div
                 ref={statusDistributionPopoverRef}
                 role="dialog"
-                aria-label="Распределение статусов: детализация"
+                aria-label={`${statusDistributionTitle}: детализация`}
                 className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border border-slate-500/45 bg-[#1e293b] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
                   statusDistributionPopoverEntered ? "scale-100 opacity-100" : "scale-[0.98] opacity-0"
                 }`}
@@ -3630,7 +3730,7 @@ export function GPRAnalytics({
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <div className="border-b border-white/10 p-[14px] pb-3">
-                  <div className="text-sm font-semibold text-slate-100">Распределение статусов</div>
+                  <div className="text-sm font-semibold text-slate-100">{statusDistributionTitle}</div>
                 </div>
                 <div className="max-h-[min(480px,78vh)] space-y-4 overflow-y-auto p-[14px] pt-3">
                   <div>

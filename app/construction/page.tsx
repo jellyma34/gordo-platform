@@ -13,7 +13,7 @@ import {
   saveGprTasksToLocalStorage,
 } from "@/lib/gprImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
-import type { ConstructionObjectScope, GPRTask } from "@/lib/gprUtils";
+import { filterGprTasksByObjectScope, type ConstructionObjectScope, type GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | "gpr" | "tenders" | "tmc";
 
@@ -70,10 +70,10 @@ export default function ConstructionPage() {
   }, [tasks, gprPersistReady, gprProjectId]);
 
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
-  const gprTasksForPart =
-    activePartScope === "project"
-      ? tasks
-      : tasks.filter((task) => task.partId === activePartScope);
+  const gprTasksForPart = useMemo(
+    () => filterGprTasksByObjectScope(tasks, activePartScope),
+    [tasks, activePartScope],
+  );
   const saveGprTasksForPart = (partTasks: GPRTask[]) => {
     const affectedPartIds =
       activePartScope === "project" ? new Set<number>([1, 2]) : new Set<number>([activePartScope]);

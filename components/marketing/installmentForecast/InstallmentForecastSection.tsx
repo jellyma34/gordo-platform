@@ -23,6 +23,10 @@ type Props = {
   mplPremium?: boolean;
   isEditMode?: boolean;
   period?: MarketingPeriodGranularity;
+  /** Помесячный факт поступлений по договорам (₽), из CSV фактических платежей. */
+  factByPeriodKey?: Record<string, number> | null;
+  /** Отчётный месяц маркетинга (YYYY-MM): факт только до этого месяца включительно. */
+  factThroughPeriodKey?: string | null;
 };
 
 export function InstallmentForecastSection({
@@ -30,6 +34,8 @@ export function InstallmentForecastSection({
   presDark,
   mplPremium = false,
   isEditMode = false,
+  factByPeriodKey = null,
+  factThroughPeriodKey = null,
 }: Props) {
   const projectId = useMemo(() => marketingPaymentPlanProjectIdFromEnv(), []);
 
@@ -51,8 +57,16 @@ export function InstallmentForecastSection({
   const [failedDiagnostics, setFailedDiagnostics] = useState<InstallmentForecastCsvParseDiagnostics | null>(null);
 
   const { chartPoints } = useMemo(
-    () => buildInstallmentForecastChartData(doc?.rows ?? []),
-    [doc?.rows],
+    () =>
+      buildInstallmentForecastChartData(doc?.rows ?? [], {
+        factByPeriodKey: factByPeriodKey ?? null,
+        factThroughPeriodKey: factThroughPeriodKey ?? null,
+      }),
+    [doc?.rows, factByPeriodKey, factThroughPeriodKey],
+  );
+
+  const hasFactSeries = chartPoints.some(
+    (p) => p.factAmountUnit != null || p.factCumulativeUnit != null,
   );
 
   const hasCsv = Boolean(doc?.rows?.length);
@@ -221,6 +235,7 @@ export function InstallmentForecastSection({
           presDark={presDark}
           presentation={presentation}
           mplPremium={mplPremium}
+          hasFactSeries={hasFactSeries}
         />
       )}
     </section>

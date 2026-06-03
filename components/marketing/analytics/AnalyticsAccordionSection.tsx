@@ -8,6 +8,8 @@ import { segmentedControlTabClass } from "@/components/marketing/marketingSegmen
 
 type Props = {
   title: string;
+  /** Подпись под заголовком (например «Дополнительные маркетинговые показатели»). */
+  subtitle?: string;
   /** Опционально: «Квартиры (79)». */
   count?: number | null;
   defaultExpanded?: boolean;
@@ -27,6 +29,7 @@ type Props = {
  */
 export function AnalyticsAccordionSection({
   title,
+  subtitle,
   count,
   defaultExpanded = false,
   forceExpanded = false,
@@ -81,11 +84,22 @@ export function AnalyticsAccordionSection({
           className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20 sm:px-3.5 ${headerTabCls}`}
           onClick={toggle}
         >
-          <span className="min-w-0 truncate text-[13px] font-medium leading-snug tracking-tight">
-            {title}
-            {countLabel ? (
-              <span className={`font-normal tabular-nums ${presDark ? "text-slate-500" : "text-slate-500"}`}>
-                {countLabel}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium leading-snug tracking-tight">
+              {title}
+              {countLabel ? (
+                <span className={`font-normal tabular-nums ${presDark ? "text-slate-500" : "text-slate-500"}`}>
+                  {countLabel}
+                </span>
+              ) : null}
+            </span>
+            {subtitle ? (
+              <span
+                className={`mt-0.5 block text-[11px] font-normal leading-snug ${
+                  presDark ? "text-slate-500" : "text-slate-500"
+                }`}
+              >
+                {subtitle}
               </span>
             ) : null}
           </span>

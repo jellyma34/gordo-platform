@@ -33,6 +33,7 @@ import type {
 import type { UnitsExecutionChartsPayload } from "@/lib/marketingUnitsExecutionCsv";
 import type { NormalizedDealRow } from "@/components/marketing/DealsSection";
 import { MarketingLeadsCsvSection } from "@/components/marketing/MarketingLeadsCsvSection";
+import { AnalyticsAccordionSection } from "@/components/marketing/analytics/AnalyticsAccordionSection";
 import { AveragePriceAnalyticsSection } from "@/components/marketing/averagePricePerSqm/AveragePriceAnalyticsSection";
 import { TotalAreaAnalyticsSection } from "@/components/marketing/totalArea/TotalAreaAnalyticsSection";
 import { InventoryDepletionSection } from "@/components/marketing/inventoryDepletion/InventoryDepletionSection";
@@ -178,7 +179,79 @@ type Props = {
   objectId?: string;
   /** PDF: все сегменты и режимы как отдельные блоки. */
   pdfRender?: boolean;
+  /** false — аккордеон «Расширенная аналитика» рендерится отдельно на странице. */
+  showExtendedAnalytics?: boolean;
 };
+
+type ExtendedAnalyticsProps = {
+  presentation: boolean;
+  presDark: boolean;
+  mplPremium?: boolean;
+  isEditMode?: boolean;
+  period?: MarketingPeriodGranularity;
+  objectId?: string;
+};
+
+/** Аккордеон «Расширенная аналитика» — выносится в конец страницы маркетинга. */
+export function MarketingExtendedAnalyticsAccordion({
+  presentation,
+  presDark,
+  mplPremium = false,
+  isEditMode = false,
+  period = "month",
+  objectId = "all",
+}: ExtendedAnalyticsProps) {
+  return (
+    <AnalyticsAccordionSection
+      title="Расширенная аналитика"
+      subtitle="Дополнительные маркетинговые показатели"
+      defaultExpanded={false}
+      presDark={presDark}
+      presentation={presentation}
+      mplPremium={mplPremium}
+    >
+      <div className="flex flex-col gap-3 sm:gap-4">
+        <AveragePriceAnalyticsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          showCsvUpload={isEditMode}
+        />
+
+        <TotalAreaAnalyticsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          showCsvUpload={isEditMode}
+        />
+
+        <ReducedAreaAnalyticsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          showCsvUpload={isEditMode}
+        />
+
+        <InventoryDepletionSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          period={period}
+          objectId={objectId}
+          showCsvUpload={isEditMode}
+        />
+
+        <SqmPriceDynamicsSection
+          presentation={presentation}
+          presDark={presDark}
+          mplPremium={mplPremium}
+          period={period}
+          objectId={objectId}
+        />
+      </div>
+    </AnalyticsAccordionSection>
+  );
+}
 
 export function SalesPlanExecutionBlock({
   presentation,
@@ -207,6 +280,7 @@ export function SalesPlanExecutionBlock({
   period = "month",
   objectId = "all",
   pdfRender = false,
+  showExtendedAnalytics = true,
 }: Props) {
   const data = dataset;
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -432,43 +506,16 @@ export function SalesPlanExecutionBlock({
           unitsCsvError={unitsCsvError}
         />
 
-        <AveragePriceAnalyticsSection
-          presentation={presentation}
-          presDark={presDark}
-          mplPremium={mplPremium}
-          showCsvUpload={isEditMode}
-        />
-
-        <TotalAreaAnalyticsSection
-          presentation={presentation}
-          presDark={presDark}
-          mplPremium={mplPremium}
-          showCsvUpload={isEditMode}
-        />
-
-        <ReducedAreaAnalyticsSection
-          presentation={presentation}
-          presDark={presDark}
-          mplPremium={mplPremium}
-          showCsvUpload={isEditMode}
-        />
-
-        <InventoryDepletionSection
-          presentation={presentation}
-          presDark={presDark}
-          mplPremium={mplPremium}
-          period={period}
-          objectId={objectId}
-          showCsvUpload={isEditMode}
-        />
-
-        <SqmPriceDynamicsSection
-          presentation={presentation}
-          presDark={presDark}
-          mplPremium={mplPremium}
-          period={period}
-          objectId={objectId}
-        />
+        {showExtendedAnalytics ? (
+          <MarketingExtendedAnalyticsAccordion
+            presentation={presentation}
+            presDark={presDark}
+            mplPremium={mplPremium}
+            isEditMode={isEditMode}
+            period={period}
+            objectId={objectId}
+          />
+        ) : null}
 
         <MarketingLeadsCsvSection
           presentation={presentation}

@@ -26,6 +26,7 @@ import {
   type UiConstructionSection,
 } from "@/lib/auth";
 import {
+  filterGprTasksByObjectScope,
   gprTaskFromApiItem,
   gprTaskToApiWritePayload,
   partScopeToUrlParam,
@@ -218,8 +219,7 @@ function ConstructionWorkspaceInner({
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForActivePart = useMemo(() => {
     const list = Array.isArray(tasks) ? tasks : [];
-    if (activePartScope === "project") return list.filter(Boolean);
-    return list.filter((task) => task && task.partId === activePartScope);
+    return filterGprTasksByObjectScope(list, activePartScope);
   }, [tasks, activePartScope]);
 
   const saveGprTasksForActivePart = async (partTasks: GPRTask[]) => {
