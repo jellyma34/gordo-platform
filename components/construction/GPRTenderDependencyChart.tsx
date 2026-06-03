@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
   type ChartOptions,
+  type Plugin,
   type ScriptableLineSegmentContext,
 } from "chart.js";
 import { type GPRTask } from "@/lib/gprUtils";
@@ -29,9 +30,61 @@ import {
 import { formatGprProgressDeltaPp } from "./gprDependencyKpiShared";
 import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
 import { toDate } from "@/lib/gprUtils";
+import {
+  formatInstallmentPlatformDateLabel,
+  INSTALLMENT_FORECAST_TODAY_LINE,
+} from "@/lib/installmentForecastChartTodayLine";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
-ChartJS.register(LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
+type GprTenderReportDateLineOpts = {
+  xMs: number | null;
+  dateLabel: string;
+};
+
+/** Вертикаль отчётной даты под линиями графика; подпись DD.MM.YYYY над областью. */
+const gprTenderReportDateLinePlugin: Plugin<"line"> = {
+  id: "gprTenderReportDateLine",
+  beforeDatasetsDraw(chart) {
+    const opts = (
+      chart.options.plugins as { gprTenderReportDateLine?: GprTenderReportDateLineOpts } | undefined
+    )?.gprTenderReportDateLine;
+    if (!opts || opts.xMs == null || !Number.isFinite(opts.xMs) || !chart.scales.x) return;
+
+    const x = chart.scales.x.getPixelForValue(opts.xMs);
+    const { ctx, chartArea } = chart;
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
+
+    const xi = Math.round(x) + 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = INSTALLMENT_FORECAST_TODAY_LINE.stroke;
+    ctx.lineWidth = INSTALLMENT_FORECAST_TODAY_LINE.strokeWidth;
+    ctx.setLineDash([4, 5]);
+    ctx.moveTo(xi, chartArea.top);
+    ctx.lineTo(xi, chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (opts.dateLabel) {
+      ctx.font = `${INSTALLMENT_FORECAST_TODAY_LINE.labelFontWeight} ${INSTALLMENT_FORECAST_TODAY_LINE.labelFontSize}px system-ui, -apple-system, 'Segoe UI', sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
+      ctx.fillText(opts.dateLabel, x, chartArea.top - 6);
+    }
+    ctx.restore();
+  },
+};
+
+ChartJS.register(
+  LinearScale,
+  PointElement,
+  LineElement,
+  Filler,
+  Tooltip,
+  Legend,
+  gprTenderReportDateLinePlugin,
+);
 
 const PLAN_GPR_LINE = "#e2e8f0";
 const FACT_GPR_LINE = "#22c55e";
@@ -278,7 +331,7 @@ export function GPRTenderDependencyChart({
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: "nearest", axis: "x", intersect: false },
-            layout: { padding: { top: 6, right: 10, left: 4, bottom: 4 } },
+            layout: { padding: { top: 28, right: 10, left: 4, bottom: 4 } },
             scales: {
               x: {
                 type: "linear",
@@ -310,6 +363,10 @@ export function GPRTenderDependencyChart({
               },
             },
             plugins: {
+              gprTenderReportDateLine: {
+                xMs: timeline.todayMs,
+                dateLabel: formatInstallmentPlatformDateLabel(timeline.todayIso),
+              },
               legend: {
                 position: "bottom",
                 labels: {

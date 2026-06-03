@@ -1,8 +1,13 @@
 import { GPR_DATA } from "./gprData";
+import { aggregateRootCodesForPart } from "./gprAggregateRoots";
 import {
   calculateDeviation,
+  compareGprCodesByNumericPath,
   durationDays,
+  gprPlanFactCompositeKey,
+  gprPlanFactScopeFromTask,
   gprTaskScheduleDeviationDisplayDays,
+  gprWbsLevelFromCode,
   normalizeGprCodeFinal,
   PROJECT_PART_KEY_TO_ID,
   toDate,
@@ -105,6 +110,75 @@ const GROUP_KEY_TO_ROOT_CODE: Record<GprStageGroupKey, string> = {
   network: "2.06",
   improve: "2.07",
 };
+
+const ROOT_CODE_TO_GROUP_KEY: Partial<Record<string, GprStageGroupKey>> = Object.fromEntries(
+  (Object.entries(GROUP_KEY_TO_ROOT_CODE) as [GprStageGroupKey, string][]).map(([key, code]) => [
+    normalizeGprCodeFinal(code),
+    key,
+  ]),
+);
+
+function groupKeyForAggregateRootCode(rootCode: string): GprStageGroupKey | null {
+  return ROOT_CODE_TO_GROUP_KEY[normalizeGprCodeFinal(rootCode)] ?? null;
+}
+
+function groupKeyForWorkTask(task: GPRTask, branchRoots: readonly string[]): GprStageGroupKey {
+  const c = normalizeGprCodeFinal(task.code);
+  for (const root of branchRoots) {
+    const rn = normalizeGprCodeFinal(root);
+    if (c === rn || c.startsWith(`${rn}.`)) {
+      const mapped = groupKeyForAggregateRootCode(rn);
+      if (mapped) return mapped;
+    }
+  }
+  return inferGroup(task);
+}
+
+/**
+ * Работы WBS level 2 для оси графика «ГПР — ТМЦ»
+ * (уровень «Детализированно» plan-fact; без листьев level 3+).
+ */
+function listLevel2GprWorksForTmcChart(tasks: GPRTask[], part: ProjectPartKey): GPRTask[] {
+  const branchRoots = aggregateRootCodesForPart(part, tasks);
+  const partitions = new Map<string, GPRTask[]>();
+
+  for (const t of tasks) {
+    const c = normalizeGprCodeFinal(t.code);
+    if (!branchRoots.some((r) => c === normalizeGprCodeFinal(r) || c.startsWith(`${normalizeGprCodeFinal(r)}.`))) {
+      continue;
+    }
+    const pk = `${t.partId ?? 0}|${gprPlanFactScopeFromTask(t)}|${(t.objectType ?? "").trim().replace(/\s+/g, " ")}`;
+    const arr = partitions.get(pk);
+    if (arr) arr.push(t);
+    else partitions.set(pk, [t]);
+  }
+
+  const out: GPRTask[] = [];
+  for (const [, group] of partitions) {
+    for (const t of group) {
+      const c = normalizeGprCodeFinal(t.code);
+      if (gprWbsLevelFromCode(c, t.level) !== 2) continue;
+      out.push(t);
+    }
+  }
+
+  return out.sort((a, b) => {
+    const cmp = compareGprCodesByNumericPath(a.code, b.code);
+    if (cmp !== 0) return cmp;
+    return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
+  });
+}
+
+/** Fallback: корневые работы WBS level 1 (упрощённый режим plan-fact). */
+function listLevel1GprWorksForTmcChart(tasks: GPRTask[]): GPRTask[] {
+  return tasks
+    .filter((t) => gprWbsLevelFromCode(normalizeGprCodeFinal(t.code), t.level) === 1)
+    .sort((a, b) => {
+      const cmp = compareGprCodesByNumericPath(a.code, b.code);
+      if (cmp !== 0) return cmp;
+      return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
+    });
+}
 
 function catalogStageName(groupKey: GprStageGroupKey): string {
   const code = GROUP_KEY_TO_ROOT_CODE[groupKey];
@@ -237,6 +311,96 @@ export function buildGprTmcDependencySeries(
       zone,
     };
   });
+}
+
+/** Серия для графика «ГПР — ТМЦ»: точки по шифрам работ level 2 (ось X — только код). */
+export function buildGprTmcDependencyChartSeries(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+  activeProjectPart: ProjectPartKey,
+): GprTmcDependencyPoint[] {
+  const branchRoots = aggregateRootCodesForPart(activeProjectPart, tasks);
+  let workTasks = listLevel2GprWorksForTmcChart(tasks, activeProjectPart);
+  if (workTasks.length === 0) {
+    workTasks = listLevel1GprWorksForTmcChart(tasks);
+  }
+  if (workTasks.length === 0) {
+    return buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart).map((row) => ({
+      ...row,
+      stageShort: GROUP_KEY_TO_ROOT_CODE[row.groupKey],
+    }));
+  }
+
+  const allowedKeys = new Set<GprStageGroupKey>();
+  for (const root of branchRoots) {
+    const key = groupKeyForAggregateRootCode(root);
+    if (key) allowedKeys.add(key);
+  }
+  for (const task of workTasks) {
+    allowedKeys.add(groupKeyForWorkTask(task, branchRoots));
+  }
+
+  const tmcFiltered = filterTmcByProjectPart(tmcItems, activeProjectPart);
+  const tmcForChart = tmcFiltered.filter((item) => {
+    const g = groupKeyForTmcGprStage(item.gprStage);
+    return g !== null && allowedKeys.has(g);
+  });
+
+  const asOf = toDate(todayIso) ?? new Date();
+
+  return workTasks.map((task) => {
+    const workCode = normalizeGprCodeFinal(task.code);
+    const key = groupKeyForWorkTask(task, branchRoots);
+    const stageFull = GPR_TMC_STAGE_LABELS[key];
+    const stageTitle = task.name?.trim() || catalogStageName(key);
+    const planGpr = plannedProgressBySchedule(task, todayIso);
+    const factGpr = computeGprStageFactCompletionChartPercent(tasks, task, asOf);
+    const progressDeltaPp = calculateDeviation(task, asOf);
+    const deviationDays = gprTaskScheduleDeviationDisplayDays(task, asOf);
+    const tmcSupply = tmcSupplyPercentForStage(tmcForChart, stageFull);
+    const impact = tmcImpactStatus(tmcSupply);
+    const zone: GprTmcDependencyPoint["zone"] =
+      tmcSupply === null ? "none" : tmcSupply < 50 ? "block" : tmcSupply < 80 ? "risk" : "none";
+
+    return {
+      groupKey: key,
+      stageTitle,
+      stageFull,
+      stageShort: workCode,
+      planGpr,
+      factGpr,
+      deviationDays,
+      progressDeltaPp,
+      tmcSupply,
+      impact,
+      statusLabel: tmcImpactStatusLabel(impact),
+      zoneBar: 100,
+      zone,
+    };
+  });
+}
+
+/** Агрегат «Проект»: работы жилой части и автостоянки подряд. */
+export function buildGprTmcDependencyChartSeriesProjectWide(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+): GprTmcDependencyPoint[] {
+  return [
+    ...buildGprTmcDependencyChartSeries(
+      tasks.filter((t) => t.partId === 1),
+      filterTmcByProjectPart(tmcItems, "residential"),
+      todayIso,
+      "residential",
+    ),
+    ...buildGprTmcDependencyChartSeries(
+      tasks.filter((t) => t.partId === 2),
+      filterTmcByProjectPart(tmcItems, "parking"),
+      todayIso,
+      "parking",
+    ),
+  ];
 }
 
 export type GprTenderDependencyPoint = {

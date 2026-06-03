@@ -26,7 +26,10 @@ import {
   formatPercent,
 } from "@/lib/chartFormatters";
 import { formatCashflowChartUnitInteger } from "@/lib/cashflowChartUnits";
-import { formatCompactCurrencyRu } from "@/lib/formatCompactCurrencyRu";
+import {
+  formatCompactCurrencyRu,
+  formatCompactNumberWithoutCurrencyParts,
+} from "@/lib/formatCompactCurrencyRu";
 import {
   INSTALLMENT_FORECAST_TODAY_LINE,
   installmentForecastTodayLineLabelFill,
@@ -382,6 +385,52 @@ export function InstallmentForecastChart({
 
   const factDataKey = mode === "monthly" ? "factAmountUnit" : "factCumulativeUnit";
 
+  const factSeries = showFact ? (
+    <Line
+      type="monotone"
+      dataKey={factDataKey}
+      name="Факт"
+      stroke={FACT_STROKE}
+      strokeWidth={2.5}
+      dot={{ r: 3, fill: FACT_STROKE, strokeWidth: 0 }}
+      activeDot={{ r: 5, fill: FACT_STROKE }}
+      connectNulls={false}
+      isAnimationActive={false}
+    >
+      <LabelList
+        dataKey={factDataKey}
+        content={(props: LabelProps) => {
+          const idx = props.index ?? 0;
+          const point = data[idx];
+          if (!point) return null;
+          const factRub = mode === "monthly" ? point.factAmount : point.factCumulative;
+          if (factRub == null || !Number.isFinite(factRub) || factRub <= 0) return null;
+          const cx = Number(props.x);
+          const cy = Number(props.y);
+          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+          const factLabelParts = formatCompactNumberWithoutCurrencyParts(factRub);
+          if (factLabelParts.value === "—") return null;
+          const text = factLabelParts.value;
+          return (
+            <text
+              key={`inst-fact-lbl-${idx}`}
+              x={cx + 6}
+              y={cy}
+              textAnchor="start"
+              dominantBaseline="middle"
+              fill={FACT_STROKE}
+              fontSize={11}
+              fontWeight={700}
+              className="tabular-nums pointer-events-none"
+            >
+              {text}
+            </text>
+          );
+        }}
+      />
+    </Line>
+  ) : null;
+
   return (
     <div className="min-w-0 overflow-visible pt-1 pb-3">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -426,19 +475,7 @@ export function InstallmentForecastChart({
             {sharedAxes}
             <InstallmentTodayLineOverlay todayLine={todayLine} presDark={presDark} data={data} />
             {forecastSeries}
-            {showFact ? (
-              <Line
-                type="monotone"
-                dataKey={factDataKey}
-                name="Факт"
-                stroke={FACT_STROKE}
-                strokeWidth={2.5}
-                dot={{ r: 3, fill: FACT_STROKE, strokeWidth: 0 }}
-                activeDot={{ r: 5, fill: FACT_STROKE }}
-                connectNulls={false}
-                isAnimationActive={false}
-              />
-            ) : null}
+            {factSeries}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

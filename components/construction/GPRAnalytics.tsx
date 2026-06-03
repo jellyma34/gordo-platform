@@ -1889,9 +1889,11 @@ function GprTopKpiCardLayout({
           >
             {leftValue}
           </div>
-          <div className="mt-0.5 min-h-[0.875rem] text-[10px] leading-snug text-[#E6EDF3]/55">
-            {leftMeta ?? ""}
-          </div>
+          {leftMeta ? (
+            <div className="mt-0.5 min-h-[0.875rem] text-[10px] leading-snug text-[#E6EDF3]/55">
+              {leftMeta}
+            </div>
+          ) : null}
         </div>
         <div className="shrink-0 text-right text-sm text-[#E6EDF3]/85">
           <div className="text-xs leading-snug text-[#E6EDF3]/70">{rightLabel}</div>
@@ -2891,9 +2893,9 @@ export function GPRAnalytics({
                 leftMeta={
                   stageInsight.source === "root_field"
                     ? "корневая работа"
-                    : stageInsight.source === "leaf_rollup"
-                      ? "по листьям WBS"
-                      : "по дочерним работам"
+                    : stageInsight.source === "descendant_rollup"
+                      ? "по дочерним работам"
+                      : undefined
                 }
                 rightLabel="Плановая готовность"
                 rightValue={planDisplay}

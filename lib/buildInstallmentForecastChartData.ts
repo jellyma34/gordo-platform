@@ -63,18 +63,28 @@ export type BuildInstallmentForecastChartDataOptions = {
   factThroughPeriodKey?: string | null;
 };
 
-/** Отчётный месяц (YYYY-MM) из ключа периода маркетинга (месяц или квартал). */
+/**
+ * Верхняя граница месяцев факта на графике рассрочки: max(отчётный месяц маркетинга, календарный месяц платформы).
+ * Позволяет показать факт поступлений в текущем месяце графика, не сдвигая отчётный период маркетинга.
+ */
 export function resolveInstallmentFactThroughPeriodKey(
   currentPeriodKey: string | null | undefined,
   period: "month" | "quarter" = "month",
 ): string | null {
   const raw = currentPeriodKey?.trim();
-  if (!raw) return null;
-  if (period === "quarter") {
-    const months = quarterKeyToMonthKeys(raw);
-    if (months?.length) return months[months.length - 1]!;
+  let reporting: string | null = null;
+  if (raw) {
+    if (period === "quarter") {
+      const months = quarterKeyToMonthKeys(raw);
+      if (months?.length) reporting = months[months.length - 1]!;
+    } else {
+      reporting = normalizeMonthKey(raw);
+    }
   }
-  return normalizeMonthKey(raw);
+  const platform = resolvePlatformMonthPeriodKey(resolvePlatformCurrentDateYmd());
+  if (!reporting) return platform;
+  if (!platform) return reporting;
+  return reporting.localeCompare(platform) >= 0 ? reporting : platform;
 }
 
 function isAfterFactThroughPeriod(periodKey: string, factThroughPeriodKey: string | null): boolean {

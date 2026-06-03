@@ -16,6 +16,8 @@ import {
 import { type GPRTask, type ProjectPartKey, formatGprScheduleDeviationDisplayDays } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
 import {
+  buildGprTmcDependencyChartSeries,
+  buildGprTmcDependencyChartSeriesProjectWide,
   buildGprTmcDependencySeries,
   buildGprTmcDependencySeriesProjectWide,
   type ForecastPart,
@@ -85,19 +87,29 @@ export function GPRTmcDependencyChart({
     [tasks, tmcItems, todayIso, activeProjectPart],
   );
 
-  const labels = useMemo(() => series.map((s) => s.stageShort), [series]);
+  const chartSeries = useMemo(
+    () =>
+      activeProjectPart === "project"
+        ? buildGprTmcDependencyChartSeriesProjectWide(tasks, tmcItems, todayIso)
+        : buildGprTmcDependencyChartSeries(tasks, tmcItems, todayIso, activeProjectPart),
+    [tasks, tmcItems, todayIso, activeProjectPart],
+  );
+
+  const labels = useMemo(() => chartSeries.map((s) => s.stageShort), [chartSeries]);
   const planArr = useMemo(
-    () => series.map((s) => (s.planGpr == null ? null : s.planGpr)),
-    [series],
+    () => chartSeries.map((s) => (s.planGpr == null ? null : s.planGpr)),
+    [chartSeries],
   );
   const factArr = useMemo(
-    () => series.map((s) => (s.factGpr == null ? null : s.factGpr)),
-    [series],
+    () => chartSeries.map((s) => (s.factGpr == null ? null : s.factGpr)),
+    [chartSeries],
   );
   const tmcArr = useMemo(
-    () => series.map((s) => (s.tmcSupply == null ? null : s.tmcSupply)),
-    [series],
+    () => chartSeries.map((s) => (s.tmcSupply == null ? null : s.tmcSupply)),
+    [chartSeries],
   );
+
+  const xTickRotation = labels.length > 8 ? 90 : labels.length > 4 ? 45 : 0;
 
   const kpiStats = useMemo(() => {
     const days = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
@@ -240,12 +252,24 @@ export function GPRTmcDependencyChart({
         intersect: false,
       },
       layout: {
-        padding: { top: 6, right: 10, left: 4, bottom: 4 },
+        padding: {
+          top: 6,
+          right: 10,
+          left: 4,
+          bottom: xTickRotation >= 45 ? 28 : 4,
+        },
       },
       scales: {
         x: {
           grid: { color: "rgba(148,163,184,0.08)" },
-          ticks: { color: "#94a3b8", font: { size: 11 }, maxRotation: 0 },
+          ticks: {
+            color: "#94a3b8",
+            font: { size: labels.length > 10 ? 10 : 11 },
+            maxRotation: xTickRotation,
+            minRotation: xTickRotation,
+            autoSkip: labels.length > 16,
+            maxTicksLimit: labels.length > 20 ? 24 : undefined,
+          },
           border: { color: "rgba(148,163,184,0.2)" },
         },
         y: {
@@ -282,7 +306,9 @@ export function GPRTmcDependencyChart({
             title: (items) => {
               const i = items[0]?.dataIndex;
               if (i === undefined) return "";
-              return series[i]?.stageFull ?? "";
+              const row = chartSeries[i];
+              if (!row) return "";
+              return `${row.stageShort} — ${row.stageTitle}`;
             },
             label: (ctx) => {
               const v = ctx.parsed.y;
@@ -293,8 +319,8 @@ export function GPRTmcDependencyChart({
               const i = items[0]?.dataIndex;
               if (i === undefined) return "";
               const lines: string[] = [];
-              const pp = series[i]?.progressDeltaPp;
-              const dd = series[i]?.deviationDays;
+              const pp = chartSeries[i]?.progressDeltaPp;
+              const dd = chartSeries[i]?.deviationDays;
               const dlab = reportDateLabel ? ` на ${reportDateLabel}` : "";
               if (pp != null) {
                 lines.push(`Отклонение готовности${dlab}: ${formatGprProgressDeltaPp(pp)}`);
@@ -306,7 +332,7 @@ export function GPRTmcDependencyChart({
         },
       },
     }),
-    [series, planArr, factArr, reportDateLabel],
+    [chartSeries, labels.length, planArr, factArr, reportDateLabel, xTickRotation],
   );
 
   return (
