@@ -14,6 +14,7 @@ from app.services.history import append_entity_history
 from app.schemas import (
     EntityHistoryDetail,
     EntityHistoryListItem,
+    GprBulkImportBody,
     GprDataVersionDetail,
     GprDataVersionListItem,
     GprTaskCreate,
@@ -141,12 +142,12 @@ def _is_tmc_blocking(tmc: dict[str, str | None], today: date) -> bool:
     return False
 
 
-def _task_status_and_reasons(task: GprTask) -> tuple[str, list[str]]:
+def _task_status_and_reasons(task: GprTask, db: Session) -> tuple[str, list[str]]:
     today = date.today()
     related_ids = [x for x in (task.related_tmc_ids or []) if isinstance(x, str)]
     reasons: list[str] = []
     for tmc_id in related_ids:
-        tmc = tmc_row_for_part(task.part_id, tmc_id)
+        tmc = tmc_row_for_part(db, task.part_id, tmc_id)
         if tmc and _is_tmc_blocking(tmc, today):
             reasons.append(str(tmc.get("name") or tmc_id))
     if reasons:
@@ -164,8 +165,8 @@ def _task_status_and_reasons(task: GprTask) -> tuple[str, list[str]]:
     return "on_time", []
 
 
-def _to_task_item(task: GprTask, part_id: int | None = None) -> GprTaskItem:
-    status_key, reasons = _task_status_and_reasons(task)
+def _to_task_item(task: GprTask, db: Session, part_id: int | None = None) -> GprTaskItem:
+    status_key, reasons = _task_status_and_reasons(task, db)
     return GprTaskItem(
         id=task.id,
         code=task.code,
@@ -282,7 +283,71 @@ def list_gpr_tasks(
         else:
             stmt = stmt.where(GprTask.part_id == part_id)
     rows = db.scalars(stmt).all()
-    return [_to_task_item(task, 1 if _kind_by_task(db, task) == "house" else 2 if _kind_by_task(db, task) == "parking" else _response_part_id(db, task.part_id)) for task in rows]
+    return [
+        _to_task_item(
+            task,
+            db,
+            1
+            if _kind_by_task(db, task) == "house"
+            else 2
+            if _kind_by_task(db, task) == "parking"
+            else _response_part_id(db, task.part_id),
+        )
+        for task in rows
+    ]
+
+
+@router.post("/tasks/bulk-import", response_model=list[GprTaskItem])
+def bulk_import_gpr_tasks(
+    body: GprBulkImportBody,
+    actor: User = Depends(require_gpr_write),
+    db: Session = Depends(get_db),
+):
+    """Массовый upsert задач ГПР (CSV-импорт): ключ (part_id, global_task_id)."""
+    existing_rows = list(db.scalars(select(GprTask)).all())
+    existing: dict[tuple[int, str], GprTask] = {}
+    for row in existing_rows:
+        gid = (row.global_task_id or row.code or "").strip()
+        if gid:
+            existing[(row.part_id, gid)] = row
+
+    seen_keys: set[tuple[int, str]] = set()
+    out: list[GprTaskItem] = []
+
+    for item in body.tasks:
+        canonical_part_id = _canonical_storage_part_id_for_task(db, item.part_id, item.code)
+        part = db.get(ProjectPart, canonical_part_id)
+        if part is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
+        payload = item.model_dump()
+        payload["part_id"] = canonical_part_id
+        global_task_id = (payload.get("global_task_id") or payload["code"] or "").strip()
+        if not global_task_id:
+            continue
+        payload["global_task_id"] = global_task_id
+        key = (canonical_part_id, global_task_id)
+        seen_keys.add(key)
+        task = existing.get(key)
+        if task is None:
+            task = GprTask(**payload)
+            db.add(task)
+            existing[key] = task
+        else:
+            for field, value in payload.items():
+                if field != "id":
+                    setattr(task, field, value)
+
+    if body.replace_missing:
+        for key, task in list(existing.items()):
+            if key not in seen_keys:
+                db.delete(task)
+
+    db.commit()
+    for task in db.scalars(select(GprTask).order_by(GprTask.code)).all():
+        gid = (task.global_task_id or task.code or "").strip()
+        if (task.part_id, gid) in seen_keys:
+            out.append(_to_task_item(task, db, _response_part_id(db, task.part_id)))
+    return out
 
 
 @router.post("/tasks", response_model=GprTaskItem, status_code=status.HTTP_201_CREATED)
@@ -304,7 +369,7 @@ def create_gpr_task(
     db.commit()
     db.refresh(task)
     print(f"[GPR] Created task id={task.id} code={task.code!r}", flush=True)
-    return _to_task_item(task, _response_part_id(db, task.part_id))
+    return _to_task_item(task, db, _response_part_id(db, task.part_id))
 
 
 def read_gpr_task_item_or_404(entity_id: int, db: Session) -> GprTaskItem:
@@ -312,7 +377,7 @@ def read_gpr_task_item_or_404(entity_id: int, db: Session) -> GprTaskItem:
     task = db.get(GprTask, entity_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача не найдена")
-    return _to_task_item(task, _response_part_id(db, task.part_id))
+    return _to_task_item(task, db, _response_part_id(db, task.part_id))
 
 
 @router.get("/tasks/{task_id}", response_model=GprTaskItem)
@@ -358,7 +423,7 @@ def persist_gpr_task_update(
     db.commit()
     db.refresh(task)
     print(f"[GPR] Committed task id={task.id} code={task.code!r}", flush=True)
-    return _to_task_item(task, _response_part_id(db, task.part_id))
+    return _to_task_item(task, db, _response_part_id(db, task.part_id))
 
 
 @router.put("/tasks/{task_id}", response_model=GprTaskItem)
@@ -548,7 +613,7 @@ def rollback_entity_version(
 
     db.commit()
     db.refresh(task)
-    return _to_task_item(task, _response_part_id(db, task.part_id))
+    return _to_task_item(task, db, _response_part_id(db, task.part_id))
 
 
 def delete_entity_history_version(entity_id: int, version_id: int, entity_type: str, db: Session) -> dict[str, str]:

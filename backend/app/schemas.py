@@ -271,3 +271,38 @@ class TmcUpdate(TmcBase):
 class TmcDbItem(TmcBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
+
+
+class GprBulkImportBody(BaseModel):
+    tasks: list[GprTaskCreate]
+    replace_missing: bool = True
+
+
+class TenderBulkImportBody(BaseModel):
+    tenders: list[TenderBase]
+    replace_missing: bool = True
+
+
+class TmcBulkImportItem(BaseModel):
+    external_id: str
+    project_part: Literal["residential", "parking"]
+    name: str
+    gpr_stage: str
+    plan_cost: int
+    fact_cost: int | None = None
+    plan_date: str
+    fact_date: str | None = None
+    details: dict | list | None = None
+
+
+class TmcBulkImportBody(BaseModel):
+    items: list[TmcBulkImportItem]
+    replace_missing: bool = True
+
+
+class TmcItemFull(TmcBase):
+    """Позиция ТМЦ для UI: базовые поля + JSON details."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    details: dict | list | None = None

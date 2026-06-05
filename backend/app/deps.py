@@ -77,6 +77,20 @@ def require_gpr_write(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_tenders_write(user: User = Depends(get_current_user)) -> User:
+    if user.role in ("admin", "manager"):
+        return user
+    assert_section_access(user, "tenders")
+    return user
+
+
+def require_materials_write(user: User = Depends(get_current_user)) -> User:
+    if user.role in ("admin", "manager"):
+        return user
+    assert_section_access(user, "materials")
+    return user
+
+
 def normalize_allowed_sections(raw: list[str] | None) -> list[str]:
     if not raw:
         return []

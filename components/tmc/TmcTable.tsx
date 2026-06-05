@@ -22,18 +22,17 @@ import {
   sanitizeGprCodeTyping,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { bulkImportTmcToDb, listTmcFromDb } from "@/lib/constructionApi";
 import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
 import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
   computeTmcTotalsFromVolumes,
-  loadTmcInitialItems,
   suggestNextTmcItemCode,
   syncTmcFinancials,
   TMC_DATA,
   tmcFactReferenceDate,
   tmcPlanReferenceDate,
-  writeTmcSnapshotToStorage,
   type TMCItem,
   type TmcSupplyStatus,
 } from "@/lib/tmcData";
@@ -235,9 +234,9 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
 
   const activeProjectPart: ProjectPartKey = partIdToProjectPartKey(activePartId);
 
-  const projectId = useMemo(() => getGprProjectId(), []);
+  const { token, hydrated } = useAuth();
 
-  const [items, setItems] = useState<TMCItem[]>(() => loadTmcInitialItems(getGprProjectId()));
+  const [items, setItems] = useState<TMCItem[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
   const [query, setQuery] = useState("");
@@ -247,8 +246,20 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   const [form, setForm] = useState<EditableTmc>(EMPTY_FORM);
 
   useEffect(() => {
-    setItems(loadTmcInitialItems(projectId));
-  }, [projectId]);
+    if (!hydrated || !token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listTmcFromDb(token);
+        if (!cancelled) setItems(rows);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, token]);
 
   const rows = useMemo(
     () =>
@@ -346,7 +357,11 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     setItems((prev) => prev.filter((x) => x.id !== id));
   };
 
-  const persist = useCallback(() => {
+  const persist = useCallback(async () => {
+    if (!token) {
+      window.alert("Требуется авторизация для сохранения в БД");
+      return;
+    }
     const peers = items.filter((t) => t.projectPart === activeProjectPart);
     const asCodes = peers.map((t) => ({ id: t.id, code: t.itemCode }));
     for (const t of peers) {
@@ -365,12 +380,13 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       }
     }
     try {
-      writeTmcSnapshotToStorage(projectId, items);
+      const saved = await bulkImportTmcToDb(token, items);
+      setItems(saved);
       window.dispatchEvent(new Event("gordo-tmc-saved"));
-    } catch {
-      /* ignore */
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Не удалось сохранить ТМЦ");
     }
-  }, [items, activeProjectPart, projectId]);
+  }, [items, activeProjectPart, token]);
 
   const handleTmcCsvImport = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -400,14 +416,19 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         const { result, stats } = diffTmcImport(items, normalized, rows.length);
         setImportStats(stats);
         setItems(result);
-        writeTmcSnapshotToStorage(projectId, result);
+        if (token) {
+          const saved = await bulkImportTmcToDb(token, result);
+          setItems(saved);
+        } else {
+          window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
+        }
         window.dispatchEvent(new Event("gordo-tmc-saved"));
       } catch (err) {
         console.error(err);
         window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
       }
     },
-    [projectId, items],
+    [token, items],
   );
 
   const resetToSeed = useCallback(() => {

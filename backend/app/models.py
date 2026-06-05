@@ -139,3 +139,4 @@ class Tmc(Base):
     fact_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
     plan_date: Mapped[str] = mapped_column(String(10), nullable=False)
     fact_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    details: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)

@@ -117,7 +117,6 @@ export function mergeGprTasksFromReportCsv(
   const csvTasksRaw = parsedRows.map((row) =>
     gprCsvRowToTask(row, {
       forcedPartId: forcedPartId ?? undefined,
-      stableSuffix: forcedPartId === 1 ? "residential" : forcedPartId === 2 ? "parking" : undefined,
     }),
   );
 

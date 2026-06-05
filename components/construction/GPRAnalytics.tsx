@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   calculateDeviation,
@@ -52,13 +52,12 @@ import {
   gprStageGroupKeysProjectWide,
   type ForecastPart,
 } from "@/lib/gprTmcDependency";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
-import { filterTmcByProjectPart, getTmcData, loadTmcInitialItems, tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
+import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import {
   buildTenderStageInsight,
   getGprStageFromTenderCode,
-  mergeTenderSnapshotWithSeed,
-  readTenderSnapshotFromStorage,
   type Tender,
 } from "@/lib/tenderData";
 import {
@@ -955,7 +954,7 @@ function StatusDistributionTaskChunk({
     <>
       <ul className="mt-1.5 space-y-1 text-[11px] leading-snug text-slate-300">
         {shown.map((r) => (
-          <li key={r.task.id}>
+          <li key={r.task.globalTaskId ?? r.task.id}>
             • {r.task.name}
             {showDeviation
               ? ` (${formatDeviationForStatusDistributionPopover(status, r.deviationDays)})`
@@ -1956,7 +1955,9 @@ export function GPRAnalytics({
     ? "Проект"
     : (PROJECT_PARTS.find((p) => p.id === activePartScope)?.name ?? "Часть проекта");
 
-  const gprProjectId = useMemo(() => getGprProjectId(), []);
+  const { token, hydrated } = useAuth();
+  const [allTmc, setAllTmc] = useState<TMCItem[]>([]);
+  const [allTenders, setAllTenders] = useState<Tender[]>([]);
 
   const gprReportAsOf = useMemo(() => resolveGprReportAsOf(reportDate), [reportDate]);
   const gprReportDateLabel = useMemo(() => formatDate(gprReportAsOf), [gprReportAsOf]);
@@ -2038,24 +2039,13 @@ export function GPRAnalytics({
     [tasksForActivePart, aggregateRootCodes],
   );
 
-  /** Реестр ТМЦ из `tmc_${projectId}` / legacy + seed; фильтрация по части проекта для графика. */
+  /** Реестр ТМЦ из БД; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
-    const fromMerged = (part: ProjectPartKey) => {
-      if (typeof window === "undefined") {
-        return getTmcData(part);
-      }
-      try {
-        const merged = loadTmcInitialItems(gprProjectId);
-        return filterTmcByProjectPart(merged, part);
-      } catch {
-        return getTmcData(part);
-      }
-    };
     if (isProjectWide) {
-      return [...fromMerged("residential"), ...fromMerged("parking")];
+      return allTmc;
     }
-    return fromMerged(activeProjectPart);
-  }, [isProjectWide, activeProjectPart, gprProjectId]);
+    return allTmc.filter((x) => x.projectPart === activeProjectPart);
+  }, [isProjectWide, activeProjectPart, allTmc]);
   const metrics = useMemo(
     () => getProjectStats(tasksForActivePart, gprReportAsOf),
     [tasksForActivePart, gprReportAsOf],
@@ -2087,11 +2077,31 @@ export function GPRAnalytics({
   const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("detailed");
   const [tenderRevision, setTenderRevision] = useState(0);
 
+  const reloadDependencies = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [tmcRows, tenderRows] = await Promise.all([listTmcFromDb(token), listTendersFromDb(token)]);
+      setAllTmc(tmcRows);
+      setAllTenders(tenderRows);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
   useEffect(() => {
     const bump = () => setTenderRevision((x) => x + 1);
     window.addEventListener("gordo-tenders-saved", bump);
-    return () => window.removeEventListener("gordo-tenders-saved", bump);
+    window.addEventListener("gordo-tmc-saved", bump);
+    return () => {
+      window.removeEventListener("gordo-tenders-saved", bump);
+      window.removeEventListener("gordo-tmc-saved", bump);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    void reloadDependencies();
+  }, [hydrated, token, reloadDependencies, tenderRevision]);
 
   useEffect(() => {
     setActiveGroup(null);
@@ -2153,13 +2163,8 @@ export function GPRAnalytics({
   ]);
 
   const tendersForActivePart: Tender[] = useMemo(() => {
-    void tenderRevision;
-    const merged =
-      typeof window !== "undefined"
-        ? mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage())
-        : mergeTenderSnapshotWithSeed(undefined);
-    return merged.filter((t) => isProjectWide || t.partId === activePartScope);
-  }, [activePartScope, isProjectWide, tenderRevision]);
+    return allTenders.filter((t) => isProjectWide || t.partId === activePartScope);
+  }, [activePartScope, isProjectWide, allTenders]);
 
   const planFactFilteredTasks = useMemo(() => {
     if (effectivePlanFactDataSource === "kvartaly") return planFactFlatTasks;
@@ -2882,7 +2887,7 @@ export function GPRAnalytics({
             progressClamped > 0 ? progressClamped : isNoData ? 0 : Math.max(progressClamped, 4);
           return (
             <div
-              key={task.id}
+              key={task.globalTaskId ?? task.id}
               data-traffic-card={status}
               className="top-card card relative w-full overflow-hidden p-4"
             >
@@ -3831,7 +3836,7 @@ export function GPRAnalytics({
               .map(({ task, status, planDays, factDays, deviationDays }: TrafficRow) => {
                 return (
                   <div
-                    key={task.id}
+                    key={task.globalTaskId ?? task.id}
                     data-traffic-card={status}
                     className="flex items-center justify-between gap-4 overflow-hidden p-3"
                   >

@@ -4,14 +4,15 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { ConstructionWorkExplainView } from "@/components/construction/ConstructionWorkExplainView";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { buildConstructionPresentationExplain } from "@/lib/buildConstructionPresentationExplain";
+import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { gprMockData } from "@/lib/gprMockData";
 import { partIdToProjectPartKey, PROJECT_PARTS, urlParamToPartScope, type ConstructionObjectScope } from "@/lib/gprUtils";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
-import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
-import { getTmcData, loadTmcInitialItems, type TMCItem } from "@/lib/tmcData";
+import { type Tender } from "@/lib/tenderData";
+import { type TMCItem } from "@/lib/tmcData";
 
 function parseFocusSection(v: string | null): string | null {
   if (v === "gpr" || v === "structure" || v === "tenders" || v === "tmc") return v;
@@ -20,6 +21,7 @@ function parseFocusSection(v: string | null): string | null {
 
 function ConstructionExplainPageInner() {
   const { setMode } = useAppMode();
+  const { token, hydrated } = useAuth();
   const sp = useSearchParams();
   const source = sp.get("source");
   const partScope: ConstructionObjectScope = urlParamToPartScope(sp.get("partId"));
@@ -30,6 +32,8 @@ function ConstructionExplainPageInner() {
       ? "Проект (сводно)"
       : (PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта");
   const [tick, setTick] = useState(0);
+  const [allTenders, setAllTenders] = useState<Tender[]>([]);
+  const [allTmc, setAllTmc] = useState<TMCItem[]>([]);
 
   useEffect(() => {
     setMode("edit");
@@ -47,6 +51,25 @@ function ConstructionExplainPageInner() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [tenders, tmc] = await Promise.all([listTendersFromDb(token), listTmcFromDb(token)]);
+        if (!cancelled) {
+          setAllTenders(tenders);
+          setAllTmc(tmc);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, token, tick]);
+
   const { partName, sections } = useMemo(() => {
     void tick;
     const tasks =
@@ -55,37 +78,18 @@ function ConstructionExplainPageInner() {
         : gprMockData.filter((t) => t.partId === partId);
     const tenderFilter = (t: Tender) =>
       partScope === "project" ? t.partId === 1 || t.partId === 2 : t.partId === partId;
-    let tenders: Tender[] = mergeTenderSnapshotWithSeed(undefined).filter(tenderFilter);
-    let tmcItems: TMCItem[] =
+    const tenders: Tender[] = allTenders.filter(tenderFilter);
+    const tmcItems: TMCItem[] =
       partScope === "project"
-        ? [...getTmcData("residential"), ...getTmcData("parking")]
-        : getTmcData(partIdToProjectPartKey(partId));
-    if (typeof window !== "undefined") {
-      try {
-        tenders = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage()).filter(tenderFilter);
-      } catch {
-        tenders = mergeTenderSnapshotWithSeed(undefined).filter(tenderFilter);
-      }
-      try {
-        const merged = loadTmcInitialItems(getGprProjectId());
-        tmcItems =
-          partScope === "project"
-            ? merged.filter((i) => i.projectPart === "residential" || i.projectPart === "parking")
-            : merged.filter((i) => i.projectPart === partIdToProjectPartKey(partId));
-      } catch {
-        tmcItems =
-          partScope === "project"
-            ? [...getTmcData("residential"), ...getTmcData("parking")]
-            : getTmcData(partIdToProjectPartKey(partId));
-      }
-    }
+        ? allTmc.filter((i) => i.projectPart === "residential" || i.projectPart === "parking")
+        : allTmc.filter((i) => i.projectPart === partIdToProjectPartKey(partId));
     return buildConstructionPresentationExplain(
       partScope === "project" ? "all" : partId,
       tasks,
       tenders,
       tmcItems,
     );
-  }, [partId, partScope, tick]);
+  }, [partId, partScope, allTenders, allTmc]);
 
   const backHref = `/edit/construction?section=${focusSection ?? "gpr"}&partId=${
     partScope === "project" ? "project" : partId

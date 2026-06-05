@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { listTmcFromDb } from "@/lib/constructionApi";
 import { compareGprCodesByNumericPath, partIdToProjectPartKey } from "@/lib/gprUtils";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
-import { loadTmcInitialItems, type TMCItem, type TmcSupplyStatus } from "@/lib/tmcData";
+import type { TMCItem, TmcSupplyStatus } from "@/lib/tmcData";
 
 function supplierBadge(status: TmcSupplyStatus): { label: string; bg: string; fg: string } {
   if (status === "поставлено") {
@@ -70,22 +71,33 @@ export type SuppliersBlockProps = {
 };
 
 export function SuppliersBlock({ activePartId, items: itemsProp, variant = "light" }: SuppliersBlockProps) {
-  const projectId = useMemo(() => getGprProjectId(), []);
+  const { token, hydrated } = useAuth();
   const part = partIdToProjectPartKey(activePartId);
-  const [storageRev, setStorageRev] = useState(0);
+  const [dbItems, setDbItems] = useState<TMCItem[]>([]);
+
+  const reload = useCallback(async () => {
+    if (!token) return;
+    try {
+      setDbItems(await listTmcFromDb(token));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
 
   useEffect(() => {
     if (itemsProp != null) return;
-    const onSaved = () => setStorageRev((x) => x + 1);
+    if (!hydrated || !token) return;
+    void reload();
+    const onSaved = () => void reload();
     window.addEventListener("gordo-tmc-saved", onSaved);
     return () => window.removeEventListener("gordo-tmc-saved", onSaved);
-  }, [itemsProp]);
+  }, [itemsProp, hydrated, token, reload]);
 
   const scopedItems = useMemo(() => {
-    const raw = itemsProp ?? loadTmcInitialItems(projectId);
+    const raw = itemsProp ?? dbItems;
     if (itemsProp != null) return raw;
     return raw.filter((i) => i.projectPart === part);
-  }, [projectId, part, itemsProp, storageRev]);
+  }, [part, itemsProp, dbItems]);
 
   const rowsWithSupplier = useMemo(
     () => scopedItems.filter((i) => hasSupplierText(i.supplier ?? "")),

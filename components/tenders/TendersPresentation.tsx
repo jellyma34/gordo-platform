@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
-import { mergeTenderSnapshotWithSeed, readTenderSnapshotFromStorage, type Tender } from "@/lib/tenderData";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { listTendersFromDb } from "@/lib/constructionApi";
+import type { Tender } from "@/lib/tenderData";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { PROJECT_PARTS, partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
 import { gprMockData } from "@/lib/gprMockData";
@@ -78,15 +79,7 @@ function addMonths(d: Date, n: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + n, 1, 12, 0, 0);
 }
 
-function loadTendersForScope(scope: ConstructionObjectScope): Tender[] {
-  let list = mergeTenderSnapshotWithSeed(undefined);
-  if (typeof window !== "undefined") {
-    try {
-      list = mergeTenderSnapshotWithSeed(readTenderSnapshotFromStorage(getGprProjectId()));
-    } catch {
-      list = mergeTenderSnapshotWithSeed(undefined);
-    }
-  }
+function filterTendersForScope(list: Tender[], scope: ConstructionObjectScope): Tender[] {
   if (scope === "project") {
     return list.filter((t) => t.partId === 1 || t.partId === 2);
   }
@@ -102,7 +95,23 @@ export function TendersPresentation({
   onChangePartScope: (scope: ConstructionObjectScope) => void;
   hidePartTabs?: boolean;
 }) {
+  const { token, hydrated } = useAuth();
+  const [allTenders, setAllTenders] = useState<Tender[]>([]);
   const [tick, setTick] = useState(0);
+
+  const reloadTenders = useCallback(async () => {
+    if (!token) return;
+    try {
+      setAllTenders(await listTendersFromDb(token));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    void reloadTenders();
+  }, [hydrated, token, reloadTenders, tick]);
 
   useEffect(() => {
     const bump = () => setTick((x) => x + 1);
@@ -110,10 +119,10 @@ export function TendersPresentation({
     return () => window.removeEventListener("gordo-tenders-saved", bump);
   }, []);
 
-  const tenders = useMemo(() => {
-    void tick;
-    return loadTendersForScope(activePartScope);
-  }, [activePartScope, tick]);
+  const tenders = useMemo(
+    () => filterTendersForScope(allTenders, activePartScope),
+    [allTenders, activePartScope],
+  );
 
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);

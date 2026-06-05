@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { listTmcFromDb } from "@/lib/constructionApi";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { SuppliersBlock } from "@/components/tmc/SuppliersBlock";
@@ -12,10 +14,7 @@ import {
   PROJECT_PARTS,
   type ConstructionObjectScope,
 } from "@/lib/gprUtils";
-import { getGprProjectId } from "@/lib/gprImportPersistence";
 import {
-  getTmcData,
-  loadTmcInitialItems,
   tmcFactReferenceDate,
   tmcPlanReferenceDate,
   type TMCItem,
@@ -77,99 +76,113 @@ function statusOf(item: TMCItem): Traffic {
   return getStatusByDeviation(d) as Traffic;
 }
 
-export function TMCSection({
+function TMCSectionPartTabs({
+  isPresentationSkin,
+  hidePresentationPartStrip,
+  activePartScope,
+  onChangePartScope,
+}: {
+  isPresentationSkin: boolean;
+  hidePresentationPartStrip?: boolean;
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
+}) {
+  if (isPresentationSkin && hidePresentationPartStrip) return null;
+  return (
+    <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
+      {isPresentationSkin ? (
+        <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+          {PROJECT_PARTS.map((part) => {
+            const active = activePartScope === part.id;
+            return (
+              <button
+                key={part.id}
+                type="button"
+                onClick={() => onChangePartScope(part.id)}
+                className={segmentedControlTabClass(active, "dark")}
+              >
+                {part.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {PROJECT_PARTS.map((part) => {
+            const active = activePartScope === part.id;
+            return (
+              <button
+                key={part.id}
+                type="button"
+                onClick={() => onChangePartScope(part.id)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                  active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                {part.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TMCSectionPresentation({
   activePartScope,
   onChangePartScope,
   hidePresentationPartStrip,
+  editPartId,
+  activeProjectPart,
 }: {
   activePartScope: ConstructionObjectScope;
   onChangePartScope: (scope: ConstructionObjectScope) => void;
   hidePresentationPartStrip?: boolean;
+  editPartId: 1 | 2;
+  activeProjectPart: ReturnType<typeof partIdToProjectPartKey>;
 }) {
-  const { mode } = useAppMode();
-  const isPresentationSkin = mode === "presentation";
+  const { token, hydrated } = useAuth();
   const [activeDrill, setActiveDrill] = useState<DrillKey | null>(null);
-  const tmcRef = useRef<TmcTableHandle>(null);
-  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
-  const activeProjectPart = partIdToProjectPartKey(editPartId);
+  const [allTmc, setAllTmc] = useState<TMCItem[]>([]);
 
-  const partTabs =
-    isPresentationSkin && hidePresentationPartStrip ? null : (
-      <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
-        {isPresentationSkin ? (
-          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-            {PROJECT_PARTS.map((part) => {
-              const active = activePartScope === part.id;
-              return (
-                <button
-                  key={part.id}
-                  type="button"
-                  onClick={() => onChangePartScope(part.id)}
-                  className={segmentedControlTabClass(active, "dark")}
-                >
-                  {part.name}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {PROJECT_PARTS.map((part) => {
-              const active = activePartScope === part.id;
-              return (
-                <button
-                  key={part.id}
-                  type="button"
-                  onClick={() => onChangePartScope(part.id)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                    active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  {part.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
+  const reloadTmc = useCallback(async () => {
+    if (!token) return;
+    try {
+      setAllTmc(await listTmcFromDb(token));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
 
-  if (mode !== "presentation") {
-    return (
-      <EditLayout
-        title="Закупка ТМЦ"
-        subtitle="Позиции по части проекта (жилой дом / автостоянка); график ГПР—ТМЦ использует те же данные."
-        onSave={() => tmcRef.current?.save()}
-        onCancel={() => tmcRef.current?.cancel()}
-      >
-        {partTabs}
-        <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
-        <SuppliersBlock activePartId={editPartId} />
-      </EditLayout>
-    );
-  }
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    void reloadTmc();
+    const bump = () => void reloadTmc();
+    window.addEventListener("gordo-tmc-saved", bump);
+    return () => window.removeEventListener("gordo-tmc-saved", bump);
+  }, [hydrated, token, reloadTmc]);
+
+  const partTabs = (
+    <TMCSectionPartTabs
+      isPresentationSkin
+      hidePresentationPartStrip={hidePresentationPartStrip}
+      activePartScope={activePartScope}
+      onChangePartScope={onChangePartScope}
+    />
+  );
 
   const enriched = useMemo(() => {
-    const fromSnapshot = (part: "residential" | "parking"): TMCItem[] => {
-      if (typeof window === "undefined") {
-        return getTmcData(part);
-      }
-      try {
-        return loadTmcInitialItems(getGprProjectId()).filter((i) => i.projectPart === part);
-      } catch {
-        return getTmcData(part);
-      }
-    };
-    let items: TMCItem[] =
+    const items: TMCItem[] =
       activePartScope === "project"
-        ? [...fromSnapshot("residential"), ...fromSnapshot("parking")]
-        : fromSnapshot(activeProjectPart);
+        ? allTmc
+        : allTmc.filter((i) => i.projectPart === activeProjectPart);
     return items.map((item) => {
       const traffic = statusOf(item);
       const dev = deviationDays(item);
       return { ...item, traffic, deviation: dev };
     });
-  }, [activePartScope, activeProjectPart]);
+  }, [activePartScope, activeProjectPart, allTmc]);
 
   const supplierFeedItems = useMemo(
     () =>
@@ -365,5 +378,53 @@ export function TMCSection({
         )}
       </div>
     </section>
+  );
+}
+
+export function TMCSection({
+  activePartScope,
+  onChangePartScope,
+  hidePresentationPartStrip,
+}: {
+  activePartScope: ConstructionObjectScope;
+  onChangePartScope: (scope: ConstructionObjectScope) => void;
+  hidePresentationPartStrip?: boolean;
+}) {
+  const { mode } = useAppMode();
+  const tmcRef = useRef<TmcTableHandle>(null);
+  const editPartId: 1 | 2 = activePartScope === "project" ? 1 : activePartScope;
+  const activeProjectPart = partIdToProjectPartKey(editPartId);
+
+  if (mode !== "presentation") {
+    const partTabs = (
+      <TMCSectionPartTabs
+        isPresentationSkin={false}
+        hidePresentationPartStrip={hidePresentationPartStrip}
+        activePartScope={activePartScope}
+        onChangePartScope={onChangePartScope}
+      />
+    );
+    return (
+      <EditLayout
+        title="Закупка ТМЦ"
+        subtitle="Позиции по части проекта (жилой дом / автостоянка); график ГПР—ТМЦ использует те же данные."
+        onSave={() => tmcRef.current?.save()}
+        onCancel={() => tmcRef.current?.cancel()}
+      >
+        {partTabs}
+        <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
+        <SuppliersBlock activePartId={editPartId} />
+      </EditLayout>
+    );
+  }
+
+  return (
+    <TMCSectionPresentation
+      activePartScope={activePartScope}
+      onChangePartScope={onChangePartScope}
+      hidePresentationPartStrip={hidePresentationPartStrip}
+      editPartId={editPartId}
+      activeProjectPart={activeProjectPart}
+    />
   );
 }

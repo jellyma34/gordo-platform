@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,11 +15,9 @@ import { GPRSection } from "@/components/construction/GPRSection";
 import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { gprMockData } from "@/lib/gprMockData";
 import {
   canAccessConstructionSection,
   createGprTaskApi,
-  listGprTasksApi,
   uiToApi,
   updateGprTaskApi,
   type UiConstructionSection,
@@ -31,19 +28,13 @@ import {
   gprTaskToApiWritePayload,
   partScopeToUrlParam,
   urlParamToPartScope,
-  type GprTaskApiItem,
   type GPRTask,
   type ConstructionObjectScope,
 } from "@/lib/gprUtils";
 import { ConstructionPresentationFilters } from "@/components/construction/ConstructionPresentationFilters";
 import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
 import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
-import {
-  getGprProjectId,
-  loadPersistedGprTasks,
-  postGprImportToApi,
-  saveGprTasksToLocalStorage,
-} from "@/lib/gprImportPersistence";
+import { bulkImportGprTasksToDb, listGprTasksFromDb } from "@/lib/constructionApi";
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -71,20 +62,6 @@ function firstAllowedTab(isAdmin: boolean, allowed: string[]): UiConstructionSec
     if (safe.includes(uiToApi(ui))) return ui;
   }
   return "gpr";
-}
-
-/** Безопасный разбор ответа API: битая строка не валит страницу. */
-function safeMapGprApiRows(rows: unknown): GPRTask[] {
-  if (!Array.isArray(rows)) return [];
-  const out: GPRTask[] = [];
-  for (const row of rows) {
-    try {
-      out.push(gprTaskFromApiItem(row as GprTaskApiItem));
-    } catch (e) {
-      console.error("Construction edit error:", e);
-    }
-  }
-  return out;
 }
 
 function resolveTab(
@@ -159,62 +136,7 @@ function ConstructionWorkspaceInner({
   );
   useRegisterConstructionLayoutChrome(chromeRegistration);
 
-  const gprProjectId = useMemo(() => getGprProjectId(), []);
-
-  const [tasks, setTasks] = useState<GPRTask[]>(() => {
-    try {
-      return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
-    } catch (e) {
-      console.error("Construction edit error:", e);
-      return [];
-    }
-  });
-
-  const lastSavedGprJsonRef = useRef<string | null>(null);
-  const [gprPersistReady, setGprPersistReady] = useState(false);
-  const gprTasksFetchDoneRef = useRef(false);
-
-  useEffect(() => {
-    if (!token) gprTasksFetchDoneRef.current = false;
-  }, [token]);
-
-  useEffect(() => {
-    gprTasksFetchDoneRef.current = false;
-    lastSavedGprJsonRef.current = null;
-    setGprPersistReady(false);
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
-        if (cancelled) return;
-        setTasks(cloneTasks(r.tasks));
-        lastSavedGprJsonRef.current = r.bootstrapJson;
-        if (r.skipRemoteListFetch) gprTasksFetchDoneRef.current = true;
-      } catch (e) {
-        console.error("Construction edit error:", e);
-        if (!cancelled) {
-          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
-        }
-      } finally {
-        if (!cancelled) setGprPersistReady(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [gprProjectId]);
-
-  useEffect(() => {
-    if (!gprPersistReady || typeof window === "undefined") return;
-    try {
-      const next = JSON.stringify(tasks);
-      if (next === lastSavedGprJsonRef.current) return;
-      lastSavedGprJsonRef.current = next;
-      saveGprTasksToLocalStorage(gprProjectId, tasks);
-    } catch (e) {
-      console.error("Construction edit error:", e);
-    }
-  }, [tasks, gprPersistReady, gprProjectId]);
+  const [tasks, setTasks] = useState<GPRTask[]>([]);
 
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForActivePart = useMemo(() => {
@@ -272,9 +194,8 @@ function ConstructionWorkspaceInner({
   const reloadGprTasksFromApi = useCallback(async () => {
     if (!token) return;
     try {
-      const rows = await listGprTasksApi(token);
-      const mapped = safeMapGprApiRows(rows);
-      if (mapped.length > 0) setTasks(mapped);
+      const mapped = await listGprTasksFromDb(token);
+      setTasks(mapped);
     } catch (e) {
       console.error("Construction edit error:", e);
     }
@@ -294,31 +215,20 @@ function ConstructionWorkspaceInner({
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi]);
 
   useEffect(() => {
-    if (
-      !hydrated ||
-      !token ||
-      activeTab !== "gpr" ||
-      gprTasksFetchDoneRef.current ||
-      !gprPersistReady
-    )
-      return;
+    if (!hydrated || !token) return;
     let cancelled = false;
     (async () => {
       try {
-        const rows = await listGprTasksApi(token);
-        if (cancelled) return;
-        gprTasksFetchDoneRef.current = true;
-        const mapped = safeMapGprApiRows(rows);
-        if (mapped.length > 0) setTasks(mapped);
+        const mapped = await listGprTasksFromDb(token);
+        if (!cancelled) setTasks(mapped);
       } catch (e) {
         console.error("Construction edit error:", e);
-        if (!cancelled) gprTasksFetchDoneRef.current = true;
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, activeTab, gprPersistReady]);
+  }, [hydrated, token]);
 
   const partIdParam = searchParams.get("partId");
 
@@ -368,9 +278,15 @@ function ConstructionWorkspaceInner({
     (next: GPRTask[]) => {
       const list = cloneTasks(Array.isArray(next) ? next : []);
       setTasks(list);
-      void postGprImportToApi(gprProjectId, list);
+      if (!token) {
+        console.warn("[GPR] CSV import без токена: данные не сохранены в БД");
+        return;
+      }
+      void bulkImportGprTasksToDb(token, list)
+        .then((saved) => setTasks(saved))
+        .catch((e) => console.error("[GPR] bulk import failed:", e));
     },
-    [gprProjectId],
+    [token],
   );
 
   function goSection(ui: UiConstructionSection) {

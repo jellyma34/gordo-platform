@@ -96,6 +96,21 @@ def ensure_gpr_plan_dates_nullable() -> None:
         pass
 
 
+def ensure_tmc_details_column() -> None:
+    """Без Alembic: добавить колонку tmc.details для полной модели ТМЦ (CSV-импорт)."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("tmc"):
+            return
+        cols = {c["name"] for c in insp.get_columns("tmc")}
+        if "details" in cols:
+            return
+    except Exception:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE tmc ADD COLUMN details JSON"))
+
+
 def ensure_gpr_related_tmc_ids_column() -> None:
     """Без Alembic: добавить колонку gpr_tasks.related_tmc_ids, если её ещё нет."""
     try:

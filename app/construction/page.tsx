@@ -1,18 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GPRSection } from "@/components/construction/GPRSection";
 import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAppMode } from "@/components/mode/ModeProvider";
-import {
-  getGprProjectId,
-  loadPersistedGprTasks,
-  postGprImportToApi,
-  saveGprTasksToLocalStorage,
-} from "@/lib/gprImportPersistence";
-import { gprMockData } from "@/lib/gprMockData";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { bulkImportGprTasksToDb, listGprTasksFromDb } from "@/lib/constructionApi";
 import { filterGprTasksByObjectScope, type ConstructionObjectScope, type GPRTask } from "@/lib/gprUtils";
 
 type ActiveSection = "menu" | "gpr" | "tenders" | "tmc";
@@ -27,47 +22,24 @@ export default function ConstructionPage() {
   const { mode: appMode } = useAppMode();
   const mode: "edit" | "presentation" = appMode === "edit" ? "edit" : "presentation";
 
-  const gprProjectId = useMemo(() => getGprProjectId(), []);
-
-  const [tasks, setTasks] = useState<GPRTask[]>(() => cloneTasks(gprMockData));
-  const lastSavedGprJsonRef = useRef<string | null>(null);
-  const [gprPersistReady, setGprPersistReady] = useState(false);
+  const { token, hydrated } = useAuth();
+  const [tasks, setTasks] = useState<GPRTask[]>([]);
 
   useEffect(() => {
+    if (!hydrated || !token) return;
     let cancelled = false;
-    lastSavedGprJsonRef.current = null;
-    setGprPersistReady(false);
     (async () => {
       try {
-        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
-        if (cancelled) return;
-        setTasks(cloneTasks(r.tasks));
-        lastSavedGprJsonRef.current = r.bootstrapJson;
+        const mapped = await listGprTasksFromDb(token);
+        if (!cancelled) setTasks(mapped);
       } catch (e) {
         console.error(e);
-        if (!cancelled) {
-          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
-        }
-      } finally {
-        if (!cancelled) setGprPersistReady(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [gprProjectId]);
-
-  useEffect(() => {
-    if (!gprPersistReady || typeof window === "undefined") return;
-    try {
-      const next = JSON.stringify(tasks);
-      if (next === lastSavedGprJsonRef.current) return;
-      lastSavedGprJsonRef.current = next;
-      saveGprTasksToLocalStorage(gprProjectId, tasks);
-    } catch (e) {
-      console.error(e);
-    }
-  }, [tasks, gprPersistReady, gprProjectId]);
+  }, [hydrated, token]);
 
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForPart = useMemo(
@@ -89,9 +61,12 @@ export default function ConstructionPage() {
     (next: GPRTask[]) => {
       const list = cloneTasks(Array.isArray(next) ? next : []);
       setTasks(list);
-      void postGprImportToApi(gprProjectId, list);
+      if (!token) return;
+      void bulkImportGprTasksToDb(token, list)
+        .then((saved) => setTasks(saved))
+        .catch((e) => console.error(e));
     },
-    [gprProjectId],
+    [token],
   );
 
   return (
