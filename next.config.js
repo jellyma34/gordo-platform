@@ -10,9 +10,14 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  /** Статические импорты из recharts/… обрабатываются предсказуемее, меньше «битых» чанков в dev. */
+  /**
+   * recharts — только через `@/components/charting/rechartsClient` (barrel).
+   * Не включать "recharts" сюда: optimizePackageImports + barrel re-export дают
+   * два графа модулей → undefined factory → «reading 'call'» на всех секциях construction.
+   * react-chartjs-2 — только через `@/components/charting/reactChartjsChart`.
+   */
   experimental: {
-    optimizePackageImports: ["recharts", "react-chartjs-2", "lucide-react"],
+    optimizePackageImports: ["lucide-react"],
   },
 };
 

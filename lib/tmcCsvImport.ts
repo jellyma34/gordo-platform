@@ -309,36 +309,77 @@ export function buildTmcColumnMap(headers: string[]): TmcColumnMap {
   return map;
 }
 
-/** Заголовок первого столбца блока «дата поставки» (план) — точка входа для шага по 3 колонки. */
-const TRIPLET_DELIVERY_PLAN_SYNONYMS = [
-  "дата поставки план",
-  "дата отгрузки план",
-  "дата поставки (план)",
-  "поставки план",
-  "отгрузка план",
-  "план поставки",
-];
+function tripletSubheaderOk(h: string | undefined, kind: "plan" | "fact" | "deviation"): boolean {
+  if (!h) return false;
+  if (kind === "plan") return h.includes("план");
+  if (kind === "fact") return h.includes("факт");
+  return h.includes("откл") || h.includes("отклон");
+}
 
-export function findDeliveryPlanColumnStart(headersNorm: string[]): number {
-  const ordered = [...TRIPLET_DELIVERY_PLAN_SYNONYMS].sort((a, b) => b.length - a.length);
-  for (const p of ordered) {
-    const idx = headersNorm.findIndex((h) => h.includes(p));
-    if (idx >= 0) return idx;
+/** Плановая колонка блока «дата поставки» (не объём/цена/стоимость/договор). */
+function isDeliveryPlanHeader(h: string): boolean {
+  if (!tripletSubheaderOk(h, "plan")) return false;
+  if (h.includes("объем") || h.includes("объём") || h.includes("цена") || h.includes("стоимост")) {
+    return false;
   }
+  if (h.includes("договор") || h.includes("заключен")) return false;
+  return h.includes("дата") && (h.includes("постав") || h.includes("отгруз"));
+}
+
+function isContractPlanHeader(h: string): boolean {
+  return (
+    tripletSubheaderOk(h, "plan") &&
+    (h.includes("договор") || h.includes("заключен") || h.includes("контракт")) &&
+    !h.includes("объем") &&
+    !h.includes("объём")
+  );
+}
+
+function isVolumePlanHeader(h: string): boolean {
+  return tripletSubheaderOk(h, "plan") && (h.includes("объем") || h.includes("объём"));
+}
+
+function isPricePlanHeader(h: string): boolean {
+  return tripletSubheaderOk(h, "plan") && h.includes("цена");
+}
+
+function isCostPlanHeader(h: string): boolean {
+  return tripletSubheaderOk(h, "plan") && h.includes("стоимост");
+}
+
+/** Пять блоков подряд: дата поставки → договор → объём → цена → стоимость (план/факт/откл.). */
+function verifyFiveMetricTriplets(headersNorm: string[], start: number): boolean {
+  const step = TMC_METRIC_TRIPLET_STEP;
+  const planChecks = [
+    isDeliveryPlanHeader,
+    isContractPlanHeader,
+    isVolumePlanHeader,
+    isPricePlanHeader,
+    isCostPlanHeader,
+  ] as const;
+  for (let block = 0; block < TMC_METRIC_TRIPLET_BLOCKS; block += 1) {
+    const i = start + block * step;
+    const planH = headersNorm[i];
+    const factH = headersNorm[i + 1];
+    const devH = headersNorm[i + 2];
+    if (!planChecks[block]!(planH ?? "")) return false;
+    if (!tripletSubheaderOk(factH, "fact")) return false;
+    if (!tripletSubheaderOk(devH, "deviation")) return false;
+  }
+  return true;
+}
+
+/**
+ * Индекс колонки «дата поставки — план»: начало цепочки из 5 троек План/Факт/Откл.
+ * Короткие подстроки вроде «поставки план» намеренно не используются — они ложно
+ * совпадают с «объём поставки план» и сдвигают разбор на колонку «откл.».
+ */
+export function findDeliveryPlanColumnStart(headersNorm: string[]): number {
   const need = TMC_METRIC_TRIPLET_STEP * TMC_METRIC_TRIPLET_BLOCKS;
-  for (let i = 0; i <= headersNorm.length - need; i++) {
-    const h0 = headersNorm[i]!;
-    const h1 = headersNorm[i + 1]!;
-    const h2 = headersNorm[i + 2]!;
-    const deviationOk = h2.includes("откл") || h2.includes("отклон");
-    const factOk = h1.includes("факт");
-    const deliveryOk =
-      (h0.includes("постав") || h0.includes("отгруз")) &&
-      !h0.includes("объем") &&
-      !h0.includes("объём") &&
-      !h0.includes("цена") &&
-      !h0.includes("стоимост");
-    if (deviationOk && factOk && deliveryOk) return i;
+  for (let i = 0; i <= headersNorm.length - need; i += 1) {
+    if (!isDeliveryPlanHeader(headersNorm[i] ?? "")) continue;
+    if (!verifyFiveMetricTriplets(headersNorm, i)) continue;
+    return i;
   }
   return -1;
 }
@@ -417,25 +458,41 @@ function parseTripletMetricCells(
   };
 }
 
-/** Контрольная первая строка шаблона (объём / цена / стоимость план). */
+/** Контрольная первая строка шаблона «Поставка ТМЦ.csv». */
 const TRIPLET_FIRST_ROW_EXPECT = {
   volumePlan: 47,
-  pricePlan: 36307,
-  planCost: 1706438,
+  volumeFact: 47,
+  pricePlan: 36307.2,
+  priceFact: 33997,
+  planCost: 1706438.4,
+  factCost: 1597859,
 } as const;
 
 function approxEq(a: number, b: number, eps: number): boolean {
   return Math.abs(a - b) <= eps;
 }
 
-function assertTripletFirstRowSample(volumePlan: number, pricePlan: number, planCost: number): void {
-  const okVol = approxEq(volumePlan, TRIPLET_FIRST_ROW_EXPECT.volumePlan, 1e-4);
-  const okPrice = approxEq(pricePlan, TRIPLET_FIRST_ROW_EXPECT.pricePlan, 2);
-  const okCost = approxEq(planCost, TRIPLET_FIRST_ROW_EXPECT.planCost, 12);
-  if (okVol && okPrice && okCost) return;
+function assertTripletFirstRowSample(slice: {
+  volumePlan: number;
+  volumeFact: number;
+  pricePlan: number;
+  priceFact: number;
+  planCost: number;
+  factCost: number | null;
+}): void {
+  const exp = TRIPLET_FIRST_ROW_EXPECT;
+  const checks = [
+    approxEq(slice.volumePlan, exp.volumePlan, 1e-4),
+    approxEq(slice.volumeFact, exp.volumeFact, 1e-4),
+    approxEq(slice.pricePlan, exp.pricePlan, 1),
+    approxEq(slice.priceFact, exp.priceFact, 1),
+    approxEq(slice.planCost, exp.planCost, 2),
+    slice.factCost != null && approxEq(slice.factCost, exp.factCost, 2),
+  ];
+  if (checks.every(Boolean)) return;
 
   throw new Error(
-    `[тмц CSV] Контроль первой строки не пройден (формат План/Факт/Откл.). Ожидалось: объём≈${TRIPLET_FIRST_ROW_EXPECT.volumePlan}, цена за ед. план≈${TRIPLET_FIRST_ROW_EXPECT.pricePlan}, стоимость план≈${TRIPLET_FIRST_ROW_EXPECT.planCost}; получено: объём=${volumePlan}, цена=${pricePlan}, стоимость=${planCost}.`,
+    `[TMC CSV] Контроль первой строки не пройден. Ожидалось: объём=${exp.volumePlan}/${exp.volumeFact}, цена=${exp.pricePlan}/${exp.priceFact}, стоимость=${exp.planCost}/${exp.factCost}; получено: объём=${slice.volumePlan}/${slice.volumeFact}, цена=${slice.pricePlan}/${slice.priceFact}, стоимость=${slice.planCost}/${slice.factCost ?? "null"}.`,
   );
 }
 
@@ -491,8 +548,10 @@ function looksLikeSecondHeaderRow(sub: unknown[], primary: unknown[]): boolean {
 
 /** Склейка двух строк заголовка Excel в один подписанный столбец на колонку. */
 function mergeTwoHeaderRows(primary: unknown[], secondary: unknown[]): string[] {
-  const a = primary.map((c) =>
-    String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
+  const a = forwardFillHeaderRow(
+    primary.map((c) =>
+      String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
+    ),
   );
   const bRaw = secondary.map((c) =>
     String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
@@ -503,7 +562,20 @@ function mergeTwoHeaderRows(primary: unknown[], secondary: unknown[]): string[] 
   for (let i = 0; i < len; i++) {
     const top = a[i] ?? "";
     const bot = b[i] ?? "";
-    const merged = [top, bot].filter(Boolean).join(" ").trim().replace(/\s+/g, " ");
+    const botNorm = bot.toLowerCase();
+    const topNorm = top.toLowerCase();
+    const subIsMetricOnly =
+      botNorm === "план" || botNorm === "факт" || botNorm.startsWith("откл");
+    const topIsMetricGroup =
+      topNorm.includes("дата") ||
+      topNorm.includes("объем") ||
+      topNorm.includes("объём") ||
+      topNorm.includes("цена") ||
+      topNorm.includes("стоимост");
+    const merged =
+      top && subIsMetricOnly && !topIsMetricGroup
+        ? top
+        : [top, bot].filter(Boolean).join(" ").trim().replace(/\s+/g, " ");
     out.push(merged || `__col_${i}`);
   }
   return out;
@@ -518,10 +590,29 @@ export type TmcCsvParsed = {
   headers: string[];
 };
 
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+function sniffCsvDelimiter(text: string): string {
+  const lines = stripBom(text).split(/\r?\n/).slice(0, 48);
+  let commas = 0;
+  let semis = 0;
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    commas += (t.match(/,/g) ?? []).length;
+    semis += (t.match(/;/g) ?? []).length;
+  }
+  return semis > commas ? ";" : ",";
+}
+
 export function parseTmcCsvText(csvText: string): TmcCsvParsed {
+  const delimiter = sniffCsvDelimiter(csvText);
   const result = Papa.parse<string[]>(csvText, {
     header: false,
     skipEmptyLines: true,
+    delimiter,
   });
   if (result.errors?.length) {
     console.warn("[tmc CSV]", result.errors.slice(0, 5));
@@ -881,7 +972,6 @@ function parseTmcCsvRowSlice(
         "Итого",
         "total",
         "planCost",
-        "План",
       ]);
     factCostRaw =
       getMappedCell(row, headers, colMap, "costFact") ??
@@ -890,7 +980,6 @@ function parseTmcCsvRowSlice(
         "Стоимость (руб) факт",
         "Факт ₽",
         "Факт стоимость",
-        "Факт",
         "factCost",
       ]);
   }
@@ -1018,12 +1107,15 @@ export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: s
 
     if (metric.layout === "triplet" && !tripletSampleDone) {
       tripletSampleDone = true;
-      assertTripletFirstRowSample(slice.volumePlan, slice.pricePlan, slice.planCost);
+      assertTripletFirstRowSample(slice);
       if (typeof console !== "undefined") {
         console.log({
           volumePlan: slice.volumePlan,
+          volumeFact: slice.volumeFact,
           pricePlan: slice.pricePlan,
+          priceFact: slice.priceFact,
           costPlan: slice.planCost,
+          costFact: slice.factCost,
         });
       }
     }
