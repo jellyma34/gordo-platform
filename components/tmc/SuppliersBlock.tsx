@@ -50,18 +50,23 @@ function hasSupplierText(s: string): boolean {
 function groupItemsBySupplier(rows: TMCItem[]): Map<string, TMCItem[]> {
   const map = new Map<string, TMCItem[]>();
   for (const item of rows) {
-    const key = item.supplier.trim();
+    const key = (item.supplier ?? "").trim();
     const list = map.get(key);
     if (list) list.push(item);
     else map.set(key, [item]);
   }
   for (const [, list] of map) {
-    list.sort(
-      (a, b) =>
-        compareGprCodesByNumericPath(a.itemCode, b.itemCode) ||
-        a.gprStage.localeCompare(b.gprStage, "ru") ||
-        a.name.localeCompare(b.name, "ru"),
-    );
+    list.sort((a, b) => {
+      const codeCmp = compareGprCodesByNumericPath(a.itemCode ?? "", b.itemCode ?? "");
+      if (codeCmp !== 0) return codeCmp;
+      const stageA = a.gprStage ?? "";
+      const stageB = b.gprStage ?? "";
+      const stageCmp = stageA.localeCompare(stageB, "ru");
+      if (stageCmp !== 0) return stageCmp;
+      const nameA = a.name ?? "";
+      const nameB = b.name ?? "";
+      return nameA.localeCompare(nameB, "ru");
+    });
   }
   const sortedKeys = [...map.keys()].sort((a, b) => a.localeCompare(b, "ru"));
   return new Map(sortedKeys.map((k) => [k, map.get(k)!]));

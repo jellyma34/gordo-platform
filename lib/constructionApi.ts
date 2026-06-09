@@ -157,11 +157,12 @@ export function tmcFromApiItem(row: TmcApiItem): TMCItem {
     const v = d[k];
     return typeof v === "string" ? v : fallback;
   };
+  const externalId = row.external_id ?? "";
   const draft: TMCItem = {
-    id: row.external_id,
-    itemCode: str("itemCode", row.external_id),
-    name: row.name,
-    gprStage: row.gpr_stage,
+    id: externalId,
+    itemCode: str("itemCode", externalId),
+    name: row.name ?? "",
+    gprStage: row.gpr_stage ?? "",
     unit: str("unit", "шт"),
     volumePlan: num("volumePlan"),
     volumeFact: num("volumeFact"),

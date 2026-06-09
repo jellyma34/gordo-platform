@@ -219,10 +219,11 @@ type TmcTableProps = {
 function sortTmcInPart(items: TMCItem[], part: ProjectPartKey): TMCItem[] {
   const rest = items.filter((x) => x.projectPart !== part);
   const partRows = items.filter((x) => x.projectPart === part);
-  const sorted = [...partRows].sort(
-    (a, b) =>
-      compareGprCodesByNumericPath(a.itemCode, b.itemCode) || a.id.localeCompare(b.id),
-  );
+  const sorted = [...partRows].sort((a, b) => {
+    const codeCmp = compareGprCodesByNumericPath(a.itemCode ?? "", b.itemCode ?? "");
+    if (codeCmp !== 0) return codeCmp;
+    return (a.id ?? "").localeCompare(b.id ?? "");
+  });
   return [...rest, ...sorted];
 }
 
@@ -326,19 +327,20 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     return rows.filter((row) => {
       const byQuery =
         !q ||
-        row.name.toLowerCase().includes(q) ||
-        row.itemCode.toLowerCase().includes(q) ||
-        row.gprStage.toLowerCase().includes(q);
+        (row.name ?? "").toLowerCase().includes(q) ||
+        (row.itemCode ?? "").toLowerCase().includes(q) ||
+        (row.gprStage ?? "").toLowerCase().includes(q);
       const byStatus = statusFilter === "all" ? true : row.procurementRisk === statusFilter;
       return byQuery && byStatus;
     });
   }, [rows, query, statusFilter]);
 
   const sortedFilteredRows = useMemo(() => {
-    return [...filteredRows].sort(
-      (a, b) =>
-        compareGprCodesByNumericPath(a.itemCode, b.itemCode) || a.id.localeCompare(b.id),
-    );
+    return [...filteredRows].sort((a, b) => {
+      const codeCmp = compareGprCodesByNumericPath(a.itemCode ?? "", b.itemCode ?? "");
+      if (codeCmp !== 0) return codeCmp;
+      return (a.id ?? "").localeCompare(b.id ?? "");
+    });
   }, [filteredRows]);
 
   const tmcRowIssues = useMemo(() => {
