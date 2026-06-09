@@ -65,10 +65,6 @@ export function TMCSection({
   }
 
   return (
-    <TmcPresentation
-      activePartScope={activePartScope}
-      onChangePartScope={onChangePartScope}
-      hidePartTabs={hidePresentationPartStrip}
-    />
+    <TmcPresentation activePartScope={activePartScope} />
   );
 }

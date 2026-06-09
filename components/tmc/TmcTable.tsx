@@ -24,6 +24,13 @@ import {
 } from "@/lib/gprUtils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { bulkImportTmcToDb, listTmcFromDb } from "@/lib/constructionApi";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import {
+  getGprProjectId,
+  loadPersistedTmcItems,
+  postTmcImportToApi,
+  saveTmcTasksToLocalStorage,
+} from "@/lib/tmcImportPersistence";
 import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
 import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
@@ -224,6 +231,8 @@ function isoOrEmptyOk(s: string): boolean {
   return !t || /^\d{4}-\d{2}-\d{2}$/.test(t);
 }
 
+const tmcLocalMode = isGprLocalStorageMode();
+
 export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTable(
   { embedded = false, activePartId, compactHeaders: compactHeadersProp },
   ref,
@@ -235,8 +244,13 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   const activeProjectPart: ProjectPartKey = partIdToProjectPartKey(activePartId);
 
   const { token, hydrated } = useAuth();
+  const projectId = useMemo(() => getGprProjectId(), []);
 
-  const [items, setItems] = useState<TMCItem[]>([]);
+  const [items, setItems] = useState<TMCItem[]>(() =>
+    tmcLocalMode ? TMC_DATA.map((x) => ({ ...x })) : [],
+  );
+  const lastSavedTmcJsonRef = useRef<string | null>(null);
+  const [tmcPersistReady, setTmcPersistReady] = useState(!tmcLocalMode);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
   const [query, setQuery] = useState("");
@@ -246,6 +260,26 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   const [form, setForm] = useState<EditableTmc>(EMPTY_FORM);
 
   useEffect(() => {
+    if (tmcLocalMode) {
+      lastSavedTmcJsonRef.current = null;
+      setTmcPersistReady(false);
+      let cancelled = false;
+      (async () => {
+        try {
+          const r = await loadPersistedTmcItems(projectId);
+          if (cancelled) return;
+          setItems(r.items);
+          lastSavedTmcJsonRef.current = r.bootstrapJson;
+        } catch (e) {
+          console.error(e);
+        } finally {
+          if (!cancelled) setTmcPersistReady(true);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!hydrated || !token) return;
     let cancelled = false;
     (async () => {
@@ -259,7 +293,20 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token]);
+  }, [tmcLocalMode, hydrated, token, projectId]);
+
+  useEffect(() => {
+    if (!tmcLocalMode || !tmcPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(items);
+      if (next === lastSavedTmcJsonRef.current) return;
+      lastSavedTmcJsonRef.current = next;
+      saveTmcTasksToLocalStorage(projectId, items);
+      void postTmcImportToApi(projectId, items);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [items, tmcPersistReady, projectId]);
 
   const rows = useMemo(
     () =>
@@ -358,10 +405,6 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   };
 
   const persist = useCallback(async () => {
-    if (!token) {
-      window.alert("Требуется авторизация для сохранения в БД");
-      return;
-    }
     const peers = items.filter((t) => t.projectPart === activeProjectPart);
     const asCodes = peers.map((t) => ({ id: t.id, code: t.itemCode }));
     for (const t of peers) {
@@ -379,6 +422,16 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         return;
       }
     }
+    if (tmcLocalMode) {
+      saveTmcTasksToLocalStorage(projectId, items);
+      void postTmcImportToApi(projectId, items);
+      window.dispatchEvent(new Event("gordo-tmc-saved"));
+      return;
+    }
+    if (!token) {
+      window.alert("Требуется авторизация для сохранения в БД");
+      return;
+    }
     try {
       const saved = await bulkImportTmcToDb(token, items);
       setItems(saved);
@@ -386,7 +439,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Не удалось сохранить ТМЦ");
     }
-  }, [items, activeProjectPart, token]);
+  }, [items, activeProjectPart, token, projectId]);
 
   const handleTmcCsvImport = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -413,10 +466,14 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
           return;
         }
 
-        const { result, stats } = diffTmcImport(items, normalized, rows.length);
+        const scoped = normalized.map((row) => ({ ...row, projectPart: activeProjectPart }));
+        const { result, stats } = diffTmcImport(items, scoped, rows.length);
         setImportStats(stats);
         setItems(result);
-        if (token) {
+        if (tmcLocalMode) {
+          saveTmcTasksToLocalStorage(projectId, result);
+          void postTmcImportToApi(projectId, result);
+        } else if (token) {
           const saved = await bulkImportTmcToDb(token, result);
           setItems(saved);
         } else {
@@ -428,7 +485,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
       }
     },
-    [token, items],
+    [token, items, activeProjectPart, projectId],
   );
 
   const resetToSeed = useCallback(() => {

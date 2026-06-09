@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -35,6 +36,16 @@ import { ConstructionPresentationFilters } from "@/components/construction/Const
 import { ConstructionRouteSuspenseFallback } from "@/components/construction/ConstructionRouteSuspenseFallback";
 import { useRegisterConstructionLayoutChrome } from "@/components/construction/constructionLayoutChromeContext";
 import { bulkImportGprTasksToDb, listGprTasksFromDb } from "@/lib/constructionApi";
+import { gprMockData } from "@/lib/gprMockData";
+import {
+  getGprProjectId,
+  loadPersistedGprTasks,
+  postGprImportToApi,
+  saveGprTasksToLocalStorage,
+} from "@/lib/gprImportPersistence";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+
+const gprLocalMode = isGprLocalStorageMode();
 
 type ActiveSection = "menu" | UiConstructionSection;
 
@@ -136,7 +147,57 @@ function ConstructionWorkspaceInner({
   );
   useRegisterConstructionLayoutChrome(chromeRegistration);
 
-  const [tasks, setTasks] = useState<GPRTask[]>([]);
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
+
+  const [tasks, setTasks] = useState<GPRTask[]>(() => {
+    if (!gprLocalMode) return [];
+    try {
+      return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+      return [];
+    }
+  });
+
+  const lastSavedGprJsonRef = useRef<string | null>(null);
+  const [gprPersistReady, setGprPersistReady] = useState(!gprLocalMode);
+
+  useEffect(() => {
+    if (!gprLocalMode) return;
+    lastSavedGprJsonRef.current = null;
+    setGprPersistReady(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
+        if (cancelled) return;
+        setTasks(cloneTasks(r.tasks));
+        lastSavedGprJsonRef.current = r.bootstrapJson;
+      } catch (e) {
+        console.error("Construction edit error:", e);
+        if (!cancelled) {
+          lastSavedGprJsonRef.current = JSON.stringify(cloneTasks(gprMockData));
+        }
+      } finally {
+        if (!cancelled) setGprPersistReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gprProjectId]);
+
+  useEffect(() => {
+    if (!gprLocalMode || !gprPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(tasks);
+      if (next === lastSavedGprJsonRef.current) return;
+      lastSavedGprJsonRef.current = next;
+      saveGprTasksToLocalStorage(gprProjectId, tasks);
+    } catch (e) {
+      console.error("Construction edit error:", e);
+    }
+  }, [tasks, gprPersistReady, gprProjectId]);
 
   const [activePartScope, setActivePartScope] = useState<ConstructionObjectScope>(1);
   const gprTasksForActivePart = useMemo(() => {
@@ -152,6 +213,8 @@ function ConstructionWorkspaceInner({
       ...Array.isArray(prev) ? prev.filter((task) => task.partId !== partId) : [],
       ...normalized,
     ]);
+
+    if (gprLocalMode) return;
 
     if (!token) {
       console.warn("[GPR] Сохранение без токена: запрос к API не отправляется");
@@ -192,6 +255,15 @@ function ConstructionWorkspaceInner({
   };
 
   const reloadGprTasksFromApi = useCallback(async () => {
+    if (gprLocalMode) {
+      try {
+        const r = await loadPersistedGprTasks(gprProjectId, gprMockData);
+        setTasks(cloneTasks(r.tasks));
+      } catch (e) {
+        console.error("Construction edit error:", e);
+      }
+      return;
+    }
     if (!token) return;
     try {
       const mapped = await listGprTasksFromDb(token);
@@ -199,7 +271,7 @@ function ConstructionWorkspaceInner({
     } catch (e) {
       console.error("Construction edit error:", e);
     }
-  }, [token]);
+  }, [gprProjectId, token]);
 
   const allowedApi = useMemo(
     () => (Array.isArray(allowedSections) ? allowedSections : []),
@@ -215,7 +287,7 @@ function ConstructionWorkspaceInner({
   }, [isPresentation, sectionParam, hasFullConstructionAccess, allowedApi]);
 
   useEffect(() => {
-    if (!hydrated || !token) return;
+    if (gprLocalMode || !hydrated || !token) return;
     let cancelled = false;
     (async () => {
       try {
@@ -278,6 +350,10 @@ function ConstructionWorkspaceInner({
     (next: GPRTask[]) => {
       const list = cloneTasks(Array.isArray(next) ? next : []);
       setTasks(list);
+      if (gprLocalMode) {
+        void postGprImportToApi(gprProjectId, list);
+        return;
+      }
       if (!token) {
         console.warn("[GPR] CSV import без токена: данные не сохранены в БД");
         return;
@@ -286,7 +362,7 @@ function ConstructionWorkspaceInner({
         .then((saved) => setTasks(saved))
         .catch((e) => console.error("[GPR] bulk import failed:", e));
     },
-    [token],
+    [gprProjectId, token],
   );
 
   function goSection(ui: UiConstructionSection) {
@@ -345,12 +421,14 @@ function ConstructionWorkspaceInner({
       <section className="w-full min-w-0 text-[13px] leading-normal">
         <div className="mx-auto w-full min-w-0 max-w-[1400px]">
           <div className={filterWell}>
-            <ConstructionPresentationFilters
-              activePartScope={activePartScope}
-              onPartScopeChange={commitPartScope}
-            />
+            {activeTab !== "tmc" && (
+              <ConstructionPresentationFilters
+                activePartScope={activePartScope}
+                onPartScopeChange={commitPartScope}
+              />
+            )}
 
-            <div className="mt-4 min-w-0 space-y-4">
+            <div className={`min-w-0 space-y-4${activeTab !== "tmc" ? " mt-4" : ""}`}>
               {activeTab === "gpr" && (
                 <GPRSection
                   mode={mode}

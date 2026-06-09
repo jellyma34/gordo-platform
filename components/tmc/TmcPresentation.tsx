@@ -1,20 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, Lightbulb, ShoppingCart } from "lucide-react";
+import { CalendarDays, ShoppingCart, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { listTmcFromDb } from "@/lib/constructionApi";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { TmcMaterialCostDynamicsChart } from "@/components/tmc/TmcMaterialCostDynamicsChart";
 import { TmcMaterialPlanFactChart } from "@/components/tmc/TmcMaterialPlanFactChart";
 import { TmcProcurementDynamicsChart } from "@/components/tmc/TmcProcurementDynamicsChart";
 import { TmcVolumeDynamicsChart } from "@/components/tmc/TmcVolumeDynamicsChart";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
-import { partIdToProjectPartKey, PROJECT_PARTS, type ConstructionObjectScope } from "@/lib/gprUtils";
+import { partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
 import {
   buildTmcMonthlyProcurementSeries,
   computeTmcProcurementKpi,
-  computeTmcStatusDistribution,
+  computeTmcProcurementFinancialResult,
   computeTmcMaterialPlanFact,
   computeTmcMaterialCostDynamics,
   computeTmcVolumeDynamics,
@@ -24,6 +26,8 @@ import {
   isTmcOverduePosition,
   tmcItemFactCostRub,
 } from "@/lib/tmcPresentationAnalytics";
+
+const tmcLocalMode = isGprLocalStorageMode();
 
 const COLORS = {
   green: "#22c55e",
@@ -39,14 +43,6 @@ type ChartMode = "monthly" | "cumulative";
 
 type MaterialChartMode = TmcMaterialPlanFactMode;
 
-type InsightTone = "green" | "yellow" | "red" | "blue";
-
-function rubFull(value: number): string {
-  const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
-  if (value < 0) return `−${formatted} ₽`;
-  return `${formatted} ₽`;
-}
-
 /** Сумма для KPI первой карточки ТМЦ — без символа ₽. */
 function rubKpiAmount(value: number): string {
   const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
@@ -54,8 +50,23 @@ function rubKpiAmount(value: number): string {
   return formatted;
 }
 
+/** Сумма отклонения: − / + / 0. */
+function rubKpiSignedAmount(value: number): string {
+  if (value === 0) return "0";
+  const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
+  if (value < 0) return `−${formatted}`;
+  return `+${formatted}`;
+}
+
 function pct1(n: number): string {
   return `${n.toFixed(1).replace(".", ",")}%`;
+}
+
+function pctSigned1(n: number): string {
+  const formatted = Math.abs(n).toFixed(1).replace(".", ",");
+  if (n < 0) return `−${formatted}%`;
+  if (n > 0) return `+${formatted}%`;
+  return `${formatted}%`;
 }
 
 /** Отображение отклонения: факт поступлений − план закупок (без изменения KPI в analytics). */
@@ -64,13 +75,6 @@ function computeTmcReceiptDeviationDisplay(planPurchase: number, factReceived: n
   const deviationPercent =
     planPurchase > 0 ? Math.round((deviationAmount / planPurchase) * 1000) / 10 : null;
   return { deviationAmount, deviationPercent };
-}
-
-function pctSigned1(n: number): string {
-  const formatted = Math.abs(n).toFixed(1).replace(".", ",");
-  if (n < 0) return `−${formatted}%`;
-  if (n > 0) return `+${formatted}%`;
-  return `${formatted}%`;
 }
 
 function TmcKpiDivider() {
@@ -156,17 +160,24 @@ function TmcKpiAmountBlock({
   label,
   amountRub,
   accentColor,
+  showRubSuffix = false,
+  valueClassName,
 }: {
   label: string;
   amountRub: number;
   accentColor: string;
+  showRubSuffix?: boolean;
+  valueClassName?: string;
 }) {
   const primaryGlow =
     accentColor === COLORS.blue
       ? { textShadow: "0 0 22px rgba(59,130,246,0.42)" }
       : accentColor === COLORS.red
         ? { textShadow: "0 0 22px rgba(239,68,68,0.38)" }
-        : undefined;
+        : accentColor === COLORS.green
+          ? { textShadow: "0 0 22px rgba(34,197,94,0.38)" }
+          : undefined;
+  const suffix = showRubSuffix ? " ₽" : "";
 
   return (
     <div className="space-y-1.5">
@@ -184,8 +195,12 @@ function TmcKpiAmountBlock({
           {label}
         </div>
         <div className="mt-2 tabular-nums tracking-tight">
-          <span className="text-2xl font-extrabold text-white" style={primaryGlow}>
+          <span
+            className={`text-2xl font-extrabold text-white ${valueClassName ?? ""}`}
+            style={primaryGlow}
+          >
             {rubKpiAmount(amountRub)}
+            {suffix}
           </span>
         </div>
       </div>
@@ -233,13 +248,16 @@ function TmcKpiSplitMoneyBlock({
   factRub,
   planRub,
   accentColor,
+  showRubSuffix = false,
 }: {
   label: string;
   factRub: number;
   planRub: number;
   accentColor: string;
+  showRubSuffix?: boolean;
 }) {
   const primaryGlow = { textShadow: "0 0 22px rgba(59,130,246,0.42)" };
+  const suffix = showRubSuffix ? " ₽" : "";
 
   return (
     <div className="space-y-1.5">
@@ -259,8 +277,12 @@ function TmcKpiSplitMoneyBlock({
         <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 tabular-nums tracking-tight">
           <span className="text-2xl font-extrabold text-white" style={primaryGlow}>
             {rubKpiAmount(factRub)}
+            {suffix}
           </span>
-          <span className="text-xl font-medium text-slate-300/65">из {rubKpiAmount(planRub)}</span>
+          <span className="text-xl font-medium text-slate-300/65">
+            из {rubKpiAmount(planRub)}
+            {suffix}
+          </span>
         </div>
       </div>
     </div>
@@ -359,40 +381,21 @@ function TmcPremiumKpiCard({
   );
 }
 
-function TmcInsightRow({
-  tone,
-  title,
-  text,
-}: {
-  tone: InsightTone;
-  title: string;
-  text: string;
-}) {
-  const toneMap: Record<InsightTone, string> = {
-    green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    yellow: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-    red: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-    blue: "border-blue-500/30 bg-blue-500/10 text-blue-300",
-  };
-  return (
-    <div className={`rounded-xl border px-3.5 py-3 ${toneMap[tone]}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-wider opacity-80">{title}</div>
-      <div className="mt-1 text-sm leading-snug text-slate-100">{text}</div>
-    </div>
-  );
-}
-
 function TmcKpiIconBadge({
   children,
   tone,
 }: {
   children: ReactNode;
-  tone: "blue" | "red";
+  tone: "blue" | "red" | "amber" | "green";
 }) {
   const toneClass =
     tone === "blue"
       ? "bg-blue-500/15 text-blue-400 ring-blue-400/20"
-      : "bg-rose-500/15 text-rose-400 ring-rose-400/20";
+      : tone === "red"
+        ? "bg-rose-500/15 text-rose-400 ring-rose-400/20"
+        : tone === "green"
+          ? "bg-emerald-500/15 text-emerald-400 ring-emerald-400/20"
+          : "bg-amber-500/15 text-amber-400 ring-amber-400/20";
   return (
     <div
       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ${toneClass}`}
@@ -402,68 +405,49 @@ function TmcKpiIconBadge({
   );
 }
 
-function TMCSectionPartTabs({
-  activePartScope,
-  onChangePartScope,
-  hidePartTabs,
-}: {
-  activePartScope: ConstructionObjectScope;
-  onChangePartScope: (scope: ConstructionObjectScope) => void;
-  hidePartTabs?: boolean;
-}) {
-  if (hidePartTabs) return null;
-  return (
-    <div className="mb-4 flex flex-wrap justify-center sm:justify-start">
-      <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-        {PROJECT_PARTS.map((part) => {
-          const active = activePartScope === part.id;
-          return (
-            <button
-              key={part.id}
-              type="button"
-              onClick={() => onChangePartScope(part.id as ConstructionObjectScope)}
-              className={segmentedControlTabClass(active, "dark")}
-            >
-              {part.name}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function TmcPresentation({
   activePartScope,
-  onChangePartScope,
-  hidePartTabs,
 }: {
   activePartScope: ConstructionObjectScope;
-  onChangePartScope: (scope: ConstructionObjectScope) => void;
-  hidePartTabs?: boolean;
 }) {
   const { token, hydrated } = useAuth();
+  const projectId = useMemo(() => getGprProjectId(), []);
   const [allTmc, setAllTmc] = useState<Awaited<ReturnType<typeof listTmcFromDb>>>([]);
   const [chartMode, setChartMode] = useState<ChartMode>("monthly");
   const [workTypeChartMode, setWorkTypeChartMode] = useState<MaterialChartMode>("cost");
   const today = useMemo(() => new Date(), []);
 
   const reloadTmc = useCallback(async () => {
+    if (tmcLocalMode) {
+      try {
+        const r = await loadPersistedTmcItems(projectId);
+        setAllTmc(r.items);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
     if (!token) return;
     try {
       setAllTmc(await listTmcFromDb(token));
     } catch (e) {
       console.error(e);
     }
-  }, [token]);
+  }, [projectId, token]);
 
   useEffect(() => {
+    if (tmcLocalMode) {
+      void reloadTmc();
+      const bump = () => void reloadTmc();
+      window.addEventListener("gordo-tmc-saved", bump);
+      return () => window.removeEventListener("gordo-tmc-saved", bump);
+    }
     if (!hydrated || !token) return;
     void reloadTmc();
     const bump = () => void reloadTmc();
     window.addEventListener("gordo-tmc-saved", bump);
     return () => window.removeEventListener("gordo-tmc-saved", bump);
-  }, [hydrated, token, reloadTmc]);
+  }, [tmcLocalMode, hydrated, token, reloadTmc]);
 
   const activeProjectPart = partIdToProjectPartKey(
     activePartScope === "project" ? 1 : activePartScope,
@@ -478,7 +462,6 @@ export function TmcPresentation({
   }, [activePartScope, activeProjectPart, allTmc, today]);
 
   const kpi = useMemo(() => computeTmcProcurementKpi(enriched, today), [enriched, today]);
-  const statusBuckets = useMemo(() => computeTmcStatusDistribution(enriched), [enriched]);
   const monthlySeries = useMemo(() => buildTmcMonthlyProcurementSeries(enriched, today), [enriched, today]);
   const chartTimeline = useMemo(
     () => fillTmcMonthlyProcurementTimeline(monthlySeries, today),
@@ -530,87 +513,45 @@ export function TmcPresentation({
     [kpi.planRub, kpi.receiptsFactRub],
   );
 
-  const insights = useMemo(() => {
-    const riskyCount = statusBuckets.find((b) => b.key === "yellow")?.count ?? 0;
-    const overdueLevel: { tone: InsightTone; title: string; text: string } =
-      overdueItemPct >= 25
-        ? {
-            tone: "red",
-            title: "Уровень просрочек",
-            text: `Высокий: ${pct1(overdueItemPct)} позиций с нарушением срока (${kpi.overdueCount} из ${kpi.totalItemCount})`,
-          }
-        : overdueItemPct >= 12
-          ? {
-              tone: "yellow",
-              title: "Уровень просрочек",
-              text: `Средний: ${pct1(overdueItemPct)} позиций требуют контроля (${kpi.overdueCount} из ${kpi.totalItemCount})`,
-            }
-          : {
-              tone: "green",
-              title: "Уровень просрочек",
-              text:
-                kpi.overdueCount > 0
-                  ? `Низкий: ${pct1(overdueItemPct)} позиций вне графика`
-                  : "Низкий: просроченных позиций нет",
-            };
+  const financialResult = useMemo(
+    () => computeTmcProcurementFinancialResult(enriched),
+    [enriched],
+  );
 
-    const { deviationAmount, deviationPercent } = receiptDeviation;
-    const deviationInsight: { tone: InsightTone; title: string; text: string } =
-      deviationAmount < 0
-        ? {
-            tone: "red",
-            title: "Отклонение от плана",
-            text: `Отставание ${rubFull(Math.abs(deviationAmount))}${deviationPercent != null ? ` (${pctSigned1(deviationPercent)} к плану)` : ""}`,
-          }
-        : deviationAmount > 0
-          ? {
-              tone: "green",
-              title: "Отклонение от плана",
-              text: `Опережение ${rubFull(deviationAmount)}${deviationPercent != null ? ` (${pctSigned1(deviationPercent)} к плану)` : ""}`,
-            }
-          : {
-              tone: "blue",
-              title: "Отклонение от плана",
-              text: "Факт поступлений соответствует плану закупок",
-            };
-
-    const riskyInsight = {
-      tone: (riskyCount > 0 ? "yellow" : "green") as InsightTone,
-      title: "Рисковые поставки",
-      text:
-        riskyCount > 0
-          ? `${riskyCount} ${riskyCount === 1 ? "позиция" : riskyCount < 5 ? "позиции" : "позиций"} в зоне риска по срокам`
-          : "Позиций в зоне риска по срокам нет",
-    };
-
-    const stageMap = new Map<string, { total: number; green: number }>();
-    for (const item of enriched) {
-      const stage = item.gprStage?.trim() || "Без этапа";
-      const cur = stageMap.get(stage) ?? { total: 0, green: 0 };
-      cur.total += 1;
-      if (item.traffic === "green") cur.green += 1;
-      stageMap.set(stage, cur);
+  const financialCard = useMemo(() => {
+    const { deviationRub } = financialResult;
+    if (deviationRub < 0) {
+      return {
+        title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+        mainRub: deviationRub,
+        glowColor: COLORS.green,
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(21,128,61,0.14) 100%)",
+        waveColor: COLORS.green,
+        badgeTone: "green" as const,
+      };
     }
-    let bestStage = { name: "—", pct: 0, total: 0 };
-    for (const [name, stats] of stageMap) {
-      if (stats.total === 0) continue;
-      const pct = Math.round((stats.green / stats.total) * 1000) / 10;
-      if (pct > bestStage.pct || (pct === bestStage.pct && stats.total > bestStage.total)) {
-        bestStage = { name, pct, total: stats.total };
-      }
+    if (deviationRub > 0) {
+      return {
+        title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+        mainRub: deviationRub,
+        glowColor: COLORS.red,
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(127,29,29,0.16) 100%)",
+        waveColor: COLORS.red,
+        badgeTone: "red" as const,
+      };
     }
-
-    const bestStageInsight = {
-      tone: "blue" as InsightTone,
-      title: "Лучший этап по дисциплине",
-      text:
-        bestStage.total > 0
-          ? `${bestStage.name}: ${pct1(bestStage.pct)} поставок в срок (${bestStage.total} поз.)`
-          : "Недостаточно данных по этапам ГПР",
+    return {
+      title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+      mainRub: 0,
+      glowColor: "#f59e0b",
+      gradient:
+        "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(180,83,9,0.12) 100%)",
+      waveColor: "#f59e0b",
+      badgeTone: "amber" as const,
     };
-
-    return [overdueLevel, deviationInsight, riskyInsight, bestStageInsight];
-  }, [enriched, kpi, overdueItemPct, receiptDeviation, statusBuckets]);
+  }, [financialResult]);
 
   const chartGradId = useId().replace(/:/g, "");
 
@@ -619,12 +560,6 @@ export function TmcPresentation({
       <div className="mb-4">
         <h2 className="text-xl font-semibold text-slate-50">Закупка ТМЦ</h2>
       </div>
-
-      <TMCSectionPartTabs
-        activePartScope={activePartScope}
-        onChangePartScope={onChangePartScope}
-        hidePartTabs={hidePartTabs}
-      />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <TmcPremiumKpiCard
@@ -648,16 +583,16 @@ export function TmcPresentation({
           </div>
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <TmcKpiCountBlock
-              label="ЗАКУПЛЕНО"
-              primaryCount={kpi.purchasedItemCount}
-              totalCount={kpi.totalItemCount}
-              accentColor={COLORS.blue}
-            />
             <TmcKpiSplitMoneyBlock
               label="ФАКТИЧЕСКАЯ СТОИМОСТЬ ПОСТАВОК"
               factRub={kpi.receiptsFactRub}
               planRub={kpi.planRub}
+              accentColor={COLORS.blue}
+            />
+            <TmcKpiCountBlock
+              label="ЗАКУПЛЕНО"
+              primaryCount={kpi.purchasedItemCount}
+              totalCount={kpi.totalItemCount}
               accentColor={COLORS.blue}
             />
             <TmcKpiMetricBlock
@@ -692,10 +627,17 @@ export function TmcPresentation({
           </div>
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <TmcKpiAmountBlock
+            <TmcKpiSplitMoneyBlock
               label="ПРОСРОЧЕННАЯ СТОИМОСТЬ"
-              amountRub={overdueFactCostRub}
+              factRub={overdueFactCostRub}
+              planRub={Math.abs(receiptDeviation.deviationAmount)}
               accentColor={COLORS.blue}
+            />
+            <TmcKpiCountBlock
+              label="НЕ ЗАКУПЛЕНО"
+              primaryCount={kpi.overdueNotStartedCount}
+              totalCount={kpi.totalItemCount}
+              accentColor={COLORS.red}
             />
             <TmcKpiMetricBlock
               label="ДОЛЯ ПРОСРОЧКИ"
@@ -704,39 +646,72 @@ export function TmcPresentation({
               accentColor={COLORS.blue}
               sectionPt="pt-5"
             />
-            <TmcKpiMetricBlock
-              label="ОТСТАВАНИЕ ОТ ПЛАНА"
-              value={rubKpiAmount(receiptDeviation.deviationAmount)}
-              tier="primary"
-              accentColor={COLORS.red}
-              sectionPt="pt-5"
-              valueClassName={
-                receiptDeviation.deviationAmount < 0
-                  ? "text-[#ff5b6b]"
-                  : receiptDeviation.deviationAmount > 0
-                    ? "text-emerald-400"
-                    : undefined
-              }
-            />
           </div>
         </TmcPremiumKpiCard>
 
         <TmcPremiumKpiCard
-          glowColor="#f59e0b"
-          gradient="linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(180,83,9,0.12) 100%)"
+          glowColor={financialCard.glowColor}
+          gradient={financialCard.gradient}
+          waveColor={financialCard.waveColor}
+          waveOpacity={0.25}
         >
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 ring-1 ring-amber-400/20">
-              <Lightbulb className="h-5 w-5" strokeWidth={2} />
+          <div className="flex items-start gap-3">
+            <TmcKpiIconBadge tone={financialCard.badgeTone}>
+              <Wallet className="h-5 w-5" strokeWidth={2} />
+            </TmcKpiIconBadge>
+            <div className="min-w-0 flex-1">
+              <TmcKpiLabel>{financialCard.title}</TmcKpiLabel>
+              <div className="mt-1.5 tabular-nums tracking-tight">
+                <span
+                  className={`text-4xl font-extrabold text-white ${
+                    financialResult.deviationRub < 0
+                      ? "text-emerald-400"
+                      : financialResult.deviationRub > 0
+                        ? "text-[#ff5b6b]"
+                        : ""
+                  }`}
+                >
+                  {rubKpiSignedAmount(financialCard.mainRub)} ₽
+                </span>
+              </div>
             </div>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-100">
-              Инсайты
-            </h3>
           </div>
-          <div className="mt-4 space-y-2.5">
-            {insights.map((item) => (
-              <TmcInsightRow key={item.title} tone={item.tone} title={item.title} text={item.text} />
-            ))}
+
+          <div className="mt-2 flex flex-1 flex-col justify-evenly">
+            <TmcKpiSplitMoneyBlock
+              label="ЭКОНОМИЯ"
+              factRub={financialResult.economyRub}
+              planRub={financialResult.purchasedPlanRub}
+              accentColor={COLORS.green}
+              showRubSuffix
+            />
+            <TmcKpiAmountBlock
+              label="ПЕРЕРАСХОД"
+              amountRub={financialResult.overrunRub}
+              accentColor={COLORS.red}
+              showRubSuffix
+              valueClassName={financialResult.overrunRub > 0 ? "text-[#ff5b6b]" : undefined}
+            />
+            <TmcKpiMetricBlock
+              label="ДОЛЯ ОТКЛОНЕНИЯ"
+              value={pctSigned1(financialResult.deviationPct)}
+              tier="primary"
+              accentColor={
+                financialResult.deviationPct < 0
+                  ? COLORS.green
+                  : financialResult.deviationPct > 0
+                    ? COLORS.red
+                    : "#f59e0b"
+              }
+              sectionPt="pt-5"
+              valueClassName={
+                financialResult.deviationPct < 0
+                  ? "text-emerald-400"
+                  : financialResult.deviationPct > 0
+                    ? "text-[#ff5b6b]"
+                    : undefined
+              }
+            />
           </div>
         </TmcPremiumKpiCard>
       </div>

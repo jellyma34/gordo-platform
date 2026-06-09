@@ -3,6 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { listTmcFromDb } from "@/lib/constructionApi";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { compareGprCodesByNumericPath, partIdToProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem, TmcSupplyStatus } from "@/lib/tmcData";
 
@@ -38,6 +40,8 @@ export function contractNumberOnly(raw: string | undefined): string {
   return digits ? digits[0] : "—";
 }
 
+const tmcLocalMode = isGprLocalStorageMode();
+
 function hasSupplierText(s: string): boolean {
   const trimmed = s.trim();
   return Boolean(trimmed && trimmed !== "-" && trimmed !== "—");
@@ -72,26 +76,42 @@ export type SuppliersBlockProps = {
 
 export function SuppliersBlock({ activePartId, items: itemsProp, variant = "light" }: SuppliersBlockProps) {
   const { token, hydrated } = useAuth();
+  const projectId = useMemo(() => getGprProjectId(), []);
   const part = partIdToProjectPartKey(activePartId);
   const [dbItems, setDbItems] = useState<TMCItem[]>([]);
 
   const reload = useCallback(async () => {
+    if (tmcLocalMode) {
+      try {
+        const r = await loadPersistedTmcItems(projectId);
+        setDbItems(r.items);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
     if (!token) return;
     try {
       setDbItems(await listTmcFromDb(token));
     } catch (e) {
       console.error(e);
     }
-  }, [token]);
+  }, [projectId, token]);
 
   useEffect(() => {
     if (itemsProp != null) return;
+    if (tmcLocalMode) {
+      void reload();
+      const onSaved = () => void reload();
+      window.addEventListener("gordo-tmc-saved", onSaved);
+      return () => window.removeEventListener("gordo-tmc-saved", onSaved);
+    }
     if (!hydrated || !token) return;
     void reload();
     const onSaved = () => void reload();
     window.addEventListener("gordo-tmc-saved", onSaved);
     return () => window.removeEventListener("gordo-tmc-saved", onSaved);
-  }, [itemsProp, hydrated, token, reload]);
+  }, [itemsProp, tmcLocalMode, hydrated, token, reload]);
 
   const scopedItems = useMemo(() => {
     const raw = itemsProp ?? dbItems;

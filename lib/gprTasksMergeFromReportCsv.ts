@@ -45,28 +45,73 @@ function inferPlanFactScope(objectType: string, partId: number): GprPlanFactScop
   return partId === 2 ? "parking" : "house";
 }
 
+/** Метаданные части проекта при импорте с активной вкладки (Жилой дом / Автостоянка). */
+function partImportMetadata(forcedPartId: 1 | 2): {
+  partId: 1 | 2;
+  objectType: string;
+  projectPartKey: ProjectPartKey;
+  planFactScope: GprPlanFactScopeKey;
+  idSuffix: string;
+} {
+  if (forcedPartId === 2) {
+    return {
+      partId: 2,
+      objectType: objectTypeLabelFromPartId(2),
+      projectPartKey: "parking",
+      planFactScope: "parking",
+      idSuffix: "parking--csv",
+    };
+  }
+  return {
+    partId: 1,
+    objectType: objectTypeLabelFromPartId(1),
+    projectPartKey: "residential",
+    planFactScope: "house",
+    idSuffix: "residential--csv",
+  };
+}
+
 function gprCsvRowToTask(
   row: GprReportCsvRow,
   opts?: { forcedPartId?: number; stableSuffix?: string },
 ): GPRTask {
   const code = normalizeGprCodeFinal(row.code);
   const forcedPartId = opts?.forcedPartId === 1 || opts?.forcedPartId === 2 ? opts.forcedPartId : null;
-  const objectType = (row.objectType ?? "").trim() || (forcedPartId ? objectTypeLabelFromPartId(forcedPartId) : "");
+
+  let partId: 1 | 2;
+  let objectType: string;
+  let projectPartKey: ProjectPartKey;
+  let planFactScope: GprPlanFactScopeKey;
+  let idSuffix: string;
+
+  if (forcedPartId != null) {
+    const meta = partImportMetadata(forcedPartId);
+    partId = meta.partId;
+    objectType = meta.objectType;
+    projectPartKey = meta.projectPartKey;
+    planFactScope = meta.planFactScope;
+    idSuffix = opts?.stableSuffix?.trim() || meta.idSuffix;
+  } else {
+    const rowObject = (row.objectType ?? "").trim();
+    objectType = rowObject;
+    const partFromObject = inferGprPartIdFromObjectLabel(objectType);
+    partId = (partFromObject ?? inferGprPartIdFromCode(code)) as 1 | 2;
+    projectPartKey =
+      projectPartKeyFromObjectLabel(objectType) ?? (partId === 2 ? "parking" : "residential");
+    planFactScope = inferPlanFactScope(objectType, partId);
+    if (!objectType) objectType = objectTypeLabelFromPartId(partId);
+    idSuffix = opts?.stableSuffix?.trim() || `${slugForObjectType(objectType)}--csv`;
+  }
+
   const scopeKey = `${code}::${objectType}`;
-  const otSlug = slugForObjectType(objectType);
-  const idSuffix = opts?.stableSuffix?.trim() || `${otSlug}--csv`;
   const id = `${gprStableIdFromCode(code)}--${idSuffix}`;
-  const partFromObject = inferGprPartIdFromObjectLabel(objectType);
-  const partId = forcedPartId ?? partFromObject ?? inferGprPartIdFromCode(code);
-  const projectPartKey =
-    projectPartKeyFromObjectLabel(objectType) ?? (partId === 2 ? "parking" : "residential");
 
   return {
     id,
     globalTaskId: `${scopeKey}::__csv${row.sourceRowIndex}`,
     code,
     objectType,
-    planFactScope: inferPlanFactScope(objectType, partId),
+    planFactScope,
     name: row.name || code,
     partId,
     projectPartKey,

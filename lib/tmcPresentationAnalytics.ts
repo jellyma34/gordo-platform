@@ -197,6 +197,66 @@ export function computeTmcProcurementKpi(
   };
 }
 
+export type TmcProcurementFinancialResult = {
+  /** Σ max(planCost − factCost, 0) по позициям с фактом закупки. */
+  economyRub: number;
+  /** Σ max(factCost − planCost, 0) по позициям с фактом закупки. */
+  overrunRub: number;
+  /** Экономия − перерасход. */
+  balanceRub: number;
+  /** Σ planCost по позициям с factCost > 0. */
+  purchasedPlanRub: number;
+  /** economyRub / purchasedPlanRub × 100, %. */
+  economySharePct: number;
+  /** Σ factCost по позициям с factCost > 0. */
+  purchasedFactRub: number;
+  /** Факт − план по закупленным позициям, ₽. */
+  deviationRub: number;
+  /** deviationRub / purchasedPlanRub × 100, %. */
+  deviationPct: number;
+};
+
+/** Позиция с зафиксированной фактической стоимостью закупки. */
+export function hasTmcPurchaseFact(item: TMCItem): boolean {
+  return tmcItemFactCostRub(item) > 0;
+}
+
+/** Финансовый результат закупок: экономия и перерасход только по позициям с фактом. */
+export function computeTmcProcurementFinancialResult(
+  items: TmcEnrichedItem[],
+): TmcProcurementFinancialResult {
+  let economyRub = 0;
+  let overrunRub = 0;
+  let purchasedPlanRub = 0;
+
+  for (const item of items) {
+    if (!hasTmcPurchaseFact(item)) continue;
+    const plan = item.planCost;
+    const fact = tmcItemFactCostRub(item);
+    purchasedPlanRub += plan;
+    economyRub += Math.max(plan - fact, 0);
+    overrunRub += Math.max(fact - plan, 0);
+  }
+
+  const economySharePct =
+    purchasedPlanRub > 0 ? Math.round((economyRub / purchasedPlanRub) * 1000) / 10 : 0;
+  const purchasedFactRub = purchasedPlanRub - economyRub + overrunRub;
+  const deviationRub = purchasedFactRub - purchasedPlanRub;
+  const deviationPct =
+    purchasedPlanRub > 0 ? Math.round((deviationRub / purchasedPlanRub) * 1000) / 10 : 0;
+
+  return {
+    economyRub,
+    overrunRub,
+    balanceRub: economyRub - overrunRub,
+    purchasedPlanRub,
+    economySharePct,
+    purchasedFactRub,
+    deviationRub,
+    deviationPct,
+  };
+}
+
 export type TmcStatusBucket = {
   key: TmcTraffic | "overdue";
   label: string;

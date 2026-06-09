@@ -24,6 +24,31 @@ const COLORS = {
 } as const;
 
 const CHART_HEIGHT = 360;
+const CHART_MARGIN_TOP = 32;
+const CHART_MARGIN_BOTTOM = 8;
+
+/** Смещение подписи План влево / Факт вправо от центра своего столбца. */
+const PLAN_LABEL_X_SHIFT = -9;
+const FACT_LABEL_X_SHIFT = 9;
+const BASE_LABEL_TOP_OFFSET = 8;
+const LABEL_HALF_H = 7;
+const LABEL_MIN_X_GAP = 4;
+const LABEL_MIN_Y_GAP = 3;
+const VERTICAL_STAGGER_STEP = 11;
+const MAX_VERTICAL_STAGGER_STEPS = 5;
+/** Шаг категории в пространстве коллизий (относительные единицы). */
+const CATEGORY_COLLISION_PITCH = 120;
+const PLAN_BAR_CENTER_OFFSET = -22;
+const FACT_BAR_CENTER_OFFSET = 22;
+const SMALL_VALUE_THRESHOLD = 100;
+const SMALL_VALUE_MIN_CENTER_GAP = 20;
+
+type BarLabelSeries = "plan" | "fact";
+
+type BarLabelLayout = {
+  dx: number;
+  extraDy: number;
+};
 
 type ChartRow = TmcMaterialCostDynamicsRow & {
   plan: number;
@@ -68,6 +93,209 @@ function buildBarYDomain(rows: ChartRow[]): [number, number] {
     max = Math.max(max, row.plan, row.fact);
   }
   return [0, max > 0 ? Math.ceil(max * 1.14) : 1];
+}
+
+function estimateLabelHalfWidth(text: string): number {
+  return Math.max(7, text.length * 3.3);
+}
+
+type LabelCollisionBox = {
+  key: string;
+  x: number;
+  y: number;
+  halfW: number;
+  halfH: number;
+};
+
+function labelCollisionBoxesOverlap(a: LabelCollisionBox, b: LabelCollisionBox): boolean {
+  const xOverlap = !(
+    a.x + a.halfW + LABEL_MIN_X_GAP < b.x - b.halfW ||
+    a.x - a.halfW - LABEL_MIN_X_GAP > b.x + b.halfW
+  );
+  const yOverlap = !(
+    a.y + a.halfH + LABEL_MIN_Y_GAP < b.y - b.halfH ||
+    a.y - a.halfH - LABEL_MIN_Y_GAP > b.y + b.halfH
+  );
+  return xOverlap && yOverlap;
+}
+
+function valueToLabelBaseY(
+  value: number,
+  yDomain: [number, number],
+  plotTop: number,
+  plotHeight: number,
+): number {
+  if (value <= 0 || yDomain[1] <= 0) return plotTop;
+  return plotTop + plotHeight * (1 - value / yDomain[1]) - BASE_LABEL_TOP_OFFSET;
+}
+
+/**
+ * Предрасчёт смещений подписей: горизонтальный разнос План/Факт + вертикальный stagger при overlap.
+ */
+function buildMaterialCostBarLabelLayouts(
+  chartData: ChartRow[],
+  yDomain: [number, number],
+  plotTop: number,
+  plotHeight: number,
+): Map<string, BarLabelLayout> {
+  type Draft = {
+    key: string;
+    series: BarLabelSeries;
+    dx: number;
+    x: number;
+    y: number;
+    halfW: number;
+    priority: number;
+  };
+
+  const drafts: Draft[] = [];
+
+  chartData.forEach((row, index) => {
+    const planText = formatBarTopLabel(row.plan);
+    const factText = formatBarTopLabel(row.fact);
+    const categoryX = index * CATEGORY_COLLISION_PITCH;
+    const smallPair =
+      row.plan > 0 &&
+      row.fact > 0 &&
+      row.plan < SMALL_VALUE_THRESHOLD &&
+      row.fact < SMALL_VALUE_THRESHOLD;
+    const planShift = smallPair ? PLAN_LABEL_X_SHIFT - 3 : PLAN_LABEL_X_SHIFT;
+    const factShift = smallPair ? FACT_LABEL_X_SHIFT + 3 : FACT_LABEL_X_SHIFT;
+    const planCenterX = categoryX + PLAN_BAR_CENTER_OFFSET + planShift;
+    const factCenterX = categoryX + FACT_BAR_CENTER_OFFSET + factShift;
+
+    if (planText) {
+      drafts.push({
+        key: `plan-${index}`,
+        series: "plan",
+        dx: planShift,
+        x: planCenterX,
+        y: valueToLabelBaseY(row.plan, yDomain, plotTop, plotHeight),
+        halfW: estimateLabelHalfWidth(planText),
+        priority: row.plan + 1,
+      });
+    }
+    if (factText) {
+      drafts.push({
+        key: `fact-${index}`,
+        series: "fact",
+        dx: factShift,
+        x: factCenterX,
+        y: valueToLabelBaseY(row.fact, yDomain, plotTop, plotHeight),
+        halfW: estimateLabelHalfWidth(factText),
+        priority: row.fact,
+      });
+    }
+
+    if (smallPair && planText && factText) {
+      const gap = factCenterX - planCenterX;
+      if (gap < SMALL_VALUE_MIN_CENTER_GAP) {
+        const widen = (SMALL_VALUE_MIN_CENTER_GAP - gap) / 2;
+        const planDraft = drafts[drafts.length - 2];
+        const factDraft = drafts[drafts.length - 1];
+        if (planDraft && factDraft) {
+          planDraft.x -= widen;
+          factDraft.x += widen;
+        }
+      }
+    }
+  });
+
+  const sorted = [...drafts].sort((a, b) => b.priority - a.priority);
+  const placed: Draft[] = [];
+  const layoutMap = new Map<string, BarLabelLayout>();
+
+  for (const draft of sorted) {
+    const dx = draft.dx;
+    let resolved = false;
+
+    for (let step = 0; step <= MAX_VERTICAL_STAGGER_STEPS; step += 1) {
+      const extraDy = step * VERTICAL_STAGGER_STEP;
+      const tryBox: LabelCollisionBox = {
+        key: draft.key,
+        x: draft.x,
+        y: draft.y - extraDy,
+        halfW: draft.halfW,
+        halfH: LABEL_HALF_H,
+      };
+      const overlaps = placed.some((other) => {
+        const otherLayout = layoutMap.get(other.key)!;
+        const otherBox: LabelCollisionBox = {
+          key: other.key,
+          x: other.x,
+          y: other.y - otherLayout.extraDy,
+          halfW: other.halfW,
+          halfH: LABEL_HALF_H,
+        };
+        return labelCollisionBoxesOverlap(tryBox, otherBox);
+      });
+      if (!overlaps) {
+        placed.push(draft);
+        layoutMap.set(draft.key, { dx, extraDy });
+        resolved = true;
+        break;
+      }
+    }
+
+    if (!resolved) {
+      layoutMap.set(draft.key, {
+        dx,
+        extraDy: MAX_VERTICAL_STAGGER_STEPS * VERTICAL_STAGGER_STEP,
+      });
+    }
+  }
+
+  return layoutMap;
+}
+
+type BarLabelContentProps = {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  value?: unknown;
+  index?: number;
+};
+
+function createMaterialCostBarLabelContent(
+  series: BarLabelSeries,
+  fill: string,
+  fontWeight: number,
+  layoutMap: Map<string, BarLabelLayout>,
+) {
+  return function MaterialCostBarLabel(props: BarLabelContentProps) {
+    const x = typeof props.x === "number" ? props.x : Number(props.x);
+    const y = typeof props.y === "number" ? props.y : Number(props.y);
+    const width = typeof props.width === "number" ? props.width : Number(props.width);
+    const index = props.index;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || index == null) {
+      return null;
+    }
+
+    const text = formatBarTopLabel(props.value);
+    if (!text) return null;
+
+    const layout = layoutMap.get(`${series}-${index}`) ?? {
+      dx: series === "plan" ? PLAN_LABEL_X_SHIFT : FACT_LABEL_X_SHIFT,
+      extraDy: 0,
+    };
+    const cx = x + width / 2 + layout.dx;
+    const labelY = y - BASE_LABEL_TOP_OFFSET - layout.extraDy;
+
+    return (
+      <text
+        x={cx}
+        y={labelY}
+        textAnchor="middle"
+        dominantBaseline="auto"
+        fill={fill}
+        fontSize={10}
+        fontWeight={fontWeight}
+        className="tabular-nums pointer-events-none"
+      >
+        {text}
+      </text>
+    );
+  };
 }
 
 function TmcMaterialCostTooltip({
@@ -128,6 +356,21 @@ export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDy
     if (angled) return maxLines > 1 ? 88 : 72;
     return maxLines > 1 ? 56 : 40;
   }, [chartData]);
+
+  const labelLayouts = useMemo(() => {
+    const plotTop = CHART_MARGIN_TOP;
+    const plotHeight = CHART_HEIGHT - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM - xAxisHeight;
+    return buildMaterialCostBarLabelLayouts(chartData, yDomain, plotTop, plotHeight);
+  }, [chartData, yDomain, xAxisHeight]);
+
+  const planBarLabel = useMemo(
+    () => createMaterialCostBarLabelContent("plan", COLORS.plan, 500, labelLayouts),
+    [labelLayouts],
+  );
+  const factBarLabel = useMemo(
+    () => createMaterialCostBarLabelContent("fact", COLORS.factLabel, 700, labelLayouts),
+    [labelLayouts],
+  );
 
   const barCategoryGap = chartData.length > 8 ? "22%" : chartData.length > 4 ? "18%" : "14%";
 
@@ -200,15 +443,7 @@ export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDy
               maxBarSize={40}
               isAnimationActive={false}
             >
-              <LabelList
-                dataKey="plan"
-                position="top"
-                fill={COLORS.plan}
-                fontSize={10}
-                fontWeight={500}
-                className="tabular-nums"
-                formatter={formatBarTopLabel}
-              />
+              <LabelList dataKey="plan" content={planBarLabel} />
             </Bar>
             <Bar
               dataKey="fact"
@@ -218,15 +453,7 @@ export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDy
               maxBarSize={40}
               isAnimationActive={false}
             >
-              <LabelList
-                dataKey="fact"
-                position="top"
-                fill={COLORS.factLabel}
-                fontSize={10}
-                fontWeight={700}
-                className="tabular-nums"
-                formatter={formatBarTopLabel}
-              />
+              <LabelList dataKey="fact" content={factBarLabel} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
