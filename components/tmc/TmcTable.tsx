@@ -34,6 +34,10 @@ import {
 import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
 import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
+  computeTmcDataDiagnostics,
+  logTmcDataPipelineDiagnostics,
+} from "@/lib/tmcPresentationAnalytics";
+import {
   computeTmcTotalsFromVolumes,
   suggestNextTmcItemCode,
   syncTmcFinancials,
@@ -343,6 +347,16 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     });
   }, [filteredRows]);
 
+  useEffect(() => {
+    if (!tmcPersistReady) return;
+    logTmcDataPipelineDiagnostics(
+      computeTmcDataDiagnostics(rows, "editor", activeProjectPart),
+    );
+    logTmcDataPipelineDiagnostics(
+      computeTmcDataDiagnostics(items, "editor", `all parts (${items.length} total)`),
+    );
+  }, [rows, items, activeProjectPart, tmcPersistReady]);
+
   const tmcRowIssues = useMemo(() => {
     const m = new Map<string, { errors: string[]; warnings: string[] }>();
     const peers = items.filter((t) => t.projectPart === activeProjectPart);
@@ -451,10 +465,13 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       try {
         const { rows, headers } = await parseTmcCsvFile(file);
         const normalized = normalizeTmcCsvRows(rows, headers);
-        console.log("Строк данных (после поиска шапки):", rows.length);
-        console.log("После фильтра и группировки:", normalized.length);
+        console.group("[TMC debug] CSV import chain");
+        console.log("file:", file.name);
+        console.log("CSV rows", rows.length);
+        console.log("Normalized rows", normalized.length);
 
         if (normalized.length === 0) {
+          console.groupEnd();
           setImportStats({
             total: 0,
             added: 0,
@@ -469,15 +486,27 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         }
 
         const scoped = normalized.map((row) => ({ ...row, projectPart: activeProjectPart }));
-        const { result, stats } = diffTmcImport(items, scoped, rows.length);
+        const peersInPart = items.filter((t) => t.projectPart === activeProjectPart);
+        const otherParts = items.filter((t) => t.projectPart !== activeProjectPart);
+        const { result: partResult, stats } = diffTmcImport(peersInPart, scoped, rows.length);
+        const merged = [...otherParts, ...partResult];
+        const removedFromPart = peersInPart.length - partResult.length;
+        console.log("TMC before import:", peersInPart.length, `(part: ${activeProjectPart})`);
+        console.log("TMC parsed from CSV:", normalized.length, `(raw rows: ${rows.length})`);
+        console.log("TMC after import:", partResult.length, `(removed from part: ${removedFromPart})`);
+        console.log("TMC stored:", merged.length, `(other parts preserved: ${otherParts.length})`);
+        console.log("import stats:", stats);
+        console.groupEnd();
         setImportStats(stats);
-        setItems(result);
+        setItems(merged);
         if (tmcLocalMode) {
-          saveTmcTasksToLocalStorage(projectId, result);
-          void postTmcImportToApi(projectId, result);
+          saveTmcTasksToLocalStorage(projectId, merged);
+          void postTmcImportToApi(projectId, merged);
+          console.log("[TMC debug] persisted to localStorage:", merged.length);
         } else if (token) {
-          const saved = await bulkImportTmcToDb(token, result);
+          const saved = await bulkImportTmcToDb(token, merged);
           setItems(saved);
+          console.log("[TMC debug] persisted to DB:", saved.length, "records");
         } else {
           window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
         }

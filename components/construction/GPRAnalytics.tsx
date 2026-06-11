@@ -54,6 +54,10 @@ import {
 } from "@/lib/gprTmcDependency";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import { loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
 import {
   buildTenderStageInsight,
@@ -1956,6 +1960,8 @@ export function GPRAnalytics({
     : (PROJECT_PARTS.find((p) => p.id === activePartScope)?.name ?? "Часть проекта");
 
   const { token, hydrated } = useAuth();
+  const constructionLocalMode = isGprLocalStorageMode();
+  const gprProjectId = useMemo(() => getGprProjectId(), []);
   const [allTmc, setAllTmc] = useState<TMCItem[]>([]);
   const [allTenders, setAllTenders] = useState<Tender[]>([]);
 
@@ -2078,6 +2084,19 @@ export function GPRAnalytics({
   const [tenderRevision, setTenderRevision] = useState(0);
 
   const reloadDependencies = useCallback(async () => {
+    if (constructionLocalMode) {
+      try {
+        const [tmcResult, tenderResult] = await Promise.all([
+          loadPersistedTmcItems(gprProjectId),
+          loadPersistedTenderItems(gprProjectId),
+        ]);
+        setAllTmc(tmcResult.items);
+        setAllTenders(tenderResult.tenders);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
     if (!token) return;
     try {
       const [tmcRows, tenderRows] = await Promise.all([listTmcFromDb(token), listTendersFromDb(token)]);
@@ -2086,7 +2105,7 @@ export function GPRAnalytics({
     } catch (e) {
       console.error(e);
     }
-  }, [token]);
+  }, [constructionLocalMode, gprProjectId, token]);
 
   useEffect(() => {
     const bump = () => setTenderRevision((x) => x + 1);
@@ -2099,9 +2118,13 @@ export function GPRAnalytics({
   }, []);
 
   useEffect(() => {
+    if (constructionLocalMode) {
+      void reloadDependencies();
+      return;
+    }
     if (!hydrated || !token) return;
     void reloadDependencies();
-  }, [hydrated, token, reloadDependencies, tenderRevision]);
+  }, [constructionLocalMode, hydrated, token, reloadDependencies, tenderRevision]);
 
   useEffect(() => {
     setActiveGroup(null);

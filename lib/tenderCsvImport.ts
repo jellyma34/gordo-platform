@@ -8,6 +8,7 @@ import {
   getGprStageFromTenderCode,
   inferPartIdFromStage,
   type Tender,
+  normalizeTenderCycleStatus,
   type TenderProcurementStatus,
 } from "@/lib/tenderData";
 
@@ -480,6 +481,7 @@ type RowExtract = {
   planContractDate: string | null;
   factContractDate: string | undefined;
   cost: number | undefined;
+  factCost: number | undefined;
   contractor: string | undefined;
   comment: string | undefined;
   statusRaw: string;
@@ -510,9 +512,8 @@ function extractTenderRowProcurement(
 
   const costPlanRaw = cellByIndex(row, headers, idx.costPlan);
   const costFactRaw = cellByIndex(row, headers, idx.costFact);
-  const cost =
-    (costPlanRaw ? parseBudget(costPlanRaw) : undefined) ??
-    (costFactRaw ? parseBudget(costFactRaw) : undefined);
+  const cost = costPlanRaw ? parseBudget(costPlanRaw) : undefined;
+  const factCost = costFactRaw ? parseBudget(costFactRaw) : undefined;
   const contractor = getMappedCell(row, headers, colMap, "contractor") || undefined;
   const comment = getMappedCell(row, headers, colMap, "comment") || undefined;
   const statusRaw = getMappedCell(row, headers, colMap, "status");
@@ -528,6 +529,7 @@ function extractTenderRowProcurement(
     planContractDate,
     factContractDate,
     cost,
+    factCost,
     contractor,
     comment,
     statusRaw,
@@ -573,6 +575,7 @@ function extractTenderRowFlat(
     planContractDate,
     factContractDate,
     cost,
+    factCost: undefined,
     contractor,
     comment,
     statusRaw,
@@ -657,9 +660,12 @@ export function normalizeTenderCsvRowsWithAudit(
       planContractDate: extracted.planContractDate,
       factContractDate: extracted.factContractDate ?? null,
       cost: extracted.cost,
+      factCost: extracted.factCost,
       contractor: extracted.contractor,
       comment: extracted.comment,
       status: mapStatus(extracted.statusRaw),
+      statusLabel: extracted.statusRaw.trim() || undefined,
+      cycleStatus: normalizeTenderCycleStatus(extracted.statusRaw),
     };
 
     const t = coerceTender(plain);

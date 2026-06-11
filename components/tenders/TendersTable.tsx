@@ -12,6 +12,13 @@ import {
 } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { bulkImportTendersToDb, listTendersFromDb } from "@/lib/constructionApi";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import {
+  getGprProjectId,
+  loadPersistedTenderItems,
+  postTenderImportToApi,
+  saveTendersToLocalStorage,
+} from "@/lib/tenderImportPersistence";
 import {
   contractDeviationDays,
   TENDER_DATA,
@@ -83,6 +90,8 @@ type FormState = {
   comment: string;
 };
 
+const tenderLocalMode = isGprLocalStorageMode();
+
 const EMPTY_FORM: FormState = {
   id: "",
   partId: "1",
@@ -114,10 +123,38 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   ref,
 ) {
   const { token, hydrated } = useAuth();
-  const [items, setItems] = useState<Tender[]>([]);
+  const projectId = useMemo(() => getGprProjectId(), []);
+  const [items, setItems] = useState<Tender[]>(() =>
+    tenderLocalMode ? TENDER_DATA.map((t) => ({ ...t })) : [],
+  );
+  const lastSavedTenderJsonRef = useRef<string | null>(null);
+  const [tenderPersistReady, setTenderPersistReady] = useState(!tenderLocalMode);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (tenderLocalMode) {
+      lastSavedTenderJsonRef.current = null;
+      setTenderPersistReady(false);
+      let cancelled = false;
+      (async () => {
+        try {
+          const r = await loadPersistedTenderItems(projectId);
+          if (cancelled) return;
+          setItems(r.tenders);
+          lastSavedTenderJsonRef.current = r.bootstrapJson;
+          setLoadError(null);
+        } catch (e) {
+          if (!cancelled) {
+            setLoadError(e instanceof Error ? e.message : "Не удалось загрузить тендеры");
+          }
+        } finally {
+          if (!cancelled) setTenderPersistReady(true);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!hydrated || !token) return;
     let cancelled = false;
     (async () => {
@@ -136,7 +173,20 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token]);
+  }, [tenderLocalMode, hydrated, token, projectId]);
+
+  useEffect(() => {
+    if (!tenderLocalMode || !tenderPersistReady || typeof window === "undefined") return;
+    try {
+      const next = JSON.stringify(items);
+      if (next === lastSavedTenderJsonRef.current) return;
+      lastSavedTenderJsonRef.current = next;
+      saveTendersToLocalStorage(projectId, items);
+      void postTenderImportToApi(projectId, items);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [items, tenderPersistReady, projectId]);
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
@@ -221,10 +271,6 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   }, [sortedFilteredRows, items, activePartId]);
 
   const persist = useCallback(async () => {
-    if (!token) {
-      window.alert("Требуется авторизация для сохранения в БД");
-      return;
-    }
     for (const t of items) {
       const partPeers = items.filter((x) => x.partId === t.partId);
       const merged = mergeGprRowIssues(
@@ -241,6 +287,16 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
         return;
       }
     }
+    if (tenderLocalMode) {
+      saveTendersToLocalStorage(projectId, items);
+      void postTenderImportToApi(projectId, items);
+      window.dispatchEvent(new Event("gordo-tenders-saved"));
+      return;
+    }
+    if (!token) {
+      window.alert("Требуется авторизация для сохранения в БД");
+      return;
+    }
     try {
       const saved = await bulkImportTendersToDb(token, items);
       setItems(saved);
@@ -248,7 +304,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Не удалось сохранить тендеры");
     }
-  }, [items, token]);
+  }, [items, token, projectId]);
 
   const handleTenderCsvImport = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -282,7 +338,10 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
         const { result, stats } = diffTendersImportScoped(items, normalized, audit.parsedRows);
         setImportStats(stats);
         setItems(result);
-        if (token) {
+        if (tenderLocalMode) {
+          saveTendersToLocalStorage(projectId, result);
+          void postTenderImportToApi(projectId, result);
+        } else if (token) {
           const saved = await bulkImportTendersToDb(token, result);
           setItems(saved);
         } else {
@@ -294,7 +353,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
         window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
       }
     },
-    [token, items],
+    [token, items, projectId],
   );
 
   const resetToSeed = useCallback(() => {

@@ -13,7 +13,18 @@ import {
 } from "@/components/charting/rechartsClient";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { createTmcMaterialXAxisTick } from "@/components/tmc/TmcMaterialXAxisTick";
-import type { TmcMaterialCostDynamicsRow } from "@/lib/tmcPresentationAnalytics";
+import { TmcMaterialPriceHeatmapView } from "@/components/tmc/TmcMaterialPriceIndexChart";
+import {
+  TmcUnitCostIndexChart,
+  TmcUnitCostIndexChartLegend,
+  type TmcUnitCostIndexChartRow,
+} from "@/components/tmc/TmcUnitCostIndexChart";
+import type {
+  TmcMaterialCostDynamicsMode,
+  TmcMaterialCostDynamicsRow,
+  TmcMaterialPriceHeatmapDataset,
+  TmcPriceIndexSortMode,
+} from "@/lib/tmcPresentationAnalytics";
 import { tmcMaterialAxisLineCount } from "@/lib/tmcMaterialAxisLabels";
 
 const COLORS = {
@@ -321,7 +332,20 @@ function TmcMaterialCostTooltip({
   );
 }
 
-export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDynamicsRow[] }) {
+function TmcMaterialCostIndexView({ chartData }: { chartData: TmcUnitCostIndexChartRow[] }) {
+  return (
+    <div className="flex w-full flex-col">
+      <div className="h-[320px] w-full min-w-0">
+        <TmcUnitCostIndexChart chartData={chartData} />
+      </div>
+      <div className="mt-3 border-t border-slate-700/40 pt-3">
+        <TmcUnitCostIndexChartLegend />
+      </div>
+    </div>
+  );
+}
+
+function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamicsRow[] }) {
   const chartData = useMemo<ChartRow[]>(
     () =>
       rows.map((row) => ({
@@ -343,7 +367,7 @@ export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDy
   const yDomain = useMemo(() => buildBarYDomain(chartData), [chartData]);
 
   const hasPlottablePrices = useMemo(
-    () => chartData.some((row) => row.plan > 0),
+    () => chartData.some((row) => row.plan > 0 || row.fact > 0),
     [chartData],
   );
 
@@ -467,4 +491,55 @@ export function TmcMaterialCostDynamicsChart({ rows }: { rows: TmcMaterialCostDy
       </div>
     </div>
   );
+}
+
+export function TmcMaterialCostDynamicsChart({
+  rows,
+  mode = "byMaterial",
+  indexChartData,
+  priceHeatmapDataset,
+  priceIndexSortMode = "byAlphabet",
+  onPriceIndexSortModeChange,
+}: {
+  rows: TmcMaterialCostDynamicsRow[];
+  mode?: TmcMaterialCostDynamicsMode;
+  indexChartData?: TmcUnitCostIndexChartRow[];
+  priceHeatmapDataset?: TmcMaterialPriceHeatmapDataset;
+  priceIndexSortMode?: TmcPriceIndexSortMode;
+  onPriceIndexSortModeChange?: (mode: TmcPriceIndexSortMode) => void;
+}) {
+  if (mode === "byPriceIndex") {
+    return (
+      <TmcMaterialPriceHeatmapView
+        dataset={
+          priceHeatmapDataset ?? {
+            months: [],
+            rows: [],
+            maxGrowthPct: 0,
+            maxGrowthMaterial: "—",
+            maxGrowthMonthsLabel: null,
+            maxDeclinePct: 0,
+            maxDeclineMaterial: "—",
+            maxDeclineMonthsLabel: null,
+          }
+        }
+        sortMode={priceIndexSortMode}
+        onSortModeChange={onPriceIndexSortModeChange ?? (() => {})}
+      />
+    );
+  }
+
+  if (mode === "byMonth") {
+    if (!indexChartData || indexChartData.length === 0) {
+      return (
+        <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
+          Недостаточно дат план/факт поставки для построения индекса цены
+        </div>
+      );
+    }
+
+    return <TmcMaterialCostIndexView chartData={indexChartData} />;
+  }
+
+  return <TmcMaterialCostByMaterialView rows={rows} />;
 }

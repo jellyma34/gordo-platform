@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
+import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 
 const COLORS = {
   green: "#22c55e",
@@ -33,6 +34,22 @@ const CLOSE_POINT_PX = 16;
 const AXIS_LABEL_CLEARANCE_PX = 6;
 
 export type TmcProcurementChartMode = "monthly" | "cumulative";
+
+export type TmcDynamicsChartUnit = "mln" | "count" | "rub";
+
+export type TmcDynamicsChartLabels = {
+  planTooltip: string;
+  factTooltip: string;
+  legendPlan: string;
+  legendFact: string;
+};
+
+const DEFAULT_DYNAMICS_LABELS: TmcDynamicsChartLabels = {
+  planTooltip: "План закупок",
+  factTooltip: "Факт закупок",
+  legendPlan: "План закупок (пунктир)",
+  legendFact: "Факт закупок",
+};
 
 export type TmcProcurementChartRow = {
   label: string;
@@ -308,14 +325,42 @@ function TmcProcurementPointLabels({
   );
 }
 
+function formatDynamicsAxisTick(value: number, unit: TmcDynamicsChartUnit): string {
+  if (unit === "count") return `${value}`;
+  if (unit === "rub") {
+    const rounded = Math.round(value);
+    return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
+  }
+  return `${value} млн`;
+}
+
+function formatDynamicsTooltipValue(
+  value: unknown,
+  unit: TmcDynamicsChartUnit,
+): string {
+  if (value == null) return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (unit === "count") return `${n} ед.`;
+  if (unit === "rub") {
+    const rounded = Math.round(n);
+    return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
+  }
+  return `${n} млн ₽`;
+}
+
 export function TmcProcurementDynamicsChart({
   chartData,
   chartGradId,
   mode = "monthly",
+  valueUnit = "mln",
+  labels = DEFAULT_DYNAMICS_LABELS,
 }: {
   chartData: TmcProcurementChartRow[];
   chartGradId: string;
   mode?: TmcProcurementChartMode;
+  valueUnit?: TmcDynamicsChartUnit;
+  labels?: TmcDynamicsChartLabels;
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -341,7 +386,10 @@ export function TmcProcurementDynamicsChart({
             textAnchor: "end",
           }}
         />
-        <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} tickFormatter={(v) => `${v} млн`} />
+        <YAxis
+          tick={{ fill: "#94a3b8", fontSize: 11 }}
+          tickFormatter={(v) => formatDynamicsAxisTick(Number(v), valueUnit)}
+        />
         <Tooltip
           contentStyle={{
             background: COLORS.card,
@@ -349,8 +397,8 @@ export function TmcProcurementDynamicsChart({
             color: "#e2e8f0",
           }}
           formatter={(value: unknown, name: unknown) => [
-            value == null ? "—" : `${value} млн ₽`,
-            String(name) === "plan" ? "План закупок" : "Факт закупок",
+            formatDynamicsTooltipValue(value, valueUnit),
+            String(name) === "plan" ? labels.planTooltip : labels.factTooltip,
           ]}
         />
         <Area
@@ -399,5 +447,18 @@ export function TmcProcurementDynamicsChart({
         <TmcProcurementPointLabels chartData={chartData} mode={mode} />
       </ComposedChart>
     </ResponsiveContainer>
+  );
+}
+
+export function TmcDynamicsChartLegend({
+  labels = DEFAULT_DYNAMICS_LABELS,
+}: {
+  labels?: TmcDynamicsChartLabels;
+}) {
+  return (
+    <AnalyticsLegendList>
+      <AnalyticsLegendItem markerColor="rgba(148,163,184,0.7)" label={labels.legendPlan} />
+      <AnalyticsLegendItem markerColor={COLORS.green} label={labels.factTooltip} />
+    </AnalyticsLegendList>
   );
 }
