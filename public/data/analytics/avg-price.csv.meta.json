@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "kind": "average_price_per_sqm",
+  "uploadedAt": "2026-05-25T20:51:07.876Z",
+  "uploadedBy": "—",
+  "sourceFile": "Средняя стоимость объекта по общей площади.csv",
+  "publicUrl": "/data/analytics/avg-price.csv"
+}

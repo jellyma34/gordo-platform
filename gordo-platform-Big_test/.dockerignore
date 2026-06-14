@@ -1,0 +1,1 @@
+# Корневой Dockerfile удалён; Docker только в backend/. См. backend/.dockerignore.

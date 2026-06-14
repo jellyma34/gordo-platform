@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "data": [
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "client": { "name": "Иванов П." }, "deal": { "deal_date": "2026-01-08", "deal_sum": "4 850 000", "deal_type": "ДДУ", "status": "Активна", "manager_name": "Иванова А.", "source": "Сайт" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-01-19", "deal_sum": "3 200 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Агентство" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-01-25", "deal_sum": 6100000, "deal_type": "ДДУ", "manager_name": "Иванова А.", "source": "Сайт" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-02-03", "deal_sum": "2 150 000", "deal_type": "Бронь", "manager_name": "Сидорова М.", "source": "Звонок" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-02-14", "deal_sum": "7 890 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Сайт" } },
+    { "object": { "category": "garage", "name": "Гордо, паркинг А" }, "deal": { "deal_date": "2026-02-27", "deal_sum": 4250000, "deal_type": "ДДУ", "manager_name": "Иванова А.", "source": "Партнёр" } },
+    { "object": { "category": "garage", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-03-05", "deal_sum": "1 980 000", "deal_type": "Бронь", "manager_name": "Сидорова М.", "source": "Агентство" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-03-18", "deal_sum": "6 100 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Сайт" } },
+    { "object": { "category": "storage", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-03-29", "deal_sum": 3330000, "deal_type": "ДДУ", "manager_name": "Иванова А.", "source": "Звонок" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-04-02", "deal_sum": "5 000 000", "deal_type": "ДДУ", "manager_name": "Сидорова М.", "source": "Сайт" } },
+    { "object": { "category_name": "Кладовая №12", "project_name": "ЖК Гордо" }, "deal": { "deal_date": "2026-04-05", "deal_sum": "450 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Сайт" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-04-11", "deal_sum": "2 750 000", "deal_type": "ДДУ", "manager_name": "Петров С.", "source": "Партнёр" } },
+    { "object": { "category": "comm", "name": "Гордо, корп. 1" }, "deal": { "deal_date": "2026-04-15", "deal_sum": "920 000", "deal_type": "Коммерция", "manager_name": "Иванова А.", "source": "Агентство" } },
+    { "object": { "category": "flat", "name": "Гордо, корп. 2" }, "deal": { "deal_date": "2026-04-20", "deal_sum": "4 100 000", "deal_type": "ДДУ", "manager_name": "Сидорова М.", "source": "Сайт" } }
+  ]
+}

@@ -1,0 +1,642 @@
+/**
+ * Структура отчёта продаж (готова к подмене ответом API).
+ * salesData: units | area | revenue | avgPrice — каждый блок с полным набором KPI.
+ */
+
+export type SalesMetricBlock = {
+  planProject: number;
+  planMonth: number;
+  planCumulative: number;
+  factMonth: number;
+  factCumulative: number;
+  deviationMonth: number;
+  deviationCumulative: number;
+  /** % выполнения к накопительному плану (факт / план * 100). */
+  percentComplete: number;
+  /** Доля накопительного плана в плане проекта (план накопит. / план проекта * 100). */
+  percentOfTotal: number;
+};
+
+export type SalesDataCube = {
+  units: SalesMetricBlock;
+  area: SalesMetricBlock;
+  revenue: SalesMetricBlock;
+  avgPrice: SalesMetricBlock;
+};
+
+export type SalesCategoryId = "apartments" | "parking" | "storages" | "commercial";
+
+export type SalesCategoryBreakdownRow = {
+  id: SalesCategoryId;
+  name: string;
+  planCumulative: number;
+  factCumulative: number;
+  deviation: number;
+  percentComplete: number;
+};
+
+export type SalesDeviationComment = {
+  id: string;
+  text: string;
+  categoryId?: SalesCategoryId;
+};
+
+/** Категория для radar: выручка накопительно (руб.) — % = fact / plan * 100. */
+export type SalesRadarCategoryRow = {
+  id: string;
+  /** Подпись на оси (краткая). */
+  axisLabel: string;
+  /** Полное название для tooltip. */
+  name: string;
+  planCumulative: number;
+  factCumulative: number;
+};
+
+/** Срез метрики в точке ряда: план, факт и накопительный прогноз. */
+export type SalesSeriesMetricSlice = {
+  planCumulative: number;
+  factCumulative: number;
+  /** Накопительный прогноз (модель) на эту дату. */
+  forecastCumulative: number;
+};
+
+/** Точка ряда для графика «план / факт / прогноз» (накопительно по периодам). */
+export type SalesSeriesPoint = {
+  periodKey: string;
+  label: string;
+  revenue: SalesSeriesMetricSlice;
+  units: SalesSeriesMetricSlice;
+  area: SalesSeriesMetricSlice;
+};
+
+/** Аналитический контекст для блока «План продаж» (по гранулярности ряда). */
+export type SalesPlanGranularityAnalytics = {
+  /** Ключ периода, в котором зафиксирована отчётная дата (вертикаль на графике). */
+  currentPeriodKey: string;
+  /** Прогноз % выполнения накопительного плана к концу горизонта при текущем темпе. */
+  forecastPercentComplete: number;
+  runRate: {
+    /** Средняя выручка в месяц (эквивалент; для квартала — /3 для отображения как «в мес.»). */
+    avgMonthlyRevenueRub: number;
+    /** Прогноз накопительной выручки к концу горизонта (последняя точка прогноза). */
+    forecastCumulativeEndRub: number;
+    /** План накопительно на конец горизонта. */
+    horizonPlanCumulativeRub: number;
+  };
+};
+
+/** Накопительно по периоду: ДДУ vs эскроу (для мини-графиков и сверки с рядом `series`). */
+export type CashFlowSeriesPoint = {
+  periodKey: string;
+  label: string;
+  dduCumulative: number;
+  escrowCumulative: number;
+};
+
+/**
+ * Диагностика ДДУ / эскроу / разрыва.
+ * Выполнение плана по выручке в UI считается от эскроу: escrow / planCumulative(revenue).
+ */
+export type CashFlowDiagnostic = {
+  dduFactCumulative: number;
+  escrowFactCumulative: number;
+  /** Если (ДДУ − эскроу) > порога — акцент «опасного» разрыва. */
+  gapAlertThresholdRub: number;
+  month: CashFlowSeriesPoint[];
+  quarter: CashFlowSeriesPoint[];
+};
+
+/**
+ * Ответ API / тело отчёта: корень с полем `salesData` (куб metrics) + ряды и разбивки.
+ * Пример: `{ salesData: { units, area, revenue, avgPrice }, series, categories, comments }`
+ */
+export type SalesReportPayload = {
+  /** Куб KPI: units, area, revenue (основной), avgPrice — каждый блок с planProject…percentOfTotal. */
+  salesData: SalesDataCube;
+  /** Ряд для графика по месяцам / кварталам. */
+  series: {
+    month: SalesSeriesPoint[];
+    quarter: SalesSeriesPoint[];
+  };
+  categories: SalesCategoryBreakdownRow[];
+  /** Структура выполнения плана по типам (паучья диаграмма). */
+  radarCategories: SalesRadarCategoryRow[];
+  comments: SalesDeviationComment[];
+  /** Дата актуальности отчёта (ISO). */
+  asOf: string;
+  projectName?: string;
+  /** Прогноз, run rate, метка «текущего» периода на графике. */
+  planAnalytics: {
+    month: SalesPlanGranularityAnalytics;
+    quarter: SalesPlanGranularityAnalytics;
+  };
+  /** Продажи по ДДУ vs поступления на эскроу (кассовая диагностика). */
+  cashFlowDiagnostic: CashFlowDiagnostic;
+  /**
+   * Разложение накопительного отклонения выручки на драйверы (мост для UI «почему»).
+   * Сумма impactRub должна совпадать с salesData.revenue.deviationCumulative в базовом срезе.
+   */
+  rootCauseWaterfall: RootCauseWaterfallModel;
+  /** Выбытие / остатки: прогноз нереализованного к концу проекта (диагностика риска). */
+  inventoryLiquidation: InventoryLiquidationModel;
+  /** Доп. продажи (паркинг, кладовые): выручка upsell vs план, конверсия к сделкам по квартирам. */
+  upsellDiagnostic: UpsellDiagnosticModel;
+};
+
+/** Строка остатка по типу продукта (шт.). */
+export type InventoryLiquidationTypeRow = {
+  id: string;
+  label: string;
+  planUnits: number;
+  soldUnits: number;
+  /** planUnits − soldUnits, ≥ 0 */
+  remainingUnits: number;
+  /** Прогноз нераспроданного к дате завершения продаж, не больше remaining. */
+  unsoldForecastUnits: number;
+  /**
+   * Относительный темп выбытия сегмента (факт/норма по типу), 0.3…1.2.
+   * Чем ниже — тем «медленнее» ликвидация при текущем спросе.
+   */
+  segmentVelocityRatio: number;
+};
+
+export type InventoryLiquidationModel = {
+  /** Конец горизонта продаж (ISO). */
+  salesEndDate: string;
+  /** Месяцев от asOf до salesEndDate. */
+  monthsRemaining: number;
+  /** Целевой темп выбытия остатка (план), шт./мес. */
+  plannedSalesPerMonth: number;
+  /** Фактический темп (скользящий / по последним периодам), шт./мес. */
+  actualSalesPerMonth: number;
+  byType: InventoryLiquidationTypeRow[];
+};
+
+export type UpsellCategoryId = "parking" | "storage";
+
+export type UpsellCategoryRow = {
+  id: UpsellCategoryId;
+  name: string;
+  planRevenueRub: number;
+  actualRevenueRub: number;
+  /** Целевая конверсия upsell (доп. сделки / план сделок по квартирам), %. */
+  plannedConversionPct: number;
+  /** Фактическая конверсия (доп. сделки / факт сделок по квартирам), %. */
+  actualConversionPct: number;
+};
+
+export type UpsellDiagnosticModel = {
+  /** Сделки по квартирам, накопительно — план (база для норматива конверсии). */
+  apartmentDealsPlan: number;
+  /** Сделки по квартирам, накопительно — факт (база для фактической конверсии upsell). */
+  apartmentDealsFact: number;
+  /**
+   * Опциональный бенчмарк конверсии (коридор / лучшая практика), %.
+   * Если не задан — в UI используется `targetConversionPct`.
+   */
+  benchmarkConversionPct?: number;
+  /** Целевая конверсия upsell (план продаж / норматив), % к факту квартир. */
+  targetConversionPct: number;
+  categories: UpsellCategoryRow[];
+};
+
+export type RootCauseWaterfallDriverId =
+  | "sales_pace"
+  | "structure_mix"
+  | "price"
+  | "conversion"
+  | "compensation";
+
+export type RootCauseWaterfallDriver = {
+  id: RootCauseWaterfallDriverId;
+  labelRu: string;
+  /** Вклад в отклонение (факт − план), ₽. Положительный — перекрывает минус. */
+  impactRub: number;
+};
+
+export type RootCauseWaterfallModel = {
+  /** Порядок = цепочка водопада (слева направо); UI дополнительно сортирует по |вклад|. */
+  drivers: RootCauseWaterfallDriver[];
+};
+
+export const marketingSalesReportMock: SalesReportPayload = {
+  projectName: "ЖК Гордо",
+  asOf: "2026-04-30",
+  salesData: {
+    revenue: {
+      planProject: 4_850_000_000,
+      planMonth: 420_000_000,
+      planCumulative: 1_265_000_000,
+      factMonth: 355_000_000,
+      factCumulative: 1_088_000_000,
+      deviationMonth: -65_000_000,
+      deviationCumulative: -177_000_000,
+      percentComplete: 86.0,
+      percentOfTotal: 26.1,
+    },
+    units: {
+      planProject: 312,
+      planMonth: 28,
+      planCumulative: 84,
+      factMonth: 22,
+      factCumulative: 71,
+      deviationMonth: -6,
+      deviationCumulative: -13,
+      percentComplete: 84.5,
+      percentOfTotal: 26.9,
+    },
+    area: {
+      planProject: 18_420,
+      planMonth: 1650,
+      planCumulative: 4980,
+      factMonth: 1288,
+      factCumulative: 4188,
+      deviationMonth: -362,
+      deviationCumulative: -792,
+      percentComplete: 84.1,
+      percentOfTotal: 27.0,
+    },
+    avgPrice: {
+      planProject: 155_448,
+      planMonth: 161_290,
+      planCumulative: 150_595,
+      factMonth: 161_364,
+      factCumulative: 153_239,
+      deviationMonth: 74,
+      deviationCumulative: 2644,
+      percentComplete: 101.8,
+      percentOfTotal: 97.2,
+    },
+  },
+  planAnalytics: {
+    month: {
+      currentPeriodKey: "2026-04",
+      forecastPercentComplete: 84.2,
+      runRate: {
+        avgMonthlyRevenueRub: 362_000_000,
+        forecastCumulativeEndRub: 1_175_000_000,
+        horizonPlanCumulativeRub: 1_265_000_000,
+      },
+    },
+    quarter: {
+      currentPeriodKey: "2026-Q2",
+      forecastPercentComplete: 84.2,
+      runRate: {
+        avgMonthlyRevenueRub: 362_000_000,
+        forecastCumulativeEndRub: 1_175_000_000,
+        horizonPlanCumulativeRub: 1_265_000_000,
+      },
+    },
+  },
+  cashFlowDiagnostic: {
+    dduFactCumulative: 1_130_000_000,
+    escrowFactCumulative: 892_000_000,
+    gapAlertThresholdRub: 120_000_000,
+    month: [
+      { periodKey: "2025-07", label: "июл. 25", dduCumulative: 145_000_000, escrowCumulative: 135_000_000 },
+      { periodKey: "2025-08", label: "авг. 25", dduCumulative: 178_000_000, escrowCumulative: 165_000_000 },
+      { periodKey: "2025-09", label: "сен. 25", dduCumulative: 215_000_000, escrowCumulative: 200_000_000 },
+      { periodKey: "2025-10", label: "окт. 25", dduCumulative: 258_000_000, escrowCumulative: 240_000_000 },
+      { periodKey: "2025-11", label: "ноя. 25", dduCumulative: 305_000_000, escrowCumulative: 280_000_000 },
+      { periodKey: "2025-12", label: "дек. 25", dduCumulative: 355_000_000, escrowCumulative: 320_000_000 },
+      { periodKey: "2026-01", label: "янв. 26", dduCumulative: 390_000_000, escrowCumulative: 360_000_000 },
+      { periodKey: "2026-02", label: "фев. 26", dduCumulative: 430_000_000, escrowCumulative: 405_000_000 },
+      { periodKey: "2026-03", label: "мар. 26", dduCumulative: 1_130_000_000, escrowCumulative: 892_000_000 },
+      { periodKey: "2026-04", label: "апр. 26", dduCumulative: 1_210_000_000, escrowCumulative: 950_000_000 },
+    ],
+    quarter: [
+      {
+        periodKey: "2025-Q4",
+        label: "Q4 2025",
+        dduCumulative: 920_000_000,
+        escrowCumulative: 880_000_000,
+      },
+      {
+        periodKey: "2026-Q1",
+        label: "Q1 2026",
+        dduCumulative: 1_130_000_000,
+        escrowCumulative: 892_000_000,
+      },
+    ],
+  },
+  series: {
+    month: [
+      {
+        periodKey: "2025-07",
+        label: "июл. 25",
+        revenue: {
+          planCumulative: 120_000_000,
+          factCumulative: 105_000_000,
+          forecastCumulative: 112_000_000,
+        },
+        units: { planCumulative: 8, factCumulative: 7, forecastCumulative: 7 },
+        area: { planCumulative: 520, factCumulative: 456, forecastCumulative: 480 },
+      },
+      {
+        periodKey: "2025-08",
+        label: "авг. 25",
+        revenue: {
+          planCumulative: 145_000_000,
+          factCumulative: 128_000_000,
+          forecastCumulative: 136_000_000,
+        },
+        units: { planCumulative: 10, factCumulative: 9, forecastCumulative: 9 },
+        area: { planCumulative: 630, factCumulative: 548, forecastCumulative: 580 },
+      },
+      {
+        periodKey: "2025-09",
+        label: "сен. 25",
+        revenue: {
+          planCumulative: 175_000_000,
+          factCumulative: 155_000_000,
+          forecastCumulative: 164_000_000,
+        },
+        units: { planCumulative: 12, factCumulative: 11, forecastCumulative: 11 },
+        area: { planCumulative: 760, factCumulative: 655, forecastCumulative: 700 },
+      },
+      {
+        periodKey: "2025-10",
+        label: "окт. 25",
+        revenue: {
+          planCumulative: 210_000_000,
+          factCumulative: 185_000_000,
+          forecastCumulative: 196_000_000,
+        },
+        units: { planCumulative: 15, factCumulative: 14, forecastCumulative: 14 },
+        area: { planCumulative: 910, factCumulative: 780, forecastCumulative: 830 },
+      },
+      {
+        periodKey: "2025-11",
+        label: "ноя. 25",
+        revenue: {
+          planCumulative: 250_000_000,
+          factCumulative: 220_000_000,
+          forecastCumulative: 233_000_000,
+        },
+        units: { planCumulative: 18, factCumulative: 17, forecastCumulative: 17 },
+        area: { planCumulative: 1080, factCumulative: 920, forecastCumulative: 980 },
+      },
+      {
+        periodKey: "2025-12",
+        label: "дек. 25",
+        revenue: {
+          planCumulative: 300_000_000,
+          factCumulative: 260_000_000,
+          forecastCumulative: 278_000_000,
+        },
+        units: { planCumulative: 22, factCumulative: 20, forecastCumulative: 21 },
+        area: { planCumulative: 1290, factCumulative: 1080, forecastCumulative: 1160 },
+      },
+      {
+        periodKey: "2026-01",
+        label: "янв. 26",
+        revenue: {
+          planCumulative: 380_000_000,
+          factCumulative: 352_000_000,
+          forecastCumulative: 365_000_000,
+        },
+        units: { planCumulative: 26, factCumulative: 24, forecastCumulative: 25 },
+        area: { planCumulative: 1540, factCumulative: 1428, forecastCumulative: 1480 },
+      },
+      {
+        periodKey: "2026-02",
+        label: "фев. 26",
+        revenue: {
+          planCumulative: 780_000_000,
+          factCumulative: 698_000_000,
+          forecastCumulative: 735_000_000,
+        },
+        units: { planCumulative: 52, factCumulative: 46, forecastCumulative: 49 },
+        area: { planCumulative: 3080, factCumulative: 2736, forecastCumulative: 2890 },
+      },
+      {
+        periodKey: "2026-03",
+        label: "мар. 26",
+        revenue: {
+          planCumulative: 1_265_000_000,
+          factCumulative: 1_088_000_000,
+          forecastCumulative: 1_175_000_000,
+        },
+        units: { planCumulative: 84, factCumulative: 71, forecastCumulative: 77 },
+        area: { planCumulative: 4980, factCumulative: 4188, forecastCumulative: 4550 },
+      },
+      {
+        periodKey: "2026-04",
+        label: "апр. 26",
+        revenue: {
+          planCumulative: 1_420_000_000,
+          factCumulative: 1_190_000_000,
+          forecastCumulative: 1_295_000_000,
+        },
+        units: { planCumulative: 95, factCumulative: 78, forecastCumulative: 86 },
+        area: { planCumulative: 5520, factCumulative: 4580, forecastCumulative: 4980 },
+      },
+    ],
+    quarter: [
+      {
+        periodKey: "2025-Q4",
+        label: "Q4 2025",
+        revenue: {
+          planCumulative: 920_000_000,
+          factCumulative: 895_000_000,
+          forecastCumulative: 905_000_000,
+        },
+        units: {
+          planCumulative: 62,
+          factCumulative: 60,
+          forecastCumulative: 61,
+        },
+        area: {
+          planCumulative: 3660,
+          factCumulative: 3540,
+          forecastCumulative: 3580,
+        },
+      },
+      {
+        periodKey: "2026-Q1",
+        label: "Q1 2026",
+        revenue: {
+          planCumulative: 1_265_000_000,
+          factCumulative: 1_088_000_000,
+          forecastCumulative: 1_175_000_000,
+        },
+        units: {
+          planCumulative: 84,
+          factCumulative: 71,
+          forecastCumulative: 77,
+        },
+        area: {
+          planCumulative: 4980,
+          factCumulative: 4188,
+          forecastCumulative: 4550,
+        },
+      },
+    ],
+  },
+  radarCategories: [
+    {
+      id: "apt-1",
+      axisLabel: "1-к",
+      name: "1-комнатные квартиры",
+      planCumulative: 320_000_000,
+      factCumulative: 298_000_000,
+    },
+    {
+      id: "apt-2",
+      axisLabel: "2-к",
+      name: "2-комнатные квартиры",
+      planCumulative: 410_000_000,
+      factCumulative: 352_000_000,
+    },
+    {
+      id: "apt-3",
+      axisLabel: "3-к",
+      name: "3-комнатные квартиры",
+      planCumulative: 180_000_000,
+      factCumulative: 168_000_000,
+    },
+    {
+      id: "parking-r",
+      axisLabel: "Парк.",
+      name: "Машино-места",
+      planCumulative: 125_000_000,
+      factCumulative: 118_000_000,
+    },
+    {
+      id: "storage-r",
+      axisLabel: "Клад.",
+      name: "Кладовые",
+      planCumulative: 48_000_000,
+      factCumulative: 52_000_000,
+    },
+    {
+      id: "commercial-r",
+      axisLabel: "Комм.",
+      name: "Коммерческие помещения",
+      planCumulative: 112_000_000,
+      factCumulative: 56_000_000,
+    },
+  ],
+  categories: [
+    {
+      id: "apartments",
+      name: "Квартиры",
+      planCumulative: 980_000_000,
+      factCumulative: 862_000_000,
+      deviation: -118_000_000,
+      percentComplete: 88.0,
+    },
+    {
+      id: "parking",
+      name: "Машино-места",
+      planCumulative: 125_000_000,
+      factCumulative: 118_000_000,
+      deviation: -7_000_000,
+      percentComplete: 94.4,
+    },
+    {
+      id: "storages",
+      name: "Кладовые",
+      planCumulative: 48_000_000,
+      factCumulative: 52_000_000,
+      deviation: 4_000_000,
+      percentComplete: 108.3,
+    },
+    {
+      id: "commercial",
+      name: "Коммерция",
+      planCumulative: 112_000_000,
+      factCumulative: 56_000_000,
+      deviation: -56_000_000,
+      percentComplete: 50.0,
+    },
+  ],
+  rootCauseWaterfall: {
+    drivers: [
+      {
+        id: "sales_pace",
+        labelRu: "Темп продаж",
+        impactRub: -124_000_000,
+      },
+      {
+        id: "structure_mix",
+        labelRu: "Структура микса",
+        impactRub: -68_000_000,
+      },
+      {
+        id: "price",
+        labelRu: "Цена / чек",
+        impactRub: 41_000_000,
+      },
+      {
+        id: "conversion",
+        labelRu: "Конверсия воронки",
+        impactRub: -37_000_000,
+      },
+      {
+        id: "compensation",
+        labelRu: "Компенсация (перекрытия)",
+        impactRub: 11_000_000,
+      },
+    ],
+  },
+  inventoryLiquidation: {
+    salesEndDate: "2027-05-31",
+    monthsRemaining: 14,
+    plannedSalesPerMonth: 6.7,
+    actualSalesPerMonth: 5.8,
+    byType: [
+      { id: "apt-2", label: "2-комнатные", planUnits: 110, soldUnits: 72, remainingUnits: 38, unsoldForecastUnits: 13, segmentVelocityRatio: 0.68 },
+      { id: "commercial", label: "Коммерция", planUnits: 40, soldUnits: 14, remainingUnits: 26, unsoldForecastUnits: 11, segmentVelocityRatio: 0.52 },
+      { id: "apt-1", label: "1-комнатные", planUnits: 85, soldUnits: 78, remainingUnits: 7, unsoldForecastUnits: 1, segmentVelocityRatio: 0.96 },
+      { id: "parking", label: "Машино-места", planUnits: 50, soldUnits: 38, remainingUnits: 12, unsoldForecastUnits: 2, segmentVelocityRatio: 0.85 },
+      { id: "apt-3", label: "3-комнатные", planUnits: 27, soldUnits: 16, remainingUnits: 11, unsoldForecastUnits: 1, segmentVelocityRatio: 0.78 },
+    ],
+  },
+  upsellDiagnostic: {
+    apartmentDealsPlan: 84,
+    apartmentDealsFact: 71,
+    /** Опционально: внешний бенчмарк конверсии (в UI — вторая линия на графике и доп. потенциал). */
+    benchmarkConversionPct: 52,
+    targetConversionPct: 48,
+    categories: [
+      {
+        id: "parking",
+        name: "Машино-места",
+        planRevenueRub: 22_500_000,
+        actualRevenueRub: 16_800_000,
+        plannedConversionPct: 52,
+        actualConversionPct: 42.25,
+      },
+      {
+        id: "storage",
+        name: "Кладовые",
+        planRevenueRub: 8_200_000,
+        actualRevenueRub: 9_450_000,
+        plannedConversionPct: 28,
+        actualConversionPct: 32.4,
+      },
+    ],
+  },
+  comments: [
+    {
+      id: "c1",
+      text: "Отставание по квартирам: концентрация спроса на типовых планировках; удорожание ипотечного плеча.",
+      categoryId: "apartments",
+    },
+    {
+      id: "c2",
+      text: "Коммерция: задержка согласований арендаторов по двум якорным площадям.",
+      categoryId: "commercial",
+    },
+    {
+      id: "c3",
+      text: "Паркинг: небольшое отставание из-за привязки к этапу выдачи ключей по корпусу Б.",
+      categoryId: "parking",
+    },
+    {
+      id: "c4",
+      text: "Общий фон: сезонное проседание трафика лидов в феврале (маркетинговый отчёт).",
+    },
+  ],
+};

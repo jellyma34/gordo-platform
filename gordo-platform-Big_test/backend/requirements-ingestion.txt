@@ -1,0 +1,7 @@
+# Ingestion-модуль: дополнительные зависимости поверх backend/requirements.txt.
+# Базовые (fastapi, sqlalchemy, psycopg2-binary, pydantic, pydantic-settings,
+# python-multipart, uvicorn) уже есть в backend/requirements.txt.
+alembic>=1.13.2
+pandas>=2.2.2
+aiogram>=3.10.0
+openpyxl>=3.1.5  # на будущее: XLSX-парсер

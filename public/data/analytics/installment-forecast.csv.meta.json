@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "kind": "installment_forecast",
+  "uploadedAt": "2026-05-25T23:24:41.480Z",
+  "uploadedBy": "—",
+  "sourceFile": "рассрочка ДДУ прогнозы.csv",
+  "publicUrl": "/data/analytics/installment-forecast.csv"
+}

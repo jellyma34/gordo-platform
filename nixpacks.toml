@@ -1,0 +1,21 @@
+# Railway Nixpacks: чистая сборка Next.js без устаревшего tsbuildinfo в кэше слоёв.
+# См. https://nixpacks.com/docs/configuration/file
+
+[variables]
+NODE_ENV = "production"
+# Публичный URL API без порта (Next подставляет в клиент при `next build`).
+
+# Отключает кэш слоёв Nixpacks (устраняет «залипание» старых артефактов между деплоями).
+NIXPACKS_NO_CACHE = "1"
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = [
+  "rm -f tsconfig.tsbuildinfo",
+  "npm run build",
+]
+
+[start]
+cmd = "npm run start"

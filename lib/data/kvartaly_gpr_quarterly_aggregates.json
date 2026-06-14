@@ -1,0 +1,65 @@
+[
+  {
+    "quarter_key": "2025-Q3",
+    "quarter": "Q3 2025",
+    "plan_days": 268,
+    "fact_days": 239,
+    "deviation": -29
+  },
+  {
+    "quarter_key": "2025-Q4",
+    "quarter": "Q4 2025",
+    "plan_days": 509,
+    "fact_days": 194,
+    "deviation": -315
+  },
+  {
+    "quarter_key": "2026-Q1",
+    "quarter": "Q1 2026",
+    "plan_days": 369,
+    "fact_days": 0,
+    "deviation": -369
+  },
+  {
+    "quarter_key": "2026-Q2",
+    "quarter": "Q2 2026",
+    "plan_days": 313,
+    "fact_days": 0,
+    "deviation": -313
+  },
+  {
+    "quarter_key": "2026-Q3",
+    "quarter": "Q3 2026",
+    "plan_days": 544,
+    "fact_days": 0,
+    "deviation": -544
+  },
+  {
+    "quarter_key": "2026-Q4",
+    "quarter": "Q4 2026",
+    "plan_days": 455,
+    "fact_days": 0,
+    "deviation": -455
+  },
+  {
+    "quarter_key": "2027-Q1",
+    "quarter": "Q1 2027",
+    "plan_days": 239,
+    "fact_days": 0,
+    "deviation": -239
+  },
+  {
+    "quarter_key": "2027-Q2",
+    "quarter": "Q2 2027",
+    "plan_days": 213,
+    "fact_days": 0,
+    "deviation": -213
+  },
+  {
+    "quarter_key": "2027-Q3",
+    "quarter": "Q3 2027",
+    "plan_days": 94,
+    "fact_days": 0,
+    "deviation": -94
+  }
+]
