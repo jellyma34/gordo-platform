@@ -421,14 +421,14 @@ function ConstructionWorkspaceInner({
       <section className="w-full min-w-0 text-[13px] leading-normal">
         <div className="mx-auto w-full min-w-0 max-w-[1400px]">
           <div className={filterWell}>
-            {activeTab !== "tmc" && (
+            {activeTab === "gpr" && (
               <ConstructionPresentationFilters
                 activePartScope={activePartScope}
                 onPartScopeChange={commitPartScope}
               />
             )}
 
-            <div className={`min-w-0 space-y-4${activeTab !== "tmc" ? " mt-4" : ""}`}>
+            <div className={`min-w-0 space-y-4${activeTab === "gpr" ? " mt-4" : ""}`}>
               {activeTab === "gpr" && (
                 <GPRSection
                   mode={mode}

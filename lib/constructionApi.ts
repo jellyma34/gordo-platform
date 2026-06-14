@@ -8,7 +8,11 @@ import {
   type GPRTask,
 } from "@/lib/gprUtils";
 import { syncTmcFinancials, type TMCItem, type TmcSupplyStatus } from "@/lib/tmcData";
-import type { Tender, TenderProcurementStatus } from "@/lib/tenderData";
+import {
+  normalizeTenderCycleStatus,
+  type Tender,
+  type TenderProcurementStatus,
+} from "@/lib/tenderData";
 
 async function apiJsonError(res: Response, fallback: string): Promise<never> {
   let detail = fallback;
@@ -65,9 +69,11 @@ export type TenderApiItem = {
 };
 
 export function tenderFromApiItem(row: TenderApiItem): Tender {
-  const st = row.status;
+  const st = (row.status ?? "").trim();
   const status: TenderProcurementStatus | undefined =
     st === "planned" || st === "in_progress" || st === "completed" || st === "delayed" ? st : undefined;
+  const statusLabel = st || undefined;
+  const cycleStatus = statusLabel ? normalizeTenderCycleStatus(statusLabel) : undefined;
   return {
     id: String(row.id),
     partId: row.part_id,
@@ -81,6 +87,8 @@ export function tenderFromApiItem(row: TenderApiItem): Tender {
     cost: row.cost ?? undefined,
     contractor: row.contractor ?? undefined,
     status,
+    statusLabel,
+    cycleStatus,
     comment: row.comment ?? undefined,
   };
 }

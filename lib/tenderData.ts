@@ -8,6 +8,160 @@ import { getGprProjectId } from "@/lib/gprImportPersistence";
  */
 export type TenderProcurementStatus = "planned" | "in_progress" | "completed" | "delayed";
 
+/** Этап тендерного цикла / договора для KPI-распределения. */
+export type TenderCycleStatus =
+  | "conducted"
+  | "underReview"
+  | "negotiations"
+  | "onApproval"
+  | "contractPrepared"
+  | "contractSent"
+  | "contractSigned"
+  | "contractNotConcluded"
+  | "cancelled"
+  | "postponed"
+  | "other";
+
+export const TENDER_CYCLE_STATUS_ORDER: TenderCycleStatus[] = [
+  "conducted",
+  "underReview",
+  "negotiations",
+  "onApproval",
+  "contractPrepared",
+  "contractSent",
+  "contractSigned",
+  "contractNotConcluded",
+  "cancelled",
+  "postponed",
+  "other",
+];
+
+export const TENDER_CYCLE_STATUS_LABEL: Record<TenderCycleStatus, string> = {
+  conducted: "Проведен",
+  underReview: "На рассмотрении",
+  negotiations: "Идут переговоры",
+  onApproval: "На согласовании",
+  contractPrepared: "Договор подготовлен",
+  contractSent: "Договор направлен",
+  contractSigned: "Договор подписан",
+  contractNotConcluded: "Договор не заключен",
+  cancelled: "Отменен",
+  postponed: "Перенесен",
+  other: "Прочее",
+};
+
+export const TENDER_CYCLE_STATUS_COLORS: Record<TenderCycleStatus, string> = {
+  conducted: "#22c55e",
+  underReview: "#0ea5e9",
+  negotiations: "#3b82f6",
+  onApproval: "#6366f1",
+  contractPrepared: "#8b5cf6",
+  contractSent: "#a855f7",
+  contractSigned: "#14b8a6",
+  contractNotConcluded: "#6b7280",
+  cancelled: "#94a3b8",
+  postponed: "#f59e0b",
+  other: "#64748b",
+};
+
+/** Этапы, учитываемые в KPI «Проведено» (шт и объём). */
+export const TENDER_CONDUCTED_KPI_CYCLE_STATUSES = new Set<TenderCycleStatus>([
+  "conducted",
+  "contractSigned",
+]);
+
+const TENDER_CYCLE_STATUS_SET = new Set<string>(TENDER_CYCLE_STATUS_ORDER);
+
+export function isTenderCycleStatus(value: unknown): value is TenderCycleStatus {
+  return typeof value === "string" && TENDER_CYCLE_STATUS_SET.has(value);
+}
+
+/** Нормализация подписи статуса из CSV / БД в этап тендерного цикла. */
+export function normalizeTenderCycleStatus(raw: string): TenderCycleStatus {
+  const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!t) return "other";
+
+  if (/не\s*заключ/.test(t)) return "contractNotConcluded";
+  if (/отмен/.test(t)) return "cancelled";
+  if (/перенес/.test(t)) return "postponed";
+  if (/подписан/.test(t)) return "contractSigned";
+  if (/заключен\s*договор|договор\s*заключ/.test(t)) return "contractSigned";
+  if (/направлен/.test(t)) return "contractSent";
+  if (/подготовлен/.test(t)) return "contractPrepared";
+  if (/на\s*согласован/.test(t) || (/согласован/.test(t) && !/не\s*соглас/.test(t))) {
+    return "onApproval";
+  }
+  if (/на\s*рассмотрен/.test(t)) return "underReview";
+  if (/переговор/.test(t)) return "negotiations";
+  if (/^провед|проведен|проведён/.test(t)) return "conducted";
+
+  if (/^план|заплан|planned/.test(t)) return "contractNotConcluded";
+  if (/в\s*работ|прогресс|progress|in_progress/.test(t)) return "negotiations";
+  if (/заверш|completed/.test(t)) return "contractSigned";
+  if (/задерж|delayed/.test(t)) return "postponed";
+
+  return "other";
+}
+
+/** Подпись статуса из CSV/БД попадает в KPI «Проведено». */
+export function matchesTenderConductedKpiStatusLabel(raw: string): boolean {
+  const t = raw.trim().toLowerCase();
+  if (!t || /не\s*заключ/.test(t)) return false;
+  return (
+    /^провед|проведен|проведён/.test(t) ||
+    /подписан/.test(t) ||
+    /заверш/.test(t) ||
+    /заключен\s*договор|договор\s*заключ/.test(t)
+  );
+}
+
+export function hasTenderSignedContract(t: Tender): boolean {
+  return Boolean(t.factContractDate?.trim());
+}
+
+/** Этап цикла: сохранённый статус → подпись из CSV → даты / legacy status. */
+export function resolveTenderCycleStatus(t: Tender): TenderCycleStatus {
+  if (t.cycleStatus) return t.cycleStatus;
+
+  const raw = t.statusLabel?.trim();
+  if (raw) {
+    const normalized = normalizeTenderCycleStatus(raw);
+    if (normalized !== "other") return normalized;
+  }
+
+  if (hasTenderSignedContract(t)) return "contractSigned";
+
+  const comment = t.comment?.toLowerCase() ?? "";
+  if (/отмен/.test(comment)) return "cancelled";
+  if (/перенес|сдвиг|задерж/.test(comment)) return "postponed";
+
+  if (t.contractor?.trim()) {
+    if (t.status === "in_progress") return "onApproval";
+    if (t.status === "completed") return "contractPrepared";
+    return "negotiations";
+  }
+
+  if (t.factStart?.trim()) return "conducted";
+
+  if (t.status === "delayed") return "postponed";
+  if (t.status === "planned") return "contractNotConcluded";
+  if (t.status === "in_progress") return "negotiations";
+  if (t.status === "completed") return "contractSigned";
+
+  if (raw) return normalizeTenderCycleStatus(raw);
+
+  if (t.planContractDate?.trim()) return "contractNotConcluded";
+
+  return "other";
+}
+
+/** Подпись для donut: исходный статус из данных или нормализованный этап. */
+export function tenderStatusDistributionLabel(t: Tender): string {
+  const raw = t.statusLabel?.trim();
+  if (raw) return raw;
+  return TENDER_CYCLE_STATUS_LABEL[resolveTenderCycleStatus(t)];
+}
+
 export type Tender = {
   id: string;
   /** Часть проекта: 1 — жилой дом, 2 — автостоянка (как у ГПР/ТМЦ). */
@@ -22,9 +176,17 @@ export type Tender = {
   /** План: дата договора (может отсутствовать). */
   planContractDate: string | null;
   factContractDate?: string | null;
+  /** Плановая стоимость тендера, ₽. */
   cost?: number;
+  /** Фактическая стоимость по договору, ₽ (если отличается от плана). */
+  factCost?: number;
   contractor?: string;
+  /** Legacy-статус закупки (planned / in_progress / completed / delayed). */
   status?: TenderProcurementStatus;
+  /** Исходная подпись статуса из CSV или БД. */
+  statusLabel?: string;
+  /** Нормализованный этап тендерного цикла. */
+  cycleStatus?: TenderCycleStatus;
   comment?: string;
 };
 
@@ -421,11 +583,31 @@ export function coerceTender(row: Record<string, unknown>): Tender | null {
       ? undefined
       : coerceIsoOrNull(factContractRaw) ?? undefined;
   const cost = typeof row.cost === "number" && Number.isFinite(row.cost) ? row.cost : undefined;
+  const factCostRaw = row.factCost;
+  const factCost =
+    typeof factCostRaw === "number" && Number.isFinite(factCostRaw) ? factCostRaw : undefined;
   const contractor = typeof row.contractor === "string" ? row.contractor : undefined;
   const comment = typeof row.comment === "string" ? row.comment : undefined;
   const st = row.status;
   const status =
     st === "planned" || st === "in_progress" || st === "completed" || st === "delayed" ? st : undefined;
+  const statusLabel =
+    typeof row.statusLabel === "string"
+      ? row.statusLabel.trim() || undefined
+      : typeof row.statusRaw === "string"
+        ? row.statusRaw.trim() || undefined
+        : typeof st === "string" &&
+            st !== "planned" &&
+            st !== "in_progress" &&
+            st !== "completed" &&
+            st !== "delayed"
+          ? st.trim() || undefined
+          : undefined;
+  const cycleStatus = isTenderCycleStatus(row.cycleStatus)
+    ? row.cycleStatus
+    : statusLabel
+      ? normalizeTenderCycleStatus(statusLabel)
+      : undefined;
   return {
     id,
     partId,
@@ -437,8 +619,11 @@ export function coerceTender(row: Record<string, unknown>): Tender | null {
     planContractDate,
     factContractDate,
     cost,
+    factCost,
     contractor,
     status,
+    statusLabel,
+    cycleStatus,
     comment,
   };
 }

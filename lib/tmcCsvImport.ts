@@ -1041,6 +1041,13 @@ function parseTmcCsvRowSlice(
     }
   }
 
+  if (pricePlan === 0 && planCost > 0 && volumePlan > 0) {
+    pricePlan = planCost / volumePlan;
+  }
+  if (priceFact === 0 && factCost != null && factCost > 0 && volumeFact > 0) {
+    priceFact = factCost / volumeFact;
+  }
+
   const projectPartRaw =
     getMappedCell(row, headers, colMap, "projectPart") ??
     pickCell(row, ["Часть проекта", "projectPart", "Объект", "Часть", "Зона"]);

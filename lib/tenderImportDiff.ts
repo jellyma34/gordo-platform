@@ -29,6 +29,8 @@ export function tenderComparableFingerprint(t: Tender): string {
     cost: t.cost ?? null,
     contractor: t.contractor ?? null,
     status: t.status ?? null,
+    statusLabel: t.statusLabel ?? null,
+    cycleStatus: t.cycleStatus ?? null,
     comment: t.comment ?? null,
   });
 }

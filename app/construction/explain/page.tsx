@@ -9,6 +9,10 @@ import { ConstructionWorkExplainView } from "@/components/construction/Construct
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { buildConstructionPresentationExplain } from "@/lib/buildConstructionPresentationExplain";
 import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
+import { getGprProjectId } from "@/lib/gprImportPersistence";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import { loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
 import { partIdToProjectPartKey, PROJECT_PARTS, urlParamToPartScope, type ConstructionObjectScope } from "@/lib/gprUtils";
 import { type Tender } from "@/lib/tenderData";
@@ -19,9 +23,12 @@ function parseFocusSection(v: string | null): string | null {
   return null;
 }
 
+const constructionLocalMode = isGprLocalStorageMode();
+
 function ConstructionExplainPageInner() {
   const { setMode } = useAppMode();
   const { token, hydrated } = useAuth();
+  const projectId = useMemo(() => getGprProjectId(), []);
   const sp = useSearchParams();
   const source = sp.get("source");
   const partScope: ConstructionObjectScope = urlParamToPartScope(sp.get("partId"));
@@ -52,10 +59,21 @@ function ConstructionExplainPageInner() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated || !token) return;
     let cancelled = false;
     (async () => {
       try {
+        if (constructionLocalMode) {
+          const [tenderResult, tmcResult] = await Promise.all([
+            loadPersistedTenderItems(projectId),
+            loadPersistedTmcItems(projectId),
+          ]);
+          if (!cancelled) {
+            setAllTenders(tenderResult.tenders);
+            setAllTmc(tmcResult.items);
+          }
+          return;
+        }
+        if (!hydrated || !token) return;
         const [tenders, tmc] = await Promise.all([listTendersFromDb(token), listTmcFromDb(token)]);
         if (!cancelled) {
           setAllTenders(tenders);
@@ -68,7 +86,7 @@ function ConstructionExplainPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, tick]);
+  }, [constructionLocalMode, hydrated, token, projectId, tick]);
 
   const { partName, sections } = useMemo(() => {
     void tick;

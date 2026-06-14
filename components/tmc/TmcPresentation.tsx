@@ -9,17 +9,42 @@ import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersisten
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { TmcMaterialCostDynamicsChart } from "@/components/tmc/TmcMaterialCostDynamicsChart";
 import { TmcMaterialPlanFactChart } from "@/components/tmc/TmcMaterialPlanFactChart";
-import { TmcProcurementDynamicsChart } from "@/components/tmc/TmcProcurementDynamicsChart";
+import {
+  TmcDynamicsChartLegend,
+  TmcProcurementDynamicsChart,
+  type TmcDynamicsChartLabels,
+} from "@/components/tmc/TmcProcurementDynamicsChart";
+import {
+  TmcRequestDynamicsChartLegend,
+  TmcRequestPlanFactChart,
+} from "@/components/tmc/TmcRequestPlanFactChart";
 import { TmcVolumeDynamicsChart } from "@/components/tmc/TmcVolumeDynamicsChart";
+import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
+import { useTmcKpiDonutSegments } from "@/components/tmc/useTmcKpiDonutSegments";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
+import { formatCurrencyCompact } from "@/lib/chartFormatters";
 import { partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
 import {
+  alignTmcMonthlySeriesToTimeline,
+  buildTmcMonthlyDeliverySeries,
   buildTmcMonthlyProcurementSeries,
+  buildTmcMonthlyRequestSeries,
   computeTmcProcurementKpi,
   computeTmcProcurementFinancialResult,
   computeTmcMaterialPlanFact,
+  computeTmcArmaturePlanFactDiagnostics,
   computeTmcMaterialCostDynamics,
+  diagnoseTmcMaterialCostDynamicsChain,
+  computeTmcMaterialPriceHeatmap,
   computeTmcVolumeDynamics,
+  buildTmcMonthlyUnitCostIndexSeries,
+  buildTmcPriceIndexTimeline,
+  computeTmcDataDiagnostics,
+  logTmcDataPipelineDiagnostics,
+  type TmcMaterialCostDynamicsMode,
+  type TmcPriceIndexSortMode,
+  diagnoseTmcDeliveryDynamicsMonths,
+  diagnoseTmcProcurementDynamicsMonths,
   type TmcMaterialPlanFactMode,
   enrichTmcItems,
   fillTmcMonthlyProcurementTimeline,
@@ -42,6 +67,16 @@ const COLORS = {
 type ChartMode = "monthly" | "cumulative";
 
 type MaterialChartMode = TmcMaterialPlanFactMode;
+
+const DELIVERY_DYNAMICS_LABELS: TmcDynamicsChartLabels = {
+  planTooltip: "План поставок",
+  factTooltip: "Факт поставок",
+  legendPlan: "План поставок (пунктир)",
+  legendFact: "Факт поставок",
+};
+
+const TMC_PURCHASED_DEVIATION_CARD_TITLE = "ОТКЛОНЕНИЕ ОТ ЗАКУПЛЕННОГО";
+const TMC_PURCHASED_DEVIATION_PCT_LABEL = "ОТКЛОНЕНИЕ ОТ ЗАКУПЛЕННОГО, %";
 
 /** Сумма для KPI первой карточки ТМЦ — без символа ₽. */
 function rubKpiAmount(value: number): string {
@@ -368,7 +403,7 @@ function TmcPremiumKpiCard({
 }) {
   return (
     <div
-      className="relative flex h-full min-h-[340px] flex-col overflow-hidden rounded-[20px] border p-6 backdrop-blur-[16px]"
+      className="relative flex h-full min-h-[400px] flex-col overflow-hidden rounded-[20px] border p-6 backdrop-blur-[16px]"
       style={{
         background: gradient,
         borderColor: `${glowColor}55`,
@@ -414,7 +449,11 @@ export function TmcPresentation({
   const projectId = useMemo(() => getGprProjectId(), []);
   const [allTmc, setAllTmc] = useState<Awaited<ReturnType<typeof listTmcFromDb>>>([]);
   const [chartMode, setChartMode] = useState<ChartMode>("monthly");
+  const [deliveryChartMode, setDeliveryChartMode] = useState<ChartMode>("monthly");
+  const [requestChartMode, setRequestChartMode] = useState<ChartMode>("monthly");
   const [workTypeChartMode, setWorkTypeChartMode] = useState<MaterialChartMode>("cost");
+  const [costDynamicsMode, setCostDynamicsMode] = useState<TmcMaterialCostDynamicsMode>("byMaterial");
+  const [priceIndexSortMode, setPriceIndexSortMode] = useState<TmcPriceIndexSortMode>("byAlphabet");
   const today = useMemo(() => new Date(), []);
 
   const reloadTmc = useCallback(async () => {
@@ -422,6 +461,11 @@ export function TmcPresentation({
       try {
         const r = await loadPersistedTmcItems(projectId);
         setAllTmc(r.items);
+        console.log(
+          "[TMC debug] TMC loaded in presentation:",
+          r.items.length,
+          `(projectId: ${projectId})`,
+        );
       } catch (e) {
         console.error(e);
       }
@@ -429,7 +473,9 @@ export function TmcPresentation({
     }
     if (!token) return;
     try {
-      setAllTmc(await listTmcFromDb(token));
+      const rows = await listTmcFromDb(token);
+      setAllTmc(rows);
+      console.log("[TMC debug] TMC loaded in presentation:", rows.length, "(from DB)");
     } catch (e) {
       console.error(e);
     }
@@ -468,6 +514,11 @@ export function TmcPresentation({
     [monthlySeries, today],
   );
 
+  const priceIndexTimeline = useMemo(
+    () => buildTmcPriceIndexTimeline(enriched, today),
+    [enriched, today],
+  );
+
   const chartData = useMemo(
     () =>
       chartTimeline.map((p) => ({
@@ -478,14 +529,130 @@ export function TmcPresentation({
     [chartTimeline, chartMode],
   );
 
-  const materialPlanFact = useMemo(
-    () => computeTmcMaterialPlanFact(enriched, workTypeChartMode),
-    [enriched, workTypeChartMode],
+  const deliverySeries = useMemo(
+    () => buildTmcMonthlyDeliverySeries(enriched, today, "cost"),
+    [enriched, today],
   );
 
-  const materialCostDynamics = useMemo(
-    () => computeTmcMaterialCostDynamics(enriched),
-    [enriched],
+  const deliveryTimeline = useMemo(() => {
+    if (chartTimeline.length > 0) {
+      return alignTmcMonthlySeriesToTimeline(deliverySeries, chartTimeline, today);
+    }
+    return fillTmcMonthlyProcurementTimeline(deliverySeries, today);
+  }, [chartTimeline, deliverySeries, today]);
+
+  const deliveryChartData = useMemo(
+    () =>
+      deliveryTimeline.map((p) => ({
+        label: p.label,
+        plan: deliveryChartMode === "monthly" ? p.planMln : p.planCumMln,
+        fact: deliveryChartMode === "monthly" ? p.factMln : p.factCumMln,
+      })),
+    [deliveryTimeline, deliveryChartMode],
+  );
+
+  const requestSeries = useMemo(
+    () => buildTmcMonthlyRequestSeries(enriched, today),
+    [enriched, today],
+  );
+
+  const requestTimeline = useMemo(() => {
+    if (chartTimeline.length > 0) {
+      return alignTmcMonthlySeriesToTimeline(requestSeries, chartTimeline, today);
+    }
+    return fillTmcMonthlyProcurementTimeline(requestSeries, today);
+  }, [chartTimeline, requestSeries, today]);
+
+  const requestChartData = useMemo(
+    () =>
+      requestTimeline.map((p) => ({
+        label: p.label,
+        plan: requestChartMode === "monthly" ? p.planMln : p.planCumMln,
+        fact: requestChartMode === "monthly" ? p.factMln : p.factCumMln,
+      })),
+    [requestTimeline, requestChartMode],
+  );
+
+  const materialPlanFact = useMemo(() => computeTmcMaterialPlanFact(enriched), [enriched]);
+
+  useEffect(() => {
+    const scopeLabel =
+      activePartScope === "project" ? "project (all parts)" : String(activeProjectPart);
+    logTmcDataPipelineDiagnostics(
+      computeTmcDataDiagnostics(
+        activePartScope === "project" ? allTmc : allTmc.filter((i) => i.projectPart === activeProjectPart),
+        "presentation",
+        scopeLabel,
+      ),
+    );
+    logTmcDataPipelineDiagnostics(computeTmcDataDiagnostics(enriched, "analytics", scopeLabel));
+  }, [allTmc, enriched, activePartScope, activeProjectPart]);
+
+  useEffect(() => {
+    const procurementDiag = diagnoseTmcProcurementDynamicsMonths(enriched, chartTimeline, today);
+    console.group("[TMC] Динамика закупок — помесячная диагностика");
+    for (const entry of procurementDiag) {
+      console.log({
+        month: entry.month,
+        plan: entry.plan,
+        fact: entry.fact,
+        sourceRows: entry.sourceRows,
+      });
+    }
+    console.groupEnd();
+
+    const deliveryDiag = diagnoseTmcDeliveryDynamicsMonths(enriched, deliveryTimeline, today);
+    console.group("[TMC] Динамика поставок — помесячная диагностика");
+    for (const entry of deliveryDiag) {
+      console.log({
+        month: entry.month,
+        plan: entry.plan,
+        fact: entry.fact,
+        sourceRows: entry.sourceRows,
+      });
+    }
+    console.groupEnd();
+  }, [enriched, chartTimeline, deliveryTimeline, today]);
+
+  useEffect(() => {
+    const diagnostics = computeTmcArmaturePlanFactDiagnostics(enriched);
+    console.table({
+      belowPlan: diagnostics.belowPlan,
+      belowFact: diagnostics.belowFact,
+      abovePlan: diagnostics.abovePlan,
+      aboveFact: diagnostics.aboveFact,
+    });
+    console.log("[TMC plan/fact] Арматура ниже 0.000 — этапы:", diagnostics.belowStages);
+    console.log("[TMC plan/fact] Арматура выше 0.000 — этапы:", diagnostics.aboveStages);
+  }, [enriched]);
+
+  const materialCostDynamics = useMemo(() => {
+    console.log("[TMC debug] Presentation TMC rows", enriched.length);
+    const rows = computeTmcMaterialCostDynamics(enriched);
+    const scopeLabel =
+      activePartScope === "project" ? "project (all parts)" : String(activeProjectPart);
+    diagnoseTmcMaterialCostDynamicsChain(enriched, rows, { scope: scopeLabel, limitApplied: null });
+    return rows;
+  }, [enriched, activePartScope, activeProjectPart]);
+
+  const unitCostIndexTimeline = useMemo(
+    () => buildTmcMonthlyUnitCostIndexSeries(enriched, priceIndexTimeline),
+    [enriched, priceIndexTimeline],
+  );
+
+  const unitCostIndexChartData = useMemo(
+    () =>
+      unitCostIndexTimeline.map((p) => ({
+        label: p.label,
+        plan: p.planIndex > 0 ? p.planIndex : null,
+        fact: p.factIndex > 0 ? p.factIndex : null,
+      })),
+    [unitCostIndexTimeline],
+  );
+
+  const materialPriceHeatmapDataset = useMemo(
+    () => computeTmcMaterialPriceHeatmap(enriched, priceIndexTimeline, priceIndexSortMode),
+    [enriched, priceIndexTimeline, priceIndexSortMode],
   );
 
   const volumeDynamics = useMemo(() => computeTmcVolumeDynamics(enriched), [enriched]);
@@ -518,11 +685,13 @@ export function TmcPresentation({
     [enriched],
   );
 
+  const kpiDonutSegments = useTmcKpiDonutSegments(enriched);
+
   const financialCard = useMemo(() => {
     const { deviationRub } = financialResult;
     if (deviationRub < 0) {
       return {
-        title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+        title: TMC_PURCHASED_DEVIATION_CARD_TITLE,
         mainRub: deviationRub,
         glowColor: COLORS.green,
         gradient:
@@ -533,7 +702,7 @@ export function TmcPresentation({
     }
     if (deviationRub > 0) {
       return {
-        title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+        title: TMC_PURCHASED_DEVIATION_CARD_TITLE,
         mainRub: deviationRub,
         glowColor: COLORS.red,
         gradient:
@@ -543,7 +712,7 @@ export function TmcPresentation({
       };
     }
     return {
-      title: "ОТКЛОНЕНИЕ БЮДЖЕТА",
+      title: TMC_PURCHASED_DEVIATION_CARD_TITLE,
       mainRub: 0,
       glowColor: "#f59e0b",
       gradient:
@@ -554,6 +723,7 @@ export function TmcPresentation({
   }, [financialResult]);
 
   const chartGradId = useId().replace(/:/g, "");
+  const deliveryChartGradId = useId().replace(/:/g, "");
 
   return (
     <section className="space-y-4">
@@ -603,6 +773,13 @@ export function TmcPresentation({
               sectionPt="pt-5"
             />
           </div>
+
+          <div className="mt-auto space-y-1.5">
+            <TmcKpiDivider />
+            <div className="pt-3">
+              <KpiDonutChart segments={kpiDonutSegments.deliveryStatus} chartHeight={100} />
+            </div>
+          </div>
         </TmcPremiumKpiCard>
 
         <TmcPremiumKpiCard
@@ -646,6 +823,13 @@ export function TmcPresentation({
               accentColor={COLORS.blue}
               sectionPt="pt-5"
             />
+          </div>
+
+          <div className="mt-auto space-y-1.5">
+            <TmcKpiDivider />
+            <div className="pt-3">
+              <KpiDonutChart segments={kpiDonutSegments.overdueStructure} chartHeight={100} />
+            </div>
           </div>
         </TmcPremiumKpiCard>
 
@@ -693,7 +877,7 @@ export function TmcPresentation({
               valueClassName={financialResult.overrunRub > 0 ? "text-[#ff5b6b]" : undefined}
             />
             <TmcKpiMetricBlock
-              label="ДОЛЯ ОТКЛОНЕНИЯ"
+              label={TMC_PURCHASED_DEVIATION_PCT_LABEL}
               value={pctSigned1(financialResult.deviationPct)}
               tier="primary"
               accentColor={
@@ -712,6 +896,13 @@ export function TmcPresentation({
                     : undefined
               }
             />
+          </div>
+
+          <div className="mt-auto space-y-1.5">
+            <TmcKpiDivider />
+            <div className="pt-3">
+              <KpiDonutChart segments={kpiDonutSegments.budgetDeviation} chartHeight={100} />
+            </div>
           </div>
         </TmcPremiumKpiCard>
       </div>
@@ -757,13 +948,120 @@ export function TmcPresentation({
           )}
         </div>
         <div className="mt-3 border-t border-slate-700/40 pt-3">
-          <AnalyticsLegendList>
-            <AnalyticsLegendItem
-              markerColor="rgba(148,163,184,0.7)"
-              label="План закупок (пунктир)"
+          <TmcDynamicsChartLegend />
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold text-slate-50">Динамика поставок</h3>
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {(
+              [
+                { id: "monthly" as const, label: "Помесячно" },
+                { id: "cumulative" as const, label: "Нарастающим итогом" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setDeliveryChartMode(m.id)}
+                className={segmentedControlTabClass(deliveryChartMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 h-[320px] w-full">
+          {deliveryTimeline.length === 0 && chartTimeline.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Недостаточно дат план/факт поставки для построения динамики
+            </div>
+          ) : (
+            <TmcProcurementDynamicsChart
+              chartData={deliveryChartData}
+              chartGradId={deliveryChartGradId}
+              mode={deliveryChartMode}
+              labels={DELIVERY_DYNAMICS_LABELS}
             />
-            <AnalyticsLegendItem markerColor={COLORS.green} label="Факт закупок" />
-          </AnalyticsLegendList>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 border-t border-slate-700/40 pt-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <div>
+            <span className="text-slate-500">Поставлено: </span>
+            <span className="font-semibold tabular-nums text-slate-100">
+              {kpi.deliveryCount} из {kpi.totalItemCount}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">Стоимость поставок: </span>
+            <span className="font-semibold tabular-nums text-slate-100">
+              {formatCurrencyCompact(kpi.receiptsFactRub)} из {formatCurrencyCompact(kpi.planRub)}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">Выполнение плана поставок: </span>
+            <span className="font-semibold tabular-nums text-slate-100">
+              {pct1(receiptCostExecutionPct)}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">Просроченные поставки: </span>
+            <span className="font-semibold tabular-nums text-slate-100">{kpi.overdueCount}</span>
+          </div>
+        </div>
+        <div className="mt-3 border-t border-slate-700/40 pt-3">
+          <TmcDynamicsChartLegend labels={DELIVERY_DYNAMICS_LABELS} />
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+            План / факт заявок
+          </h3>
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {(
+              [
+                { id: "monthly" as const, label: "Помесячно" },
+                { id: "cumulative" as const, label: "Нарастающим итогом" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setRequestChartMode(m.id)}
+                className={segmentedControlTabClass(requestChartMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 h-[320px] w-full">
+          {requestTimeline.length === 0 && chartTimeline.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Недостаточно дат план/факт заявок для построения динамики
+            </div>
+          ) : (
+            <TmcRequestPlanFactChart chartData={requestChartData} mode={requestChartMode} />
+          )}
+        </div>
+        <div className="mt-3 border-t border-slate-700/40 pt-3">
+          <TmcRequestDynamicsChartLegend />
         </div>
       </div>
 
@@ -782,7 +1080,7 @@ export function TmcPresentation({
             {(
               [
                 { id: "cost" as const, label: "Стоимость" },
-                { id: "volume" as const, label: "Количество" },
+                { id: "completion" as const, label: "% выполнения" },
               ] as const
             ).map((m) => (
               <button
@@ -809,11 +1107,38 @@ export function TmcPresentation({
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
         }}
       >
-        <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
-          Динамика стоимости единицы ТМЦ
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+            Динамика стоимости единицы ТМЦ
+          </h3>
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {(
+              [
+                { id: "byMaterial" as const, label: "По ТМЦ" },
+                { id: "byMonth" as const, label: "По месяцам" },
+                { id: "byPriceIndex" as const, label: "Индекс цены" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setCostDynamicsMode(m.id)}
+                className={segmentedControlTabClass(costDynamicsMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-4">
-          <TmcMaterialCostDynamicsChart rows={materialCostDynamics} />
+          <TmcMaterialCostDynamicsChart
+            rows={materialCostDynamics}
+            mode={costDynamicsMode}
+            indexChartData={unitCostIndexChartData}
+            priceHeatmapDataset={materialPriceHeatmapDataset}
+            priceIndexSortMode={priceIndexSortMode}
+            onPriceIndexSortModeChange={setPriceIndexSortMode}
+          />
         </div>
       </div>
 
