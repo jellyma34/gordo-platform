@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { HardHat } from "lucide-react";
 import { KpiDonutChart, type KpiDonutSegment } from "@/components/tmc/KpiDonutChart";
 
@@ -34,17 +34,19 @@ function GprKpiMetricRow({
   valueClassName,
   title,
   compact,
+  noDivider,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
   title?: string;
   compact?: boolean;
+  noDivider?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <GprKpiDivider />
-      <div className={compact ? "pt-3" : "pt-4"}>
+      {noDivider ? null : <GprKpiDivider />}
+      <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
         <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
         <div
           className={`mt-1 text-base font-semibold tabular-nums text-slate-300/80 ${valueClassName ?? ""}`}
@@ -62,16 +64,18 @@ function GprKpiSplitCountRow({
   primaryCount,
   totalCount,
   compact,
+  noDivider,
 }: {
   label: string;
   primaryCount: number;
   totalCount: number;
   compact?: boolean;
+  noDivider?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <GprKpiDivider />
-      <div className={compact ? "pt-3" : "pt-4"}>
+      {noDivider ? null : <GprKpiDivider />}
+      <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
         <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
         <div className="mt-1 flex items-baseline gap-1 tabular-nums">
           <span className="text-base font-semibold text-white">{primaryCount}</span>
@@ -90,17 +94,19 @@ function GprKpiSplitPercentRow({
   planValue,
   title,
   compact,
+  noDivider,
 }: {
   label: string;
   factValue: string;
   planValue: string;
   title?: string;
   compact?: boolean;
+  noDivider?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <GprKpiDivider />
-      <div className={compact ? "pt-3" : "pt-4"}>
+      {noDivider ? null : <GprKpiDivider />}
+      <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
         <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
         <div className="mt-1 flex items-baseline gap-1 tabular-nums" title={title}>
           <span className="text-base font-semibold text-white">{factValue}</span>
@@ -248,11 +254,19 @@ function deviationValueColorClass(deltaPp: number | null): string {
 
 export type GprStageKpiMetricsVariant = "full" | "compact";
 
+export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi";
+
 export type GprStageKpiCardProps = {
   title: string;
   status: GprStageKpiTraffic;
-  /** Полный набор KPI или сокращённый (подготовка территории). */
+  /** Компактный набор KPI (карточки этапов жилого дома 2.04 / 2.05). */
   metricsVariant?: GprStageKpiMetricsVariant;
+  /**
+   * Источник сегментов donut:
+   * - workItem — классификация по этапам (по умолчанию);
+   * - trafficKpi — четыре KPI-категории: в срок / с риском / просрочено / с опозданием.
+   */
+  donutStatusVariant?: GprStageKpiDonutStatusVariant;
   factLabel: string;
   factValue: string;
   factTitle?: string;
@@ -279,6 +293,7 @@ export function GprStageKpiCard({
   title,
   status,
   metricsVariant = "full",
+  donutStatusVariant = "workItem",
   factLabel,
   factValue,
   factTitle,
@@ -298,35 +313,69 @@ export function GprStageKpiCard({
   donutOverdueCount,
   donutCompletedLateCount,
   donutNotStartedCount,
-  problematicSharePct,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
 
-  const donutSegments: KpiDonutSegment[] = [
-    { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
-    { label: "Риск", value: donutRiskCount, color: COLORS.yellow },
-    { label: "Просрочено", value: donutOverdueCount, color: COLORS.red },
-    {
-      label: "Выполнено с опозданием",
-      value: donutCompletedLateCount,
-      color: COLORS.orange,
-    },
-    { label: "Не начато", value: donutNotStartedCount, color: COLORS.gray },
-  ];
+  const donutSegments: KpiDonutSegment[] =
+    donutStatusVariant === "trafficKpi"
+      ? [
+          { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
+          { label: "С риском", value: donutRiskCount, color: COLORS.yellow },
+          { label: "Просрочено", value: donutOverdueCount, color: COLORS.red },
+          {
+            label: "Выполнено с опозданием",
+            value: donutCompletedLateCount,
+            color: COLORS.orange,
+          },
+        ]
+      : [
+          { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
+          { label: "Риск", value: donutRiskCount, color: COLORS.yellow },
+          { label: "Просрочено", value: donutOverdueCount, color: COLORS.red },
+          {
+            label: "Выполнено с опозданием",
+            value: donutCompletedLateCount,
+            color: COLORS.orange,
+          },
+          { label: "Не начато", value: donutNotStartedCount, color: COLORS.gray },
+        ];
 
   const donutStatusTotal =
-    donutOnTimeCount +
-    donutRiskCount +
-    donutOverdueCount +
-    donutCompletedLateCount +
-    donutNotStartedCount;
-  const centerColor =
-    problematicSharePct > 30
-      ? COLORS.red
-      : problematicSharePct > 10
-        ? COLORS.yellow
-        : COLORS.green;
+    donutStatusVariant === "trafficKpi"
+      ? donutOnTimeCount + donutRiskCount + donutOverdueCount + donutCompletedLateCount
+      : donutOnTimeCount +
+        donutRiskCount +
+        donutOverdueCount +
+        donutCompletedLateCount +
+        donutNotStartedCount;
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (donutStatusVariant !== "trafficKpi") return;
+    const sum =
+      donutOnTimeCount + donutRiskCount + donutOverdueCount + donutCompletedLateCount;
+    console.log("[GprStageKpiCard:trafficKpi]", {
+      title,
+      totalStages,
+      donutOnTimeCount,
+      donutRiskCount,
+      donutOverdueCount,
+      donutCompletedLateCount,
+      sum,
+      donutNotStartedCount,
+      sumEqualsTotalStages: sum === totalStages,
+    });
+  }, [
+    title,
+    donutStatusVariant,
+    totalStages,
+    donutOnTimeCount,
+    donutRiskCount,
+    donutOverdueCount,
+    donutCompletedLateCount,
+    donutNotStartedCount,
+  ]);
 
   const fullMetricRows: {
     label: string;
@@ -371,11 +420,11 @@ export function GprStageKpiCard({
             <HardHat className="h-5 w-5" strokeWidth={2} />
           </GprKpiIconBadge>
           <div className="min-w-0 flex-1">
-            <GprKpiLabel>{title}</GprKpiLabel>
+            <div className="text-base font-semibold leading-snug text-slate-50">{title}</div>
           </div>
         </div>
 
-        <div className={compactMetrics ? "mt-0.5" : "mt-1"}>
+        <div className={compactMetrics ? "mt-3" : "mt-4"}>
           {compactMetrics ? (
             <>
               <GprKpiSplitPercentRow
@@ -384,6 +433,7 @@ export function GprStageKpiCard({
                 planValue={planValue}
                 title={factTitle}
                 compact
+                noDivider
               />
               <GprKpiSplitCountRow
                 label="Выполнение"
@@ -404,13 +454,14 @@ export function GprStageKpiCard({
               />
             </>
           ) : (
-            fullMetricRows.map((row) => (
+            fullMetricRows.map((row, index) => (
               <GprKpiMetricRow
                 key={row.label}
                 label={row.label}
                 value={row.value}
                 valueClassName={row.valueClassName}
                 title={row.title}
+                noDivider={index === 0}
               />
             ))
           )}
@@ -419,24 +470,15 @@ export function GprStageKpiCard({
         <div className={`space-y-1.5 ${compactMetrics ? "mt-2" : "mt-4"}`}>
           <GprKpiDivider />
           <div className={compactMetrics ? "pt-2" : "pt-3"}>
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
-              Распределение статусов ГПР
-            </div>
             <KpiDonutChart
               segments={donutSegments}
               percentBase={donutStatusTotal}
               chartHeight={100}
-              centerValue={pct1(problematicSharePct)}
-              centerSublabel="проблемных"
-              centerValueColor={centerColor}
             />
           </div>
         </div>
         <div className="min-h-0 flex-1" aria-hidden />
       </GprPremiumKpiCard>
-      <p className="mt-2 px-1 text-[11px] leading-snug text-slate-400">
-        Распределение статусов рассчитано по этапам ГПР объекта.
-      </p>
     </div>
   );
 }

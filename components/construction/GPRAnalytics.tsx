@@ -1955,7 +1955,7 @@ function GprTopKpiCardLayout({
 }) {
   return (
     <div className="grid h-full grid-rows-[auto_1fr_auto_auto] gap-3">
-      <div className="text-sm font-semibold leading-snug text-[#E6EDF3]">{title}</div>
+      <div className="text-base font-semibold leading-snug text-slate-50">{title}</div>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
         <div className="min-w-0">
           <div className="text-xs leading-snug text-[#E6EDF3]/85" title={leftValueTitle}>
@@ -2918,6 +2918,79 @@ export function GPRAnalytics({
     />
   );
 
+  /**
+   * Аггрегированное распределение статусов и счётчиков выполнения по всем корневым этапам
+   * активной части (для жилого дома — 2.04 + 2.05). Используется тот же самый бэкенд расчёта,
+   * что и в карточках 2.04 / 2.05; формулы НЕ менялись — только агрегируем по корням.
+   */
+  const aggregateStageBreakdown = useMemo(() => {
+    let workCompleted = 0;
+    let workTotal = 0;
+    let trafficGreen = 0;
+    let trafficYellow = 0;
+    let trafficRed = 0;
+    let donutOnTime = 0;
+    let donutRisk = 0;
+    let donutOverdue = 0;
+    let donutCompletedLate = 0;
+    let donutNotStarted = 0;
+    for (const root of orderedStageRoots) {
+      const insight = computeGprStageCompletionInsight(flatTasks, root, gprReportAsOf);
+      const bd = computeGprStageStatusBreakdown(flatTasks, root, gprReportAsOf, insight);
+      workCompleted += bd.completedStages;
+      workTotal += bd.totalStages;
+      trafficGreen += bd.onTimeCount;
+      trafficYellow += bd.atRiskCount;
+      trafficRed += bd.overdueCount;
+      donutOnTime += bd.donutOnTimeCount;
+      donutRisk += bd.donutRiskCount;
+      donutOverdue += bd.donutOverdueCount;
+      donutCompletedLate += bd.donutCompletedLateCount;
+      donutNotStarted += bd.donutNotStartedCount;
+    }
+    const completedSharePct =
+      workTotal > 0 ? Math.round((workCompleted / workTotal) * 1000) / 10 : 0;
+    return {
+      workCompleted,
+      workTotal,
+      trafficGreen,
+      trafficYellow,
+      trafficRed,
+      donutOnTime,
+      donutRisk,
+      donutOverdue,
+      donutCompletedLate,
+      donutNotStarted,
+      completedSharePct,
+    };
+  }, [orderedStageRoots, flatTasks, gprReportAsOf]);
+
+  /** Плановый агрегированный процент = факт − отклонение (без переопределения формул). */
+  const aggregatePlannedPercent =
+    aggTotalPercent !== null && aggTotalDeviation !== null
+      ? aggTotalPercent - aggTotalDeviation
+      : null;
+  const aggregatePlanClamped =
+    aggregatePlannedPercent === null
+      ? null
+      : Math.max(0, Math.min(100, Math.round(aggregatePlannedPercent * 10) / 10));
+  const aggregatePlanDisplay =
+    aggregatePlanClamped === null
+      ? "—"
+      : Math.abs(aggregatePlanClamped - Math.round(aggregatePlanClamped)) < 1e-6
+        ? `${Math.round(aggregatePlanClamped)}%`
+        : `${aggregatePlanClamped.toFixed(1)}%`;
+  const aggregateDeviationDeltaPp =
+    aggTotalDeviation === null ? null : Math.round(aggTotalDeviation * 10) / 10;
+  const aggregateDeviationDisplay =
+    aggregateDeviationDeltaPp === null
+      ? "—"
+      : aggregateDeviationDeltaPp < 0
+        ? `−${Math.abs(aggregateDeviationDeltaPp)}`
+        : aggregateDeviationDeltaPp > 0
+          ? `+${aggregateDeviationDeltaPp}`
+          : "0";
+
   if (mode === "edit") {
     return (
       <section className="min-w-0 space-y-4 overflow-x-clip">
@@ -3000,8 +3073,13 @@ export function GPRAnalytics({
           const isPrepTerritoryStageCard =
             normalizeGprCodeFinal(task.code) === "2.04" ||
             task.name.trim() === "Подготовка территории строительства";
-          const prepTerritoryCompletedSharePct =
-            isPrepTerritoryStageCard && residentialZhDomGprStageTotal > 0
+          const isBuildingConstructionStageCard =
+            normalizeGprCodeFinal(task.code) === "2.05" ||
+            task.name.trim() === "Строительство зданий и сооружений";
+          const isResidentialCompactStageCard =
+            isPrepTerritoryStageCard || isBuildingConstructionStageCard;
+          const residentialZhDomCompletedSharePct =
+            isResidentialCompactStageCard && residentialZhDomGprStageTotal > 0
               ? Math.round(
                   (statusBreakdown.completedStages / residentialZhDomGprStageTotal) * 1000,
                 ) / 10
@@ -3011,7 +3089,10 @@ export function GPRAnalytics({
               key={task.globalTaskId ?? task.id}
               title={task.name}
               status={status}
-              metricsVariant={isPrepTerritoryStageCard ? "compact" : "full"}
+              metricsVariant={isResidentialCompactStageCard ? "compact" : "full"}
+              donutStatusVariant={
+                isBuildingConstructionStageCard ? "trafficKpi" : "workItem"
+              }
               factLabel="Факт выполнения"
               factValue={isNoData ? "—" : progressDisplay}
               factTitle={stageInsight.tooltipText}
@@ -3025,7 +3106,7 @@ export function GPRAnalytics({
               onTimeCount={statusBreakdown.onTimeCount}
               atRiskCount={statusBreakdown.atRiskCount}
               overdueCount={statusBreakdown.overdueCount}
-              completedSharePct={prepTerritoryCompletedSharePct}
+              completedSharePct={residentialZhDomCompletedSharePct}
               donutOnTimeCount={statusBreakdown.donutOnTimeCount}
               donutRiskCount={statusBreakdown.donutRiskCount}
               donutOverdueCount={statusBreakdown.donutOverdueCount}
@@ -3035,120 +3116,38 @@ export function GPRAnalytics({
             />
           );
         })}
+
+        <GprStageKpiCard
+          key="part-aggregate"
+          title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
+          status={statusAgg}
+          metricsVariant="compact"
+          donutStatusVariant="trafficKpi"
+          factLabel="Факт выполнения"
+          factValue={aggregateTotalProgressUi.display}
+          factTitle={AGGREGATE_PROGRESS_TOOLTIP}
+          planLabel="Плановая готовность"
+          planValue={aggregatePlanDisplay}
+          deviationLabel="Отклонение готовности, п.п."
+          deviationValue={`${aggregateDeviationDisplay}%`}
+          deviationDeltaPp={aggregateDeviationDeltaPp}
+          completedStages={aggregateStageBreakdown.workCompleted}
+          totalStages={aggregateStageBreakdown.workTotal}
+          onTimeCount={aggregateStageBreakdown.trafficGreen}
+          atRiskCount={aggregateStageBreakdown.trafficYellow}
+          overdueCount={aggregateStageBreakdown.trafficRed}
+          completedSharePct={aggregateStageBreakdown.completedSharePct}
+          donutOnTimeCount={aggregateStageBreakdown.donutOnTime}
+          donutRiskCount={aggregateStageBreakdown.donutRisk}
+          donutOverdueCount={aggregateStageBreakdown.donutOverdue}
+          donutCompletedLateCount={aggregateStageBreakdown.donutCompletedLate}
+          donutNotStartedCount={aggregateStageBreakdown.donutNotStarted}
+          problematicSharePct={0}
+        />
       </div>
 
-      {presentationAnalyticsSkin ? (
-          <div
-            key="part-aggregate"
-            data-traffic-card={statusAgg}
-            className="top-card card relative w-full overflow-hidden p-4 text-left"
-          >
-            {aggregateProgressCardMain}
-          </div>
-        ) : (
-          <>
-            <button
-              key="part-aggregate"
-              type="button"
-              ref={aggregateCardRef}
-              onClick={handleAggregateCardClick}
-              aria-expanded={aggregatePopoverOpen}
-              aria-haspopup="dialog"
-              title="Нажмите для пояснения расчёта"
-              data-traffic-card={statusAgg}
-              className="top-card card relative w-full cursor-pointer overflow-hidden p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-            >
-              {aggregateProgressCardMain}
-            </button>
-            {aggregatePortalMounted &&
-              aggregatePopoverOpen &&
-              aggregatePopoverPos &&
-              createPortal(
-            <div
-              ref={aggregatePopoverRef}
-              role="dialog"
-              aria-label="Пояснение: выполнение ГПР"
-              className={`fixed z-[200] w-[min(360px,calc(100vw-24px))] max-h-[min(520px,85vh)] overflow-y-auto rounded-xl border border-slate-500/45 bg-[#1e293b] p-[14px] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
-                aggregatePopoverEntered ? "opacity-100 scale-100" : "opacity-0 scale-[0.98]"
-              }`}
-              style={{
-                top: aggregatePopoverPos.top,
-                left: aggregatePopoverPos.left,
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <div className="border-b border-white/10 pb-3">
-                <div className="text-sm font-semibold text-slate-100">
-                  Выполнение ГПР: {aggregateTotalProgressUi.display}
-                </div>
-                <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                  Взвешенное выполнение по корневым этапам: сумма (вес<sub className="align-baseline text-[9px]">i</sub> × факт<sub className="align-baseline text-[9px]">i</sub>
-                  ); веса нормированы, суммарно 100%. Факт этапа — rollup дочерних работ (листья WBS) или поле completion корня; тот же расчёт, что на графиках «Факт ГПР». Приоритет веса: объём → стоимость → длительность плана.
-                </p>
-              </div>
-
-              <div className="mt-3 space-y-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Состав и вклад
-                  </div>
-                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
-                    {aggregateStages.map((s, i) => (
-                      <li key={`agg-stage-${i}`}>
-                        <span className="font-medium text-slate-200">{s.composeTitle}</span>
-                        {": "}
-                        {Math.round(s.completion)}% факт
-                        {s.weightPercent != null
-                          ? `, вес ${s.weightPercent}% (${AGGREGATE_WEIGHT_BASIS_RU[s.weightBasis]})`
-                          : ""}
-                        {s.contributionPercent != null
-                          ? `, вклад в сумму ${s.contributionPercent} п.п.`
-                          : ""}
-                        {s.imputation !== "none" ? (
-                          <span className="text-slate-500">
-                            {" "}
-                            {s.imputation === "equalAll"
-                              ? "— вес: равный по всем этапам (нечем взвесить)"
-                              : "— вес: единица (нет объёма, стоимости и плана дат)"}
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Пояснение
-                  </div>
-                  <div className="mt-2 space-y-2 text-xs leading-relaxed text-slate-300">
-                    {aggregatePopoverExplanation.map((paragraph, i) => (
-                      <p key={`agg-expl-${i}`}>{paragraph}</p>
-                    ))}
-                  </div>
-                </div>
-
-                {aggregateProblemsList.length > 0 ? (
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Проблемы
-                    </div>
-                    <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-snug text-slate-300 marker:text-slate-500">
-                      {aggregateProblemsList.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            </div>,
-            document.body,
-              )}
-          </>
-        )}
-
-      <div className="grid grid-cols-1 items-stretch gap-4 min-w-0 lg:grid-cols-3">
-        <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6 lg:col-span-2">
+      <div className="grid grid-cols-1 min-w-0">
+        <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
           <div>
             <div className="flex flex-col gap-2">
               <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
@@ -3460,477 +3459,6 @@ export function GPRAnalytics({
           </div>
         </div>
 
-        <>
-          {presentationAnalyticsSkin ? (
-            <div className="flex h-full min-w-0 w-full flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm sm:p-6">
-              <div className="flex flex-col gap-2">
-                <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
-                  <h3 className="text-lg font-semibold leading-snug text-slate-50">{statusDistributionTitle}</h3>
-                </div>
-                <p className="text-xs leading-snug text-slate-300">
-                  Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
-                </p>
-              </div>
-              <div className="relative mt-4 h-[220px] w-full shrink-0">
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                    <defs>
-                      <linearGradient id="greenGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#16a34a" />
-                        <stop offset="100%" stopColor="#22c55e" />
-                      </linearGradient>
-                      <linearGradient id="yellowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#d97706" />
-                        <stop offset="100%" stopColor="#f59e0b" />
-                      </linearGradient>
-                      <linearGradient id="redGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#dc2626" />
-                        <stop offset="100%" stopColor="#ef4444" />
-                      </linearGradient>
-                      <linearGradient id="grayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#6b7280" />
-                        <stop offset="100%" stopColor="#9ca3af" />
-                      </linearGradient>
-                    </defs>
-                    <Pie
-                      data={statusDonutData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={52}
-                      outerRadius={78}
-                      paddingAngle={2}
-                      stroke="rgba(255,255,255,0.18)"
-                      style={{ cursor: "pointer" }}
-                      onClick={(_, index) => {
-                        const entry = statusDonutData[index];
-                        if (entry) handleStatusDistributionSegmentClick(entry.status);
-                      }}
-                    >
-                      {statusDonutData.map((entry) => {
-                        const selected = statusDistributionSelectedSegment === entry.status;
-                        return (
-                          <Cell
-                            key={entry.status}
-                            fill={entry.fill}
-                            stroke={selected ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.18)"}
-                            strokeWidth={selected ? 3 : 1}
-                            style={{ cursor: "pointer", outline: "none" }}
-                          />
-                        );
-                      })}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div
-                  className="pointer-events-none absolute left-1/2 flex flex-col items-center justify-center text-center"
-                  style={{
-                    top: "calc(10px + (100% - 20px) * 0.45)",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                >
-                  <div
-                    aria-hidden
-                    className="absolute left-1/2 top-1/2 aspect-square rounded-full"
-                    style={{
-                      width: "min(100px, 26%)",
-                      minWidth: 76,
-                      maxWidth: 104,
-                      transform: "translate(-50%, -50%)",
-                      backgroundColor: "rgba(255,255,255,0.04)",
-                      backdropFilter: "blur(12px)",
-                      WebkitBackdropFilter: "blur(12px)",
-                      boxShadow: "0 0 32px rgba(255,255,255,0.06)",
-                    }}
-                  />
-                  <svg
-                    className="relative z-[1] cursor-help font-sans pointer-events-auto"
-                    width={120}
-                    height={72}
-                    viewBox="0 0 120 72"
-                    overflow="visible"
-                    role="img"
-                    aria-label={statusDistributionRiskExplanation}
-                  >
-                    <text
-                      x={60}
-                      y={36}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      style={{
-                        fontFamily:
-                          "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-                      }}
-                    >
-                      <title>{statusDistributionRiskExplanation}</title>
-                      <tspan
-                        x={60}
-                        dy={-6}
-                        fontSize={32}
-                        fontWeight={700}
-                        style={{
-                          fill: statusDistributionProjectRisk.mainColor,
-                          fontVariantNumeric: "tabular-nums",
-                          textShadow: statusDistributionProjectRisk.textGlow,
-                        }}
-                      >
-                        {statusDistributionProjectRisk.mainText}
-                      </tspan>
-                      <tspan
-                        x={60}
-                        dy={18}
-                        fontSize={12}
-                        fontWeight={500}
-                        style={{ fill: "#A3B3C7" }}
-                      >
-                        {statusDistributionRiskCenterLabel}
-                      </tspan>
-                    </text>
-                  </svg>
-                </div>
-              </div>
-              <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                {statusDistributionRiskExplanation}
-              </p>
-              <div className="mt-4 w-full">
-                <AnalyticsLegendList>
-                  <AnalyticsLegendItem
-                    markerColor={COLORS.green}
-                    label="В срок"
-                    value={traffic.counts.green}
-                  />
-                  <AnalyticsLegendItem
-                    markerColor={COLORS.yellow}
-                    label="Риск"
-                    value={traffic.counts.yellow}
-                  />
-                  <AnalyticsLegendItem
-                    markerColor={COLORS.red}
-                    label="Отставание"
-                    value={traffic.counts.red}
-                  />
-                  <AnalyticsLegendItem
-                    markerColor={COLORS.gray}
-                    label="Нет данных"
-                    value={traffic.counts.gray}
-                  />
-                </AnalyticsLegendList>
-              </div>
-              {statusDistributionDebugStats ? (
-                <StatusDistributionDebugPanel stats={statusDistributionDebugStats} />
-              ) : null}
-              <div
-                className={`grid transition-[grid-template-rows,opacity] duration-[250ms] ease-out ${
-                  statusDistributionSelectedSegment ? "opacity-100" : "opacity-0"
-                }`}
-                style={{
-                  gridTemplateRows: statusDistributionSelectedSegment ? "1fr" : "0fr",
-                }}
-                aria-hidden={!statusDistributionSelectedSegment}
-              >
-                <div className="min-h-0 overflow-hidden">
-                  {statusDistributionSelectedSegment ? (
-                    <div
-                      className="pt-4 opacity-100 transition-opacity duration-[250ms] ease-out"
-                      role="region"
-                      aria-label="Детали выбранного статуса"
-                    >
-                      <div className="border-t border-slate-600/50" />
-                      <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Детали выбранного статуса
-                      </div>
-                      {(() => {
-                        const seg = statusDistributionSelectedSegment;
-                        const meta = STATUS_DISTRIBUTION_SEGMENT_META[seg];
-                        const rows = statusDistributionGroups[seg];
-                        const count = traffic.counts[seg];
-                        return (
-                          <div className="mt-3">
-                            <div className="text-xs font-semibold text-slate-100">
-                              {meta.emoji} {meta.label}: {count}
-                            </div>
-                            {rows.length > 0 ? (
-                              <div className="mt-2 max-h-[min(280px,40vh)] overflow-y-auto">
-                                <StatusDistributionTaskChunk
-                                  rows={rows}
-                                  status={seg}
-                                  showDeviation={meta.showDeviation}
-                                  showAll
-                                />
-                              </div>
-                            ) : (
-                              <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : (
-          <button
-            type="button"
-            ref={statusDistributionCardRef}
-            onClick={handleStatusDistributionClick}
-            aria-expanded={statusDistributionPopoverOpen}
-            aria-haspopup="dialog"
-            title="Нажмите для детализации по задачам"
-            className="flex h-full min-w-0 w-full cursor-pointer flex-col rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 text-left shadow-sm transition-colors hover:bg-slate-800/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f172a] sm:p-6"
-          >
-            <div className="flex flex-col gap-2">
-              <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline">
-                <h3 className="text-lg font-semibold leading-snug text-slate-50">{statusDistributionTitle}</h3>
-              </div>
-              <p className="text-xs leading-snug text-slate-300">
-                Зеленые — факт ≤ план, желтые — отклонение до 14 дн., красные — более 14 дн.
-              </p>
-            </div>
-            <div className="relative mt-4 h-[220px] w-full">
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                  <defs>
-                    <linearGradient id="greenGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#16a34a" />
-                      <stop offset="100%" stopColor="#22c55e" />
-                    </linearGradient>
-                    <linearGradient id="yellowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#d97706" />
-                      <stop offset="100%" stopColor="#f59e0b" />
-                    </linearGradient>
-                    <linearGradient id="redGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#dc2626" />
-                      <stop offset="100%" stopColor="#ef4444" />
-                    </linearGradient>
-                    <linearGradient id="grayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#6b7280" />
-                      <stop offset="100%" stopColor="#9ca3af" />
-                    </linearGradient>
-                  </defs>
-                  <Tooltip content={StatusDistributionPieTooltip} />
-                  <Pie
-                    data={statusDonutData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={52}
-                    outerRadius={78}
-                    paddingAngle={2}
-                    stroke="rgba(255,255,255,0.18)"
-                  >
-                    {statusDonutData.map((entry) => (
-                      <Cell key={entry.status} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              {/*
-                Recharts 3: центр KPI — HTML поверх графика (Label+center в v3 не работает в Pie).
-                Позиция = Pie margin 10 и cy 45% от внутренней высоты.
-              */}
-              <div
-                className="pointer-events-none absolute left-1/2 flex flex-col items-center justify-center text-center"
-                style={{
-                  top: "calc(10px + (100% - 20px) * 0.45)",
-                  transform: "translate(-50%, -50%)",
-                }}
-              >
-                <div
-                  aria-hidden
-                  className="absolute left-1/2 top-1/2 aspect-square rounded-full"
-                  style={{
-                    width: "min(100px, 26%)",
-                    minWidth: 76,
-                    maxWidth: 104,
-                    transform: "translate(-50%, -50%)",
-                    backgroundColor: "rgba(255,255,255,0.04)",
-                    backdropFilter: "blur(12px)",
-                    WebkitBackdropFilter: "blur(12px)",
-                    boxShadow: "0 0 32px rgba(255,255,255,0.06)",
-                  }}
-                />
-                {/*
-                  Единый SVG-якорь (как <text x y textAnchor middle dominantBaseline middle>):
-                  центр между строками — маленький dy у процента (-6), затем dy 18 у подписи.
-                */}
-                <svg
-                  className="relative z-[1] cursor-help font-sans pointer-events-auto"
-                  width={120}
-                  height={72}
-                  viewBox="0 0 120 72"
-                  overflow="visible"
-                  role="img"
-                  aria-label={statusDistributionRiskExplanation}
-                >
-                  <text
-                    x={60}
-                    y={36}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    style={{
-                      fontFamily:
-                        "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-                    }}
-                  >
-                    <title>{statusDistributionRiskExplanation}</title>
-                    <tspan
-                      x={60}
-                      dy={-6}
-                      fontSize={32}
-                      fontWeight={700}
-                      style={{
-                        fill: statusDistributionProjectRisk.mainColor,
-                        fontVariantNumeric: "tabular-nums",
-                        textShadow: statusDistributionProjectRisk.textGlow,
-                      }}
-                    >
-                      {statusDistributionProjectRisk.mainText}
-                    </tspan>
-                    <tspan
-                      x={60}
-                      dy={18}
-                      fontSize={12}
-                      fontWeight={500}
-                      style={{ fill: "#A3B3C7" }}
-                    >
-                      {statusDistributionRiskCenterLabel}
-                    </tspan>
-                  </text>
-                </svg>
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] leading-snug text-slate-400">{statusDistributionRiskExplanation}</p>
-            <div className="mt-4 w-full">
-              <AnalyticsLegendList>
-                <AnalyticsLegendItem
-                  markerColor={COLORS.green}
-                  label="В срок"
-                  value={traffic.counts.green}
-                />
-                <AnalyticsLegendItem
-                  markerColor={COLORS.yellow}
-                  label="Риск"
-                  value={traffic.counts.yellow}
-                />
-                <AnalyticsLegendItem
-                  markerColor={COLORS.red}
-                  label="Отставание"
-                  value={traffic.counts.red}
-                />
-                <AnalyticsLegendItem
-                  markerColor={COLORS.gray}
-                  label="Нет данных"
-                  value={traffic.counts.gray}
-                />
-              </AnalyticsLegendList>
-            </div>
-            {statusDistributionDebugStats ? (
-              <StatusDistributionDebugPanel stats={statusDistributionDebugStats} />
-            ) : null}
-          </button>
-          )}
-          {!presentationAnalyticsSkin &&
-            aggregatePortalMounted &&
-            statusDistributionPopoverOpen &&
-            statusDistributionPopoverPos &&
-            createPortal(
-              <div
-                ref={statusDistributionPopoverRef}
-                role="dialog"
-                aria-label={`${statusDistributionTitle}: детализация`}
-                className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border border-slate-500/45 bg-[#1e293b] shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
-                  statusDistributionPopoverEntered ? "scale-100 opacity-100" : "scale-[0.98] opacity-0"
-                }`}
-                style={{
-                  top: statusDistributionPopoverPos.top,
-                  left: statusDistributionPopoverPos.left,
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <div className="border-b border-white/10 p-[14px] pb-3">
-                  <div className="text-sm font-semibold text-slate-100">{statusDistributionTitle}</div>
-                </div>
-                <div className="max-h-[min(480px,78vh)] space-y-4 overflow-y-auto p-[14px] pt-3">
-                  <div>
-                    <div className="text-xs font-semibold text-slate-100">
-                      🟢 В срок ({traffic.counts.green}):
-                    </div>
-                    {statusDistributionGroups.green.length > 0 ? (
-                      <StatusDistributionTaskChunk
-                        rows={statusDistributionGroups.green}
-                        status="green"
-                        showDeviation
-                      />
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-slate-100">
-                      🟡 Риск ({traffic.counts.yellow}):
-                    </div>
-                    {statusDistributionGroups.yellow.length > 0 ? (
-                      <StatusDistributionTaskChunk
-                        rows={statusDistributionGroups.yellow}
-                        status="yellow"
-                        showDeviation
-                      />
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-slate-100">
-                      🔴 Отставание ({traffic.counts.red}):
-                    </div>
-                    {statusDistributionGroups.red.length > 0 ? (
-                      <StatusDistributionTaskChunk
-                        rows={statusDistributionGroups.red}
-                        status="red"
-                        showDeviation
-                      />
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-slate-100">
-                      ⚪ Нет данных ({traffic.counts.gray})
-                    </div>
-                    {statusDistributionGroups.gray.length > 0 ? (
-                      <StatusDistributionTaskChunk
-                        rows={statusDistributionGroups.gray}
-                        status="gray"
-                        showDeviation={false}
-                      />
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-500">Нет задач в этой категории</p>
-                    )}
-                  </div>
-                </div>
-                {statusDistributionReasons.length > 0 ? (
-                  <div className="border-t border-white/10 px-[14px] pb-3 pt-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Причины
-                    </div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-[11px] text-slate-300 marker:text-slate-500">
-                      {statusDistributionReasons.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                <p className="border-t border-white/10 p-[14px] pt-3 text-xs leading-relaxed text-slate-400">
-                  Основная проблема:{" "}
-                  <span className="font-medium text-slate-200">{primaryStatusDistributionProblem}</span>
-                </p>
-              </div>,
-              document.body,
-            )}
-        </>
       </div>
 
       {!presentationAnalyticsSkin && (
