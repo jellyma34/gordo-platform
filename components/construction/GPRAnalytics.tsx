@@ -103,7 +103,9 @@ import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDat
 import {
   computeGprStageFactCompletionPercent,
   computeGprStageCompletionInsight,
+  getGprStageWorkItems,
 } from "@/lib/gprStageCompletion";
+import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
 import {
   aggregateRootCodesForPart,
   DEFAULT_AGGREGATE_ROOT_CODES_PROJECT,
@@ -1827,6 +1829,79 @@ function trafficStatusForTask(task: GPRTask, asOf: Date): {
   return { status: st as Traffic, planDays, factDays, deviationDays };
 }
 
+type GprDonutStatusKey = "on_time" | "risk" | "overdue" | "completed_late" | "not_started";
+
+function isGprWorkItemCompleted(task: GPRTask): boolean {
+  return Boolean(task.factEnd?.trim()) || getActualProgressPercent(task) >= 100;
+}
+
+/** Статус этапа для donut KPI-карточки (отдельно от светофора в средних метриках). */
+function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusKey {
+  const planDays = daysInclusive(task.planStart, task.planEnd);
+  if (planDays === null) return "not_started";
+
+  if (isGprWorkItemCompleted(task)) {
+    const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+    if (endDelay === null) return "not_started";
+    if (endDelay > 0) return "completed_late";
+    return "on_time";
+  }
+
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  if (endDelay === null) return "not_started";
+  const st = getStatusByDeviation(endDelay);
+  if (st === "green") return "on_time";
+  if (st === "yellow") return "risk";
+  return "overdue";
+}
+
+function computeGprStageStatusBreakdown(
+  allTasks: GPRTask[],
+  rootTask: GPRTask,
+  asOf: Date,
+  stageInsight: ReturnType<typeof computeGprStageCompletionInsight>,
+) {
+  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
+  const donutCounts = {
+    on_time: 0,
+    risk: 0,
+    overdue: 0,
+    completed_late: 0,
+    not_started: 0,
+  };
+  for (const t of workItems) {
+    const { status } = trafficStatusForTask(t, asOf);
+    counts[status] += 1;
+    donutCounts[gprStageWorkItemDonutStatus(t, asOf)] += 1;
+  }
+  const total = stageInsight.workTotal;
+  const completed = stageInsight.workCompleted;
+  const problematic =
+    donutCounts.risk + donutCounts.overdue + donutCounts.completed_late;
+  const withStatus =
+    donutCounts.on_time +
+    donutCounts.risk +
+    donutCounts.overdue +
+    donutCounts.completed_late;
+  return {
+    completedStages: completed,
+    totalStages: total,
+    onTimeCount: counts.green,
+    atRiskCount: counts.yellow,
+    overdueCount: counts.red,
+    notStartedCount: counts.gray,
+    completedSharePct: total > 0 ? Math.round((completed / total) * 1000) / 10 : 0,
+    donutOnTimeCount: donutCounts.on_time,
+    donutRiskCount: donutCounts.risk,
+    donutOverdueCount: donutCounts.overdue,
+    donutCompletedLateCount: donutCounts.completed_late,
+    donutNotStartedCount: donutCounts.not_started,
+    problematicSharePct:
+      withStatus > 0 ? Math.round((problematic / withStatus) * 1000) / 10 : 0,
+  };
+}
+
 function kpiCard({
   label,
   value,
@@ -2057,6 +2132,24 @@ export function GPRAnalytics({
     [tasksForActivePart, gprReportAsOf],
   );
   const flatTasks = flattenTasks(tasksForActivePart);
+
+  /** Всего этапов ГПР объекта «Жилой дом» (сумма workTotal по корневым этапам 2.04 / 2.05). */
+  const residentialZhDomGprStageTotal = useMemo(() => {
+    const residentialTasks = filterGprTasksByObjectScope(
+      fullTaskList.length > 0 ? fullTaskList : tasks,
+      PROJECT_PART_KEY_TO_ID.residential,
+    );
+    if (residentialTasks.length === 0) return 0;
+    const residentialFlat = flattenTasks(residentialTasks);
+    const rootCodes = aggregateRootCodesForPart("residential", residentialFlat);
+    const roots = resolveStageCardRootTasks(residentialFlat, rootCodes);
+    let total = 0;
+    for (const root of roots) {
+      total += computeGprStageCompletionInsight(residentialFlat, root, gprReportAsOf).workTotal;
+    }
+    return total;
+  }, [fullTaskList, tasks, gprReportAsOf]);
+
   const kvartalyAllFlat = useMemo(
     () =>
       effectivePlanFactDataSource === "kvartaly"
@@ -2858,9 +2951,15 @@ export function GPRAnalytics({
 
   return (
     <section className="min-w-0 space-y-4 overflow-x-clip">
-      <div className="top-cards">
+      <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-3">
         {orderedStageRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
+          const statusBreakdown = computeGprStageStatusBreakdown(
+            flatTasks,
+            task,
+            gprReportAsOf,
+            stageInsight,
+          );
           const plannedPercent = stageInsight.planPercent;
           const progressDeltaPp =
             plannedPercent === null ? null : Math.round((stageInsight.factPercent - plannedPercent) * 10) / 10;
@@ -2898,54 +2997,47 @@ export function GPRAnalytics({
           const deviationUi = progressDeltaPp === null ? null : getStatusByGprProgressDelta(progressDeltaPp);
           const status: Traffic =
             isNoData || progressDeltaPp === null ? "gray" : (deviationUi as Traffic);
-          const accent =
-            status === "green"
-              ? COLORS.green
-              : status === "yellow"
-                ? COLORS.yellow
-                : status === "red"
-                  ? COLORS.red
-                  : "#64748b";
-          const progressBarWidth =
-            progressClamped > 0 ? progressClamped : isNoData ? 0 : Math.max(progressClamped, 4);
+          const isPrepTerritoryStageCard =
+            normalizeGprCodeFinal(task.code) === "2.04" ||
+            task.name.trim() === "Подготовка территории строительства";
+          const prepTerritoryCompletedSharePct =
+            isPrepTerritoryStageCard && residentialZhDomGprStageTotal > 0
+              ? Math.round(
+                  (statusBreakdown.completedStages / residentialZhDomGprStageTotal) * 1000,
+                ) / 10
+              : statusBreakdown.completedSharePct;
           return (
-            <div
+            <GprStageKpiCard
               key={task.globalTaskId ?? task.id}
-              data-traffic-card={status}
-              className="top-card card relative w-full overflow-hidden p-4"
-            >
-              <GprTopKpiCardLayout
-                title={task.name}
-                leftLabel="Факт выполнения"
-                leftValue={isNoData ? "—" : progressDisplay}
-                leftMeta={
-                  stageInsight.source === "root_field"
-                    ? "корневая работа"
-                    : stageInsight.source === "descendant_rollup"
-                      ? "по дочерним работам"
-                      : undefined
-                }
-                rightLabel="Плановая готовность"
-                rightValue={planDisplay}
-                bottomLabel="Отклонение готовности, п.п."
-                bottomValue={`${deviationLabel}%`}
-                bottomValueColorClassName={
-                  deviationUi === null
-                    ? "text-slate-400"
-                    : deviationUi === "green"
-                      ? "text-emerald-400"
-                      : deviationUi === "yellow"
-                        ? "text-amber-300"
-                        : "text-rose-400"
-                }
-                leftValueTitle={stageInsight.tooltipText}
-                progressBarWidth={progressBarWidth}
-                progressBarColor={accent}
-              />
-            </div>
+              title={task.name}
+              status={status}
+              metricsVariant={isPrepTerritoryStageCard ? "compact" : "full"}
+              factLabel="Факт выполнения"
+              factValue={isNoData ? "—" : progressDisplay}
+              factTitle={stageInsight.tooltipText}
+              planLabel="Плановая готовность"
+              planValue={planDisplay}
+              deviationLabel="Отклонение готовности, п.п."
+              deviationValue={`${deviationLabel}%`}
+              deviationDeltaPp={progressDeltaPp}
+              completedStages={statusBreakdown.completedStages}
+              totalStages={statusBreakdown.totalStages}
+              onTimeCount={statusBreakdown.onTimeCount}
+              atRiskCount={statusBreakdown.atRiskCount}
+              overdueCount={statusBreakdown.overdueCount}
+              completedSharePct={prepTerritoryCompletedSharePct}
+              donutOnTimeCount={statusBreakdown.donutOnTimeCount}
+              donutRiskCount={statusBreakdown.donutRiskCount}
+              donutOverdueCount={statusBreakdown.donutOverdueCount}
+              donutCompletedLateCount={statusBreakdown.donutCompletedLateCount}
+              donutNotStartedCount={statusBreakdown.donutNotStartedCount}
+              problematicSharePct={statusBreakdown.problematicSharePct}
+            />
           );
         })}
-        {presentationAnalyticsSkin ? (
+      </div>
+
+      {presentationAnalyticsSkin ? (
           <div
             key="part-aggregate"
             data-traffic-card={statusAgg}
@@ -3054,7 +3146,6 @@ export function GPRAnalytics({
               )}
           </>
         )}
-      </div>
 
       <div className="grid grid-cols-1 items-stretch gap-4 min-w-0 lg:grid-cols-3">
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6 lg:col-span-2">

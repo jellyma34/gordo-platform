@@ -26,6 +26,14 @@ type KpiDonutChartProps = {
   chartHeight?: number;
   /** Показывать долю % в легенде справа. */
   showLegendPercent?: boolean;
+  /** Показывать в легенде сегменты с нулевым значением. */
+  showZeroInLegend?: boolean;
+  /** Крупное значение в центре donut. */
+  centerValue?: string;
+  /** Подпись под значением в центре. */
+  centerSublabel?: string;
+  /** Цвет центрального значения. */
+  centerValueColor?: string;
 };
 
 function pct1(value: number, total: number): string {
@@ -39,12 +47,21 @@ export function KpiDonutChart({
   percentBase,
   chartHeight = 96,
   showLegendPercent = false,
+  showZeroInLegend = false,
+  centerValue,
+  centerSublabel,
+  centerValueColor = "#f8fafc",
 }: KpiDonutChartProps) {
   const gradPrefix = useId().replace(/:/g, "");
 
   const activeSegments = useMemo(
     () => segments.filter((seg) => seg.value > 0),
     [segments],
+  );
+
+  const legendSegments = useMemo(
+    () => (showZeroInLegend ? segments : activeSegments),
+    [showZeroInLegend, segments, activeSegments],
   );
 
   const segmentSum = useMemo(
@@ -68,13 +85,39 @@ export function KpiDonutChart({
 
   if (!hasData) {
     return (
-      <div
-        className="flex items-center justify-center rounded-xl border border-dashed border-slate-600/40 bg-slate-900/25 px-3"
-        style={{ minHeight: chartHeight }}
-      >
-        <span className="text-center text-[10px] font-medium leading-snug text-slate-500">
-          Нет данных для распределения
-        </span>
+      <div className="space-y-2">
+        <div
+          className="flex items-center justify-center rounded-xl border border-dashed border-slate-600/40 bg-slate-900/25 px-3"
+          style={{ minHeight: chartHeight }}
+        >
+          <span className="text-center text-[10px] font-medium leading-snug text-slate-500">
+            Нет данных для распределения
+          </span>
+        </div>
+        {showZeroInLegend && legendSegments.length > 0 ? (
+          <ul className="min-w-0 space-y-1.5">
+            {legendSegments.map((seg) => (
+              <li key={seg.label} className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor: seg.color,
+                      boxShadow: `0 0 10px ${seg.color}cc`,
+                    }}
+                    aria-hidden
+                  />
+                  <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                    {seg.label}
+                  </span>
+                </span>
+                <span className="shrink-0 tabular-nums text-base font-semibold text-white">
+                  {seg.value}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     );
   }
@@ -83,6 +126,21 @@ export function KpiDonutChart({
     <div className="space-y-2">
       <div className="flex items-center gap-3">
         <div className="relative shrink-0" style={{ width: chartHeight, height: chartHeight }}>
+          {centerValue ? (
+            <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center text-center">
+              <span
+                className="text-lg font-extrabold tabular-nums leading-none tracking-tight"
+                style={{ color: centerValueColor }}
+              >
+                {centerValue}
+              </span>
+              {centerSublabel ? (
+                <span className="mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400">
+                  {centerSublabel}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <defs>
@@ -157,7 +215,7 @@ export function KpiDonutChart({
         </div>
 
         <ul className="min-w-0 flex-1 space-y-1.5">
-          {activeSegments.map((seg) => (
+          {legendSegments.map((seg) => (
             <li
               key={seg.label}
               className="flex items-center justify-between gap-2"

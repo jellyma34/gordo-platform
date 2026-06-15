@@ -204,6 +204,15 @@ export function computeGprStageCompletionInsight(
   };
 }
 
+/** Набор работ этапа — тот же, что для rollup % и счётчиков выполнения. */
+export function getGprStageWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GPRTask[] {
+  const descendants = tasksUnderRootCode(allTasks, rootTask.code);
+  const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+  if (leaves.length > 0) return leaves;
+  if (descendants.length > 0) return descendants;
+  return [rootTask];
+}
+
 /** Краткий API: факт % этапа (rollup или корень). */
 export function computeGprStageFactCompletionPercent(
   allTasks: GPRTask[],
