@@ -1,42 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
+import { useMemo } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
+import { Line, LineChart, Tooltip, YAxis } from "@/components/charting/rechartsClient";
 import type {
-  TmcMaterialPriceHeatmapDataset,
-  TmcPriceHeatmapCell,
-  TmcPriceHeatmapCellTone,
-  TmcPriceHeatmapMaterialRow,
-  TmcPriceIndexSortMode,
+  TmcMaterialPriceIndexLineDataset,
+  TmcMaterialPriceIndexLineSeries,
 } from "@/lib/tmcPresentationAnalytics";
 
 const COLORS = {
-  empty: "rgba(15,23,42,0.92)",
-  neutral: "rgba(71,85,105,0.62)",
-  up: "#ef4444",
-  down: "#22c55e",
-  border: "rgba(148,163,184,0.18)",
-  header: "#94a3b8",
+  card: "#1e293b",
+  sparkline: "#60a5fa",
 } as const;
 
-type HoveredCell = {
-  row: TmcPriceHeatmapMaterialRow;
-  cell: TmcPriceHeatmapCell;
-  monthLabel: string;
+const SPARKLINE_WIDTH = 148;
+const SPARKLINE_HEIGHT = 40;
+const SPARKLINE_STROKE = 2;
+const SPARKLINE_DOT_R = 3;
+
+type SparkPoint = {
+  label: string;
+  indexPct: number;
+  priceRub: number;
 };
-
-function roundPriceRub(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.round(value);
-}
-
-function priceRub(value: number): string {
-  const rounded = roundPriceRub(value);
-  const formatted = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded);
-  if (rounded < 0) return `−${formatted} ₽`;
-  return `${formatted} ₽`;
-}
 
 function pctSigned1(n: number): string {
   const rounded = Math.round(n * 10) / 10;
@@ -46,32 +32,76 @@ function pctSigned1(n: number): string {
   return `${formatted}%`;
 }
 
-function heatmapCellBackground(tone: TmcPriceHeatmapCellTone, changePct: number | null): string {
-  if (tone === "empty") return COLORS.empty;
-  if (tone === "neutral") return COLORS.neutral;
-  const intensity = Math.min(1, Math.abs(changePct ?? 0) / 25);
-  if (tone === "up") {
-    const alpha = 0.32 + intensity * 0.52;
-    return `rgba(239,68,68,${alpha})`;
+function formatIndexValue(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-6) {
+    return `${Math.round(rounded)}%`;
   }
-  const alpha = 0.32 + intensity * 0.52;
-  return `rgba(34,197,94,${alpha})`;
+  return `${rounded.toFixed(1).replace(".", ",")}%`;
 }
 
-function heatmapCellTextColor(tone: TmcPriceHeatmapCellTone): string {
-  if (tone === "empty") return "#64748b";
-  return "#f8fafc";
+function formatPriceRub(value: number): string {
+  const rounded = Math.round(value);
+  const formatted = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(
+    Math.abs(rounded),
+  );
+  if (rounded < 0) return `−${formatted} ₽`;
+  return `${formatted} ₽`;
 }
 
-function formatHeatmapCellPrice(price: number): string {
-  const rounded = roundPriceRub(price);
-  const compact = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded);
-  return `${compact} ₽`;
+function getPlottableSparkPoints(series: TmcMaterialPriceIndexLineSeries): SparkPoint[] {
+  return series.points
+    .filter(
+      (point): point is typeof point & { indexPct: number; priceRub: number } =>
+        point.indexPct != null && point.indexPct > 0 && point.priceRub != null && point.priceRub > 0,
+    )
+    .map((point) => ({
+      label: point.label,
+      indexPct: point.indexPct,
+      priceRub: point.priceRub,
+    }));
 }
 
-function PriceIndexKpiPanel({ dataset }: { dataset: TmcMaterialPriceHeatmapDataset }) {
+function getSeriesSnapshot(series: TmcMaterialPriceIndexLineSeries): {
+  currentIndex: number | null;
+  changePct: number | null;
+} {
+  const plottable = getPlottableSparkPoints(series);
+  if (plottable.length === 0) {
+    return { currentIndex: null, changePct: null };
+  }
+  const last = plottable[plottable.length - 1]!;
+  return {
+    currentIndex: last.indexPct,
+    changePct: last.indexPct - 100,
+  };
+}
+
+function sortSeriesByAbsChange(series: TmcMaterialPriceIndexLineSeries[]): TmcMaterialPriceIndexLineSeries[] {
+  return [...series].sort((a, b) => {
+    const absA = Math.abs(getSeriesSnapshot(a).changePct ?? 0);
+    const absB = Math.abs(getSeriesSnapshot(b).changePct ?? 0);
+    if (absB !== absA) return absB - absA;
+    if (a.hasEnoughData !== b.hasEnoughData) return a.hasEnoughData ? -1 : 1;
+    return a.name.localeCompare(b.name, "ru");
+  });
+}
+
+function PriceIndexKpiPanel({
+  dataset,
+}: {
+  dataset: Pick<
+    TmcMaterialPriceIndexLineDataset,
+    | "maxGrowthPct"
+    | "maxGrowthMaterial"
+    | "maxGrowthMonthsLabel"
+    | "maxDeclinePct"
+    | "maxDeclineMaterial"
+    | "maxDeclineMonthsLabel"
+  >;
+}) {
   return (
-    <div className="grid min-w-[250px] shrink-0 gap-3 text-right text-sm sm:max-w-xs">
+    <div className="grid min-w-[250px] shrink-0 gap-3 self-start text-right text-sm sm:max-w-xs">
       <div className="rounded-xl border border-slate-600/40 bg-slate-900/35 px-4 py-3">
         <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
           Максимальный рост
@@ -81,7 +111,7 @@ function PriceIndexKpiPanel({ dataset }: { dataset: TmcMaterialPriceHeatmapDatas
         </div>
         <div className="mt-1 text-xs text-slate-400">Материал: {dataset.maxGrowthMaterial}</div>
         {dataset.maxGrowthMonthsLabel ? (
-          <div className="text-xs text-slate-500">Месяцы: {dataset.maxGrowthMonthsLabel}</div>
+          <div className="text-xs text-slate-500">Месяц: {dataset.maxGrowthMonthsLabel}</div>
         ) : null}
       </div>
       <div className="rounded-xl border border-slate-600/40 bg-slate-900/35 px-4 py-3">
@@ -93,240 +123,203 @@ function PriceIndexKpiPanel({ dataset }: { dataset: TmcMaterialPriceHeatmapDatas
         </div>
         <div className="mt-1 text-xs text-slate-400">Материал: {dataset.maxDeclineMaterial}</div>
         {dataset.maxDeclineMonthsLabel ? (
-          <div className="text-xs text-slate-500">Месяцы: {dataset.maxDeclineMonthsLabel}</div>
+          <div className="text-xs text-slate-500">Месяц: {dataset.maxDeclineMonthsLabel}</div>
         ) : null}
       </div>
     </div>
   );
 }
 
-function PriceIndexSortSwitcher({
-  sortMode,
-  onSortModeChange,
+function SparklineTooltip({
+  active,
+  payload,
 }: {
-  sortMode: TmcPriceIndexSortMode;
-  onSortModeChange: (mode: TmcPriceIndexSortMode) => void;
+  active?: boolean;
+  payload?: Array<{ payload?: SparkPoint }>;
 }) {
-  return (
-    <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-      {(
-        [
-          { id: "byAlphabet" as const, label: "По алфавиту" },
-          { id: "byChange" as const, label: "По изменению цены" },
-        ] as const
-      ).map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onSortModeChange(item.id)}
-          className={segmentedControlTabClass(sortMode === item.id, "dark")}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function HeatmapTooltip({ hovered }: { hovered: HoveredCell | null }) {
-  if (!hovered) return null;
-  const { row, cell, monthLabel } = hovered;
+  if (!active || !payload?.[0]?.payload) return null;
+  const point = payload[0].payload;
 
   return (
-    <div className="rounded-lg border border-slate-600/50 bg-[#1e293b] px-3 py-2.5 text-xs shadow-lg">
-      <div className="font-semibold text-slate-100">Материал: {row.name}</div>
-      <div className="mt-2 space-y-2 tabular-nums text-slate-300">
-        <div>
-          <div className="text-slate-400">Месяц:</div>
-          <div className="font-medium text-slate-100">{monthLabel}</div>
-        </div>
-        <div>
-          <div className="text-slate-400">Цена:</div>
-          <div className="font-medium text-slate-100">{priceRub(cell.price ?? 0)}</div>
-        </div>
-        {cell.previousMonthPrice != null && cell.previousMonthPrice > 0 ? (
-          <div>
-            <div className="text-slate-400">Предыдущий месяц:</div>
-            <div className="font-medium text-slate-100">{priceRub(cell.previousMonthPrice)}</div>
-          </div>
-        ) : null}
-        {cell.changePct != null ? (
-          <div>
-            <div className="text-slate-400">Изменение:</div>
-            <div className="font-medium text-slate-100">{pctSigned1(cell.changePct)}</div>
-          </div>
-        ) : null}
+    <div
+      className="rounded-lg border px-3 py-2 text-xs shadow-lg"
+      style={{
+        background: COLORS.card,
+        borderColor: "rgba(148,163,184,0.35)",
+        color: "#e2e8f0",
+      }}
+    >
+      <div className="font-semibold text-slate-100">{point.label}</div>
+      <div className="mt-1 tabular-nums text-slate-300">
+        Цена: <span className="font-medium text-white">{formatPriceRub(point.priceRub)}</span>
+      </div>
+      <div className="tabular-nums text-slate-300">
+        Индекс: <span className="font-medium text-white">{formatIndexValue(point.indexPct)}</span>
       </div>
     </div>
   );
 }
 
-function PriceHeatmapLegend() {
-  return (
-    <div className="mt-3 border-t border-slate-700/40 pt-3">
-      <AnalyticsLegendList>
-        <AnalyticsLegendItem markerColor={COLORS.up} label="Рост цены к пред. поставке" />
-        <AnalyticsLegendItem markerColor={COLORS.down} label="Снижение цены к пред. поставке" />
-        <AnalyticsLegendItem markerColor={COLORS.neutral} label="Без существенного изменения" />
-        <AnalyticsLegendItem markerColor={COLORS.empty} label="Нет данных" />
-      </AnalyticsLegendList>
-    </div>
-  );
-}
+function PriceIndexChangeBadge({ changePct }: { changePct: number | null }) {
+  if (changePct == null) {
+    return <span className="text-xs text-slate-500">—</span>;
+  }
 
-export function TmcMaterialPriceHeatmapView({
-  dataset,
-  sortMode,
-  onSortModeChange,
-}: {
-  dataset: TmcMaterialPriceHeatmapDataset;
-  sortMode: TmcPriceIndexSortMode;
-  onSortModeChange: (mode: TmcPriceIndexSortMode) => void;
-}) {
-  const [hovered, setHovered] = useState<HoveredCell | null>(null);
+  const rounded = Math.round(changePct * 10) / 10;
+  if (Math.abs(rounded) < 0.05) {
+    return <span className="inline-flex items-center gap-1 text-xs tabular-nums text-slate-400">0%</span>;
+  }
 
-  const monthLabelByKey = useMemo(
-    () => new Map(dataset.months.map((month) => [month.monthKey, month.labelLong])),
-    [dataset.months],
-  );
-
-  const gridTemplateColumns = useMemo(
-    () => `minmax(148px, 1.4fr) repeat(${dataset.months.length}, minmax(72px, 1fr))`,
-    [dataset.months.length],
-  );
-
-  if (dataset.months.length === 0 || dataset.rows.length === 0) {
+  if (rounded > 0) {
     return (
-      <div className="flex flex-col gap-4">
-        <PriceIndexSortSwitcher sortMode={sortMode} onSortModeChange={onSortModeChange} />
-        <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
-          Недостаточно фактических поставок для матрицы цен
+      <span className="inline-flex items-center justify-end gap-1 text-xs font-medium tabular-nums text-emerald-400">
+        <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {pctSigned1(rounded)}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center justify-end gap-1 text-xs font-medium tabular-nums text-red-400">
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {pctSigned1(rounded)}
+    </span>
+  );
+}
+
+function MaterialPriceIndexSparkline({ series }: { series: TmcMaterialPriceIndexLineSeries }) {
+  const sparkData = useMemo(() => getPlottableSparkPoints(series), [series]);
+
+  const yDomain = useMemo((): [number, number] => {
+    if (sparkData.length === 0) return [95, 105];
+    const values = sparkData.map((point) => point.indexPct);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = Math.max(2, (max - min) * 0.12);
+    return [min - padding, max + padding];
+  }, [sparkData]);
+
+  if (sparkData.length < 2) {
+    return (
+      <span className="text-xs text-slate-500">Недостаточно данных</span>
+    );
+  }
+
+  return (
+    <div style={{ width: SPARKLINE_WIDTH, height: SPARKLINE_HEIGHT }}>
+      <LineChart
+        width={SPARKLINE_WIDTH}
+        height={SPARKLINE_HEIGHT}
+        data={sparkData}
+        margin={{ top: 6, right: 6, left: 6, bottom: 6 }}
+      >
+        <YAxis hide domain={yDomain} />
+        <Tooltip content={<SparklineTooltip />} cursor={{ stroke: "rgba(148,163,184,0.35)", strokeWidth: 1 }} />
+        <Line
+          type="monotone"
+          dataKey="indexPct"
+          stroke={COLORS.sparkline}
+          strokeWidth={SPARKLINE_STROKE}
+          dot={{
+            r: SPARKLINE_DOT_R,
+            fill: COLORS.sparkline,
+            stroke: "#ffffff",
+            strokeWidth: 1.25,
+          }}
+          activeDot={{
+            r: SPARKLINE_DOT_R + 1.5,
+            fill: COLORS.sparkline,
+            stroke: "#ffffff",
+            strokeWidth: 1.5,
+          }}
+          connectNulls={false}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </div>
+  );
+}
+
+function MaterialPriceIndexRow({ series }: { series: TmcMaterialPriceIndexLineSeries }) {
+  const { currentIndex, changePct } = useMemo(() => getSeriesSnapshot(series), [series]);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-600/35 bg-slate-900/30 px-3 py-2.5">
+      <div className="min-w-0 flex-[1.4]">
+        <div className="truncate text-sm font-medium text-slate-100" title={series.name}>
+          {series.name}
         </div>
+      </div>
+
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: SPARKLINE_WIDTH }}
+      >
+        {series.hasEnoughData ? (
+          <MaterialPriceIndexSparkline series={series} />
+        ) : (
+          <span className="text-xs text-slate-500">Недостаточно данных</span>
+        )}
+      </div>
+
+      <div className="w-[76px] shrink-0 text-right text-sm font-semibold tabular-nums text-slate-100">
+        {currentIndex != null ? formatIndexValue(currentIndex) : "—"}
+      </div>
+
+      <div className="w-[84px] shrink-0 text-right">
+        <PriceIndexChangeBadge changePct={changePct} />
+      </div>
+    </div>
+  );
+}
+
+export function TmcMaterialPriceIndexLineChartView({
+  dataset,
+}: {
+  dataset: TmcMaterialPriceIndexLineDataset;
+}) {
+  const sortedSeries = useMemo(() => sortSeriesByAbsChange(dataset.series), [dataset.series]);
+
+  if (dataset.months.length < 2) {
+    return (
+      <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
+        Недостаточно данных для расчёта индекса
+      </div>
+    );
+  }
+
+  if (sortedSeries.length === 0) {
+    return (
+      <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
+        Недостаточно данных для расчёта индекса
+        {dataset.insufficientDataCount > 0
+          ? ` (${dataset.insufficientDataCount} ТМЦ с менее чем 2 месяцами поставок)`
+          : null}
       </div>
     );
   }
 
   return (
-    <div className="flex w-full flex-col">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <PriceIndexSortSwitcher sortMode={sortMode} onSortModeChange={onSortModeChange} />
-        <PriceIndexKpiPanel dataset={dataset} />
-      </div>
-
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-slate-700/35 bg-slate-900/20">
-          <div
-            className="grid min-w-max text-xs"
-            style={{ gridTemplateColumns }}
-          >
-            <div className="sticky left-0 z-20 border-b border-r border-slate-700/40 bg-slate-900/95 px-3 py-2 font-medium text-slate-400">
-              ТМЦ
-            </div>
-            {dataset.months.map((month) => (
-              <div
-                key={month.monthKey}
-                className="border-b border-slate-700/40 px-1 py-2 text-center font-medium text-slate-400"
-              >
-                <span
-                  className="inline-block whitespace-nowrap"
-                  style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
-                >
-                  {month.label}
-                </span>
-              </div>
-            ))}
-
-            {dataset.rows.map((row) => (
-              <HeatmapMaterialRow
-                key={row.name}
-                row={row}
-                months={dataset.months}
-                monthLabelByKey={monthLabelByKey}
-                onHover={setHovered}
-              />
-            ))}
-          </div>
+    <div className="flex w-full gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="mb-2 hidden gap-3 px-3 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:grid sm:grid-cols-[minmax(0,1.4fr)_148px_76px_84px]">
+          <span>Материал</span>
+          <span className="text-center">Динамика</span>
+          <span className="text-right">Индекс</span>
+          <span className="text-right">Изменение</span>
         </div>
-
-        <div className="w-full shrink-0 lg:w-[240px]">
-          <HeatmapTooltip hovered={hovered} />
+        <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+          {sortedSeries.map((series) => (
+            <MaterialPriceIndexRow key={series.dataKey} series={series} />
+          ))}
         </div>
       </div>
 
-      <PriceHeatmapLegend />
+      <PriceIndexKpiPanel dataset={dataset} />
     </div>
   );
 }
 
-function HeatmapMaterialRow({
-  row,
-  months,
-  monthLabelByKey,
-  onHover,
-}: {
-  row: TmcPriceHeatmapMaterialRow;
-  months: TmcMaterialPriceHeatmapDataset["months"];
-  monthLabelByKey: Map<string, string>;
-  onHover: (value: HoveredCell | null) => void;
-}) {
-  const cellByMonth = useMemo(
-    () => new Map(row.cells.map((cell) => [cell.monthKey, cell])),
-    [row.cells],
-  );
-
-  return (
-    <>
-      <div
-        className="sticky left-0 z-10 border-b border-r border-slate-700/30 bg-slate-900/95 px-3 py-2 font-medium text-slate-200"
-        title={row.name}
-      >
-        {row.shortLabel}
-      </div>
-      {months.map((month) => {
-        const cell = cellByMonth.get(month.monthKey) ?? {
-          monthKey: month.monthKey,
-          price: null,
-          changePct: null,
-          tone: "empty" as const,
-          previousMonthKey: null,
-          previousMonthPrice: null,
-        };
-
-        return (
-          <button
-            key={`${row.name}-${month.monthKey}`}
-            type="button"
-            className="flex min-h-[52px] items-center justify-center border-b border-slate-700/25 px-1 py-2 text-center transition-opacity hover:opacity-90"
-            style={{
-              background: heatmapCellBackground(cell.tone, cell.changePct),
-              color: heatmapCellTextColor(cell.tone),
-            }}
-            onMouseEnter={() =>
-              onHover({
-                row,
-                cell,
-                monthLabel: monthLabelByKey.get(month.monthKey) ?? month.labelLong,
-              })
-            }
-            onMouseLeave={() => onHover(null)}
-            onFocus={() =>
-              onHover({
-                row,
-                cell,
-                monthLabel: monthLabelByKey.get(month.monthKey) ?? month.labelLong,
-              })
-            }
-            onBlur={() => onHover(null)}
-          >
-            <span className="tabular-nums leading-tight [font-size:clamp(9px,1.6vw,11px)]">
-              {cell.price != null && cell.price > 0 ? formatHeatmapCellPrice(cell.price) : "−"}
-            </span>
-          </button>
-        );
-      })}
-    </>
-  );
-}
-
-/** @deprecated Используйте TmcMaterialPriceHeatmapView */
-export const TmcMaterialPriceIndexChartView = TmcMaterialPriceHeatmapView;
+/** @deprecated Используйте TmcMaterialPriceIndexLineChartView */
+export const TmcMaterialPriceHeatmapView = TmcMaterialPriceIndexLineChartView;
+export const TmcMaterialPriceIndexChartView = TmcMaterialPriceIndexLineChartView;

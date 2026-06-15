@@ -35,14 +35,13 @@ import {
   computeTmcArmaturePlanFactDiagnostics,
   computeTmcMaterialCostDynamics,
   diagnoseTmcMaterialCostDynamicsChain,
-  computeTmcMaterialPriceHeatmap,
+  computeTmcMaterialPriceIndexLineDataset,
   computeTmcVolumeDynamics,
   buildTmcMonthlyUnitCostIndexSeries,
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
   logTmcDataPipelineDiagnostics,
   type TmcMaterialCostDynamicsMode,
-  type TmcPriceIndexSortMode,
   diagnoseTmcDeliveryDynamicsMonths,
   diagnoseTmcProcurementDynamicsMonths,
   type TmcMaterialPlanFactMode,
@@ -453,7 +452,6 @@ export function TmcPresentation({
   const [requestChartMode, setRequestChartMode] = useState<ChartMode>("monthly");
   const [workTypeChartMode, setWorkTypeChartMode] = useState<MaterialChartMode>("cost");
   const [costDynamicsMode, setCostDynamicsMode] = useState<TmcMaterialCostDynamicsMode>("byMaterial");
-  const [priceIndexSortMode, setPriceIndexSortMode] = useState<TmcPriceIndexSortMode>("byAlphabet");
   const today = useMemo(() => new Date(), []);
 
   const reloadTmc = useCallback(async () => {
@@ -653,9 +651,9 @@ export function TmcPresentation({
     [unitCostIndexTimeline],
   );
 
-  const materialPriceHeatmapDataset = useMemo(
-    () => computeTmcMaterialPriceHeatmap(enriched, priceIndexTimeline, priceIndexSortMode),
-    [enriched, priceIndexTimeline, priceIndexSortMode],
+  const materialPriceIndexLineDataset = useMemo(
+    () => computeTmcMaterialPriceIndexLineDataset(enriched, priceIndexTimeline),
+    [enriched, priceIndexTimeline],
   );
 
   const volumeDynamics = useMemo(() => computeTmcVolumeDynamics(enriched), [enriched]);
@@ -996,30 +994,6 @@ export function TmcPresentation({
             />
           )}
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 border-t border-slate-700/40 pt-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-          <div>
-            <span className="text-slate-500">Поставлено: </span>
-            <span className="font-semibold tabular-nums text-slate-100">
-              {kpi.deliveryCount} из {kpi.totalItemCount}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Стоимость поставок: </span>
-            <span className="font-semibold tabular-nums text-slate-100">
-              {formatCurrencyCompact(kpi.receiptsFactRub)} из {formatCurrencyCompact(kpi.planRub)}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Выполнение плана поставок: </span>
-            <span className="font-semibold tabular-nums text-slate-100">
-              {pct1(receiptCostExecutionPct)}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Просроченные поставки: </span>
-            <span className="font-semibold tabular-nums text-slate-100">{kpi.overdueCount}</span>
-          </div>
-        </div>
         <div className="mt-3 border-t border-slate-700/40 pt-3">
           <TmcDynamicsChartLegend labels={DELIVERY_DYNAMICS_LABELS} />
         </div>
@@ -1138,9 +1112,7 @@ export function TmcPresentation({
             rows={materialCostDynamics}
             mode={costDynamicsMode}
             indexChartData={unitCostIndexChartData}
-            priceHeatmapDataset={materialPriceHeatmapDataset}
-            priceIndexSortMode={priceIndexSortMode}
-            onPriceIndexSortModeChange={setPriceIndexSortMode}
+            priceIndexLineDataset={materialPriceIndexLineDataset}
           />
         </div>
       </div>

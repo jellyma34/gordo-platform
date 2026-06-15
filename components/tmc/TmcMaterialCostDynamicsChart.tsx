@@ -13,7 +13,7 @@ import {
 } from "@/components/charting/rechartsClient";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { createTmcMaterialXAxisTick } from "@/components/tmc/TmcMaterialXAxisTick";
-import { TmcMaterialPriceHeatmapView } from "@/components/tmc/TmcMaterialPriceIndexChart";
+import { TmcMaterialPriceIndexLineChartView } from "@/components/tmc/TmcMaterialPriceIndexChart";
 import {
   TmcUnitCostIndexChart,
   TmcUnitCostIndexChartLegend,
@@ -22,8 +22,7 @@ import {
 import type {
   TmcMaterialCostDynamicsMode,
   TmcMaterialCostDynamicsRow,
-  TmcMaterialPriceHeatmapDataset,
-  TmcPriceIndexSortMode,
+  TmcMaterialPriceIndexLineDataset,
 } from "@/lib/tmcPresentationAnalytics";
 import { tmcMaterialAxisLineCount } from "@/lib/tmcMaterialAxisLabels";
 
@@ -504,34 +503,29 @@ export function TmcMaterialCostDynamicsChart({
   rows,
   mode = "byMaterial",
   indexChartData,
-  priceHeatmapDataset,
-  priceIndexSortMode = "byAlphabet",
-  onPriceIndexSortModeChange,
+  priceIndexLineDataset,
 }: {
   rows: TmcMaterialCostDynamicsRow[];
   mode?: TmcMaterialCostDynamicsMode;
   indexChartData?: TmcUnitCostIndexChartRow[];
-  priceHeatmapDataset?: TmcMaterialPriceHeatmapDataset;
-  priceIndexSortMode?: TmcPriceIndexSortMode;
-  onPriceIndexSortModeChange?: (mode: TmcPriceIndexSortMode) => void;
+  priceIndexLineDataset?: TmcMaterialPriceIndexLineDataset;
 }) {
   if (mode === "byPriceIndex") {
     return (
-      <TmcMaterialPriceHeatmapView
+      <TmcMaterialPriceIndexLineChartView
         dataset={
-          priceHeatmapDataset ?? {
+          priceIndexLineDataset ?? {
             months: [],
-            rows: [],
+            series: [],
             maxGrowthPct: 0,
             maxGrowthMaterial: "—",
             maxGrowthMonthsLabel: null,
             maxDeclinePct: 0,
             maxDeclineMaterial: "—",
             maxDeclineMonthsLabel: null,
+            insufficientDataCount: 0,
           }
         }
-        sortMode={priceIndexSortMode}
-        onSortModeChange={onPriceIndexSortModeChange ?? (() => {})}
       />
     );
   }

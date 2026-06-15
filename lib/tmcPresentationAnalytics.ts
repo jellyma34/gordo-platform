@@ -2541,6 +2541,197 @@ export function computeTmcMaterialPriceHeatmap(
   };
 }
 
+export type TmcMaterialPriceIndexLinePoint = {
+  monthKey: string;
+  label: string;
+  indexPct: number | null;
+  /** Фактическая цена за ед. в месяце (для tooltip, без изменения формулы индекса). */
+  priceRub: number | null;
+};
+
+export type TmcMaterialPriceIndexLineSeries = {
+  name: string;
+  shortLabel: string;
+  dataKey: string;
+  purchaseVolume: number;
+  hasEnoughData: boolean;
+  points: TmcMaterialPriceIndexLinePoint[];
+};
+
+/** KPI + серии для линейного графика «Индекс цены» (факт, база = первый месяц поставки). */
+export type TmcMaterialPriceIndexLineDataset = {
+  months: TmcPriceHeatmapMonth[];
+  series: TmcMaterialPriceIndexLineSeries[];
+  maxGrowthPct: number;
+  maxGrowthMaterial: string;
+  maxGrowthMonthsLabel: string | null;
+  maxDeclinePct: number;
+  maxDeclineMaterial: string;
+  maxDeclineMonthsLabel: string | null;
+  insufficientDataCount: number;
+};
+
+const EMPTY_MATERIAL_PRICE_INDEX_LINE_DATASET: TmcMaterialPriceIndexLineDataset = {
+  months: [],
+  series: [],
+  maxGrowthPct: 0,
+  maxGrowthMaterial: "—",
+  maxGrowthMonthsLabel: null,
+  maxDeclinePct: 0,
+  maxDeclineMaterial: "—",
+  maxDeclineMonthsLabel: null,
+  insufficientDataCount: 0,
+};
+
+function materialTotalFactVolume(items: TMCItem[], materialName: string): number {
+  let total = 0;
+  for (const item of items) {
+    const name = item.name.trim() || "Без наименования";
+    if (name !== materialName) continue;
+    if (item.volumeFact > 0) total += item.volumeFact;
+  }
+  return total;
+}
+
+function buildMaterialFactIndexPoints(
+  deliveryMonths: TmcMaterialFactDeliveryMonth[],
+  months: TmcPriceHeatmapMonth[],
+): { points: TmcMaterialPriceIndexLinePoint[]; hasEnoughData: boolean } {
+  if (deliveryMonths.length < 2) {
+    return {
+      points: months.map((month) => ({
+        monthKey: month.monthKey,
+        label: month.label,
+        indexPct: null,
+        priceRub: null,
+      })),
+      hasEnoughData: false,
+    };
+  }
+
+  const basePrice = deliveryMonths[0]!.price;
+  const priceByMonth = new Map(deliveryMonths.map((entry) => [entry.monthKey, entry.price]));
+
+  const points = months.map((month) => {
+    const price = priceByMonth.get(month.monthKey);
+    if (price == null || price <= 0 || basePrice <= 0) {
+      return { monthKey: month.monthKey, label: month.label, indexPct: null, priceRub: null };
+    }
+    return {
+      monthKey: month.monthKey,
+      label: month.label,
+      indexPct: roundUnitCostIndexPct((price / basePrice) * 100),
+      priceRub: price,
+    };
+  });
+
+  return { points, hasEnoughData: true };
+}
+
+/**
+ * Линейный индекс цены по материалам: фактическая цена за ед. (supplyFactDate),
+ * помесячная история из buildMaterialFactDeliveryMonths, база = первый месяц поставки.
+ */
+export function computeTmcMaterialPriceIndexLineDataset(
+  items: TMCItem[],
+  referenceTimeline: TmcMonthlyProcurementPoint[],
+  limit?: number,
+): TmcMaterialPriceIndexLineDataset {
+  const months: TmcPriceHeatmapMonth[] = referenceTimeline.map((point) => {
+    const monthKey = point.iso.slice(0, 7);
+    return {
+      monthKey,
+      label: point.label,
+      labelLong: formatTmcMonthKeyLabelLong(monthKey),
+    };
+  });
+
+  if (months.length < 2) {
+    return { ...EMPTY_MATERIAL_PRICE_INDEX_LINE_DATASET, months };
+  }
+
+  const materialNames = new Set<string>();
+  for (const item of items) {
+    if (item.supplyFactDate?.trim()) {
+      materialNames.add(item.name.trim() || "Без наименования");
+    }
+  }
+
+  const candidates: TmcMaterialPriceIndexLineSeries[] = [];
+  let insufficientDataCount = 0;
+
+  for (const name of materialNames) {
+    const deliveryMonths = buildMaterialFactDeliveryMonths(items, name);
+    const { points, hasEnoughData } = buildMaterialFactIndexPoints(deliveryMonths, months);
+    if (!hasEnoughData) {
+      insufficientDataCount += 1;
+    }
+
+    candidates.push({
+      name,
+      shortLabel: truncateTmcMaterialLabel(name),
+      dataKey: `mat_${candidates.length}`,
+      purchaseVolume: materialTotalFactVolume(items, name),
+      hasEnoughData,
+      points,
+    });
+  }
+
+  if (candidates.length === 0) {
+    return {
+      ...EMPTY_MATERIAL_PRICE_INDEX_LINE_DATASET,
+      months,
+      insufficientDataCount,
+    };
+  }
+
+  const series =
+    limit != null && limit > 0
+      ? [...candidates]
+          .sort((a, b) => b.purchaseVolume - a.purchaseVolume)
+          .slice(0, limit)
+          .map((entry, index) => ({ ...entry, dataKey: `mat_${index}` }))
+      : candidates.map((entry, index) => ({ ...entry, dataKey: `mat_${index}` }));
+
+  const kpiSeries = candidates.filter((entry) => entry.hasEnoughData);
+
+  let maxGrowthPct = 0;
+  let maxGrowthMaterial = "—";
+  let maxGrowthMonthsLabel: string | null = null;
+  let maxDeclinePct = 0;
+  let maxDeclineMaterial = "—";
+  let maxDeclineMonthsLabel: string | null = null;
+
+  for (const entry of kpiSeries) {
+    for (const point of entry.points) {
+      if (point.indexPct == null || point.indexPct <= 0) continue;
+      const delta = point.indexPct - 100;
+      if (delta > maxGrowthPct) {
+        maxGrowthPct = delta;
+        maxGrowthMaterial = entry.name;
+        maxGrowthMonthsLabel = formatTmcMonthKeyLabelLong(point.monthKey);
+      }
+      if (delta < maxDeclinePct) {
+        maxDeclinePct = delta;
+        maxDeclineMaterial = entry.name;
+        maxDeclineMonthsLabel = formatTmcMonthKeyLabelLong(point.monthKey);
+      }
+    }
+  }
+
+  return {
+    months,
+    series,
+    maxGrowthPct: roundUnitCostIndexPct(maxGrowthPct),
+    maxGrowthMaterial,
+    maxGrowthMonthsLabel,
+    maxDeclinePct: roundUnitCostIndexPct(maxDeclinePct),
+    maxDeclineMaterial,
+    maxDeclineMonthsLabel,
+    insufficientDataCount,
+  };
+}
+
 export type TmcVolumeCompletionTone = "critical" | "warning" | "complete" | "over";
 
 export type TmcVolumeDynamicsRow = {
