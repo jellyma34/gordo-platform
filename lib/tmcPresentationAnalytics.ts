@@ -1532,7 +1532,7 @@ export function computeTmcMaterialCostDynamics(
   return limited;
 }
 
-export type TmcMaterialCostDynamicsMode = "byMaterial" | "byMonth" | "byPriceIndex";
+export type TmcMaterialCostDynamicsMode = "byMaterial" | "byPriceIndex";
 
 export type TmcMonthlyUnitCostPoint = {
   iso: string;
@@ -2635,7 +2635,6 @@ function buildMaterialFactIndexPoints(
 export function computeTmcMaterialPriceIndexLineDataset(
   items: TMCItem[],
   referenceTimeline: TmcMonthlyProcurementPoint[],
-  limit?: number,
 ): TmcMaterialPriceIndexLineDataset {
   const months: TmcPriceHeatmapMonth[] = referenceTimeline.map((point) => {
     const monthKey = point.iso.slice(0, 7);
@@ -2652,15 +2651,15 @@ export function computeTmcMaterialPriceIndexLineDataset(
 
   const materialNames = new Set<string>();
   for (const item of items) {
-    if (item.supplyFactDate?.trim()) {
-      materialNames.add(item.name.trim() || "Без наименования");
-    }
+    materialNames.add(item.name.trim() || "Без наименования");
   }
 
   const candidates: TmcMaterialPriceIndexLineSeries[] = [];
   let insufficientDataCount = 0;
 
-  for (const name of materialNames) {
+  const sortedMaterialNames = [...materialNames].sort((a, b) => a.localeCompare(b, "ru"));
+
+  for (const name of sortedMaterialNames) {
     const deliveryMonths = buildMaterialFactDeliveryMonths(items, name);
     const { points, hasEnoughData } = buildMaterialFactIndexPoints(deliveryMonths, months);
     if (!hasEnoughData) {
@@ -2685,49 +2684,17 @@ export function computeTmcMaterialPriceIndexLineDataset(
     };
   }
 
-  const series =
-    limit != null && limit > 0
-      ? [...candidates]
-          .sort((a, b) => b.purchaseVolume - a.purchaseVolume)
-          .slice(0, limit)
-          .map((entry, index) => ({ ...entry, dataKey: `mat_${index}` }))
-      : candidates.map((entry, index) => ({ ...entry, dataKey: `mat_${index}` }));
-
-  const kpiSeries = candidates.filter((entry) => entry.hasEnoughData);
-
-  let maxGrowthPct = 0;
-  let maxGrowthMaterial = "—";
-  let maxGrowthMonthsLabel: string | null = null;
-  let maxDeclinePct = 0;
-  let maxDeclineMaterial = "—";
-  let maxDeclineMonthsLabel: string | null = null;
-
-  for (const entry of kpiSeries) {
-    for (const point of entry.points) {
-      if (point.indexPct == null || point.indexPct <= 0) continue;
-      const delta = point.indexPct - 100;
-      if (delta > maxGrowthPct) {
-        maxGrowthPct = delta;
-        maxGrowthMaterial = entry.name;
-        maxGrowthMonthsLabel = formatTmcMonthKeyLabelLong(point.monthKey);
-      }
-      if (delta < maxDeclinePct) {
-        maxDeclinePct = delta;
-        maxDeclineMaterial = entry.name;
-        maxDeclineMonthsLabel = formatTmcMonthKeyLabelLong(point.monthKey);
-      }
-    }
-  }
+  const series = candidates.map((entry, index) => ({ ...entry, dataKey: `mat_${index}` }));
 
   return {
     months,
     series,
-    maxGrowthPct: roundUnitCostIndexPct(maxGrowthPct),
-    maxGrowthMaterial,
-    maxGrowthMonthsLabel,
-    maxDeclinePct: roundUnitCostIndexPct(maxDeclinePct),
-    maxDeclineMaterial,
-    maxDeclineMonthsLabel,
+    maxGrowthPct: 0,
+    maxGrowthMaterial: "—",
+    maxGrowthMonthsLabel: null,
+    maxDeclinePct: 0,
+    maxDeclineMaterial: "—",
+    maxDeclineMonthsLabel: null,
     insufficientDataCount,
   };
 }

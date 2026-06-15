@@ -37,7 +37,6 @@ import {
   diagnoseTmcMaterialCostDynamicsChain,
   computeTmcMaterialPriceIndexLineDataset,
   computeTmcVolumeDynamics,
-  buildTmcMonthlyUnitCostIndexSeries,
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
   logTmcDataPipelineDiagnostics,
@@ -636,21 +635,6 @@ export function TmcPresentation({
     return rows;
   }, [enriched, activePartScope, activeProjectPart]);
 
-  const unitCostIndexTimeline = useMemo(
-    () => buildTmcMonthlyUnitCostIndexSeries(enriched, priceIndexTimeline),
-    [enriched, priceIndexTimeline],
-  );
-
-  const unitCostIndexChartData = useMemo(
-    () =>
-      unitCostIndexTimeline.map((p) => ({
-        label: p.label,
-        plan: p.planIndex > 0 ? p.planIndex : null,
-        fact: p.factIndex > 0 ? p.factIndex : null,
-      })),
-    [unitCostIndexTimeline],
-  );
-
   const materialPriceIndexLineDataset = useMemo(
     () => computeTmcMaterialPriceIndexLineDataset(enriched, priceIndexTimeline),
     [enriched, priceIndexTimeline],
@@ -1092,7 +1076,6 @@ export function TmcPresentation({
             {(
               [
                 { id: "byMaterial" as const, label: "По ТМЦ" },
-                { id: "byMonth" as const, label: "По месяцам" },
                 { id: "byPriceIndex" as const, label: "Индекс цены" },
               ] as const
             ).map((m) => (
@@ -1111,7 +1094,6 @@ export function TmcPresentation({
           <TmcMaterialCostDynamicsChart
             rows={materialCostDynamics}
             mode={costDynamicsMode}
-            indexChartData={unitCostIndexChartData}
             priceIndexLineDataset={materialPriceIndexLineDataset}
           />
         </div>

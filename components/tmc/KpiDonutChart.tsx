@@ -17,6 +17,11 @@ export type KpiDonutSegment = {
 
 type KpiDonutChartProps = {
   segments: KpiDonutSegment[];
+  /**
+   * База для расчёта доли % в подписях и tooltip.
+   * По умолчанию — сумма значений сегментов (круг = 100% внутри блока).
+   */
+  percentBase?: number;
   /** Высота диаграммы, px (по умолчанию 96). */
   chartHeight?: number;
   /** Показывать долю % в легенде справа. */
@@ -31,6 +36,7 @@ function pct1(value: number, total: number): string {
 /** Компактная donut-диаграмма KPI с легендой справа. */
 export function KpiDonutChart({
   segments,
+  percentBase,
   chartHeight = 96,
   showLegendPercent = false,
 }: KpiDonutChartProps) {
@@ -41,22 +47,24 @@ export function KpiDonutChart({
     [segments],
   );
 
-  const total = useMemo(
+  const segmentSum = useMemo(
     () => activeSegments.reduce((s, seg) => s + seg.value, 0),
     [activeSegments],
   );
+
+  const labelBase = percentBase != null && percentBase > 0 ? percentBase : segmentSum;
 
   const chartData = useMemo(
     () =>
       activeSegments.map((seg, index) => ({
         ...seg,
         gradId: `${gradPrefix}-${index}`,
-        sharePct: total > 0 ? Math.round((seg.value / total) * 1000) / 10 : 0,
+        sharePct: segmentSum > 0 ? Math.round((seg.value / segmentSum) * 1000) / 10 : 0,
       })),
-    [activeSegments, gradPrefix, total],
+    [activeSegments, gradPrefix, segmentSum],
   );
 
-  const hasData = activeSegments.length > 0 && total > 0;
+  const hasData = activeSegments.length > 0 && segmentSum > 0;
 
   if (!hasData) {
     return (
@@ -112,7 +120,7 @@ export function KpiDonutChart({
                       </div>
                       <div className="tabular-nums text-slate-300">
                         Доля:{" "}
-                        <span className="font-medium text-white">{pct1(row.value, total)}</span>
+                        <span className="font-medium text-white">{pct1(row.value, labelBase)}</span>
                       </div>
                     </div>
                   );
@@ -171,7 +179,7 @@ export function KpiDonutChart({
                 {seg.value}
                 {showLegendPercent ? (
                   <span className="ml-1.5 text-sm font-medium text-slate-300/65">
-                    {pct1(seg.value, total)}
+                    {pct1(seg.value, labelBase)}
                   </span>
                 ) : null}
               </span>

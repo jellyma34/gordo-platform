@@ -1,12 +1,10 @@
 import {
   hasTenderSignedContract,
   matchesTenderConductedKpiStatusLabel,
-  normalizeTenderCycleStatus,
   resolveTenderCycleStatus,
   TENDER_CONDUCTED_KPI_CYCLE_STATUSES,
   TENDER_CYCLE_STATUS_COLORS,
   TENDER_CYCLE_STATUS_LABEL,
-  TENDER_CYCLE_STATUS_ORDER,
   tenderStatusDistributionLabel,
   type Tender,
   type TenderCycleStatus,
@@ -284,7 +282,17 @@ export type TenderKpiDonutDistributions = {
   conductedPipeline: KpiDonutSegment[];
   overdueReasons: KpiDonutSegment[];
   budgetDeviation: KpiDonutSegment[];
+  /** Общее количество тендеров реестра — единая база для KPI donut. */
+  totalTenders: number;
+  /** Тендеры, попавшие в блок «Отклонение от тендерного бюджета». */
+  budgetBlockTenderCount: number;
 };
+
+const CONDUCTED_PIPELINE_CYCLE_STATUSES: TenderCycleStatus[] = [
+  "conducted",
+  "contractSigned",
+  "contractNotConcluded",
+];
 
 const OVERDUE_REASON_LABELS: Record<TenderOverdueReasonBucket, string> = {
   notAnnounced: "Не объявлен тендер",
@@ -318,42 +326,33 @@ const BUDGET_COLORS: Record<TenderBudgetBucket, string> = {
   noFact: TENDER_KPI_DONUT_COLORS.noFact,
 };
 
-function buildConductedStatusSegments(tenders: Tender[]): KpiDonutSegment[] {
-  const counts = new Map<string, number>();
-  const colors = new Map<string, string>();
-
-  for (const t of tenders) {
-    const label = tenderStatusDistributionLabel(t);
-    const cycle = resolveTenderCycleStatus(t);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-    if (!colors.has(label)) {
-      colors.set(label, TENDER_CYCLE_STATUS_COLORS[cycle]);
-    }
-  }
-
-  return [...counts.entries()]
-    .sort(
-      (a, b) =>
-        TENDER_CYCLE_STATUS_ORDER.indexOf(
-          resolveTenderCycleStatusFromLabel(a[0]),
-        ) -
-          TENDER_CYCLE_STATUS_ORDER.indexOf(
-            resolveTenderCycleStatusFromLabel(b[0]),
-          ) || b[1] - a[1],
-    )
-    .map(([label, value]) => ({
-      label,
-      value,
-      color: colors.get(label) ?? TENDER_CYCLE_STATUS_COLORS.other,
-    }));
+function classifyConductedPipelineStatus(
+  t: Tender,
+): (typeof CONDUCTED_PIPELINE_CYCLE_STATUSES)[number] | null {
+  if (!isTenderConducted(t)) return null;
+  const cycle = resolveTenderCycleStatus(t);
+  if (cycle === "contractSigned" || hasTenderSignedContract(t)) return "contractSigned";
+  if (cycle === "contractNotConcluded") return "contractNotConcluded";
+  return "conducted";
 }
 
-function resolveTenderCycleStatusFromLabel(label: string): TenderCycleStatus {
-  const entry = TENDER_CYCLE_STATUS_ORDER.find(
-    (key) => TENDER_CYCLE_STATUS_LABEL[key].toLowerCase() === label.trim().toLowerCase(),
-  );
-  if (entry) return entry;
-  return normalizeTenderCycleStatus(label);
+function buildConductedStatusSegments(tenders: Tender[]): KpiDonutSegment[] {
+  const counts: Record<(typeof CONDUCTED_PIPELINE_CYCLE_STATUSES)[number], number> = {
+    conducted: 0,
+    contractSigned: 0,
+    contractNotConcluded: 0,
+  };
+
+  for (const t of tenders) {
+    const pipeline = classifyConductedPipelineStatus(t);
+    if (pipeline) counts[pipeline] += 1;
+  }
+
+  return CONDUCTED_PIPELINE_CYCLE_STATUSES.map((cycle) => ({
+    label: TENDER_CYCLE_STATUS_LABEL[cycle],
+    value: counts[cycle],
+    color: TENDER_CYCLE_STATUS_COLORS[cycle],
+  }));
 }
 
 function buildOverdueReasonSegments(
@@ -367,20 +366,24 @@ function buildOverdueReasonSegments(
     "contractNotSigned",
     "overdueOther",
   ];
-  return order.map((key) => ({
-    label: OVERDUE_REASON_LABELS[key],
-    value: counts[key],
-    color: OVERDUE_REASON_COLORS[key],
-  }));
+  return order
+    .filter((key) => counts[key] > 0)
+    .map((key) => ({
+      label: OVERDUE_REASON_LABELS[key],
+      value: counts[key],
+      color: OVERDUE_REASON_COLORS[key],
+    }));
 }
 
 function buildBudgetSegments(counts: Record<TenderBudgetBucket, number>): KpiDonutSegment[] {
   const order: TenderBudgetBucket[] = ["economy", "onBudget", "overrun", "noFact"];
-  return order.map((key) => ({
-    label: BUDGET_LABELS[key],
-    value: counts[key],
-    color: BUDGET_COLORS[key],
-  }));
+  return order
+    .filter((key) => counts[key] > 0)
+    .map((key) => ({
+      label: BUDGET_LABELS[key],
+      value: counts[key],
+      color: BUDGET_COLORS[key],
+    }));
 }
 
 /** Единый проход по тендерам для трёх KPI donut-диаграмм. */
@@ -411,10 +414,14 @@ export function computeTenderKpiDonutDistributions(
     if (budgetBucket) budgetCounts[budgetBucket] += 1;
   }
 
+  const budgetBlockTenderCount = Object.values(budgetCounts).reduce((sum, count) => sum + count, 0);
+
   return {
     conductedPipeline: buildConductedStatusSegments(tenders),
     overdueReasons: buildOverdueReasonSegments(overdueCounts),
     budgetDeviation: buildBudgetSegments(budgetCounts),
+    totalTenders: tenders.length,
+    budgetBlockTenderCount,
   };
 }
 

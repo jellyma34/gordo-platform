@@ -14,11 +14,6 @@ import {
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { createTmcMaterialXAxisTick } from "@/components/tmc/TmcMaterialXAxisTick";
 import { TmcMaterialPriceIndexLineChartView } from "@/components/tmc/TmcMaterialPriceIndexChart";
-import {
-  TmcUnitCostIndexChart,
-  TmcUnitCostIndexChartLegend,
-  type TmcUnitCostIndexChartRow,
-} from "@/components/tmc/TmcUnitCostIndexChart";
 import type {
   TmcMaterialCostDynamicsMode,
   TmcMaterialCostDynamicsRow,
@@ -332,19 +327,6 @@ function TmcMaterialCostTooltip({
   );
 }
 
-function TmcMaterialCostIndexView({ chartData }: { chartData: TmcUnitCostIndexChartRow[] }) {
-  return (
-    <div className="flex w-full flex-col">
-      <div className="h-[320px] w-full min-w-0">
-        <TmcUnitCostIndexChart chartData={chartData} />
-      </div>
-      <div className="mt-3 border-t border-slate-700/40 pt-3">
-        <TmcUnitCostIndexChartLegend />
-      </div>
-    </div>
-  );
-}
-
 function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamicsRow[] }) {
   const chartData = useMemo<ChartRow[]>(
     () =>
@@ -502,12 +484,10 @@ function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamics
 export function TmcMaterialCostDynamicsChart({
   rows,
   mode = "byMaterial",
-  indexChartData,
   priceIndexLineDataset,
 }: {
   rows: TmcMaterialCostDynamicsRow[];
   mode?: TmcMaterialCostDynamicsMode;
-  indexChartData?: TmcUnitCostIndexChartRow[];
   priceIndexLineDataset?: TmcMaterialPriceIndexLineDataset;
 }) {
   if (mode === "byPriceIndex") {
@@ -528,18 +508,6 @@ export function TmcMaterialCostDynamicsChart({
         }
       />
     );
-  }
-
-  if (mode === "byMonth") {
-    if (!indexChartData || indexChartData.length === 0) {
-      return (
-        <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
-          Недостаточно дат план/факт поставки для построения индекса цены
-        </div>
-      );
-    }
-
-    return <TmcMaterialCostIndexView chartData={indexChartData} />;
   }
 
   return <TmcMaterialCostByMaterialView rows={rows} />;

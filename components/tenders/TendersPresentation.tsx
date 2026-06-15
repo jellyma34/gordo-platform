@@ -730,7 +730,11 @@ export function TendersPresentation({
           <div className="mt-auto space-y-1.5">
             <TenderKpiDivider />
             <div className="pt-3">
-              <KpiDonutChart segments={kpiDonutSegments.conductedPipeline} chartHeight={100} />
+              <KpiDonutChart
+                segments={kpiDonutSegments.conductedPipeline}
+                percentBase={kpiDonutSegments.totalTenders}
+                chartHeight={100}
+              />
             </div>
           </div>
         </TenderPremiumKpiCard>
@@ -780,7 +784,11 @@ export function TendersPresentation({
           <div className="mt-auto space-y-1.5">
             <TenderKpiDivider />
             <div className="pt-3">
-              <KpiDonutChart segments={kpiDonutSegments.overdueReasons} chartHeight={100} />
+              <KpiDonutChart
+                segments={kpiDonutSegments.overdueReasons}
+                percentBase={kpiDonutSegments.totalTenders}
+                chartHeight={100}
+              />
             </div>
           </div>
         </TenderPremiumKpiCard>
@@ -851,7 +859,11 @@ export function TendersPresentation({
           <div className="mt-auto space-y-1.5">
             <TenderKpiDivider />
             <div className="pt-3">
-              <KpiDonutChart segments={kpiDonutSegments.budgetDeviation} chartHeight={100} />
+              <KpiDonutChart
+                segments={kpiDonutSegments.budgetDeviation}
+                percentBase={kpiDonutSegments.budgetBlockTenderCount}
+                chartHeight={100}
+              />
             </div>
           </div>
         </TenderPremiumKpiCard>
