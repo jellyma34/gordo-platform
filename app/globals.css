@@ -261,7 +261,6 @@ a {
 }
 
 @media (min-width: 1024px) {
-  .presentation-section-grid,
   .hub-section-grid {
     grid-template-columns: repeat(3, 1fr);
   }

@@ -37,14 +37,22 @@ export default function PresentationEntry() {
 
   return (
     <div className="presentation-hub">
+      <div className="presentation-hub-bg" aria-hidden />
       <div className="presentation-content">
-        <h1 className="presentation-subtitle text-lg font-medium leading-relaxed text-slate-300 md:text-xl">
-          Сводка проекта на сегодня
-        </h1>
-        <p className="mb-4 text-center text-sm text-slate-400">Нажмите на блок, чтобы открыть раздел</p>
+        <header className="presentation-hero">
+          <h1 className="presentation-hero-title">
+            Сводка проекта{" "}
+            <span className="presentation-hero-accent">на сегодня</span>
+          </h1>
+          <p className="presentation-hero-subtitle">Нажмите на блок, чтобы открыть раздел</p>
+        </header>
 
-        <div className="mt-2 w-full">
-          <HubSectionCards blocks={blocks} gridClassName="presentation-section-grid" />
+        <div className="presentation-cards-wrap">
+          <HubSectionCards
+            blocks={blocks}
+            gridClassName="presentation-section-grid"
+            variant="presentation"
+          />
         </div>
       </div>
     </div>

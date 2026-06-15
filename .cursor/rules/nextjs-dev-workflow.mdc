@@ -1,0 +1,99 @@
+---
+description: КРИТИЧЕСКОЕ — диагностика процессов перед любым запуском Next.js; один проект = один процесс
+alwaysApply: true
+---
+
+# КРИТИЧЕСКОЕ ПРАВИЛО ДЛЯ NEXT.JS
+
+**Один проект = один активный Next-процесс.**
+
+## Обязательная диагностика ПЕРЕД любым запуском
+
+Перед **любой** из команд:
+
+- `npm run dev` / `next dev`
+- `npm run build` / `next build`
+- `npm run start` / `next start` / `npm run start:next`
+- `server.js`
+
+агент **обязан** выполнить диагностику (ничего не запускать до проверки):
+
+```powershell
+netstat -ano | findstr :3000
+netstat -ano | findstr "LISTENING" | findstr "3000 3001 3002 3007 3010"
+tasklist | findstr node
+wmic process where "name='node.exe'" get ProcessId,ParentProcessId,CommandLine
+```
+
+Искать процессы текущего проекта (`gordo-platform-Big_test`) с признаками:
+
+- `next dev`
+- `next start`
+- `start-server.js`
+- `npm run dev` / `npm run start` / `npm run build`
+
+## Если найден активный Next.js процесс
+
+**ЗАПРЕЩЕНО** запускать новый экземпляр.
+
+Сначала вывести отчёт:
+
+```
+Найден активный Next.js процесс:
+PID: ...
+Команда: ...
+Порт: ...
+```
+
+Затем **запросить подтверждение пользователя** перед остановкой или любым новым запуском.
+
+Без подтверждения — не запускать, не останавливать, не очищать `.next`.
+
+## Запрещено одновременно (один каталог проекта)
+
+- несколько `next dev`
+- `next dev` и `next start`
+- `npm run build` / `next build` во время работающего dev
+- `server.js` в dev-режиме параллельно с `next dev` / `next start`
+- второй dev-сервер на портах 3001, 3002, 3007 и т.п. — **никогда не создавать автоматически**
+
+## Workflow разработки
+
+1. Диагностика процессов (см. выше).
+2. Если процессы есть — отчёт + подтверждение пользователя.
+3. Остановить все Next-процессы проекта.
+4. Удалить `.next` (`npm run clean:next`).
+5. Запустить **один** экземпляр: `npm run dev:clean` или `npm run dev`.
+
+## Workflow build
+
+1. Диагностика процессов.
+2. Остановить **все** Next-процессы проекта.
+3. Очистить `.next` (`npm run clean:next`).
+4. Выполнить `npm run build`.
+5. **Не** запускать dev параллельно с build.
+6. После build — для production: `npm run start:next` (только если порт свободен и dev не запущен).
+7. Перед возвратом в dev — снова остановить start, очистить `.next`, запустить один `npm run dev:clean`.
+
+## Для агентов
+
+- Не использовать `-p 3001`, `-p 3002`, `-p 3007` и другие порты без явного запроса пользователя.
+- Не запускать `concurrently` с dev + backend, если dev уже работает.
+- Turbopack (`--turbo`) в проекте не используется.
+- Удаление `.next` через `npm run clean:next` — разрешено по этому правилу без отдельного подтверждения, **только после** остановки всех Next-процессов (или с подтверждением пользователя).
+
+## Причина
+
+Next.js 15 на Windows создаёт рассинхрон между:
+
+- `.next/server/{id}.js` (dev)
+- `.next/server/chunks/{id}.js` (production)
+
+При нескольких процессах на одном `.next`:
+
+- `Cannot find module './1331.js'` / `'./5611.js'`
+- `Loading chunk failed`
+- `Cannot read properties of undefined (reading 'call')`
+- `SegmentViewNode` not in React Client Manifest
+- `EADDRINUSE :::3000`
+- `500 Internal Server Error`
