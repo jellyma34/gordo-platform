@@ -10,6 +10,7 @@ const COLORS = {
   red: "#ef4444",
   orange: "#f97316",
   gray: "#6b7280",
+  cyan: "#06b6d4",
 } as const;
 
 export type GprStageKpiTraffic = "green" | "yellow" | "red" | "gray";
@@ -254,7 +255,7 @@ function deviationValueColorClass(deltaPp: number | null): string {
 
 export type GprStageKpiMetricsVariant = "full" | "compact";
 
-export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi";
+export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi" | "businessKpi";
 
 export type GprStageKpiCardProps = {
   title: string;
@@ -264,7 +265,8 @@ export type GprStageKpiCardProps = {
   /**
    * Источник сегментов donut:
    * - workItem — классификация по этапам (по умолчанию);
-   * - trafficKpi — четыре KPI-категории: в срок / с риском / просрочено / с опозданием.
+   * - trafficKpi — четыре KPI-категории: в срок / с риском / просрочено / с опозданием;
+   * - businessKpi — бизнес-статусы: завершено / в процессе / с опозданием / просрочено.
    */
   donutStatusVariant?: GprStageKpiDonutStatusVariant;
   factLabel: string;
@@ -286,6 +288,11 @@ export type GprStageKpiCardProps = {
   donutOverdueCount: number;
   donutCompletedLateCount: number;
   donutNotStartedCount: number;
+  /** Бизнес-классификация (donutStatusVariant === "businessKpi"). */
+  businessCompletedCount?: number;
+  businessInProgressCount?: number;
+  businessLateCount?: number;
+  businessOverdueCount?: number;
   problematicSharePct: number;
 };
 
@@ -313,12 +320,23 @@ export function GprStageKpiCard({
   donutOverdueCount,
   donutCompletedLateCount,
   donutNotStartedCount,
+  businessCompletedCount = 0,
+  businessInProgressCount = 0,
+  businessLateCount = 0,
+  businessOverdueCount = 0,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
 
   const donutSegments: KpiDonutSegment[] =
-    donutStatusVariant === "trafficKpi"
+    donutStatusVariant === "businessKpi"
+      ? [
+          { label: "Завершено", value: businessCompletedCount, color: COLORS.green },
+          { label: "В процессе", value: businessInProgressCount, color: COLORS.cyan },
+          { label: "С опозданием", value: businessLateCount, color: COLORS.orange },
+          { label: "Просрочено", value: businessOverdueCount, color: COLORS.red },
+        ]
+      : donutStatusVariant === "trafficKpi"
       ? [
           { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
           { label: "С риском", value: donutRiskCount, color: COLORS.yellow },
@@ -342,7 +360,12 @@ export function GprStageKpiCard({
         ];
 
   const donutStatusTotal =
-    donutStatusVariant === "trafficKpi"
+    donutStatusVariant === "businessKpi"
+      ? businessCompletedCount +
+        businessInProgressCount +
+        businessLateCount +
+        businessOverdueCount
+      : donutStatusVariant === "trafficKpi"
       ? donutOnTimeCount + donutRiskCount + donutOverdueCount + donutCompletedLateCount
       : donutOnTimeCount +
         donutRiskCount +
@@ -352,6 +375,24 @@ export function GprStageKpiCard({
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
+    if (donutStatusVariant === "businessKpi") {
+      const sum =
+        businessCompletedCount +
+        businessInProgressCount +
+        businessLateCount +
+        businessOverdueCount;
+      console.log("[GprStageKpiCard:businessKpi]", {
+        title,
+        "Завершено": businessCompletedCount,
+        "В процессе": businessInProgressCount,
+        "С опозданием": businessLateCount,
+        "Просрочено": businessOverdueCount,
+        Итого: sum,
+        totalStages,
+        sumEqualsTotalStages: sum === totalStages,
+      });
+      return;
+    }
     if (donutStatusVariant !== "trafficKpi") return;
     const sum =
       donutOnTimeCount + donutRiskCount + donutOverdueCount + donutCompletedLateCount;
@@ -375,6 +416,10 @@ export function GprStageKpiCard({
     donutOverdueCount,
     donutCompletedLateCount,
     donutNotStartedCount,
+    businessCompletedCount,
+    businessInProgressCount,
+    businessLateCount,
+    businessOverdueCount,
   ]);
 
   const fullMetricRows: {

@@ -1855,6 +1855,25 @@ function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusK
   return "overdue";
 }
 
+/**
+ * Бизнес-классификация этапа для donut «Строительство зданий и сооружений».
+ * Каждый этап попадает РОВНО в одну категорию; сумма всех = totalStages (workItems).
+ * Приоритет:
+ *   1) Завершено с опозданием  → "late"        (factEnd позже планового конца)
+ *   2) Не завершено и срок прошёл → "overdue"  (плановый конец прошёл, факт не завершён)
+ *   3) Завершено вовремя        → "completed"  (факт завершён до/в день планового конца)
+ *   4) Остальные активные       → "in_progress" (в работе либо нет данных по дедлайну)
+ */
+type GprBusinessStatusKey = "completed" | "in_progress" | "late" | "overdue";
+function gprStageWorkItemBusinessStatus(task: GPRTask, asOf: Date): GprBusinessStatusKey {
+  const completed = isGprWorkItemCompleted(task);
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  if (completed && endDelay !== null && endDelay > 0) return "late";
+  if (!completed && endDelay !== null && endDelay > 0) return "overdue";
+  if (completed) return "completed";
+  return "in_progress";
+}
+
 function computeGprStageStatusBreakdown(
   allTasks: GPRTask[],
   rootTask: GPRTask,
@@ -1870,10 +1889,17 @@ function computeGprStageStatusBreakdown(
     completed_late: 0,
     not_started: 0,
   };
+  const businessCounts = {
+    completed: 0,
+    in_progress: 0,
+    late: 0,
+    overdue: 0,
+  };
   for (const t of workItems) {
     const { status } = trafficStatusForTask(t, asOf);
     counts[status] += 1;
     donutCounts[gprStageWorkItemDonutStatus(t, asOf)] += 1;
+    businessCounts[gprStageWorkItemBusinessStatus(t, asOf)] += 1;
   }
   const total = stageInsight.workTotal;
   const completed = stageInsight.workCompleted;
@@ -1897,6 +1923,10 @@ function computeGprStageStatusBreakdown(
     donutOverdueCount: donutCounts.overdue,
     donutCompletedLateCount: donutCounts.completed_late,
     donutNotStartedCount: donutCounts.not_started,
+    businessCompletedCount: businessCounts.completed,
+    businessInProgressCount: businessCounts.in_progress,
+    businessLateCount: businessCounts.late,
+    businessOverdueCount: businessCounts.overdue,
     problematicSharePct:
       withStatus > 0 ? Math.round((problematic / withStatus) * 1000) / 10 : 0,
   };
@@ -2895,7 +2925,7 @@ export function GPRAnalytics({
       leftMeta=""
       rightLabel="По этапам"
       rightValue={aggregateStagesKpiLine}
-      bottomLabel="Отклонение готовности, п.п."
+      bottomLabel="Отклонение готовности, %"
       bottomValue={
         aggTotalDeviation === null
           ? "—"
@@ -3043,8 +3073,17 @@ export function GPRAnalytics({
       : Math.abs(aggregatePlanClamped - Math.round(aggregatePlanClamped)) < 1e-6
         ? `${Math.round(aggregatePlanClamped)}%`
         : `${aggregatePlanClamped.toFixed(1)}%`;
+  /**
+   * Агрегированное отклонение готовности по жилому дому (или активной части): факт − план,
+   * посчитанные в одной модели — той же, что используют карточки 2.04 и 2.05.
+   * Не подставлять сюда partProgressAggregate.totalDeviation: тот показатель — взвешенная
+   * calculateDeviation(rootTask, asOf) по корням, и для текущих данных он даёт 0,
+   * что противоречит фактически наблюдаемой разнице фактической и плановой готовности.
+   */
   const aggregateDeviationDeltaPp =
-    aggTotalDeviation === null ? null : Math.round(aggTotalDeviation * 10) / 10;
+    aggTotalPercent === null || aggregatePlannedPercent === null
+      ? null
+      : Math.round((aggTotalPercent - aggregatePlannedPercent) * 10) / 10;
   const aggregateDeviationDisplay =
     aggregateDeviationDeltaPp === null
       ? "—"
@@ -3154,14 +3193,14 @@ export function GPRAnalytics({
               status={status}
               metricsVariant={isResidentialCompactStageCard ? "compact" : "full"}
               donutStatusVariant={
-                isBuildingConstructionStageCard ? "trafficKpi" : "workItem"
+                isBuildingConstructionStageCard ? "businessKpi" : "workItem"
               }
               factLabel="Факт выполнения"
               factValue={isNoData ? "—" : progressDisplay}
               factTitle={stageInsight.tooltipText}
               planLabel="Плановая готовность"
               planValue={planDisplay}
-              deviationLabel="Отклонение готовности, п.п."
+              deviationLabel="Отклонение готовности, %"
               deviationValue={`${deviationLabel}%`}
               deviationDeltaPp={progressDeltaPp}
               completedStages={statusBreakdown.completedStages}
@@ -3175,6 +3214,10 @@ export function GPRAnalytics({
               donutOverdueCount={statusBreakdown.donutOverdueCount}
               donutCompletedLateCount={statusBreakdown.donutCompletedLateCount}
               donutNotStartedCount={statusBreakdown.donutNotStartedCount}
+              businessCompletedCount={statusBreakdown.businessCompletedCount}
+              businessInProgressCount={statusBreakdown.businessInProgressCount}
+              businessLateCount={statusBreakdown.businessLateCount}
+              businessOverdueCount={statusBreakdown.businessOverdueCount}
               problematicSharePct={statusBreakdown.problematicSharePct}
             />
           );
@@ -3191,7 +3234,7 @@ export function GPRAnalytics({
           factTitle={AGGREGATE_PROGRESS_TOOLTIP}
           planLabel="Плановая готовность"
           planValue={aggregatePlanDisplay}
-          deviationLabel="Отклонение готовности, п.п."
+          deviationLabel="Отклонение готовности, %"
           deviationValue={`${aggregateDeviationDisplay}%`}
           deviationDeltaPp={aggregateDeviationDeltaPp}
           completedStages={aggregateStageBreakdown.workCompleted}
