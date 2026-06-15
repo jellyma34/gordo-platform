@@ -1125,8 +1125,62 @@ export type TmcMaterialPlanFactRow = {
   plan: number;
   fact: number;
   deviation: number;
+  /** Выполнение по стоимости (факт / план), режим «Стоимость». */
   completionPct: number;
+  /** План % на текущую дату — полоса в режиме «% выполнения». */
+  planBarPct: number;
+  /** Факт % на текущую дату — полоса в режиме «% выполнения». */
+  factBarPct: number;
+  /** Факт относительно плана на текущую дату (для цвета фактической полосы). */
+  executionVsPlanPct: number;
+  /** Есть supplyPlanDate для расчёта календарного плана. */
+  hasCalendarPlan: boolean;
 };
+
+function roundTmcCompletionBarPct(pct: number): number {
+  if (!Number.isFinite(pct)) return 0;
+  return Math.round(pct * 10) / 10;
+}
+
+type TmcMaterialPlanFactBucket = {
+  plan: number;
+  fact: number;
+  totalVolumePlan: number;
+  totalVolumeFact: number;
+  planVolumeByToday: number;
+  factVolumeByToday: number;
+  hasCalendarPlan: boolean;
+};
+
+/**
+ * Проценты для режима «% выполнения» по объёмам поставки.
+ * Fallback 100% / fact/plan×100 — если нет supplyPlanDate (календарный план).
+ */
+function resolveTmcMaterialCompletionBarPcts(bucket: TmcMaterialPlanFactBucket): {
+  planBarPct: number;
+  factBarPct: number;
+  executionVsPlanPct: number;
+} {
+  const { totalVolumePlan, totalVolumeFact, planVolumeByToday, factVolumeByToday, hasCalendarPlan } =
+    bucket;
+
+  if (totalVolumePlan <= 0) {
+    return { planBarPct: 0, factBarPct: 0, executionVsPlanPct: 0 };
+  }
+
+  if (!hasCalendarPlan) {
+    // Нет календарного плана по supplyPlanDate — прежняя логика: план = 100%, факт = доля от общего плана.
+    const factBarPct = roundTmcCompletionBarPct((totalVolumeFact / totalVolumePlan) * 100);
+    return { planBarPct: 100, factBarPct, executionVsPlanPct: factBarPct };
+  }
+
+  const planBarPct = roundTmcCompletionBarPct((planVolumeByToday / totalVolumePlan) * 100);
+  const factBarPct = roundTmcCompletionBarPct((factVolumeByToday / totalVolumePlan) * 100);
+  const executionVsPlanPct =
+    planBarPct > 0 ? roundTmcCompletionBarPct((factBarPct / planBarPct) * 100) : 0;
+
+  return { planBarPct, factBarPct, executionVsPlanPct };
+}
 
 function truncateTmcMaterialLabel(name: string, maxLen = 34): string {
   const t = name.trim().replace(/\s+/g, " ");
@@ -1138,29 +1192,75 @@ function truncateTmcMaterialLabel(name: string, maxLen = 34): string {
 export function computeTmcMaterialPlanFact(
   items: TMCItem[],
   limit = TMC_MATERIAL_PLAN_FACT_TOP_N,
+  today: Date = new Date(),
 ): TmcMaterialPlanFactRow[] {
-  const buckets = new Map<string, { plan: number; fact: number }>();
+  const todayIso = today.toISOString().slice(0, 10);
+  const buckets = new Map<string, TmcMaterialPlanFactBucket>();
 
   for (const item of items) {
     const name = tmcMaterialPlanFactBucketKey(item);
-    const cur = buckets.get(name) ?? { plan: 0, fact: 0 };
+    const cur = buckets.get(name) ?? {
+      plan: 0,
+      fact: 0,
+      totalVolumePlan: 0,
+      totalVolumeFact: 0,
+      planVolumeByToday: 0,
+      factVolumeByToday: 0,
+      hasCalendarPlan: false,
+    };
     cur.plan += item.planCost;
     cur.fact += tmcItemFactCostRub(item);
+    cur.totalVolumePlan += item.volumePlan;
+    cur.totalVolumeFact += item.volumeFact;
+
+    const supplyPlanDate = item.supplyPlanDate?.trim();
+    if (supplyPlanDate && item.volumePlan > 0) {
+      cur.hasCalendarPlan = true;
+      if (supplyPlanDate <= todayIso) {
+        cur.planVolumeByToday += item.volumePlan;
+      }
+    }
+
+    const supplyFactDate = item.supplyFactDate?.trim();
+    if (supplyFactDate && supplyFactDate <= todayIso) {
+      cur.factVolumeByToday += item.volumeFact;
+    }
+
     buckets.set(name, cur);
   }
 
-  return [...buckets.entries()]
+  const rows = [...buckets.entries()]
     .filter(([, v]) => v.plan > 0 || v.fact > 0)
-    .map(([name, v]) => ({
-      name,
-      shortLabel: truncateTmcMaterialLabel(name),
-      plan: v.plan,
-      fact: v.fact,
-      deviation: v.fact - v.plan,
-      completionPct: v.plan > 0 ? Math.round((v.fact / v.plan) * 1000) / 10 : 0,
-    }))
+    .map(([name, v]) => {
+      const barPcts = resolveTmcMaterialCompletionBarPcts(v);
+      return {
+        name,
+        shortLabel: truncateTmcMaterialLabel(name),
+        plan: v.plan,
+        fact: v.fact,
+        deviation: v.fact - v.plan,
+        completionPct: v.plan > 0 ? Math.round((v.fact / v.plan) * 1000) / 10 : 0,
+        planBarPct: barPcts.planBarPct,
+        factBarPct: barPcts.factBarPct,
+        executionVsPlanPct: barPcts.executionVsPlanPct,
+        hasCalendarPlan: v.hasCalendarPlan,
+      };
+    })
     .sort((a, b) => b.plan - a.plan)
     .slice(0, limit);
+
+  const fallbackNames = rows
+    .filter((row) => row.plan > 0 && !row.hasCalendarPlan)
+    .map((row) => row.name);
+  if (fallbackNames.length > 0) {
+    console.warn(
+      "[TMC plan/fact %] Нет календарного плана поставок (supplyPlanDate) для материалов:",
+      fallbackNames,
+      "— fallback: план=100%, факт=(фактический объём / общий плановый объём)×100.",
+    );
+  }
+
+  return rows;
 }
 
 function aggregateTmcItemsByName(items: TMCItem[]): Map<

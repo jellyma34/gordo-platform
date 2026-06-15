@@ -70,7 +70,7 @@ function capCompletionPct(pct: number): number {
 
 const rubFullFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 
-type TmcCompletionRow = Omit<TmcMaterialPlanFactRow, "completionPct"> & {
+type TmcCompletionRow = TmcMaterialPlanFactRow & {
   completionPct: number | null;
 };
 
@@ -93,8 +93,12 @@ type PlanFactTooltipRow = {
 
 function completionTooltipLines(row: TmcCompletionRow): string[] {
   if (row.plan <= 0) return ["Нет плана"];
-  const pct = capCompletionPct(row.completionPct ?? 0);
-  return [`Выполнение: ${formatCompletionPctLabel(pct)}`];
+  const execution = capCompletionPct(row.executionVsPlanPct);
+  return [
+    `План на дату: ${formatCompletionPctLabel(row.planBarPct)}`,
+    `Факт на дату: ${formatCompletionPctLabel(row.factBarPct)}`,
+    `Выполнение: ${formatCompletionPctLabel(execution)}`,
+  ];
 }
 
 function planFactTooltipLines(row: PlanFactTooltipRow): string[] {
@@ -220,31 +224,92 @@ function drawBarEndLabels(
   drawStack(chartArea.left + 4, y, true);
 }
 
+function formatCompletionPctLabel(pct: number): string {
+  const capped = capCompletionPct(pct);
+  const rounded = Math.round(capped * 10) / 10;
+  if (Number.isInteger(rounded)) return `${Math.round(rounded)}%`;
+  return `${rounded.toFixed(1).replace(".", ",")}%`;
+}
+
+/** Подпись % у конца горизонтальной полосы. */
+function drawCompletionBarPctLabel(
+  ctx: CanvasRenderingContext2D,
+  bar: BarElement,
+  chartArea: { left: number; right: number },
+  chartWidth: number,
+  pct: number,
+  fill: string,
+) {
+  if (!Number.isFinite(bar.y)) return;
+
+  const text = formatCompletionPctLabel(pct);
+  const endX = barEndX(bar);
+  const x = endX + 6;
+  const y = bar.y;
+  const maxLabelX = chartWidth - 4;
+
+  ctx.font = LABEL_FONT;
+  ctx.fillStyle = fill;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  const textWidth = ctx.measureText(text).width;
+  if (x + textWidth <= maxLabelX) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+
+  ctx.fillText(text, chartArea.left + 4, y + 14);
+}
+
 function createTmcCompletionDualBarLabelPlugin(rows: TmcCompletionRow[]): Plugin<"bar"> {
   return {
     id: "tmcCompletionDualBarLabel",
     afterDatasetsDraw(chart) {
+      const planMeta = chart.getDatasetMeta(0);
       const factMeta = chart.getDatasetMeta(1);
-      if (!factMeta?.data?.length) return;
+      if (!planMeta?.data?.length || !factMeta?.data?.length) return;
       const { ctx, chartArea, width } = chart;
       ctx.save();
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
+        const planBar = planMeta.data[i] as unknown as BarElement | undefined;
         const factBar = factMeta.data[i] as unknown as BarElement | undefined;
-        if (!row || !factBar || !Number.isFinite(factBar.y)) continue;
+        if (!row) continue;
 
         if (row.plan <= 0) {
-          ctx.fillStyle = LABEL_MUTED;
-          ctx.font = LABEL_FONT;
-          ctx.textAlign = "left";
-          ctx.textBaseline = "middle";
-          ctx.fillText("Нет плана", chartArea.left + 4, factBar.y);
+          if (factBar && Number.isFinite(factBar.y)) {
+            ctx.fillStyle = LABEL_MUTED;
+            ctx.font = LABEL_FONT;
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText("Нет плана", chartArea.left + 4, factBar.y);
+          }
           continue;
         }
 
-        const pct = capCompletionPct(row.completionPct ?? 0);
-        drawBarEndLabels(ctx, factBar, chartArea, width, [formatCompletionPctLabel(pct)]);
+        if (planBar && Number.isFinite(planBar.y) && row.planBarPct > 0) {
+          drawCompletionBarPctLabel(
+            ctx,
+            planBar,
+            chartArea,
+            width,
+            row.planBarPct,
+            LABEL_PLAN_VALUE,
+          );
+        }
+
+        if (factBar && Number.isFinite(factBar.y)) {
+          drawCompletionBarPctLabel(
+            ctx,
+            factBar,
+            chartArea,
+            width,
+            row.factBarPct,
+            completionColor(row.executionVsPlanPct),
+          );
+        }
       }
 
       ctx.restore();
@@ -318,10 +383,6 @@ function formatSignedCostAmount(value: number): string {
   return `${sign}${rubFullFmt.format(Math.round(Math.abs(value)))}`;
 }
 
-function formatCompletionPctLabel(pct: number): string {
-  return `${Math.round(capCompletionPct(pct))}%`;
-}
-
 export function TmcMaterialPlanFactChart({
   rows,
   mode,
@@ -338,7 +399,7 @@ export function TmcMaterialPlanFactChart({
         .map(
           (row): TmcCompletionRow => ({
             ...row,
-            completionPct: row.plan > 0 ? (row.fact / row.plan) * 100 : null,
+            completionPct: row.plan > 0 ? row.executionVsPlanPct : null,
           }),
         )
         .sort((a, b) => {
@@ -346,8 +407,8 @@ export function TmcMaterialPlanFactChart({
           const bHasPlan = b.plan > 0;
           if (aHasPlan && !bHasPlan) return -1;
           if (!aHasPlan && bHasPlan) return 1;
-          if (a.completionPct != null && b.completionPct != null) {
-            return a.completionPct - b.completionPct;
+          if (a.factBarPct !== b.factBarPct) {
+            return a.factBarPct - b.factBarPct;
           }
           return b.fact - a.fact;
         }),
@@ -475,7 +536,9 @@ export function TmcMaterialPlanFactChart({
           datasets: [
             {
               label: "План",
-              data: completionRows.map((row) => (row.plan > 0 ? 100 : 0)),
+              data: completionRows.map((row) =>
+                row.plan > 0 ? capCompletionPct(row.planBarPct) : 0,
+              ),
               backgroundColor: COLORS.plan,
               borderColor: COLORS.planBorder,
               borderWidth: 1,
@@ -486,18 +549,16 @@ export function TmcMaterialPlanFactChart({
             {
               label: "Факт",
               data: completionRows.map((row) =>
-                row.plan > 0 && row.completionPct != null
-                  ? capCompletionPct(row.completionPct)
-                  : 0,
+                row.plan > 0 ? capCompletionPct(row.factBarPct) : 0,
               ),
               backgroundColor: completionRows.map((row) =>
-                row.plan > 0 && row.completionPct != null
-                  ? completionColor(row.completionPct)
+                row.plan > 0
+                  ? completionColor(row.executionVsPlanPct)
                   : COLORS.noPlanFact,
               ),
               borderColor: completionRows.map((row) =>
-                row.plan > 0 && row.completionPct != null
-                  ? completionColor(row.completionPct)
+                row.plan > 0
+                  ? completionColor(row.executionVsPlanPct)
                   : COLORS.noPlanFact,
               ),
               borderWidth: 0,

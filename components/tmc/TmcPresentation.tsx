@@ -573,7 +573,10 @@ export function TmcPresentation({
     [requestTimeline, requestChartMode],
   );
 
-  const materialPlanFact = useMemo(() => computeTmcMaterialPlanFact(enriched), [enriched]);
+  const materialPlanFact = useMemo(
+    () => computeTmcMaterialPlanFact(enriched, undefined, today),
+    [enriched, today],
+  );
 
   useEffect(() => {
     const scopeLabel =
