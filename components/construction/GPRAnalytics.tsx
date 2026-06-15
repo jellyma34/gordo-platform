@@ -2965,11 +2965,74 @@ export function GPRAnalytics({
     };
   }, [orderedStageRoots, flatTasks, gprReportAsOf]);
 
-  /** Плановый агрегированный процент = факт − отклонение (без переопределения формул). */
-  const aggregatePlannedPercent =
-    aggTotalPercent !== null && aggTotalDeviation !== null
-      ? aggTotalPercent - aggTotalDeviation
-      : null;
+  /**
+   * Плановая агрегированная готовность жилого дома (или активной части) на текущую дату.
+   * Считается как взвешенная сумма stageInsight.planPercent по тем же корневым этапам и тем же
+   * весам, что использует aggregateTotalProgressUi для факта (см. computePartAggregate / aggregateStages).
+   * Это та же модель плановой готовности, которую отрисовывают карточки 2.04 и 2.05 — никаких
+   * новых формул, только взвешенное агрегирование уже существующего значения.
+   */
+  const aggregatePlannedPercent = useMemo<number | null>(() => {
+    if (!aggregateStages.length) return null;
+    let weightedSum = 0;
+    let weightSum = 0;
+    for (const stage of aggregateStages) {
+      const wPercent = stage.weightPercent;
+      if (wPercent === null || !Number.isFinite(wPercent) || wPercent <= 0) continue;
+      const root = orderedStageRoots.find(
+        (r) => normalizeGprCodeFinal(r.code) === normalizeGprCodeFinal(stage.code),
+      );
+      if (!root) continue;
+      const insight = computeGprStageCompletionInsight(flatTasks, root, gprReportAsOf);
+      const planPct = insight.planPercent;
+      if (planPct === null || !Number.isFinite(planPct)) continue;
+      const w = wPercent / 100;
+      weightedSum += w * planPct;
+      weightSum += w;
+    }
+    if (weightSum <= 0) return null;
+    return Math.round((weightedSum / weightSum) * 10) / 10;
+  }, [aggregateStages, orderedStageRoots, flatTasks, gprReportAsOf]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (aggregatePlannedPercent !== null) return;
+    if (!aggregateStages.length) return;
+    const sources = aggregateStages.map((stage) => {
+      const root = orderedStageRoots.find(
+        (r) => normalizeGprCodeFinal(r.code) === normalizeGprCodeFinal(stage.code),
+      );
+      const planPct = root
+        ? computeGprStageCompletionInsight(flatTasks, root, gprReportAsOf).planPercent
+        : null;
+      return {
+        code: stage.code,
+        title: stage.composeTitle,
+        weightPercent: stage.weightPercent,
+        planPercent: planPct,
+      };
+    });
+    console.warn(
+      "[GPR aggregate] planPercent отсутствует — не удалось взвешенно агрегировать план для карточки «Жилой дом».",
+      {
+        factSource: "aggregateTotalProgressUi.display ← computePartAggregate.totalPercent (взвешенный rollup листьев)",
+        planSource: "Σ wᵢ × stageInsight.planPercent (та же модель плановой готовности, что в карточках 2.04 / 2.05)",
+        aggTotalPercent,
+        aggTotalDeviation,
+        gprReportAsOf,
+        stages: sources,
+      },
+    );
+  }, [
+    aggregatePlannedPercent,
+    aggregateStages,
+    orderedStageRoots,
+    flatTasks,
+    gprReportAsOf,
+    aggTotalPercent,
+    aggTotalDeviation,
+  ]);
+
   const aggregatePlanClamped =
     aggregatePlannedPercent === null
       ? null
@@ -3150,13 +3213,8 @@ export function GPRAnalytics({
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
           <div>
             <div className="flex flex-col gap-2">
-              <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">План vs Факт</h3>
+              <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">Динамика выполнения ГПР</h3>
             </div>
-            {planFactPlannedEndLine ? (
-              <p className="mt-3 border-t border-slate-600/40 pt-3 text-sm leading-snug text-slate-200">
-                Плановая дата окончания: {planFactPlannedEndLine}
-              </p>
-            ) : null}
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
