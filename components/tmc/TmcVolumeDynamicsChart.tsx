@@ -29,11 +29,24 @@ const COLORS = {
 } as const;
 
 const Y_TICKS = [0, 25, 50, 75, 100, 125, 150] as const;
+const CHART_MARGIN_TOP = 28;
+/** Нижний зазор области построения — подписи категорий не прилипают к графику. */
+const CHART_MARGIN_BOTTOM = 28;
 const PLAN_LABEL_Y_OFFSET = 18;
 const FACT_LABEL_Y_OFFSET = 8;
-const LABEL_HALF_H = 6;
+const LABEL_HALF_H = 7;
 const LABEL_MIN_X_GAP = 4;
 const LABEL_FONT_SIZE = 10;
+const LABEL_BACKDROP_RX = 3;
+const LABEL_BACKDROP_PAD_X = 4;
+const LABEL_BACKDROP_PAD_Y = 3;
+/** Контрастная подложка под значениями над точками. */
+const LABEL_BACKDROP_FILL = "rgba(15,23,42,0.72)";
+/** Обводка текста для читаемости на линии и заливке. */
+const LABEL_TEXT_STROKE = "rgba(15,23,42,0.88)";
+const LABEL_TEXT_STROKE_WIDTH = 2.5;
+/** План 100% — светлее линии плана, в той же серой гамме. */
+const LABEL_PLAN_FILL = "#e2e8f0";
 const CLOSE_POINT_PX = 14;
 
 type ChartRow = TmcVolumeDynamicsRow & { label: string };
@@ -250,21 +263,44 @@ function TmcVolumePointLabels({ chartData }: { chartData: ChartRow[] }) {
 
   return (
     <g pointerEvents="none">
-      {labels.map((item) => (
-        <text
-          key={item.key}
-          x={item.x}
-          y={item.y}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={item.series === "plan" ? COLORS.plan : factDotColor(chartData[item.index]?.tone ?? "complete")}
-          fontSize={LABEL_FONT_SIZE}
-          fontWeight={item.series === "fact" ? 700 : 500}
-          className="tabular-nums"
-        >
-          {item.text}
-        </text>
-      ))}
+      {labels.map((item) => {
+        const fill =
+          item.series === "plan"
+            ? LABEL_PLAN_FILL
+            : factDotColor(chartData[item.index]?.tone ?? "complete");
+        const fontWeight = item.series === "fact" ? 700 : 600;
+        const backdropW = item.halfW * 2 + LABEL_BACKDROP_PAD_X * 2;
+        const backdropH = LABEL_HALF_H * 2 + LABEL_BACKDROP_PAD_Y * 2;
+
+        return (
+          <g key={item.key}>
+            <rect
+              x={item.x - backdropW / 2}
+              y={item.y - backdropH / 2}
+              width={backdropW}
+              height={backdropH}
+              rx={LABEL_BACKDROP_RX}
+              fill={LABEL_BACKDROP_FILL}
+            />
+            <text
+              x={item.x}
+              y={item.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill={fill}
+              stroke={LABEL_TEXT_STROKE}
+              strokeWidth={LABEL_TEXT_STROKE_WIDTH}
+              strokeLinejoin="round"
+              paintOrder="stroke"
+              fontSize={LABEL_FONT_SIZE}
+              fontWeight={fontWeight}
+              className="tabular-nums"
+            >
+              {item.text}
+            </text>
+          </g>
+        );
+      })}
     </g>
   );
 }
@@ -316,7 +352,12 @@ export function TmcVolumeDynamicsChart({ rows }: { rows: TmcVolumeDynamicsRow[] 
   const xTickAngle = chartData.length > 6 ? -42 : 0;
   const xTickAnchor = chartData.length > 6 ? ("end" as const) : ("middle" as const);
   const materialXTick = useMemo(
-    () => createTmcMaterialXAxisTick({ angle: xTickAngle, textAnchor: xTickAnchor }),
+    () =>
+      createTmcMaterialXAxisTick({
+        angle: xTickAngle,
+        textAnchor: xTickAnchor,
+        translateY: 4,
+      }),
     [xTickAngle, xTickAnchor],
   );
 
@@ -342,7 +383,10 @@ export function TmcVolumeDynamicsChart({ rows }: { rows: TmcVolumeDynamicsRow[] 
     <div className="w-full">
       <div className="h-[320px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 28, right: 10, left: 2, bottom: 8 }}>
+          <ComposedChart
+            data={chartData}
+            margin={{ top: CHART_MARGIN_TOP, right: 10, left: 2, bottom: CHART_MARGIN_BOTTOM }}
+          >
             <defs>
               <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={COLORS.green} stopOpacity={0.28} />
@@ -357,6 +401,7 @@ export function TmcVolumeDynamicsChart({ rows }: { rows: TmcVolumeDynamicsRow[] 
               tickLine={false}
               axisLine={{ stroke: "rgba(148,163,184,0.25)" }}
               tick={materialXTick}
+              tickMargin={8}
             />
             <YAxis
               domain={[0, 150]}

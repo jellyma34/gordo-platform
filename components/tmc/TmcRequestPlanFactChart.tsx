@@ -30,14 +30,15 @@ const COLORS = {
   blue: "#3b82f6",
 } as const;
 
-const PLAN_LABEL_Y_OFFSET = 18;
-const FACT_LABEL_Y_OFFSET = 8;
-const FACT_LABEL_Y_OFFSET_BELOW = 10;
+const PLAN_DOT_R = 3;
+const FACT_DOT_R = 4;
+/** Вертикальный зазор подписи факта над маркером (8–12 px). */
+const FACT_LABEL_GAP = 10;
+/** Вертикальный зазор подписи плана под маркером (8–12 px). */
+const PLAN_LABEL_GAP = 10;
 const LABEL_HALF_H = 6;
-const CLOSE_POINT_PX = 16;
 const LABEL_FONT_SIZE = 10;
 const FACT_LINE_WIDTH = 3;
-const FACT_DOT_R = 4;
 const FACT_ACTIVE_DOT_R = 7;
 
 type PlotRect = { x: number; y: number; width: number; height: number };
@@ -161,11 +162,20 @@ function categoryPointX(
   return cx != null && Number.isFinite(cx) ? cx : null;
 }
 
-function factLabelYBelowPoint(pointY: number, plot: PlotRect | null | undefined): number {
-  let y = pointY + FACT_LABEL_Y_OFFSET_BELOW;
+function factLabelYAbovePoint(pointY: number, plot: PlotRect | null | undefined): number {
+  let y = pointY - FACT_DOT_R - FACT_LABEL_GAP - LABEL_HALF_H;
   if (plot) {
-    const maxLabelCenter = plot.y + plot.height - 6 - LABEL_HALF_H;
-    if (y > maxLabelCenter) y = maxLabelCenter;
+    const minCenter = plot.y + LABEL_HALF_H + 2;
+    if (y < minCenter) y = minCenter;
+  }
+  return y;
+}
+
+function planLabelYBelowPoint(pointY: number, plot: PlotRect | null | undefined): number {
+  let y = pointY + PLAN_DOT_R + PLAN_LABEL_GAP + LABEL_HALF_H;
+  if (plot) {
+    const maxCenter = plot.y + plot.height - LABEL_HALF_H - 2;
+    if (y > maxCenter) y = maxCenter;
   }
   return y;
 }
@@ -217,7 +227,6 @@ function buildRequestPointLabels(
   xCat: XScale,
   plot: PlotRect | null | undefined,
   yScale: (value: number) => number | undefined,
-  mode: TmcProcurementChartMode,
 ): PointLabel[] {
   const labels: PointLabel[] = [];
 
@@ -233,28 +242,14 @@ function buildRequestPointLabels(
         : "";
 
     const planPointY = row.plan > 0 ? yScale(row.plan) : null;
-    let planY =
-      planPointY != null && planText ? (planPointY as number) - PLAN_LABEL_Y_OFFSET : null;
+    const planY =
+      planPointY != null && planText ? planLabelYBelowPoint(planPointY as number, plot) : null;
 
     const factPointY = isPlottableFact(factValue) ? yScale(factValue) : null;
-    let factY: number | null = null;
-    if (factPointY != null && Number.isFinite(factPointY) && factText) {
-      factY =
-        mode === "cumulative"
-          ? factLabelYBelowPoint(factPointY, plot)
-          : factPointY - FACT_LABEL_Y_OFFSET;
-    }
-
-    if (
-      mode === "monthly" &&
-      planY != null &&
-      factY != null &&
-      planPointY != null &&
-      factPointY != null &&
-      Math.abs(planPointY - factPointY) <= CLOSE_POINT_PX
-    ) {
-      planY -= 10;
-    }
+    const factY =
+      factPointY != null && Number.isFinite(factPointY) && factText
+        ? factLabelYAbovePoint(factPointY, plot)
+        : null;
 
     if (planY != null && planText) {
       labels.push({
@@ -351,9 +346,8 @@ function TmcRequestPointLabels({
       xScale as unknown as XScale,
       plot,
       yScale as unknown as (value: number) => number | undefined,
-      mode,
     );
-  }, [chartData, mode, plot, xScale, yScale]);
+  }, [chartData, plot, xScale, yScale]);
 
   if (labels.length === 0) return null;
 

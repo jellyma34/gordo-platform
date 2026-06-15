@@ -18,8 +18,11 @@ const COLORS = {
   orange: "#f59e0b",
   red: "#ef4444",
   blue: "#3b82f6",
-  plan: "rgba(148, 163, 184, 0.32)",
-  planBorder: "rgba(148, 163, 184, 0.55)",
+  /** План — спокойный фирменный синий: читаем на тёмном фоне, слабее факта по насыщенности. */
+  plan: "rgba(59, 130, 246, 0.34)",
+  planBorder: "rgba(96, 165, 250, 0.62)",
+  /** Серый индикатор строк без плана (не меняется при оформлении плановых полос). */
+  noPlanFact: "rgba(148, 163, 184, 0.55)",
 } as const;
 
 const COMPLETION_AXIS_MAX = 100;
@@ -34,6 +37,8 @@ const LABEL_FONT = "600 11px system-ui, sans-serif";
 const LABEL_SUB_FONT = "500 10px system-ui, sans-serif";
 const LABEL_COLOR = "#e2e8f0";
 const LABEL_MUTED = "#94a3b8";
+/** Справочное плановое значение в подписи «Факт / План». */
+const LABEL_PLAN_VALUE = "rgba(100, 116, 139, 0.52)";
 
 /** Округление максимума оси стоимости до «красивого» значения (30 млн, 50 млн …). */
 function ceilToNiceCostAxisMax(rawMax: number): number {
@@ -69,50 +74,14 @@ type TmcCompletionRow = Omit<TmcMaterialPlanFactRow, "completionPct"> & {
   completionPct: number | null;
 };
 
-/** Вертикальная отметка 100% плана на правом крае плановой полосы. */
+/** Плагин зарегистрирован; пунктирные окончания плановых столбцов отключены. */
 const tmcPlanCompletionLinePlugin: Plugin<"bar"> = {
   id: "tmcPlanCompletionLine",
-  afterDatasetsDraw(chart) {
-    const planMeta = chart.getDatasetMeta(0);
-    if (!planMeta?.data?.length) return;
-    const { ctx } = chart;
-    ctx.save();
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    for (const bar of planMeta.data) {
-      const element = bar as { x: number; y: number; height: number };
-      if (!Number.isFinite(element.x) || !Number.isFinite(element.y)) continue;
-      const half = (element.height ?? 16) / 2 + 4;
-      ctx.beginPath();
-      ctx.moveTo(element.x, element.y - half);
-      ctx.lineTo(element.x, element.y + half);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.restore();
-  },
 };
 
-/** Вертикальная линия-ориентир 100% в режиме «% выполнения». */
+/** Плагин зарегистрирован; вертикальный пунктир 100% отключён. */
 const tmcCompletion100LinePlugin: Plugin<"bar"> = {
   id: "tmcCompletion100Line",
-  afterDatasetsDraw(chart) {
-    const xScale = chart.scales.x;
-    if (!xScale) return;
-    const x = xScale.getPixelForValue(100);
-    const { ctx, chartArea } = chart;
-    ctx.save();
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, chartArea.top);
-    ctx.lineTo(x, chartArea.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-  },
 };
 
 type PlanFactTooltipRow = {
@@ -153,9 +122,50 @@ function barEndX(bar: BarElement): number {
   return Math.max(end, start);
 }
 
-/** Пара «факт / план»: «14 162 788 / 27 129 555». */
-function formatFactPlanRatio(fact: number, plan: number): string {
-  return `${formatCostAmount(fact)} / ${formatCostAmount(plan)}`;
+/** Подпись «Факт / План»: факт — основной акцент, план после « / » — приглушённый. */
+function drawFactPlanRatioLabel(
+  ctx: CanvasRenderingContext2D,
+  factBar: BarElement,
+  chartArea: { left: number; right: number },
+  chartWidth: number,
+  fact: number,
+  plan: number,
+) {
+  if (!Number.isFinite(factBar.y)) return;
+
+  const factText = formatCostAmount(fact);
+  const planSuffix = ` / ${formatCostAmount(plan)}`;
+
+  const endX = barEndX(factBar);
+  const gap = 6;
+  const x = endX + gap;
+  const y = factBar.y;
+  const maxLabelX = chartWidth - 4;
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = LABEL_FONT;
+
+  const factWidth = ctx.measureText(factText).width;
+  const planWidth = ctx.measureText(planSuffix).width;
+  const totalWidth = factWidth + planWidth;
+  const maxWidth = maxLabelX - x;
+  const fitsRight = maxWidth > 0 && totalWidth <= maxWidth;
+
+  const drawAt = (baseX: number, baseY: number) => {
+    ctx.font = LABEL_FONT;
+    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillText(factText, baseX, baseY);
+    ctx.fillStyle = LABEL_PLAN_VALUE;
+    ctx.fillText(planSuffix, baseX + factWidth, baseY);
+  };
+
+  if (fitsRight) {
+    drawAt(x, y);
+    return;
+  }
+
+  drawAt(chartArea.left + 4, y + 14);
 }
 
 /** Подписи справа от конца фактической полосы; при нехватке места — под строкой. */
@@ -258,12 +268,11 @@ function createTmcCostBarLabelPlugin(rows: TmcMaterialPlanFactRow[]): Plugin<"ba
 
         if (row.plan <= 0 && row.fact <= 0) continue;
 
-        const label =
-          row.plan > 0
-            ? formatFactPlanRatio(row.fact, row.plan)
-            : `Факт: ${formatCostAmount(row.fact)}`;
-
-        drawBarEndLabels(ctx, factBar, chartArea, width, [label]);
+        if (row.plan > 0) {
+          drawFactPlanRatioLabel(ctx, factBar, chartArea, width, row.fact, row.plan);
+        } else {
+          drawBarEndLabels(ctx, factBar, chartArea, width, [`Факт: ${formatCostAmount(row.fact)}`]);
+        }
       }
 
       ctx.restore();
@@ -282,7 +291,7 @@ ChartJS.register(
 );
 
 function factColorForMaterial(plan: number, fact: number): string {
-  if (plan <= 0) return COLORS.planBorder;
+  if (plan <= 0) return COLORS.noPlanFact;
   const ratio = fact / plan;
   if (ratio >= 1) return COLORS.green;
   if (ratio >= 0.85) return COLORS.orange;
@@ -484,12 +493,12 @@ export function TmcMaterialPlanFactChart({
               backgroundColor: completionRows.map((row) =>
                 row.plan > 0 && row.completionPct != null
                   ? completionColor(row.completionPct)
-                  : COLORS.planBorder,
+                  : COLORS.noPlanFact,
               ),
               borderColor: completionRows.map((row) =>
                 row.plan > 0 && row.completionPct != null
                   ? completionColor(row.completionPct)
-                  : COLORS.planBorder,
+                  : COLORS.noPlanFact,
               ),
               borderWidth: 0,
               borderRadius: 4,

@@ -36,7 +36,8 @@ const COLORS = {
 
 const CHART_HEIGHT = 360;
 const CHART_MARGIN_TOP = 32;
-const CHART_MARGIN_BOTTOM = 8;
+/** Нижний зазор области построения — подписи категорий не прилипают к столбцам. */
+const CHART_MARGIN_BOTTOM = 28;
 
 /** Смещение подписи План влево / Факт вправо от центра своего столбца. */
 const PLAN_LABEL_X_SHIFT = -9;
@@ -360,7 +361,12 @@ function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamics
   const xTickAngle = chartData.length > 6 ? -32 : 0;
   const xTickAnchor = chartData.length > 6 ? ("end" as const) : ("middle" as const);
   const materialXTick = useMemo(
-    () => createTmcMaterialXAxisTick({ angle: xTickAngle, textAnchor: xTickAnchor }),
+    () =>
+      createTmcMaterialXAxisTick({
+        angle: xTickAngle,
+        textAnchor: xTickAnchor,
+        translateY: 4,
+      }),
     [xTickAngle, xTickAnchor],
   );
 
@@ -423,7 +429,7 @@ function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamics
         <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
           <BarChart
             data={chartData}
-            margin={{ top: 32, right: 16, left: 4, bottom: 8 }}
+            margin={{ top: CHART_MARGIN_TOP, right: 16, left: 4, bottom: CHART_MARGIN_BOTTOM }}
             barCategoryGap={barCategoryGap}
             barGap={4}
           >
@@ -435,6 +441,7 @@ function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamics
               tickLine={false}
               axisLine={{ stroke: "rgba(148,163,184,0.25)" }}
               tick={materialXTick}
+              tickMargin={8}
               height={xAxisHeight}
             />
             <YAxis
