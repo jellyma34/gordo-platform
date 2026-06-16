@@ -34,17 +34,6 @@ export const GPR_TMC_STAGE_LABELS: Record<GprStageGroupKey, string> = {
   improve: "Благоустройство",
 };
 
-/**
- * Маппинг: этап (как в ТМЦ) → связанные позиции по подстроке в `name`.
- * Пустой массив = учитываются все ТМЦ с данным `gprStage`.
- */
-export const GPR_STAGE_TO_TMC_KEYWORDS: Record<string, string[]> = {
-  "Подготовка территории": ["Щебень", "Песок"],
-  "Строительство зданий и сооружений": ["Арматура", "Цемент"],
-  "Устройство сетей": ["Кабель", "Трубы"],
-  "Благоустройство": ["Бордюр", "плитка"],
-};
-
 export type TmcImpactStatus = "ok" | "risk" | "block" | "na";
 
 export type GprTmcDependencyPoint = {
@@ -196,15 +185,6 @@ export function gprStageDisplayTitle(tasks: GPRTask[], groupKey: GprStageGroupKe
   return catalogStageName(groupKey);
 }
 
-/** Сопоставление поля ТМЦ `gprStage` с ключом этапа (как в GPR_TMC_STAGE_LABELS). */
-function groupKeyForTmcGprStage(gprStage: string): GprStageGroupKey | null {
-  const entries = Object.entries(GPR_TMC_STAGE_LABELS) as [GprStageGroupKey, string][];
-  for (const [key, label] of entries) {
-    if (label === gprStage) return key;
-  }
-  return null;
-}
-
 function plannedProgressBySchedule(task: GPRTask | null, todayIso: string): number | null {
   if (!task) return null;
   const ps = task.planStart?.trim();
@@ -219,23 +199,58 @@ function plannedProgressBySchedule(task: GPRTask | null, todayIso: string): numb
   return Math.round(((now - t0) / (t1 - t0)) * 100);
 }
 
-function pctFromItems(items: TMCItem[]): number {
+function pctFromItems(items: TMCItem[]): number | null {
   const plan = items.reduce((s, i) => s + i.planCost, 0);
   const fact = items.reduce((s, i) => s + (i.factCost ?? 0), 0);
-  if (plan <= 0) return 0;
+  if (plan <= 0) return null;
   return Math.round(Math.min(100, (fact / plan) * 100));
 }
 
-/** Обеспеченность ТМЦ по этапу: Σ fact / Σ plan по отфильтрованным позициям. */
-export function tmcSupplyPercentForStage(items: TMCItem[], stageLabel: string): number | null {
-  const keywords = GPR_STAGE_TO_TMC_KEYWORDS[stageLabel];
-  let filtered = items.filter((i) => i.gprStage === stageLabel);
-  if (keywords?.length) {
-    const byKw = filtered.filter((i) =>
-      keywords.some((kw) => i.name.toLowerCase().includes(kw.toLowerCase())),
-    );
-    if (byKw.length > 0) filtered = byKw;
-  }
+/**
+ * Эффективный шифр ГПР позиции ТМЦ для матчинга по работам:
+ * 1) приоритет — `itemCode` (колонка «Шифр ГПР» CSV / поле реестра);
+ * 2) если `itemCode` отсутствует или это синтетический фолбэк импорта (без сегментов кода
+ *    в исходном CSV), используется код, извлечённый из текстового поля `gprStage`
+ *    (например, ячейка «Этап работ ГПР» = «2.05.01.9. Прочие земляные работы» → «2.05.01.9»).
+ *
+ * Никаких подстрочных эвристик по названию материала и текстовому совпадению `gprStage`
+ * с подписью этапа не используется.
+ */
+function effectiveTmcGprCode(item: TMCItem): string {
+  const fromItem = normalizeGprCodeFinal(item.itemCode || "");
+  const fromStage = normalizeGprCodeFinal(item.gprStage || "");
+  const stageEncodesCode = fromStage.split(".").filter(Boolean).length >= 2;
+  if (stageEncodesCode) return fromStage;
+  return fromItem;
+}
+
+/** Принадлежит ли позиция ТМЦ работе ГПР по шифру: `itemCode === workCode || itemCode.startsWith(workCode + ".")`. */
+function tmcItemBelongsToWorkCode(item: TMCItem, workCode: string): boolean {
+  const wc = normalizeGprCodeFinal(workCode);
+  if (!wc) return false;
+  const code = effectiveTmcGprCode(item);
+  if (!code) return false;
+  return code === wc || code.startsWith(`${wc}.`);
+}
+
+/**
+ * Обеспеченность ТМЦ для конкретной работы ГПР по шифру.
+ *
+ * Plan = Σ planCost по позициям, у которых `effectiveCode === workCode`
+ *        или `effectiveCode.startsWith(workCode + ".")`.
+ * Fact = Σ factCost по тем же позициям (null трактуется как 0).
+ * Supply% = round( min(100, Fact / Plan × 100 ) ).
+ *
+ * Возвращает `null`, если по работе нет ни одной позиции ТМЦ или сумма Plan ≤ 0
+ * (искусственные значения и проценты соседних работ не подставляются).
+ */
+export function tmcSupplyPercentForWorkCode(
+  items: TMCItem[],
+  workCode: string,
+): number | null {
+  const wc = normalizeGprCodeFinal(workCode);
+  if (!wc) return null;
+  const filtered = items.filter((i) => tmcItemBelongsToWorkCode(i, wc));
   if (filtered.length === 0) return null;
   return pctFromItems(filtered);
 }
@@ -265,17 +280,7 @@ export function buildGprTmcDependencySeries(
     return [];
   }
 
-  const allowedKeys = new Set<GprStageGroupKey>();
-  for (const short of labels) {
-    const k = CHART_SHORT_LABEL_TO_GROUP_KEY[short];
-    if (k) allowedKeys.add(k);
-  }
-
-  const tmcFiltered = filterTmcByProjectPart(tmcItems, activeProjectPart);
-  const tmcForChart = tmcFiltered.filter((item) => {
-    const g = groupKeyForTmcGprStage(item.gprStage);
-    return g !== null && allowedKeys.has(g);
-  });
+  const tmcForChart = filterTmcByProjectPart(tmcItems, activeProjectPart);
 
   return labels.map((stageShort) => {
     const key = CHART_SHORT_LABEL_TO_GROUP_KEY[stageShort];
@@ -283,14 +288,15 @@ export function buildGprTmcDependencySeries(
       throw new Error(`Неизвестная подпись этапа на графике: ${stageShort}`);
     }
     const stageFull = GPR_TMC_STAGE_LABELS[key];
-    const task = findRootByCode(tasks, GROUP_KEY_TO_ROOT_CODE[key]);
+    const rootCode = GROUP_KEY_TO_ROOT_CODE[key];
+    const task = findRootByCode(tasks, rootCode);
     const stageTitle = gprStageDisplayTitle(tasks, key);
     const planGpr = plannedProgressBySchedule(task, todayIso);
     const asOf = toDate(todayIso) ?? new Date();
     const factGpr = task ? computeGprStageFactCompletionChartPercent(tasks, task, asOf) : null;
     const progressDeltaPp = task ? calculateDeviation(task, asOf) : null;
     const deviationDays = task ? gprTaskScheduleDeviationDisplayDays(task, asOf) : null;
-    const tmcSupply = tmcSupplyPercentForStage(tmcForChart, stageFull);
+    const tmcSupply = tmcSupplyPercentForWorkCode(tmcForChart, rootCode);
     const impact = tmcImpactStatus(tmcSupply);
     const zone: GprTmcDependencyPoint["zone"] =
       tmcSupply === null ? "none" : tmcSupply < 50 ? "block" : tmcSupply < 80 ? "risk" : "none";
@@ -332,20 +338,7 @@ export function buildGprTmcDependencyChartSeries(
     }));
   }
 
-  const allowedKeys = new Set<GprStageGroupKey>();
-  for (const root of branchRoots) {
-    const key = groupKeyForAggregateRootCode(root);
-    if (key) allowedKeys.add(key);
-  }
-  for (const task of workTasks) {
-    allowedKeys.add(groupKeyForWorkTask(task, branchRoots));
-  }
-
-  const tmcFiltered = filterTmcByProjectPart(tmcItems, activeProjectPart);
-  const tmcForChart = tmcFiltered.filter((item) => {
-    const g = groupKeyForTmcGprStage(item.gprStage);
-    return g !== null && allowedKeys.has(g);
-  });
+  const tmcForChart = filterTmcByProjectPart(tmcItems, activeProjectPart);
 
   const asOf = toDate(todayIso) ?? new Date();
 
@@ -358,7 +351,7 @@ export function buildGprTmcDependencyChartSeries(
     const factGpr = computeGprStageFactCompletionChartPercent(tasks, task, asOf);
     const progressDeltaPp = calculateDeviation(task, asOf);
     const deviationDays = gprTaskScheduleDeviationDisplayDays(task, asOf);
-    const tmcSupply = tmcSupplyPercentForStage(tmcForChart, stageFull);
+    const tmcSupply = tmcSupplyPercentForWorkCode(tmcForChart, workCode);
     const impact = tmcImpactStatus(tmcSupply);
     const zone: GprTmcDependencyPoint["zone"] =
       tmcSupply === null ? "none" : tmcSupply < 50 ? "block" : tmcSupply < 80 ? "risk" : "none";
