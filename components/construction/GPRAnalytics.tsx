@@ -3871,9 +3871,6 @@ export function GPRAnalytics({
                         </span>
                         <span className="absolute right-0">{formatStageDeviationScaleTick(scaleMax)}</span>
                       </div>
-                      <p className="mt-1 text-center text-[10px] text-slate-500">
-                        дни · шкала ±{scaleMax} от нуля (отставание ← · опережение →)
-                      </p>
                     </div>
 
                     <div className="relative z-10 mt-3 space-y-3">
