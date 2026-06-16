@@ -3630,10 +3630,6 @@ export function GPRAnalytics({
 
       <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
-        <p className="mt-2 text-xs text-slate-300">
-          Среднее отклонение от графика (дни) на {gprReportDateLabel}: отрицательное значение — отставание,
-          положительное — опережение.
-        </p>
         {(() => {
           const allowedGroupKeys = isProjectWide
             ? gprStageGroupKeysProjectWide()
