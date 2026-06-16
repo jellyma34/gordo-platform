@@ -126,10 +126,23 @@ function GprKpiSplitPercentRow({
   );
 }
 
-function GprKpiWave({ color, opacity = 0.45 }: { color: string; opacity?: number }) {
+function GprKpiWave({
+  color,
+  opacity = 0.45,
+  heightClass = "h-28",
+}: {
+  color: string;
+  opacity?: number;
+  /**
+   * Класс высоты декоративной волны (по умолчанию `h-28`, как в этапных карточках).
+   * Для сводной карточки «Проект» передаётся более низкая волна,
+   * чтобы не «съедала» полезное вертикальное пространство.
+   */
+  heightClass?: string;
+}) {
   const gradId = useId().replace(/:/g, "");
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-28">
+    <div className={`pointer-events-none absolute inset-x-0 bottom-0 z-0 ${heightClass}`}>
       <svg viewBox="0 0 400 96" preserveAspectRatio="none" className="h-full w-full">
         <defs>
           <linearGradient id={gradId} x1="0%" y1="0%" x2="0%" y2="100%">
@@ -158,24 +171,43 @@ function GprPremiumKpiCard({
   gradient,
   waveColor,
   waveOpacity,
+  paddingClass = "p-6",
+  waveHeightClass,
   children,
 }: {
   glowColor: string;
   gradient: string;
   waveColor?: string;
   waveOpacity?: number;
+  /**
+   * Класс паддинга карточки. По умолчанию `p-6`, как в карточках этапов.
+   * Для итоговой карточки «Проект» передаётся более крупный паддинг,
+   * чтобы визуально подчеркнуть статус сводной (главной) панели KPI.
+   */
+  paddingClass?: string;
+  /**
+   * Класс высоты декоративной волны.
+   * Передаётся в `GprKpiWave`. Если не указан — используется дефолт `h-28`.
+   */
+  waveHeightClass?: string;
   children: ReactNode;
 }) {
   return (
     <div
-      className="relative flex h-full flex-col rounded-[20px] border p-6 backdrop-blur-[16px]"
+      className={`relative flex h-full flex-col rounded-[20px] border ${paddingClass} backdrop-blur-[16px]`}
       style={{
         background: gradient,
         borderColor: `${glowColor}55`,
         boxShadow: `0 22px 56px rgba(0,0,0,0.52), 0 0 36px ${glowColor}28, inset 0 1px 0 rgba(255,255,255,0.1)`,
       }}
     >
-      {waveColor ? <GprKpiWave color={waveColor} opacity={waveOpacity} /> : null}
+      {waveColor ? (
+        <GprKpiWave
+          color={waveColor}
+          opacity={waveOpacity}
+          heightClass={waveHeightClass}
+        />
+      ) : null}
       <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
@@ -184,9 +216,16 @@ function GprPremiumKpiCard({
 function GprKpiIconBadge({
   children,
   tone,
+  compact,
 }: {
   children: ReactNode;
   tone: "green" | "yellow" | "red" | "gray";
+  /**
+   * Если true — бейдж уменьшен (h-9 w-9 вместо h-11 w-11).
+   * Используется в шапке сводной карточки «Проект», чтобы верхняя часть
+   * (иконка + заголовок) занимала меньше вертикального пространства.
+   */
+  compact?: boolean;
 }) {
   const toneClass =
     tone === "green"
@@ -196,9 +235,10 @@ function GprKpiIconBadge({
         : tone === "red"
           ? "bg-rose-500/15 text-rose-400 ring-rose-400/20"
           : "bg-slate-500/15 text-slate-400 ring-slate-400/20";
+  const sizeClass = compact ? "h-9 w-9" : "h-11 w-11";
   return (
     <div
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ${toneClass}`}
+      className={`flex shrink-0 items-center justify-center rounded-xl ring-1 ${sizeClass} ${toneClass}`}
     >
       {children}
     </div>
@@ -259,7 +299,7 @@ function deviationValueColorClass(deltaPp: number | null): string {
   return "";
 }
 
-export type GprStageKpiMetricsVariant = "full" | "compact";
+export type GprStageKpiMetricsVariant = "full" | "compact" | "projectWide";
 
 export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi" | "businessKpi";
 
@@ -340,6 +380,7 @@ export function GprStageKpiCard({
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
+  const wideProjectMetrics = metricsVariant === "projectWide";
 
   const donutSegments: KpiDonutSegment[] =
     donutStatusVariant === "businessKpi"
@@ -472,13 +513,29 @@ export function GprStageKpiCard({
         gradient={theme.gradient}
         waveColor={theme.waveColor}
         waveOpacity={theme.waveOpacity}
+        paddingClass={
+          // Для projectWide уменьшаем вертикальные/общие отступы карточки,
+          // чтобы она не доминировала по высоте. Сохраняем небольшой запас
+          // относительно стандартного p-6 этапных карточек на lg-экранах.
+          wideProjectMetrics ? "p-5 sm:p-6 lg:p-8" : "p-6"
+        }
+        waveHeightClass={wideProjectMetrics ? "h-16" : undefined}
       >
-        <div className="flex items-start gap-3">
-          <GprKpiIconBadge tone={theme.badgeTone}>
-            <HardHat className="h-5 w-5" strokeWidth={2} />
+        <div
+          className={`flex items-start ${wideProjectMetrics ? "gap-2.5" : "gap-3"}`}
+        >
+          <GprKpiIconBadge tone={theme.badgeTone} compact={wideProjectMetrics}>
+            <HardHat
+              className={wideProjectMetrics ? "h-4 w-4" : "h-5 w-5"}
+              strokeWidth={2}
+            />
           </GprKpiIconBadge>
           <div className="min-w-0 flex-1">
-            <div className="text-lg font-semibold leading-snug text-slate-50">
+            <div
+              className={`font-semibold leading-snug text-slate-50 ${
+                wideProjectMetrics ? "text-base" : "text-lg"
+              }`}
+            >
               {code ? (
                 <>
                   <span className="font-medium">{code}</span>{" "}
@@ -489,8 +546,73 @@ export function GprStageKpiCard({
           </div>
         </div>
 
-        <div className={compactMetrics ? "mt-3" : "mt-4"}>
-          {compactMetrics ? (
+        <div
+          className={
+            wideProjectMetrics
+              ? "mt-3 lg:mt-4"
+              : compactMetrics
+                ? "mt-3"
+                : "mt-4"
+          }
+        >
+          {wideProjectMetrics ? (
+            <div className="grid grid-cols-1 items-center gap-5 lg:grid-cols-3 lg:gap-8">
+              {/*
+                Колонка 1: «Факт выполнения» (split percent факт/план)
+                и «Выполнение» (split count выполненных этапов из общего).
+                Разделители не используются — визуальную сепарацию
+                обеспечивает space-y. Шаг скромный, чтобы карточка
+                не превращалась в чрезмерно высокий блок.
+              */}
+              <div className="space-y-4 lg:space-y-5">
+                <GprKpiSplitPercentRow
+                  label={factLabel}
+                  factValue={factValue}
+                  planValue={planValue}
+                  title={factTitle}
+                  compact
+                  noDivider
+                />
+                <GprKpiSplitCountRow
+                  label="Выполнение"
+                  primaryCount={completedStages}
+                  totalCount={totalStages}
+                  compact
+                  noDivider
+                />
+              </div>
+              {/* Колонка 2: «Отклонение готовности, %» и «Доля выполненных этапов, %». */}
+              <div className="space-y-4 lg:space-y-5">
+                <GprKpiMetricRow
+                  label={deviationLabel}
+                  value={deviationValue}
+                  valueClassName={deviationValueColorClass(deviationDeltaPp)}
+                  compact
+                  noDivider
+                />
+                <GprKpiMetricRow
+                  label="Доля выполненных этапов, %"
+                  value={pct1(completedSharePct)}
+                  compact
+                  noDivider
+                />
+              </div>
+              {/*
+                Колонка 3: круговая диаграмма + легенда статусов.
+                chartHeight=110 — чуть меньше прежних 130, чтобы карточка
+                не доминировала по высоте. Дополнительный вертикальный паддинг
+                вокруг диаграммы не добавляем — общая высота карточки и так
+                компенсируется паддингом контейнера.
+              */}
+              <div className="min-w-0">
+                <KpiDonutChart
+                  segments={donutSegments}
+                  percentBase={donutStatusTotal}
+                  chartHeight={110}
+                />
+              </div>
+            </div>
+          ) : compactMetrics ? (
             <>
               <GprKpiSplitPercentRow
                 label={factLabel}
@@ -532,16 +654,18 @@ export function GprStageKpiCard({
           )}
         </div>
 
-        <div className={`space-y-1.5 ${compactMetrics ? "mt-2" : "mt-4"}`}>
-          <GprKpiDivider />
-          <div className={compactMetrics ? "pt-2" : "pt-3"}>
-            <KpiDonutChart
-              segments={donutSegments}
-              percentBase={donutStatusTotal}
-              chartHeight={100}
-            />
+        {wideProjectMetrics ? null : (
+          <div className={`space-y-1.5 ${compactMetrics ? "mt-2" : "mt-4"}`}>
+            <GprKpiDivider />
+            <div className={compactMetrics ? "pt-2" : "pt-3"}>
+              <KpiDonutChart
+                segments={donutSegments}
+                percentBase={donutStatusTotal}
+                chartHeight={100}
+              />
+            </div>
           </div>
-        </div>
+        )}
         <div className="min-h-0 flex-1" aria-hidden />
       </GprPremiumKpiCard>
     </div>

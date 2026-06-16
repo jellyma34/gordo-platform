@@ -2180,6 +2180,28 @@ export function GPRAnalytics({
     return total;
   }, [fullTaskList, tasks, gprReportAsOf]);
 
+  /**
+   * Всего этапов ГПР объекта «Автостоянка» (сумма workTotal по корневым 2.06 / 2.07).
+   * Используется как знаменатель «Доли выполненных этапов, %» в карточках 2.06/2.07,
+   * чтобы значение этого KPI было сопоставимо между карточками внутри вкладки —
+   * как уже сделано для жилого дома через residentialZhDomGprStageTotal.
+   */
+  const parkingAvtoGprStageTotal = useMemo(() => {
+    const parkingTasks = filterGprTasksByObjectScope(
+      fullTaskList.length > 0 ? fullTaskList : tasks,
+      PROJECT_PART_KEY_TO_ID.parking,
+    );
+    if (parkingTasks.length === 0) return 0;
+    const parkingFlat = flattenTasks(parkingTasks);
+    const rootCodes = aggregateRootCodesForPart("parking", parkingFlat);
+    const roots = resolveStageCardRootTasks(parkingFlat, rootCodes);
+    let total = 0;
+    for (const root of roots) {
+      total += computeGprStageCompletionInsight(parkingFlat, root, gprReportAsOf).workTotal;
+    }
+    return total;
+  }, [fullTaskList, tasks, gprReportAsOf]);
+
   const kvartalyAllFlat = useMemo(
     () =>
       effectivePlanFactDataSource === "kvartaly"
@@ -3128,9 +3150,72 @@ export function GPRAnalytics({
     );
   }
 
+  // Итоговая агрегатная карточка части/проекта.
+  // Размещение и внутренняя разметка отличаются по вкладкам:
+  //   • «Жилой дом» / «Автостоянка» — в той же строке, что и этапы (2 этапа + агрегат = 3 колонки),
+  //                                    metricsVariant="compact" — KPI идут вертикально, как в этапной карточке.
+  //   • «Проект»                    — отдельной строкой ВЫШЕ ряда этапов (сводка перед детализацией);
+  //                                    карточка занимает всю ширину контейнера,
+  //                                    metricsVariant="projectWide" — KPI разложены в 3 колонки:
+  //                                    (Факт + Выполнение) | (Отклонение + Доля) | (Donut + легенда).
+  const partAggregateCard = (
+    <GprStageKpiCard
+      key="part-aggregate"
+      title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
+      status={statusAgg}
+      metricsVariant={isProjectWide ? "projectWide" : "compact"}
+      donutStatusVariant="trafficKpi"
+      factLabel="Факт выполнения"
+      factValue={aggregateTotalProgressUi.display}
+      factTitle={AGGREGATE_PROGRESS_TOOLTIP}
+      planLabel="Плановая готовность"
+      planValue={aggregatePlanDisplay}
+      deviationLabel="Отклонение готовности, %"
+      deviationValue={`${aggregateDeviationDisplay}%`}
+      deviationDeltaPp={aggregateDeviationDeltaPp}
+      completedStages={aggregateStageBreakdown.workCompleted}
+      totalStages={aggregateStageBreakdown.workTotal}
+      onTimeCount={aggregateStageBreakdown.trafficGreen}
+      atRiskCount={aggregateStageBreakdown.trafficYellow}
+      overdueCount={aggregateStageBreakdown.trafficRed}
+      completedSharePct={aggregateStageBreakdown.completedSharePct}
+      donutOnTimeCount={aggregateStageBreakdown.donutOnTime}
+      donutRiskCount={aggregateStageBreakdown.donutRisk}
+      donutOverdueCount={aggregateStageBreakdown.donutOverdue}
+      donutCompletedLateCount={aggregateStageBreakdown.donutCompletedLate}
+      donutNotStartedCount={aggregateStageBreakdown.donutNotStarted}
+      problematicSharePct={0}
+    />
+  );
+
   return (
     <section className="min-w-0 space-y-4 overflow-x-clip">
-      <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-3">
+      {/*
+        На вкладке «Проект» итоговая агрегированная карточка стоит ПЕРВОЙ в секции,
+        ВЫШЕ ряда из четырёх карточек этапов 2.04–2.07. Это делает её главным KPI-блоком
+        раздела (сводка перед детализацией). Карточка занимает всю ширину контейнера;
+        её layout (3 колонки: KPI выполнения | KPI отклонений | диаграмма статусов)
+        задаётся через metricsVariant="projectWide" (см. partAggregateCard выше).
+
+        На вкладках «Жилой дом» / «Автостоянка» агрегатная карточка размещается
+        внутри ряда этапов (см. ниже) — там она логически парная к двум этапам части,
+        поэтому порядок «сводка сверху» к ним не применяется.
+      */}
+      {isProjectWide ? (
+        <div className="min-w-0">{partAggregateCard}</div>
+      ) : null}
+
+      {/*
+        Сетка карточек этапов ГПР:
+        • «Проект»                    — 4 равные колонки на desktop (по числу этапов 2.04/2.05/2.06/2.07);
+        • «Жилой дом» / «Автостоянка» — 3 колонки (2 этапа + агрегатная карточка части).
+        items-stretch гарантирует одинаковую высоту карточек внутри строки.
+      */}
+      <div
+        className={`grid grid-cols-1 items-stretch gap-5 ${
+          isProjectWide ? "xl:grid-cols-4" : "xl:grid-cols-3"
+        }`}
+      >
         {orderedStageRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
           const statusBreakdown = computeGprStageStatusBreakdown(
@@ -3176,30 +3261,52 @@ export function GPRAnalytics({
           const deviationUi = progressDeltaPp === null ? null : getStatusByGprProgressDelta(progressDeltaPp);
           const status: Traffic =
             isNoData || progressDeltaPp === null ? "gray" : (deviationUi as Traffic);
+          const stageCodeNorm = normalizeGprCodeFinal(task.code);
           const isPrepTerritoryStageCard =
-            normalizeGprCodeFinal(task.code) === "2.04" ||
+            stageCodeNorm === "2.04" ||
             task.name.trim() === "Подготовка территории строительства";
           const isBuildingConstructionStageCard =
-            normalizeGprCodeFinal(task.code) === "2.05" ||
+            stageCodeNorm === "2.05" ||
             task.name.trim() === "Строительство зданий и сооружений";
-          const isResidentialCompactStageCard =
-            isPrepTerritoryStageCard || isBuildingConstructionStageCard;
-          const residentialZhDomCompletedSharePct =
-            isResidentialCompactStageCard && residentialZhDomGprStageTotal > 0
+          // Этапы автостоянки (2.06 «Устройство сетей» и 2.07 «Благоустройство»)
+          // приводим к тому же компактному шаблону, что и 2.04 / 2.05 жилого дома:
+          // позиционная аналогия — первый этап части использует donut workItem
+          // (2.04 ≈ 2.06), второй этап части — businessKpi (2.05 ≈ 2.07).
+          // Контур/glow карточки определяется динамическим status (см. theme),
+          // так что цветовая индикация 2.06 (красная), 2.07 (нейтральная)
+          // сохраняется автоматически — менять её не нужно.
+          const isParkingNetworksStageCard = stageCodeNorm === "2.06";
+          const isParkingLandscapingStageCard = stageCodeNorm === "2.07";
+          const isCompactStageCard =
+            isPrepTerritoryStageCard ||
+            isBuildingConstructionStageCard ||
+            isParkingNetworksStageCard ||
+            isParkingLandscapingStageCard;
+          const useBusinessDonut =
+            isBuildingConstructionStageCard || isParkingLandscapingStageCard;
+          // Знаменатель «Доли выполненных этапов, %» — общее число этапов части
+          // (жилого дома или автостоянки), чтобы карточки одной вкладки были
+          // сопоставимы между собой. Если общее число этапов части равно 0
+          // (нет данных) — откатываемся к доле внутри собственного этапа.
+          const partStageTotal = isParkingNetworksStageCard || isParkingLandscapingStageCard
+            ? parkingAvtoGprStageTotal
+            : isPrepTerritoryStageCard || isBuildingConstructionStageCard
+              ? residentialZhDomGprStageTotal
+              : 0;
+          const stageCompletedSharePct =
+            isCompactStageCard && partStageTotal > 0
               ? Math.round(
-                  (statusBreakdown.completedStages / residentialZhDomGprStageTotal) * 1000,
+                  (statusBreakdown.completedStages / partStageTotal) * 1000,
                 ) / 10
               : statusBreakdown.completedSharePct;
           return (
             <GprStageKpiCard
               key={task.globalTaskId ?? task.id}
               title={task.name}
-              code={normalizeGprCodeFinal(task.code)}
+              code={stageCodeNorm}
               status={status}
-              metricsVariant={isResidentialCompactStageCard ? "compact" : "full"}
-              donutStatusVariant={
-                isBuildingConstructionStageCard ? "businessKpi" : "workItem"
-              }
+              metricsVariant={isCompactStageCard ? "compact" : "full"}
+              donutStatusVariant={useBusinessDonut ? "businessKpi" : "workItem"}
               factLabel="Факт выполнения"
               factValue={isNoData ? "—" : progressDisplay}
               factTitle={stageInsight.tooltipText}
@@ -3213,7 +3320,7 @@ export function GPRAnalytics({
               onTimeCount={statusBreakdown.onTimeCount}
               atRiskCount={statusBreakdown.atRiskCount}
               overdueCount={statusBreakdown.overdueCount}
-              completedSharePct={residentialZhDomCompletedSharePct}
+              completedSharePct={stageCompletedSharePct}
               donutOnTimeCount={statusBreakdown.donutOnTimeCount}
               donutRiskCount={statusBreakdown.donutRiskCount}
               donutOverdueCount={statusBreakdown.donutOverdueCount}
@@ -3228,33 +3335,13 @@ export function GPRAnalytics({
           );
         })}
 
-        <GprStageKpiCard
-          key="part-aggregate"
-          title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
-          status={statusAgg}
-          metricsVariant="compact"
-          donutStatusVariant="trafficKpi"
-          factLabel="Факт выполнения"
-          factValue={aggregateTotalProgressUi.display}
-          factTitle={AGGREGATE_PROGRESS_TOOLTIP}
-          planLabel="Плановая готовность"
-          planValue={aggregatePlanDisplay}
-          deviationLabel="Отклонение готовности, %"
-          deviationValue={`${aggregateDeviationDisplay}%`}
-          deviationDeltaPp={aggregateDeviationDeltaPp}
-          completedStages={aggregateStageBreakdown.workCompleted}
-          totalStages={aggregateStageBreakdown.workTotal}
-          onTimeCount={aggregateStageBreakdown.trafficGreen}
-          atRiskCount={aggregateStageBreakdown.trafficYellow}
-          overdueCount={aggregateStageBreakdown.trafficRed}
-          completedSharePct={aggregateStageBreakdown.completedSharePct}
-          donutOnTimeCount={aggregateStageBreakdown.donutOnTime}
-          donutRiskCount={aggregateStageBreakdown.donutRisk}
-          donutOverdueCount={aggregateStageBreakdown.donutOverdue}
-          donutCompletedLateCount={aggregateStageBreakdown.donutCompletedLate}
-          donutNotStartedCount={aggregateStageBreakdown.donutNotStarted}
-          problematicSharePct={0}
-        />
+        {/*
+          В «Жилой дом» / «Автостоянка» агрегатная карточка части идёт в той же строке,
+          что и этапы — это сохраняет текущую логику интерфейса (3 равные колонки).
+          В «Проекте» этапы занимают всю строку (4 колонки), а сводная карточка
+          «Проект» выносится отдельным блоком ВЫШЕ ряда этапов (см. выше по дереву).
+        */}
+        {!isProjectWide ? partAggregateCard : null}
       </div>
 
       <div className="grid grid-cols-1 min-w-0">
