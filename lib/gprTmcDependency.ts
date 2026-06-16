@@ -804,6 +804,15 @@ export type GprTimeForecastModel = {
   forecastSeries: GprTimeForecastPoint[];
   axisMinMs: number;
   axisMaxMs: number;
+  /**
+   * Последняя «реальная» дата календаря проекта на оси X — это max из:
+   *   endProjectMs (последняя плановая дата ГПР), todayMs, forecastTailEndMs.
+   * Диапазон оси (axisMaxMs) расширен дальше для технического буфера справа
+   * (см. rightPaddingMs ниже). UI использует dataEndMs, чтобы скрывать подписи
+   * месяцев, попадающие в этот буфер — иначе после буфера на оси появляются
+   * «лишние» месяцы (например, март 2028 при реальном окончании в ноябре 2027).
+   */
+  dataEndMs: number;
 };
 
 function clampPercent(y: number): number {
@@ -900,8 +909,22 @@ export function buildGprTimeForecastModel(
   // Ось графика покрывает: начало проекта → сегодня → конец проекта/прогноза.
   // todayMs используется ТОЛЬКО как маркер «Сегодня» и нижняя граница оси —
   // он не должен обрезать прогноз справа.
-  const axisEndMs =
-    Math.max(endProjectMs, todayMs, forecastTailEndMs ?? 0) + 10 * 86400000;
+  //
+  // Справа резервируем «свободную зону» ≈15% диапазона данных (но не меньше 30 дней).
+  // Зачем:
+  //   1) Крайняя прогнозная точка не должна упираться в правую границу области
+  //      построения (см. UI-требование: ≥5–10% ширины графика как буфер справа).
+  //   2) Подпись прогнозной даты завершения (например, «до 16 нояб. 2027»)
+  //      должна помещаться рядом с точкой в этом буфере, не накладываясь на линию
+  //      и не выходя за правую границу карточки.
+  // Расчёт прогноза и положение точек не меняются — меняется ТОЛЬКО диапазон оси X.
+  const dataEndMs = Math.max(endProjectMs, todayMs, forecastTailEndMs ?? 0);
+  const dataRangeMs = dataEndMs - startMs;
+  const rightPaddingMs =
+    dataRangeMs > 0
+      ? Math.max(dataRangeMs * 0.15, 30 * 86400000)
+      : 30 * 86400000;
+  const axisEndMs = dataEndMs + rightPaddingMs;
   const axisMinMs = Math.min(startMs, todayMs) - 5 * 86400000;
 
   const monthMs = eachMonthStartMs(startIso, msToIso(axisEndMs));
@@ -1001,6 +1024,7 @@ export function buildGprTimeForecastModel(
     forecastSeries,
     axisMinMs,
     axisMaxMs: axisEndMs,
+    dataEndMs,
   };
 }
 

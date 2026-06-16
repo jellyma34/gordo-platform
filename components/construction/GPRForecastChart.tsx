@@ -47,31 +47,13 @@ function forecastAreaFillRgba(model: GprTimeForecastModel): string {
   return "rgba(239, 68, 68, 0.12)";
 }
 
-function badgeStyleFromLag(lag: number | null): { bg: string; border: string; shadow: string; text: string } {
-  const c = colorFromPlanFactLag(lag);
-  if (lag == null || lag <= 0) {
-    return {
-      bg: "rgba(34, 197, 94, 0.15)",
-      border: "rgba(34, 197, 94, 0.35)",
-      shadow: "0 0 14px rgba(34, 197, 94, 0.45), 0 0 4px rgba(34, 197, 94, 0.25)",
-      text: "text-emerald-100/95",
-    };
-  }
-  if (lag <= 12) {
-    return {
-      bg: "rgba(245, 158, 11, 0.12)",
-      border: "rgba(245, 158, 11, 0.4)",
-      shadow: "0 0 14px rgba(245, 158, 11, 0.4), 0 0 4px rgba(245, 158, 11, 0.2)",
-      text: "text-amber-100/95",
-    };
-  }
-  return {
-    bg: "rgba(239, 68, 68, 0.12)",
-    border: "rgba(239, 68, 68, 0.35)",
-    shadow: "0 0 14px rgba(239, 68, 68, 0.4), 0 0 4px rgba(239, 68, 68, 0.2)",
-    text: "text-red-100/95",
-  };
-}
+// Стиль бейджа даты прогноза фиксированный (тёмный фон + оранжевая рамка),
+// см. требование: подпись должна читаться как самостоятельная информационная
+// метка независимо от риск-цвета линии. Риск по-прежнему передаётся цветом
+// самой линии прогноза, см. colorFromPlanFactLag выше.
+const FORECAST_BADGE_BG = "#0f172a";
+const FORECAST_BADGE_BORDER = "rgba(249, 115, 22, 0.9)";
+const FORECAST_BADGE_SHADOW = "0 6px 18px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(2, 6, 23, 0.4)";
 
 export function GPRForecastChart({
   tasks,
@@ -93,7 +75,26 @@ export function GPRForecastChart({
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ChartJS<"line"> | null>(null);
-  const [badgePos, setBadgePos] = useState<{ left: number; top: number } | null>(null);
+  const badgeRef = useRef<HTMLDivElement>(null);
+  type BadgeSide = "right" | "above" | "left";
+  const [badgePos, setBadgePos] = useState<
+    { left: number; top: number; side: BadgeSide } | null
+  >(null);
+
+  // Подпись прогнозной точки рисуется поверх canvas в обёртке chartWrapRef.
+  // Порядок выбора стороны: справа → сверху → слева. «Справа» предпочтительнее,
+  // потому что в этой зоне (layout.padding.right канвы) под текстом гарантированно
+  // нет линий графика. Если бейдж не помещается справа — пробуем «сверху»: это
+  // ставит метку над точкой и так же уводит её с линии прогноза (линия в правом
+  // конце заканчивается на самой точке, выше неё ничего нет). «Слева» — крайний
+  // случай, когда метку приходится разместить внутри области графика; за счёт
+  // непрозрачного фона и z-index линия под текстом не просвечивает.
+  // Цена решения: позиция самой точки на canvas не меняется (см. requirement #6),
+  // двигается ТОЛЬКО текстовая подпись.
+  const BADGE_GAP_PX = 16;
+  const BADGE_SAFETY_PX = 8;
+  const BADGE_FALLBACK_WIDTH_PX = 170; // ≈ ширина «до 16 нояб. 2027 г.» с новыми отступами
+  const BADGE_FALLBACK_HEIGHT_PX = 28;
 
   const updateBadgePosition = useCallback(() => {
     const wrap = chartWrapRef.current;
@@ -117,10 +118,29 @@ export function GPRForecastChart({
     const canvas = chart.canvas;
     const wrapRect = wrap.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
-    setBadgePos({
-      left: x + (canvasRect.left - wrapRect.left),
-      top: y + (canvasRect.top - wrapRect.top),
-    });
+    const left = x + (canvasRect.left - wrapRect.left);
+    const top = y + (canvasRect.top - wrapRect.top);
+
+    // Решаем сторону. Берём фактически измеренные размеры бейджа (если уже
+    // отрендерен); иначе — оценку. На следующем пересчёте (ResizeObserver / смена
+    // модели) размеры уточняются по реальному значению, поэтому fallback нужен
+    // только на самый первый кадр.
+    const wrapWidth = wrap.clientWidth;
+    const measuredW = badgeRef.current?.offsetWidth ?? 0;
+    const measuredH = badgeRef.current?.offsetHeight ?? 0;
+    const badgeW = measuredW > 0 ? measuredW : BADGE_FALLBACK_WIDTH_PX;
+    const badgeH = measuredH > 0 ? measuredH : BADGE_FALLBACK_HEIGHT_PX;
+    const fitsRight = left + BADGE_GAP_PX + badgeW <= wrapWidth - BADGE_SAFETY_PX;
+    const fitsAbove = top - BADGE_GAP_PX - badgeH >= BADGE_SAFETY_PX;
+    const fitsLeft = left - BADGE_GAP_PX - badgeW >= BADGE_SAFETY_PX;
+
+    let side: BadgeSide;
+    if (fitsRight) side = "right";
+    else if (fitsAbove) side = "above";
+    else if (fitsLeft) side = "left";
+    else side = "above"; // ультра-узкий контейнер: всё равно прячем линию под фоном
+
+    setBadgePos({ left, top, side });
   }, [model]);
 
   const updateBadgeRef = useRef(updateBadgePosition);
@@ -137,6 +157,35 @@ export function GPRForecastChart({
     ro.observe(wrap);
     return () => ro.disconnect();
   }, [model]);
+
+  // После первого рендера бейджа сверяем фактическую измеренную ширину и при
+  // необходимости переключаем сторону. Это страхует случай, когда fallback-оценка
+  // ширины оказалась неточной (другой шрифт / другая дата): эффект перерасчёта
+  // отрабатывает до paint, поэтому пользователь не видит «вспышку» неправильного
+  // расположения.
+  useLayoutEffect(() => {
+    if (!badgePos || !badgeRef.current || !chartWrapRef.current) return;
+    const measuredW = badgeRef.current.offsetWidth;
+    const measuredH = badgeRef.current.offsetHeight;
+    if (measuredW <= 0 || measuredH <= 0) return;
+    const wrapWidth = chartWrapRef.current.clientWidth;
+    const fitsRight =
+      badgePos.left + BADGE_GAP_PX + measuredW <= wrapWidth - BADGE_SAFETY_PX;
+    const fitsAbove =
+      badgePos.top - BADGE_GAP_PX - measuredH >= BADGE_SAFETY_PX;
+    const fitsLeft =
+      badgePos.left - BADGE_GAP_PX - measuredW >= BADGE_SAFETY_PX;
+
+    let correct: BadgeSide;
+    if (fitsRight) correct = "right";
+    else if (fitsAbove) correct = "above";
+    else if (fitsLeft) correct = "left";
+    else correct = "above";
+
+    if (correct !== badgePos.side) {
+      setBadgePos((prev) => (prev ? { ...prev, side: correct } : prev));
+    }
+  }, [badgePos]);
 
   const chartData = useMemo(() => {
     if (!model) {
@@ -249,6 +298,13 @@ export function GPRForecastChart({
                   callback: (v) => {
                     const n = typeof v === "number" ? v : Number(v);
                     if (!Number.isFinite(n)) return "";
+                    // Правый отступ axisMaxMs − dataEndMs — это техническая зона
+                    // для бейджа даты завершения прогноза. Подписи месяцев,
+                    // попадающие в этот буфер (например, «март 2028» при реальном
+                    // окончании проекта в ноябре 2027), не относятся к календарю
+                    // проекта и должны быть скрыты. Положение точек, линий и
+                    // прогноз при этом не меняются — режется ТОЛЬКО текст метки.
+                    if (n > model.dataEndMs) return "";
                     return monthTickFmt.format(new Date(n));
                   },
                 },
@@ -349,7 +405,6 @@ export function GPRForecastChart({
     [model],
   );
 
-  const badgeUi = model ? badgeStyleFromLag(model.planFactLagPp) : null;
   const badgeLabel =
     model && model.forecastSeries.length >= 2
       ? `до ${endDateFmt.format(new Date(model.forecastMs))}`
@@ -372,16 +427,23 @@ export function GPRForecastChart({
               data={chartData as ChartData<"line">}
               options={options}
             />
-            {badgePos && model.forecastSeries.length >= 2 && badgeUi ? (
+            {badgePos && model.forecastSeries.length >= 2 ? (
               <div
-                className={`pointer-events-none absolute z-10 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeUi.text}`}
+                ref={badgeRef}
+                className="pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-semibold leading-none tracking-tight text-slate-50"
                 style={{
                   left: badgePos.left,
                   top: badgePos.top,
-                  transform: "translate(12px, -50%)",
-                  background: badgeUi.bg,
-                  borderColor: badgeUi.border,
-                  boxShadow: badgeUi.shadow,
+                  transform:
+                    badgePos.side === "left"
+                      ? `translate(calc(-100% - ${BADGE_GAP_PX}px), -50%)`
+                      : badgePos.side === "above"
+                        ? `translate(-50%, calc(-100% - ${BADGE_GAP_PX}px))`
+                        : `translate(${BADGE_GAP_PX}px, -50%)`,
+                  background: FORECAST_BADGE_BG,
+                  borderColor: FORECAST_BADGE_BORDER,
+                  borderWidth: 1,
+                  boxShadow: FORECAST_BADGE_SHADOW,
                 }}
               >
                 {badgeLabel}
