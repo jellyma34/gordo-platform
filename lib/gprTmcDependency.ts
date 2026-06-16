@@ -822,8 +822,33 @@ export function buildGprTimeForecastModel(
   todayIso: string,
   activeProjectPart: ForecastPart,
 ): GprTimeForecastModel | null {
-  const bounds = partPlanBounds(tasks, activeProjectPart);
-  if (!bounds) return null;
+  // Все задачи ГПР, относящиеся к выбранной части (или ко всему проекту).
+  // Берём именно ВСЕ задачи, а не только корневые 2.04/2.05/2.06/2.07 —
+  // иначе границы графика, факт и план считаются по корням, у которых planEnd
+  // нередко близок к «сегодня», тогда как лист-задачи уходят значительно дальше,
+  // и линия прогноза визуально упирается в дату отчёта.
+  const scopedTasks = tasksForForecastPart(tasks, activeProjectPart);
+
+  // Реальный диапазон дат ГПР по всем задачам части:
+  //   startIso — самый ранний planStart;
+  //   endIso   — самый поздний planEnd / factEnd (фактический «потолок» дат ГПР).
+  // Если у задач нет дат — отступаем к корневым границам (fallback).
+  let startIso: string | null = null;
+  let endIso: string | null = null;
+  for (const t of scopedTasks) {
+    const ps = t.planStart?.trim();
+    if (ps && (!startIso || ps < startIso)) startIso = ps;
+    const pe = t.planEnd?.trim();
+    if (pe && (!endIso || pe > endIso)) endIso = pe;
+    const fe = t.factEnd?.trim();
+    if (fe && (!endIso || fe > endIso)) endIso = fe;
+  }
+  if (!startIso || !endIso) {
+    const roots = partPlanBounds(tasks, activeProjectPart);
+    if (!roots) return null;
+    startIso = startIso ?? roots.startIso;
+    endIso = endIso ?? roots.endIso;
+  }
 
   const tmcSeries =
     activeProjectPart === "project"
@@ -834,8 +859,10 @@ export function buildGprTimeForecastModel(
       ? buildGprTenderDependencySeriesProjectWide(tasks, tenders, todayIso)
       : buildGprTenderDependencySeries(tasks, tenders, todayIso, activeProjectPart);
 
-  const factNow = weightedFactGprPart(tasks, activeProjectPart);
-  const planAtToday = weightedPlanGprPartAtDate(tasks, activeProjectPart, todayIso);
+  // Факт/план — взвешенно по ВСЕМ задачам части, чтобы корневой completion=100%
+  // при незавершённых лист-задачах не «прятал» реальное отставание.
+  const factNow = weightedFactGprAllTasksAtDate(scopedTasks, todayIso, todayIso);
+  const planAtToday = weightedPlanGprAllTasksAtDate(scopedTasks, todayIso);
   const planFactLagPp =
     factNow != null && planAtToday != null ? planAtToday - factNow : null;
   const tmcPct = weightedAvgFromStageSeries(
@@ -850,37 +877,38 @@ export function buildGprTimeForecastModel(
   );
 
   const todayMs = dateToMs(todayIso);
-  const startMs = dateToMs(bounds.startIso);
-  const endPlanMs = dateToMs(bounds.endIso);
-  const planDurMs = endPlanMs - startMs;
+  const startMs = dateToMs(startIso);
+  // endProjectMs — последняя плановая/фактическая дата работ ГПР проекта.
+  // Именно она (а не сегодня) задаёт правый предел графика.
+  const endProjectMs = dateToMs(endIso);
+  const projectDurMs = endProjectMs - startMs;
 
-  // Прогнозная дата завершения проекта: плановый конец + «дни отставания»,
-  // где дни отставания = lagPp × плановая длительность / 100
-  // (т.е. текущее отставание готовности транслируется в дни при плановой скорости работ).
-  // Используется только если факт < 100% и есть отставание — иначе прогноз и так
-  // успевает к плановому концу проекта.
-  const needsForecastTail =
-    factNow != null &&
-    factNow < 100 &&
-    planFactLagPp != null &&
-    planFactLagPp > 0 &&
-    planDurMs > 0;
+  // Прогнозная дата завершения проекта.
+  // — если факт ещё не 100% и есть отставание (lagPp > 0): сдвиг = lagPp × длительность / 100;
+  //   forecastTailEndMs = endProjectMs + сдвиг (с гарантией, что > сегодня, если проект уже
+  //   формально просрочен по плану);
+  // — если факт ещё не 100%, но lag ≤ 0 (на плане или с опережением): прогноз и так достигает
+  //   100% к endProjectMs — отдельный «хвост» не нужен;
+  // — если факт уже 100%: прогноз не строим после «сегодня» (требование #8).
+  const lagPp = planFactLagPp ?? 0;
+  const projectIncomplete = factNow != null && factNow < 100;
+  const needsForecastTail = projectIncomplete && lagPp > 0 && projectDurMs > 0;
   const forecastTailEndMs = needsForecastTail
-    ? endPlanMs + (planFactLagPp / 100) * planDurMs
+    ? Math.max(endProjectMs, todayMs) + (lagPp / 100) * projectDurMs
     : null;
 
-  // Ось графика расширяется до прогнозной даты завершения, чтобы линия прогноза
-  // не обрезалась плановым концом / сегодня. todayMs остаётся только нижней
-  // границей (маркер «Сегодня» не должен резать прогноз).
+  // Ось графика покрывает: начало проекта → сегодня → конец проекта/прогноза.
+  // todayMs используется ТОЛЬКО как маркер «Сегодня» и нижняя граница оси —
+  // он не должен обрезать прогноз справа.
   const axisEndMs =
-    Math.max(endPlanMs, todayMs, forecastTailEndMs ?? 0) + 10 * 86400000;
+    Math.max(endProjectMs, todayMs, forecastTailEndMs ?? 0) + 10 * 86400000;
   const axisMinMs = Math.min(startMs, todayMs) - 5 * 86400000;
 
-  const monthMs = eachMonthStartMs(bounds.startIso, msToIso(axisEndMs));
+  const monthMs = eachMonthStartMs(startIso, msToIso(axisEndMs));
 
   const planSeries: GprTimeForecastPoint[] = [];
   for (const ms of monthMs) {
-    const y = weightedPlanGprPartAtDate(tasks, activeProjectPart, msToIso(ms));
+    const y = weightedPlanGprAllTasksAtDate(scopedTasks, msToIso(ms));
     if (y != null) planSeries.push({ x: ms, y });
   }
 
@@ -903,33 +931,36 @@ export function buildGprTimeForecastModel(
 
   const forecastSeries: GprTimeForecastPoint[] = [];
   if (factNow != null) {
-    const delayPp = planFactLagPp ?? 0;
     forecastSeries.push({ x: todayMs, y: factNow });
 
-    // Основной участок прогноза — повторяем форму плановой S-кривой со смещением вниз
-    // на текущий lagPp. Если будет «хвост» до 100%, останавливаемся на плановом конце,
-    // дальше его дорисует линейный участок.
-    for (const p of planSeries) {
-      if (p.x <= todayMs) continue;
-      if (forecastTailEndMs != null && p.x > endPlanMs) break;
-      const y = clampPercent(p.y - delayPp);
-      forecastSeries.push({ x: p.x, y });
-    }
+    // Прогноз строим только если факт ещё не 100% (#8): иначе оставляем одну точку «сегодня».
+    if (projectIncomplete) {
+      // Основной участок прогноза — повторяет форму плановой кривой (по всем задачам части)
+      // со смещением вниз на текущий lagPp. Если есть «хвост» до 100% — останавливаемся
+      // на endProjectMs и далее достраиваем линейный участок до forecastTailEndMs.
+      // Если же lag ≤ 0, прогноз и так достигает 100% на endProjectMs — break не нужен.
+      for (const p of planSeries) {
+        if (p.x <= todayMs) continue;
+        if (forecastTailEndMs != null && p.x > endProjectMs) break;
+        const y = clampPercent(p.y - lagPp);
+        forecastSeries.push({ x: p.x, y });
+      }
 
-    // Линейный «хвост» от последней точки прогноза до достижения 100%
-    // на forecastTailEndMs. Промежуточные точки расставляем по тем же месяцам,
-    // что и ось графика, чтобы тики оси оставались равномерными.
-    if (forecastTailEndMs != null) {
-      const lastInside = forecastSeries[forecastSeries.length - 1]!;
-      if (forecastTailEndMs > lastInside.x) {
-        const slope = (100 - lastInside.y) / (forecastTailEndMs - lastInside.x);
-        for (const ms of monthMs) {
-          if (ms <= lastInside.x) continue;
-          if (ms >= forecastTailEndMs) break;
-          const y = clampPercent(lastInside.y + slope * (ms - lastInside.x));
-          forecastSeries.push({ x: ms, y });
+      // Линейный «хвост» от последней точки прогноза до достижения 100%
+      // на forecastTailEndMs. Промежуточные точки расставляем по тем же месяцам,
+      // что и ось графика, чтобы тики оси оставались равномерными.
+      if (forecastTailEndMs != null) {
+        const lastInside = forecastSeries[forecastSeries.length - 1]!;
+        if (forecastTailEndMs > lastInside.x) {
+          const slope = (100 - lastInside.y) / (forecastTailEndMs - lastInside.x);
+          for (const ms of monthMs) {
+            if (ms <= lastInside.x) continue;
+            if (ms >= forecastTailEndMs) break;
+            const y = clampPercent(lastInside.y + slope * (ms - lastInside.x));
+            forecastSeries.push({ x: ms, y });
+          }
+          forecastSeries.push({ x: forecastTailEndMs, y: 100 });
         }
-        forecastSeries.push({ x: forecastTailEndMs, y: 100 });
       }
     }
   }
