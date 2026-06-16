@@ -13,19 +13,14 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
-import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import {
-  formatTmcProcurementPointLabel,
-  type TmcProcurementChartMode,
-  type TmcProcurementChartRow,
+import type {
+  TmcProcurementChartMode,
+  TmcProcurementChartRow,
 } from "@/components/tmc/TmcProcurementDynamicsChart";
-import {
-  TENDER_CONDUCT_LAG_COLORS,
-  tenderConductLagColor,
-} from "@/lib/tenderPresentationAnalytics";
 
 const COLORS = {
   plan: "#94a3b8",
+  fact: "#3b82f6",
   card: "#1e293b",
 } as const;
 
@@ -61,7 +56,6 @@ type FactNode = {
   index: number;
   x: number;
   y: number;
-  color: string;
 };
 
 type MonotonePoint = { x: number; y: number };
@@ -69,8 +63,38 @@ type MonotonePoint = { x: number; y: number };
 type FactPathSegment = {
   key: string;
   d: string;
-  color: string;
 };
+
+/** Сокращённый формат стоимости для подписей точек и Y-оси: 1,25 млн / 25,3 млн / 1,25 млрд. */
+export function formatTenderCostCompact(rub: number): string {
+  if (!Number.isFinite(rub) || rub === 0) return "";
+  const sign = rub < 0 ? "−" : "";
+  const abs = Math.abs(rub);
+
+  if (abs >= 1_000_000_000) {
+    return `${sign}${formatCompactScalar(abs / 1_000_000_000)} млрд`;
+  }
+  if (abs >= 1_000_000) {
+    return `${sign}${formatCompactScalar(abs / 1_000_000)} млн`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}${formatCompactScalar(abs / 1_000)} тыс`;
+  }
+  return `${sign}${Math.round(abs).toLocaleString("ru-RU")}`;
+}
+
+function formatCompactScalar(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 100) return Math.round(v).toLocaleString("ru-RU");
+  if (abs >= 10) return v.toFixed(1).replace(".", ",");
+  return v.toFixed(2).replace(".", ",");
+}
+
+/** Полная сумма в рублях с разделителями разрядов для tooltip-а. */
+export function formatTenderCostFullRub(rub: number): string {
+  const rounded = Math.round(rub);
+  return `${new Intl.NumberFormat("ru-RU").format(rounded)} ₽`;
+}
 
 function computeMonotoneTangents(points: MonotonePoint[]): number[] {
   const n = points.length;
@@ -176,12 +200,7 @@ function buildFactGeometry(
     if (x == null || !isPlottableFact(row.fact)) return;
     const y = yScale(row.fact);
     if (y == null || !Number.isFinite(y)) return;
-    nodes.push({
-      index,
-      x,
-      y,
-      color: tenderConductLagColor(row.plan, row.fact),
-    });
+    nodes.push({ index, x, y });
   });
 
   if (nodes.length < 2) return { nodes, segments };
@@ -192,12 +211,9 @@ function buildFactGeometry(
   for (let i = 0; i < nodes.length - 1; i++) {
     const left = nodes[i]!;
     const right = nodes[i + 1]!;
-    const destRow = chartData[right.index];
-    if (!destRow) continue;
     segments.push({
       key: `seg-${left.index}-${right.index}`,
       d: monotoneBezierPath(points[i]!, points[i + 1]!, tangents[i]!, tangents[i + 1]!),
-      color: tenderConductLagColor(destRow.plan, destRow.fact),
     });
   }
 
@@ -217,12 +233,11 @@ function buildPointLabels(
     const x = categoryPointX(row, index, chartData.length, xCat, plot);
     if (x == null) return;
 
-    const planText = formatTmcProcurementPointLabel(row.plan);
+    const planText = formatTenderCostCompact(row.plan);
     const factValue = row.fact;
-    const factText =
-      factValue != null && Number.isFinite(factValue)
-        ? formatTmcProcurementPointLabel(factValue)
-        : "";
+    const factText = isPlottableFact(factValue)
+      ? formatTenderCostCompact(factValue)
+      : "";
 
     const planPointY = row.plan > 0 ? yScale(row.plan) : null;
     let planY =
@@ -267,7 +282,7 @@ function buildPointLabels(
         y: factY,
         text: factText,
         halfW: estimateLabelHalfWidth(factText),
-        fill: tenderConductLagColor(row.plan, factValue),
+        fill: COLORS.fact,
         fontWeight: 700,
       });
     }
@@ -276,7 +291,7 @@ function buildPointLabels(
   return labels;
 }
 
-function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChartRow[] }) {
+function TenderCostFactLine({ chartData }: { chartData: TmcProcurementChartRow[] }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
   const plot = usePlotArea();
@@ -300,7 +315,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
           key={seg.key}
           d={seg.d}
           fill="none"
-          stroke={seg.color}
+          stroke={COLORS.fact}
           strokeWidth={FACT_LINE_WIDTH}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -312,7 +327,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
           cx={node.x}
           cy={node.y}
           r={FACT_DOT_R}
-          fill={node.color}
+          fill={COLORS.fact}
           stroke="#ffffff"
           strokeWidth={2}
         />
@@ -321,7 +336,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
   );
 }
 
-function TenderPointLabels({
+function TenderCostPointLabels({
   chartData,
   mode,
 }: {
@@ -366,7 +381,7 @@ function TenderPointLabels({
   );
 }
 
-function ConductTooltip({
+function CostTooltip({
   active,
   payload,
   label,
@@ -379,7 +394,7 @@ function ConductTooltip({
   const row = payload[0]?.payload;
   if (!row) return null;
 
-  const lag =
+  const deviation =
     row.fact != null && Number.isFinite(row.fact) ? row.fact - row.plan : null;
 
   return (
@@ -393,19 +408,23 @@ function ConductTooltip({
     >
       <div className="font-semibold text-slate-100">{label}</div>
       <div className="mt-1 tabular-nums text-slate-300">
-        План: <span className="font-medium text-white">{row.plan} шт.</span>
+        План:{" "}
+        <span className="font-medium text-white">{formatTenderCostFullRub(row.plan)}</span>
       </div>
       <div className="tabular-nums text-slate-300">
-        Факт: <span className="font-medium text-white">{row.fact ?? "—"} шт.</span>
+        Факт:{" "}
+        <span className="font-medium text-white">
+          {row.fact != null && Number.isFinite(row.fact)
+            ? formatTenderCostFullRub(row.fact)
+            : "—"}
+        </span>
       </div>
-      {lag != null ? (
+      {deviation != null ? (
         <div className="tabular-nums text-slate-300">
           Отклонение:{" "}
-          <span
-            className="font-medium"
-            style={{ color: tenderConductLagColor(row.plan, row.fact) }}
-          >
-            {lag > 0 ? `+${lag}` : lag} шт.
+          <span className="font-medium" style={{ color: COLORS.fact }}>
+            {deviation > 0 ? "+" : deviation < 0 ? "−" : ""}
+            {formatTenderCostFullRub(Math.abs(deviation))}
           </span>
         </div>
       ) : null}
@@ -413,7 +432,7 @@ function ConductTooltip({
   );
 }
 
-export function TenderConductDynamicsChart({
+export function TenderCostDynamicsChart({
   chartData,
   mode = "monthly",
 }: {
@@ -440,10 +459,15 @@ export function TenderConductDynamicsChart({
         />
         <YAxis
           tick={{ fill: "#94a3b8", fontSize: 11 }}
-          tickFormatter={(v) => `${Math.round(Number(v))}`}
+          tickFormatter={(v) => {
+            const n = Number(v);
+            if (!Number.isFinite(n) || n === 0) return "0";
+            return formatTenderCostCompact(n);
+          }}
           allowDecimals={false}
+          width={70}
         />
-        <Tooltip content={<ConductTooltip />} />
+        <Tooltip content={<CostTooltip />} />
         <Line
           type="monotone"
           dataKey="plan"
@@ -459,7 +483,7 @@ export function TenderConductDynamicsChart({
           connectNulls={false}
           name="plan"
         />
-        <TenderSegmentedFactLine chartData={chartData} />
+        <TenderCostFactLine chartData={chartData} />
         <Line
           type="monotone"
           dataKey="fact"
@@ -472,47 +496,23 @@ export function TenderConductDynamicsChart({
             if (!row || !isPlottableFact(row.fact) || props.cx == null || props.cy == null) {
               return <g />;
             }
-            const color = tenderConductLagColor(row.plan, row.fact);
             return (
               <circle
                 cx={props.cx}
                 cy={props.cy}
                 r={FACT_ACTIVE_DOT_R}
-                fill={color}
+                fill={COLORS.fact}
                 stroke="#ffffff"
                 strokeWidth={2}
-                style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+                style={{ filter: `drop-shadow(0 0 6px ${COLORS.fact})` }}
               />
             );
           }}
           connectNulls
           name="fact"
         />
-        <TenderPointLabels chartData={chartData} mode={mode} />
+        <TenderCostPointLabels chartData={chartData} mode={mode} />
       </ComposedChart>
     </ResponsiveContainer>
-  );
-}
-
-export function TenderConductDynamicsChartLegend() {
-  return (
-    <AnalyticsLegendList>
-      <AnalyticsLegendItem
-        markerColor="rgba(148,163,184,0.7)"
-        label="План проведения тендеров (пунктир)"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.green}
-        label="Факт — в плане / опережение"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.yellow}
-        label="Факт — отставание до 10%"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.red}
-        label="Факт — отставание более 10%"
-      />
-    </AnalyticsLegendList>
   );
 }

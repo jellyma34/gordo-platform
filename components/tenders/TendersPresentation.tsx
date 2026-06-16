@@ -16,14 +16,20 @@ import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import {
   TenderConductDynamicsChart,
 } from "@/components/tenders/TenderConductDynamicsChart";
+import { TenderContractDynamicsChart } from "@/components/tenders/TenderContractDynamicsChart";
+import { TenderCostDynamicsChart } from "@/components/tenders/TenderCostDynamicsChart";
 import { useTenderKpiDonutSegments } from "@/components/tenders/useTenderKpiDonutSegments";
 import type { TmcProcurementChartMode } from "@/components/tmc/TmcProcurementDynamicsChart";
 import {
   buildTenderMonthlyConductSeries,
+  buildTenderMonthlyContractSeries,
+  buildTenderMonthlyCostSeries,
   computeTenderBudgetFinancialResult,
   computeTenderProcurementKpi,
   logTenderConductDynamicsDiagnostics,
   logTenderConductedKpiDiagnostics,
+  logTenderContractDynamicsDiagnostics,
+  logTenderCostDynamicsDiagnostics,
 } from "@/lib/tenderPresentationAnalytics";
 import {
   buildGprTenderDependencySeries,
@@ -437,7 +443,9 @@ export function TendersPresentation({
   const projectId = useMemo(() => getGprProjectId(), []);
   const [allTenders, setAllTenders] = useState<Tender[]>([]);
   const [tick, setTick] = useState(0);
-  const [conductChartMode, setConductChartMode] = useState<TmcProcurementChartMode>("cumulative");
+  const [conductChartMode, setConductChartMode] = useState<TmcProcurementChartMode>("monthly");
+  const [costChartMode, setCostChartMode] = useState<TmcProcurementChartMode>("monthly");
+  const [contractChartMode, setContractChartMode] = useState<TmcProcurementChartMode>("monthly");
 
   const reloadTenders = useCallback(async () => {
     if (tenderLocalMode) {
@@ -560,6 +568,50 @@ export function TendersPresentation({
   useEffect(() => {
     logTenderConductDynamicsDiagnostics(conductSeries);
   }, [conductSeries]);
+
+  const costSeries = useMemo(
+    () => buildTenderMonthlyCostSeries(tenders, today),
+    [tenders, today],
+  );
+
+  const costChartData = useMemo(
+    () =>
+      costSeries.map((p) => ({
+        label: p.label,
+        plan: costChartMode === "monthly" ? p.planRub : p.planCumRub,
+        fact:
+          costChartMode === "monthly"
+            ? p.factRub
+            : p.factCumRub,
+      })),
+    [costSeries, costChartMode],
+  );
+
+  useEffect(() => {
+    logTenderCostDynamicsDiagnostics(tenders);
+  }, [tenders]);
+
+  const contractSeries = useMemo(
+    () => buildTenderMonthlyContractSeries(tenders, today),
+    [tenders, today],
+  );
+
+  const contractChartData = useMemo(
+    () =>
+      contractSeries.map((p) => ({
+        label: p.label,
+        plan: contractChartMode === "monthly" ? p.planCount : p.planCumCount,
+        fact:
+          contractChartMode === "monthly"
+            ? p.factCount
+            : p.factCumCount,
+      })),
+    [contractSeries, contractChartMode],
+  );
+
+  useEffect(() => {
+    logTenderContractDynamicsDiagnostics(tenders);
+  }, [tenders]);
 
   const financialResult = useMemo(
     () => computeTenderBudgetFinancialResult(tenders),
@@ -905,6 +957,89 @@ export function TendersPresentation({
             </div>
           ) : (
             <TenderConductDynamicsChart chartData={conductChartData} mode={conductChartMode} />
+          )}
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+            Аналитика стоимости (руб.)
+          </h3>
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {(
+              [
+                { id: "monthly" as const, label: "Помесячно" },
+                { id: "cumulative" as const, label: "Нарастающим итогом" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setCostChartMode(m.id)}
+                className={segmentedControlTabClass(costChartMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 h-[400px] w-full">
+          {costSeries.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Недостаточно данных по стоимости тендеров для построения динамики
+            </div>
+          ) : (
+            <TenderCostDynamicsChart chartData={costChartData} mode={costChartMode} />
+          )}
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+            Динамика заключения договоров
+          </h3>
+          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+            {(
+              [
+                { id: "monthly" as const, label: "Помесячно" },
+                { id: "cumulative" as const, label: "Нарастающим итогом" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setContractChartMode(m.id)}
+                className={segmentedControlTabClass(contractChartMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 h-[400px] w-full">
+          {contractSeries.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Недостаточно данных по датам договоров для построения динамики заключения
+            </div>
+          ) : (
+            <TenderContractDynamicsChart
+              chartData={contractChartData}
+              mode={contractChartMode}
+            />
           )}
         </div>
       </div>

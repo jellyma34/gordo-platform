@@ -2202,8 +2202,12 @@ export function GPRAnalytics({
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
     useState<PlanFactKvartalyGranularity>("overview");
-  /** Режим bar-chart при источнике «таблица задач» для ЖД / проекта: листья или только «2.05.XX». */
-  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("detailed");
+  /**
+   * Режим bar-chart при источнике «таблица задач» для ЖД / проекта.
+   * По умолчанию — упрощённое представление (2.04 / 2.05); при ручной смене
+   * пользователем сохранение выбора оставлено на уровне React-состояния, как и было.
+   */
+  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("simplified");
   const [tenderRevision, setTenderRevision] = useState(0);
 
   const reloadDependencies = useCallback(async () => {
@@ -2262,7 +2266,7 @@ export function GPRAnalytics({
   }, [activePartScope]);
 
   useEffect(() => {
-    setPlanFactTasksBarLevel("detailed");
+    setPlanFactTasksBarLevel("simplified");
   }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {
@@ -3190,6 +3194,7 @@ export function GPRAnalytics({
             <GprStageKpiCard
               key={task.globalTaskId ?? task.id}
               title={task.name}
+              code={normalizeGprCodeFinal(task.code)}
               status={status}
               metricsVariant={isResidentialCompactStageCard ? "compact" : "full"}
               donutStatusVariant={
@@ -3254,30 +3259,29 @@ export function GPRAnalytics({
 
       <div className="grid grid-cols-1 min-w-0">
         <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
-          <div>
-            <div className="flex flex-col gap-2">
-              <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">Динамика выполнения ГПР</h3>
-            </div>
-          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">
+              Динамика выполнения ГПР
+            </h3>
 
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            {showPlanFactTasksBarLevel ? (
+            <div className="flex flex-wrap items-end gap-3">
+              {showPlanFactTasksBarLevel ? (
               <label className="flex min-w-[170px] flex-col gap-1">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Уровень</span>
                 <select
                   value={planFactTasksBarLevel}
                   onChange={(e) => setPlanFactTasksBarLevel(e.target.value as PlanFactTasksBarLevel)}
                   className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
                 >
-                  <option value="simplified">Упрощённо (2.04 / 2.05)</option>
-                  <option value="detailed">Детально (2.05.XX / 2.04.XX)</option>
-                  <option value="full">Полная детализация (листья WBS)</option>
+                  <option value="simplified">Упрощённо</option>
+                  <option value="detailed">Детально</option>
+                  <option value="full">Все этапы</option>
                 </select>
               </label>
             ) : null}
             {effectivePlanFactDataSource === "kvartaly" ? (
               <label className="flex min-w-[170px] flex-col gap-1">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Уровень</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Уровень</span>
                 <select
                   value={planFactKvartalyGranularity}
                   onChange={(e) => setPlanFactKvartalyGranularity(e.target.value as PlanFactKvartalyGranularity)}
@@ -3290,8 +3294,8 @@ export function GPRAnalytics({
               </label>
             ) : null}
 
-            <label className="flex min-w-[230px] flex-1 flex-col gap-1 sm:flex-none">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Период</span>
+            <label className="flex w-[130px] flex-none flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Период</span>
               <select
                 value={
                   planFactFilter.filterType === "all"
@@ -3360,6 +3364,7 @@ export function GPRAnalytics({
                     ]}
               </select>
             </label>
+            </div>
           </div>
 
           {effectivePlanFactDataSource === "kvartaly" && planFactFilter.filterType === "year" ? (
@@ -3530,12 +3535,7 @@ export function GPRAnalytics({
                                   font: { size: 10 },
                                   callback: xTickLabel,
                                 },
-                                title: {
-                                  display: true,
-                                  text: "Сроки (мес.)",
-                                  color: "#94a3b8",
-                                  font: { size: 11 },
-                                },
+                                title: { display: false },
                               },
                               y: {
                                 grid: { display: false },

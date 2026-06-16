@@ -1,5 +1,6 @@
 import {
   compareGprCodesByNumericPath,
+  getStatusByGprProgressDelta,
   gprPlanFactCompositeKey,
   gprPlanFactScopeFromTask,
   gprWbsLevelFromCode,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/gprUtils";
 import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
+import { computeGprStageCompletionInsight } from "@/lib/gprStageCompletion";
 
 export {
   buildAggregatedProjectWideStagesSummary,
@@ -241,6 +243,33 @@ const PLAN_BAR = "rgba(148, 163, 184, 0.5)";
 const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
 const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
 const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
+const FACT_NO_PLAN_PERCENT = "rgba(148, 163, 184, 0.5)";
+const FACT_GREEN = "#22c55e";
+const FACT_YELLOW = "#f59e0b";
+const FACT_RED = "#ef4444";
+
+/**
+ * Цвет фактической полосы в блоке «Динамика выполнения ГПР» — единый источник статуса с KPI-карточкой:
+ * отклонение готовности (факт − план %) на отчётную дату через {@link getStatusByGprProgressDelta}.
+ *
+ * Зелёный — факт ≥ плана (≥ 0 п.п.); жёлтый — умеренное отставание (от −10 до 0 п.п.);
+ * красный — существенное отставание (&lt; −10 п.п.). Серый — нет планового %.
+ */
+export function planFactBarFactColorByProgressDelta(
+  rowTask: GPRTask,
+  allTasks: GPRTask[],
+  asOfIso: string,
+): string {
+  const parsed = new Date(`${asOfIso.trim()}T12:00:00`);
+  const asOf = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const insight = computeGprStageCompletionInsight(allTasks, rowTask, asOf);
+  if (insight.planPercent === null) return FACT_NO_PLAN_PERCENT;
+  const deltaPp = Math.round((insight.factPercent - insight.planPercent) * 10) / 10;
+  const traffic = getStatusByGprProgressDelta(deltaPp);
+  if (traffic === "red") return FACT_RED;
+  if (traffic === "yellow") return FACT_YELLOW;
+  return FACT_GREEN;
+}
 
 /** Режим детализации bar-chart «План vs Факт» по уровням WBS. */
 export type PlanFactTasksBarLevel = "simplified" | "detailed" | "full";
@@ -490,7 +519,7 @@ function buildGprPlanFactBarChartModel(
           const ffE = e.fe ? monthFloatFromIso(e.fe, originMonth) : null;
           if (ffS != null && ffE != null && ffE >= ffS) {
             factRanges.push([ffS, ffE]);
-            factColors.push(overviewFactBarColor(e.ps, e.pe, e.fs, e.fe));
+            factColors.push(planFactBarFactColorByProgressDelta(e.task, tasks, todayIso));
           } else {
             factRanges.push(null);
             factColors.push(FACT_WEAK);

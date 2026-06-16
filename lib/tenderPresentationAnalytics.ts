@@ -602,6 +602,199 @@ export function logTenderConductDynamicsDiagnostics(series: TenderMonthlyConduct
   );
 }
 
+export type TenderMonthlyCostPoint = {
+  iso: string;
+  label: string;
+  planRub: number;
+  factRub: number | null;
+  planCumRub: number;
+  factCumRub: number | null;
+};
+
+/**
+ * Помесячная динамика стоимости тендеров (₽):
+ * план — сумма cost по planContractDate, факт — сумма factCost (или cost
+ * для уже подписанных тендеров) по factContractDate / factStart.
+ */
+export function buildTenderMonthlyCostSeries(
+  tenders: Tender[],
+  today: Date = new Date(),
+): TenderMonthlyCostPoint[] {
+  const planByMonth = new Map<string, number>();
+  const factByMonth = new Map<string, number>();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  for (const t of tenders) {
+    const planDate = resolveTenderConductPlanDate(t);
+    const planCost = tenderPlanCostRub(t);
+    if (planDate && planCost > 0) {
+      const mk = planDate.slice(0, 7);
+      planByMonth.set(mk, (planByMonth.get(mk) ?? 0) + planCost);
+    }
+
+    if (!isTenderConducted(t)) continue;
+    const factDate = resolveTenderConductFactDate(t);
+    if (!factDate) continue;
+    const factCost = tenderFactCostRub(t);
+    if (factCost <= 0) continue;
+    const mk = factDate.slice(0, 7);
+    factByMonth.set(mk, (factByMonth.get(mk) ?? 0) + factCost);
+  }
+
+  const monthKeys = new Set([...planByMonth.keys(), ...factByMonth.keys()]);
+  if (monthKeys.size === 0) return [];
+
+  const sorted = [...monthKeys].sort();
+  const start = tenderMonthStartFromIso(`${sorted[0]}-01`);
+  const end = tenderMonthStartFromIso(`${sorted[sorted.length - 1]}-01`);
+  const todayMonth = todayIso.slice(0, 7);
+  const points: TenderMonthlyCostPoint[] = [];
+  let planCum = 0;
+  let factCum = 0;
+  let cursor = start;
+
+  while (cursor.getTime() <= end.getTime()) {
+    const iso = cursor.toISOString().slice(0, 10);
+    const mk = iso.slice(0, 7);
+    const planRub = planByMonth.get(mk) ?? 0;
+    const factRub = factByMonth.get(mk) ?? 0;
+    planCum += planRub;
+    factCum += factRub;
+    const factVisible = mk <= todayMonth;
+    points.push({
+      iso,
+      label: tenderMonthLabelRu(cursor),
+      planRub,
+      factRub: factVisible ? factRub : null,
+      planCumRub: planCum,
+      factCumRub: factVisible ? factCum : null,
+    });
+    cursor = tenderAddMonths(cursor, 1);
+  }
+
+  return points;
+}
+
+export type TenderMonthlyContractPoint = {
+  iso: string;
+  label: string;
+  planCount: number;
+  factCount: number | null;
+  planCumCount: number;
+  factCumCount: number | null;
+};
+
+/**
+ * Помесячная динамика заключения договоров (шт.):
+ * план — t.planContractDate, факт — t.factContractDate
+ * (строго подписанный договор по CSV, без fallback на factStart).
+ */
+export function buildTenderMonthlyContractSeries(
+  tenders: Tender[],
+  today: Date = new Date(),
+): TenderMonthlyContractPoint[] {
+  const planByMonth = new Map<string, number>();
+  const factByMonth = new Map<string, number>();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  for (const t of tenders) {
+    const planDate = t.planContractDate?.trim();
+    if (planDate) {
+      const mk = planDate.slice(0, 7);
+      planByMonth.set(mk, (planByMonth.get(mk) ?? 0) + 1);
+    }
+
+    const factDate = t.factContractDate?.trim();
+    if (factDate) {
+      const mk = factDate.slice(0, 7);
+      factByMonth.set(mk, (factByMonth.get(mk) ?? 0) + 1);
+    }
+  }
+
+  const monthKeys = new Set([...planByMonth.keys(), ...factByMonth.keys()]);
+  if (monthKeys.size === 0) return [];
+
+  const sorted = [...monthKeys].sort();
+  const start = tenderMonthStartFromIso(`${sorted[0]}-01`);
+  const end = tenderMonthStartFromIso(`${sorted[sorted.length - 1]}-01`);
+  const todayMonth = todayIso.slice(0, 7);
+  const points: TenderMonthlyContractPoint[] = [];
+  let planCum = 0;
+  let factCum = 0;
+  let cursor = start;
+
+  while (cursor.getTime() <= end.getTime()) {
+    const iso = cursor.toISOString().slice(0, 10);
+    const mk = iso.slice(0, 7);
+    const planCount = planByMonth.get(mk) ?? 0;
+    const factCount = factByMonth.get(mk) ?? 0;
+    planCum += planCount;
+    factCum += factCount;
+    const factVisible = mk <= todayMonth;
+    points.push({
+      iso,
+      label: tenderMonthLabelRu(cursor),
+      planCount,
+      factCount: factVisible ? factCount : null,
+      planCumCount: planCum,
+      factCumCount: factVisible ? factCum : null,
+    });
+    cursor = tenderAddMonths(cursor, 1);
+  }
+
+  return points;
+}
+
+/** Диагностика заключения договоров: общий план/факт и количество строк CSV в расчёте. */
+export function logTenderContractDynamicsDiagnostics(tenders: Tender[]): void {
+  if (process.env.NODE_ENV === "production") return;
+
+  let totalPlan = 0;
+  let totalFact = 0;
+  let rowsUsed = 0;
+
+  for (const t of tenders) {
+    const planDate = t.planContractDate?.trim();
+    const factDate = t.factContractDate?.trim();
+    if (planDate || factDate) rowsUsed += 1;
+    if (planDate) totalPlan += 1;
+    if (factDate) totalFact += 1;
+  }
+
+  console.group("[Tenders Contracts] Динамика заключения договоров — диагностика");
+  console.log("Общее количество договоров по плану:", totalPlan);
+  console.log("Общее количество договоров по факту:", totalFact);
+  console.log("Строк CSV в расчёте:", rowsUsed);
+  console.log("Всего тендеров в реестре:", tenders.length);
+  console.groupEnd();
+}
+
+/** Диагностика стоимости тендеров: общий план/факт и количество строк CSV в расчёте. */
+export function logTenderCostDynamicsDiagnostics(tenders: Tender[]): void {
+  if (process.env.NODE_ENV === "production") return;
+
+  let totalPlanRub = 0;
+  let totalFactRub = 0;
+  let rowsUsed = 0;
+
+  for (const t of tenders) {
+    const plan = tenderPlanCostRub(t);
+    const fact = isTenderConducted(t) ? tenderFactCostRub(t) : 0;
+    if (plan > 0 || fact > 0) rowsUsed += 1;
+    totalPlanRub += plan;
+    if (fact > 0) totalFactRub += fact;
+  }
+
+  const fmt = (v: number) => new Intl.NumberFormat("ru-RU").format(Math.round(v));
+
+  console.group("[Tenders Cost] Аналитика стоимости — диагностика");
+  console.log("Общий план по стоимости:", `${fmt(totalPlanRub)} ₽`);
+  console.log("Общий факт по стоимости:", `${fmt(totalFactRub)} ₽`);
+  console.log("Строк CSV в расчёте:", rowsUsed);
+  console.log("Всего тендеров в реестре:", tenders.length);
+  console.groupEnd();
+}
+
 /** Диагностика KPI «Проведено» и donut-распределения (dev). */
 export function logTenderConductedKpiDiagnostics(tenders: Tender[]): void {
   if (process.env.NODE_ENV === "production") return;

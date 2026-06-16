@@ -44,15 +44,18 @@ function GprKpiMetricRow({
   compact?: boolean;
   noDivider?: boolean;
 }) {
+  const labelClass = compact
+    ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+    : "text-[10px] font-medium uppercase tracking-wider text-slate-500";
+  const valueClass = compact
+    ? "mt-1.5 text-2xl font-extrabold tabular-nums tracking-tight text-white"
+    : "mt-1 text-base font-semibold tabular-nums text-slate-300/80";
   return (
     <div className="space-y-1.5">
       {noDivider ? null : <GprKpiDivider />}
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
-        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
-        <div
-          className={`mt-1 text-base font-semibold tabular-nums text-slate-300/80 ${valueClassName ?? ""}`}
-          title={title}
-        >
+        <div className={labelClass}>{label}</div>
+        <div className={`${valueClass} ${valueClassName ?? ""}`} title={title}>
           {value}
         </div>
       </div>
@@ -77,10 +80,10 @@ function GprKpiSplitCountRow({
     <div className="space-y-1.5">
       {noDivider ? null : <GprKpiDivider />}
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
-        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1 tabular-nums">
-          <span className="text-base font-semibold text-white">{primaryCount}</span>
-          <span className="text-base font-semibold text-slate-400/70">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
+        <div className="mt-2 flex items-baseline gap-1 tabular-nums tracking-tight">
+          <span className="text-2xl font-extrabold text-white">{primaryCount}</span>
+          <span className="text-xl font-medium text-slate-300/65">
             из {totalCount}
           </span>
         </div>
@@ -108,10 +111,13 @@ function GprKpiSplitPercentRow({
     <div className="space-y-1.5">
       {noDivider ? null : <GprKpiDivider />}
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
-        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1 tabular-nums" title={title}>
-          <span className="text-base font-semibold text-white">{factValue}</span>
-          <span className="text-base font-semibold text-slate-400/70">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
+        <div
+          className="mt-2 flex items-baseline gap-1 tabular-nums tracking-tight"
+          title={title}
+        >
+          <span className="text-2xl font-extrabold text-white">{factValue}</span>
+          <span className="text-xl font-medium text-slate-300/65">
             из {planValue}
           </span>
         </div>
@@ -259,6 +265,12 @@ export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi" | "busines
 
 export type GprStageKpiCardProps = {
   title: string;
+  /**
+   * Шифр корневого вида работ из ГПР (например, "2.04").
+   * Если задан — выводится перед названием в заголовке карточки.
+   * Для агрегированной карточки ("Жилой дом" и т.п.) не передаётся.
+   */
+  code?: string;
   status: GprStageKpiTraffic;
   /** Компактный набор KPI (карточки этапов жилого дома 2.04 / 2.05). */
   metricsVariant?: GprStageKpiMetricsVariant;
@@ -298,6 +310,7 @@ export type GprStageKpiCardProps = {
 
 export function GprStageKpiCard({
   title,
+  code,
   status,
   metricsVariant = "full",
   donutStatusVariant = "workItem",
@@ -465,7 +478,14 @@ export function GprStageKpiCard({
             <HardHat className="h-5 w-5" strokeWidth={2} />
           </GprKpiIconBadge>
           <div className="min-w-0 flex-1">
-            <div className="text-base font-semibold leading-snug text-slate-50">{title}</div>
+            <div className="text-lg font-semibold leading-snug text-slate-50">
+              {code ? (
+                <>
+                  <span className="font-medium">{code}</span>{" "}
+                </>
+              ) : null}
+              {title}
+            </div>
           </div>
         </div>
 

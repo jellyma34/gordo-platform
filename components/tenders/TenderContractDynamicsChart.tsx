@@ -13,19 +13,15 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
-import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import {
   formatTmcProcurementPointLabel,
   type TmcProcurementChartMode,
   type TmcProcurementChartRow,
 } from "@/components/tmc/TmcProcurementDynamicsChart";
-import {
-  TENDER_CONDUCT_LAG_COLORS,
-  tenderConductLagColor,
-} from "@/lib/tenderPresentationAnalytics";
 
 const COLORS = {
   plan: "#94a3b8",
+  fact: "#22c55e",
   card: "#1e293b",
 } as const;
 
@@ -61,7 +57,6 @@ type FactNode = {
   index: number;
   x: number;
   y: number;
-  color: string;
 };
 
 type MonotonePoint = { x: number; y: number };
@@ -69,7 +64,6 @@ type MonotonePoint = { x: number; y: number };
 type FactPathSegment = {
   key: string;
   d: string;
-  color: string;
 };
 
 function computeMonotoneTangents(points: MonotonePoint[]): number[] {
@@ -176,12 +170,7 @@ function buildFactGeometry(
     if (x == null || !isPlottableFact(row.fact)) return;
     const y = yScale(row.fact);
     if (y == null || !Number.isFinite(y)) return;
-    nodes.push({
-      index,
-      x,
-      y,
-      color: tenderConductLagColor(row.plan, row.fact),
-    });
+    nodes.push({ index, x, y });
   });
 
   if (nodes.length < 2) return { nodes, segments };
@@ -192,12 +181,9 @@ function buildFactGeometry(
   for (let i = 0; i < nodes.length - 1; i++) {
     const left = nodes[i]!;
     const right = nodes[i + 1]!;
-    const destRow = chartData[right.index];
-    if (!destRow) continue;
     segments.push({
       key: `seg-${left.index}-${right.index}`,
       d: monotoneBezierPath(points[i]!, points[i + 1]!, tangents[i]!, tangents[i + 1]!),
-      color: tenderConductLagColor(destRow.plan, destRow.fact),
     });
   }
 
@@ -267,7 +253,7 @@ function buildPointLabels(
         y: factY,
         text: factText,
         halfW: estimateLabelHalfWidth(factText),
-        fill: tenderConductLagColor(row.plan, factValue),
+        fill: COLORS.fact,
         fontWeight: 700,
       });
     }
@@ -276,7 +262,7 @@ function buildPointLabels(
   return labels;
 }
 
-function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChartRow[] }) {
+function TenderContractFactLine({ chartData }: { chartData: TmcProcurementChartRow[] }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
   const plot = usePlotArea();
@@ -300,7 +286,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
           key={seg.key}
           d={seg.d}
           fill="none"
-          stroke={seg.color}
+          stroke={COLORS.fact}
           strokeWidth={FACT_LINE_WIDTH}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -312,7 +298,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
           cx={node.x}
           cy={node.y}
           r={FACT_DOT_R}
-          fill={node.color}
+          fill={COLORS.fact}
           stroke="#ffffff"
           strokeWidth={2}
         />
@@ -321,7 +307,7 @@ function TenderSegmentedFactLine({ chartData }: { chartData: TmcProcurementChart
   );
 }
 
-function TenderPointLabels({
+function TenderContractPointLabels({
   chartData,
   mode,
 }: {
@@ -366,7 +352,7 @@ function TenderPointLabels({
   );
 }
 
-function ConductTooltip({
+function ContractTooltip({
   active,
   payload,
   label,
@@ -379,9 +365,6 @@ function ConductTooltip({
   const row = payload[0]?.payload;
   if (!row) return null;
 
-  const lag =
-    row.fact != null && Number.isFinite(row.fact) ? row.fact - row.plan : null;
-
   return (
     <div
       className="rounded-lg border px-3 py-2 text-xs shadow-lg"
@@ -393,27 +376,19 @@ function ConductTooltip({
     >
       <div className="font-semibold text-slate-100">{label}</div>
       <div className="mt-1 tabular-nums text-slate-300">
-        План: <span className="font-medium text-white">{row.plan} шт.</span>
+        План: <span className="font-medium text-white">{row.plan} договоров</span>
       </div>
       <div className="tabular-nums text-slate-300">
-        Факт: <span className="font-medium text-white">{row.fact ?? "—"} шт.</span>
+        Факт:{" "}
+        <span className="font-medium text-white">
+          {row.fact ?? "—"} {row.fact != null ? "договоров" : ""}
+        </span>
       </div>
-      {lag != null ? (
-        <div className="tabular-nums text-slate-300">
-          Отклонение:{" "}
-          <span
-            className="font-medium"
-            style={{ color: tenderConductLagColor(row.plan, row.fact) }}
-          >
-            {lag > 0 ? `+${lag}` : lag} шт.
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 }
 
-export function TenderConductDynamicsChart({
+export function TenderContractDynamicsChart({
   chartData,
   mode = "monthly",
 }: {
@@ -443,7 +418,7 @@ export function TenderConductDynamicsChart({
           tickFormatter={(v) => `${Math.round(Number(v))}`}
           allowDecimals={false}
         />
-        <Tooltip content={<ConductTooltip />} />
+        <Tooltip content={<ContractTooltip />} />
         <Line
           type="monotone"
           dataKey="plan"
@@ -459,7 +434,7 @@ export function TenderConductDynamicsChart({
           connectNulls={false}
           name="plan"
         />
-        <TenderSegmentedFactLine chartData={chartData} />
+        <TenderContractFactLine chartData={chartData} />
         <Line
           type="monotone"
           dataKey="fact"
@@ -472,47 +447,23 @@ export function TenderConductDynamicsChart({
             if (!row || !isPlottableFact(row.fact) || props.cx == null || props.cy == null) {
               return <g />;
             }
-            const color = tenderConductLagColor(row.plan, row.fact);
             return (
               <circle
                 cx={props.cx}
                 cy={props.cy}
                 r={FACT_ACTIVE_DOT_R}
-                fill={color}
+                fill={COLORS.fact}
                 stroke="#ffffff"
                 strokeWidth={2}
-                style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+                style={{ filter: `drop-shadow(0 0 6px ${COLORS.fact})` }}
               />
             );
           }}
           connectNulls
           name="fact"
         />
-        <TenderPointLabels chartData={chartData} mode={mode} />
+        <TenderContractPointLabels chartData={chartData} mode={mode} />
       </ComposedChart>
     </ResponsiveContainer>
-  );
-}
-
-export function TenderConductDynamicsChartLegend() {
-  return (
-    <AnalyticsLegendList>
-      <AnalyticsLegendItem
-        markerColor="rgba(148,163,184,0.7)"
-        label="План проведения тендеров (пунктир)"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.green}
-        label="Факт — в плане / опережение"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.yellow}
-        label="Факт — отставание до 10%"
-      />
-      <AnalyticsLegendItem
-        markerColor={TENDER_CONDUCT_LAG_COLORS.red}
-        label="Факт — отставание более 10%"
-      />
-    </AnalyticsLegendList>
   );
 }
