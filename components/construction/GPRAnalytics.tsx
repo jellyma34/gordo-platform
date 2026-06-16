@@ -904,12 +904,6 @@ function StageDeviationScaleRow({
                 style={{ left: `${dotLeftPct}%` }}
               >
                 <span
-                  className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap text-xs font-bold tabular-nums leading-none"
-                  style={{ color }}
-                >
-                  {deviationLabel}
-                </span>
-                <span
                   className="block h-3 w-3 rounded-full"
                   style={{
                     backgroundColor: color,
@@ -918,6 +912,35 @@ function StageDeviationScaleRow({
                   aria-hidden
                 />
               </div>
+              {/*
+                Подпись отклонения позиционируется относительно
+                контейнера шкалы (а не маркера), чтобы оставаться
+                строго внутри области шкалы. Горизонтально:
+                  • при значениях вблизи краёв шкалы (≈ ±20 / ≤8% / ≥92%)
+                    подпись прижимается к соответствующей границе шкалы
+                    (`left: 0` / `right: 0`) — текст уходит «внутрь»,
+                    а маркер остаётся на своей позиции;
+                  • в остальных случаях подпись центрируется над маркером
+                    (`left: dotLeftPct%` + `translateX(-50%)`).
+                Вертикально: `bottom-6` даёт фиксированный отступ 4 px
+                между низом подписи и верхом точки, при этом подпись
+                полностью находится внутри h-10-контейнера шкалы и не
+                пересекает строки с названием работы (они в другой
+                grid-колонке).
+              */}
+              <span
+                className="absolute bottom-6 whitespace-nowrap text-xs font-bold tabular-nums leading-none"
+                style={{
+                  color,
+                  ...(dotLeftPct <= 8
+                    ? { left: 0 }
+                    : dotLeftPct >= 92
+                      ? { right: 0 }
+                      : { left: `${dotLeftPct}%`, transform: "translateX(-50%)" }),
+                }}
+              >
+                {deviationLabel}
+              </span>
             </>
           ) : (
             <span className="absolute left-1/2 top-[calc(50%+6px)] -translate-x-1/2 -translate-y-1/2 text-xs font-semibold tabular-nums text-slate-500">
