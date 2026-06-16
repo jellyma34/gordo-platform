@@ -9,7 +9,7 @@ import {
   LinearScale,
   Tooltip as ChartTooltip,
 } from "chart.js";
-import type { ChartOptions, Plugin } from "chart.js";
+import type { Plugin } from "chart.js";
 import { formatTmcMaterialAxisTickLabel } from "@/lib/tmcMaterialAxisLabels";
 import type { TmcMaterialPlanFactMode, TmcMaterialPlanFactRow } from "@/lib/tmcPresentationAnalytics";
 
@@ -27,11 +27,8 @@ const COLORS = {
 
 const COMPLETION_AXIS_MAX = 100;
 const COMPLETION_AXIS_STEP = 25;
-const COMPLETION_ROW_HEIGHT_PX = 72;
 const COST_ROW_HEIGHT_PX = 44;
 const LABEL_RIGHT_PAD = 200;
-const COMPLETION_LABEL_RIGHT_PAD = 44;
-const COMPLETION_PREFIX_PX = 0;
 const LABEL_LINE_HEIGHT = 14;
 const LABEL_FONT = "600 11px system-ui, sans-serif";
 const LABEL_SUB_FONT = "500 10px system-ui, sans-serif";
@@ -70,10 +67,6 @@ function capCompletionPct(pct: number): number {
 
 const rubFullFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
 
-type TmcCompletionRow = TmcMaterialPlanFactRow & {
-  completionPct: number | null;
-};
-
 /** Плагин зарегистрирован; пунктирные окончания плановых столбцов отключены. */
 const tmcPlanCompletionLinePlugin: Plugin<"bar"> = {
   id: "tmcPlanCompletionLine",
@@ -91,7 +84,7 @@ type PlanFactTooltipRow = {
   completionPct: number | null;
 };
 
-function completionTooltipLines(row: TmcCompletionRow): string[] {
+function completionTooltipLines(row: TmcMaterialPlanFactRow): string[] {
   if (row.plan <= 0) return ["Нет плана"];
   const execution = capCompletionPct(row.executionVsPlanPct);
   return [
@@ -231,85 +224,43 @@ function formatCompletionPctLabel(pct: number): string {
   return `${rounded.toFixed(1).replace(".", ",")}%`;
 }
 
-/** Подпись % у конца горизонтальной полосы. */
-function drawCompletionBarPctLabel(
-  ctx: CanvasRenderingContext2D,
-  bar: BarElement,
-  chartArea: { left: number; right: number },
-  chartWidth: number,
-  pct: number,
-  fill: string,
-) {
-  if (!Number.isFinite(bar.y)) return;
-
-  const text = formatCompletionPctLabel(pct);
-  const endX = barEndX(bar);
-  const x = endX + 6;
-  const y = bar.y;
-  const maxLabelX = chartWidth - 4;
-
-  ctx.font = LABEL_FONT;
-  ctx.fillStyle = fill;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-
-  const textWidth = ctx.measureText(text).width;
-  if (x + textWidth <= maxLabelX) {
-    ctx.fillText(text, x, y);
-    return;
-  }
-
-  ctx.fillText(text, chartArea.left + 4, y + 14);
-}
-
-function createTmcCompletionDualBarLabelPlugin(rows: TmcCompletionRow[]): Plugin<"bar"> {
+/**
+ * Подпись % выполнения у конца фактической полосы.
+ * Зеркалит размещение подписи стоимости в cost-режиме: одна подпись рядом
+ * с фактической полосой, без дублирующего «100 %» по плану.
+ */
+function createTmcCompletionBarLabelPlugin(rows: TmcMaterialPlanFactRow[]): Plugin<"bar"> {
   return {
-    id: "tmcCompletionDualBarLabel",
+    id: "tmcCompletionBarLabel",
     afterDatasetsDraw(chart) {
-      const planMeta = chart.getDatasetMeta(0);
       const factMeta = chart.getDatasetMeta(1);
-      if (!planMeta?.data?.length || !factMeta?.data?.length) return;
+      if (!factMeta?.data?.length) return;
       const { ctx, chartArea, width } = chart;
       ctx.save();
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const planBar = planMeta.data[i] as unknown as BarElement | undefined;
         const factBar = factMeta.data[i] as unknown as BarElement | undefined;
-        if (!row) continue;
+        if (!row || !factBar || !Number.isFinite(factBar.y)) continue;
 
         if (row.plan <= 0) {
-          if (factBar && Number.isFinite(factBar.y)) {
-            ctx.fillStyle = LABEL_MUTED;
-            ctx.font = LABEL_FONT;
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-            ctx.fillText("Нет плана", chartArea.left + 4, factBar.y);
-          }
+          ctx.fillStyle = LABEL_MUTED;
+          ctx.font = LABEL_FONT;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText("Нет плана", chartArea.left + 4, factBar.y);
           continue;
         }
 
-        if (planBar && Number.isFinite(planBar.y) && row.planBarPct > 0) {
-          drawCompletionBarPctLabel(
-            ctx,
-            planBar,
-            chartArea,
-            width,
-            row.planBarPct,
-            LABEL_PLAN_VALUE,
-          );
-        }
-
-        if (factBar && Number.isFinite(factBar.y)) {
-          drawCompletionBarPctLabel(
-            ctx,
-            factBar,
-            chartArea,
-            width,
-            row.factBarPct,
-            completionColor(row.executionVsPlanPct),
-          );
-        }
+        const factPct = capCompletionPct(row.factBarPct);
+        drawBarEndLabels(
+          ctx,
+          factBar,
+          chartArea,
+          width,
+          [formatCompletionPctLabel(factPct)],
+          completionColor(row.executionVsPlanPct),
+        );
       }
 
       ctx.restore();
@@ -393,30 +344,6 @@ export function TmcMaterialPlanFactChart({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<ChartJS<"bar"> | null>(null);
 
-  const completionRows = useMemo<TmcCompletionRow[]>(
-    () =>
-      rows
-        .map(
-          (row): TmcCompletionRow => ({
-            ...row,
-            completionPct: row.plan > 0 ? row.executionVsPlanPct : null,
-          }),
-        )
-        .sort((a, b) => {
-          const aHasPlan = a.plan > 0;
-          const bHasPlan = b.plan > 0;
-          if (aHasPlan && !bHasPlan) return -1;
-          if (!aHasPlan && bHasPlan) return 1;
-          if (a.factBarPct !== b.factBarPct) {
-            return a.factBarPct - b.factBarPct;
-          }
-          return b.fact - a.fact;
-        }),
-    [rows],
-  );
-
-  const displayRows = mode === "completion" ? completionRows : rows;
-
   const costXMax = useMemo(() => {
     let max = 0;
     for (const row of rows) {
@@ -427,149 +354,137 @@ export function TmcMaterialPlanFactChart({
 
   const costAxisStep = useMemo(() => niceCostAxisStep(costXMax), [costXMax]);
 
+  // Единая геометрия для обоих режимов: переключение «Стоимость ↔ % выполнения»
+  // меняет только данные/шкалу, но не высоту строк, отступы и порядок материалов.
   const chartHeight = useMemo(() => {
-    const rowHeight = mode === "completion" ? COMPLETION_ROW_HEIGHT_PX : COST_ROW_HEIGHT_PX;
-    return Math.min(720, Math.max(360, displayRows.length * rowHeight + 48));
-  }, [displayRows.length, mode]);
+    return Math.min(720, Math.max(360, rows.length * COST_ROW_HEIGHT_PX + 48));
+  }, [rows.length]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || displayRows.length === 0) return;
+    if (!canvas || rows.length === 0) return;
 
     chartRef.current?.destroy();
 
     if (mode === "completion") {
-      const labelPlugin = createTmcCompletionDualBarLabelPlugin(completionRows);
-
-      const options: ChartOptions<"bar"> = {
-        indexAxis: "y",
-        responsive: true,
-        maintainAspectRatio: false,
-        layout: {
-          padding: {
-            top: 4,
-            right: COMPLETION_LABEL_RIGHT_PAD,
-            left: COMPLETION_PREFIX_PX,
-            bottom: 4,
-          },
-        },
-        interaction: { mode: "nearest", axis: "y", intersect: true },
-        datasets: {
-          bar: {
-            categoryPercentage: 0.94,
-            barPercentage: 0.92,
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            enabled: true,
-            backgroundColor: "rgba(15,23,42,0.94)",
-            borderColor: "rgba(148,163,184,0.35)",
-            borderWidth: 1,
-            titleColor: "#f8fafc",
-            bodyColor: "#e2e8f0",
-            padding: 10,
-            callbacks: {
-              title: (items) => {
-                const i = items[0]?.dataIndex;
-                if (typeof i !== "number" || i < 0) return "";
-                return completionRows[i]?.name ?? "";
-              },
-              label: () => "",
-              afterBody: (items) => {
-                const i = items[0]?.dataIndex;
-                if (typeof i !== "number" || i < 0) return [];
-                const row = completionRows[i];
-                if (!row) return [];
-                return completionTooltipLines(row);
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            type: "linear",
-            min: 0,
-            max: COMPLETION_AXIS_MAX,
-            grid: { color: "rgba(148,163,184,0.12)" },
-            border: { display: false },
-            ticks: {
-              color: "#94a3b8",
-              font: { size: 10 },
-              stepSize: COMPLETION_AXIS_STEP,
-              callback(tickValue) {
-                const n = Number(tickValue);
-                return Number.isFinite(n) ? `${Math.round(n)}%` : "";
-              },
-            },
-            title: {
-              display: true,
-              text: "% выполнения поставок",
-              color: "#94a3b8",
-              font: { size: 11 },
-            },
-          },
-          y: {
-            grid: { display: false },
-            border: { display: false },
-            ticks: {
-              color: "#cbd5e1",
-              font: { size: 11, lineHeight: 1.2 },
-              autoSkip: false,
-              callback(tickValue) {
-                const label =
-                  typeof tickValue === "string"
-                    ? tickValue
-                    : String(this.getLabelForValue(tickValue));
-                return formatTmcMaterialAxisTickLabel(label);
-              },
-            },
-          },
-        },
-      };
+      // Геометрия идентична cost-режиму: те же padding/thickness/порядок строк.
+      // План — фоновая полоса 100 %, факт — поверх плановой (factBarPct, обрезан до 100).
+      const completionLabelPlugin = createTmcCompletionBarLabelPlugin(rows);
 
       chartRef.current = new ChartJS(canvas, {
         type: "bar",
         data: {
-          labels: completionRows.map((r) => r.name),
+          labels: rows.map((r) => r.name),
           datasets: [
             {
               label: "План",
-              data: completionRows.map((row) =>
-                row.plan > 0 ? capCompletionPct(row.planBarPct) : 0,
-              ),
+              data: rows.map(() => [0, COMPLETION_AXIS_MAX]),
               backgroundColor: COLORS.plan,
               borderColor: COLORS.planBorder,
               borderWidth: 1,
               borderRadius: 4,
-              maxBarThickness: 12,
+              maxBarThickness: 18,
               order: 2,
             },
             {
               label: "Факт",
-              data: completionRows.map((row) =>
-                row.plan > 0 ? capCompletionPct(row.factBarPct) : 0,
+              data: rows.map((r) =>
+                r.plan > 0 ? [0, capCompletionPct(r.factBarPct)] : [0, 0],
               ),
-              backgroundColor: completionRows.map((row) =>
-                row.plan > 0
-                  ? completionColor(row.executionVsPlanPct)
-                  : COLORS.noPlanFact,
+              backgroundColor: rows.map((r) =>
+                r.plan > 0 ? completionColor(r.executionVsPlanPct) : COLORS.noPlanFact,
               ),
-              borderColor: completionRows.map((row) =>
-                row.plan > 0
-                  ? completionColor(row.executionVsPlanPct)
-                  : COLORS.noPlanFact,
+              borderColor: rows.map((r) =>
+                r.plan > 0 ? completionColor(r.executionVsPlanPct) : COLORS.noPlanFact,
               ),
               borderWidth: 0,
               borderRadius: 4,
-              maxBarThickness: 10,
+              maxBarThickness: 14,
               order: 1,
             },
-          ],
+          ] as const,
         },
-        options,
-        plugins: [tmcCompletion100LinePlugin, labelPlugin],
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { top: 4, right: LABEL_RIGHT_PAD, left: 0, bottom: 4 } },
+          interaction: { mode: "nearest", axis: "y", intersect: true },
+          datasets: {
+            bar: {
+              categoryPercentage: 0.94,
+              barPercentage: 0.92,
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              enabled: true,
+              backgroundColor: "rgba(15,23,42,0.94)",
+              borderColor: "rgba(148,163,184,0.35)",
+              borderWidth: 1,
+              titleColor: "#f8fafc",
+              bodyColor: "#e2e8f0",
+              padding: 10,
+              callbacks: {
+                title: (items) => {
+                  const i = items[0]?.dataIndex;
+                  if (typeof i !== "number" || i < 0) return "";
+                  return rows[i]?.name ?? "";
+                },
+                label: () => "",
+                afterBody: (items) => {
+                  const i = items[0]?.dataIndex;
+                  if (typeof i !== "number" || i < 0) return [];
+                  const row = rows[i];
+                  if (!row) return [];
+                  return completionTooltipLines(row);
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              min: 0,
+              max: COMPLETION_AXIS_MAX,
+              grid: { color: "rgba(148,163,184,0.12)" },
+              border: { display: false },
+              ticks: {
+                color: "#94a3b8",
+                font: { size: 10 },
+                stepSize: COMPLETION_AXIS_STEP,
+                callback(tickValue) {
+                  const n = Number(tickValue);
+                  return Number.isFinite(n) ? `${Math.round(n)}%` : "";
+                },
+              },
+              title: {
+                display: true,
+                text: "% выполнения поставок",
+                color: "#94a3b8",
+                font: { size: 11 },
+              },
+            },
+            y: {
+              grid: { display: false },
+              border: { display: false },
+              ticks: {
+                color: "#cbd5e1",
+                font: { size: 11, lineHeight: 1.2 },
+                autoSkip: false,
+                callback(tickValue) {
+                  const label =
+                    typeof tickValue === "string"
+                      ? tickValue
+                      : String(this.getLabelForValue(tickValue));
+                  return formatTmcMaterialAxisTickLabel(label);
+                },
+              },
+            },
+          },
+        },
+        plugins: [tmcCompletion100LinePlugin, completionLabelPlugin],
       });
     } else {
       const costLabelPlugin = createTmcCostBarLabelPlugin(rows);
@@ -694,9 +609,9 @@ export function TmcMaterialPlanFactChart({
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, [completionRows, costAxisStep, costXMax, displayRows.length, mode, rows]);
+  }, [costAxisStep, costXMax, mode, rows]);
 
-  if (displayRows.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className="flex min-h-[360px] items-center justify-center text-sm text-slate-500">
         {mode === "completion"
