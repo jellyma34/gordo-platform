@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -18,30 +18,12 @@ import type { TMCItem } from "@/lib/tmcData";
 import {
   buildGprTmcDependencyChartSeries,
   buildGprTmcDependencyChartSeriesProjectWide,
-  buildGprTmcDependencySeries,
-  buildGprTmcDependencySeriesProjectWide,
   type ForecastPart,
 } from "@/lib/gprTmcDependency";
-import {
-  assessTmcDependencyRisk,
-  buildTmcDependencyRiskExplanation,
-} from "@/lib/gprTmcDependencyRisk";
 import { GPR_PROGRESS_DELTA_CRITICAL_PP } from "@/lib/gprConstructionDeviationConstants";
 import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
 import { toDate } from "@/lib/gprUtils";
-import {
-  formatGprProgressDeltaPp,
-  stageDeviationDotColor,
-  gprScheduleDeviationListStyle,
-  KpiMiniIconRuler,
-  KpiMiniIconChart,
-  KpiMiniIconAlert,
-  GprDepKpiAccordionCard,
-  type GprDepKpiExplainKey,
-  buildAvgDeviationExplanation,
-  GPR_DEP_KPI_THRESHOLD_DAYS,
-  KPI_THRESHOLD_EXPLAIN,
-} from "./gprDependencyKpiShared";
+import { formatGprProgressDeltaPp } from "./gprDependencyKpiShared";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
@@ -79,14 +61,6 @@ export function GPRTmcDependencyChart({
     [reportDateLabelProp, todayIso],
   );
 
-  const series = useMemo(
-    () =>
-      activeProjectPart === "project"
-        ? buildGprTmcDependencySeriesProjectWide(tasks, tmcItems, todayIso)
-        : buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart),
-    [tasks, tmcItems, todayIso, activeProjectPart],
-  );
-
   const chartSeries = useMemo(
     () =>
       activeProjectPart === "project"
@@ -110,66 +84,6 @@ export function GPRTmcDependencyChart({
   );
 
   const xTickRotation = labels.length > 8 ? 90 : labels.length > 4 ? 45 : 0;
-
-  const kpiStats = useMemo(() => {
-    const days = series.map((s) => s.deviationDays).filter((d): d is number => d !== null);
-    const avgDev = days.length ? days.reduce((a, b) => a + b, 0) / days.length : null;
-    const riskAssessment = assessTmcDependencyRisk(series);
-    return { avgDev, risk: riskAssessment.level, riskAssessment };
-  }, [series]);
-
-  const riskCardUi = useMemo(() => {
-    switch (kpiStats.risk) {
-      case "high":
-        return {
-          value: "Высокий",
-          sub: "требует внимания",
-          card: "border border-[rgba(245,158,11,0.5)] bg-[rgba(245,158,11,0.08)]",
-          valueClass: "text-[#f59e0b]",
-          iconWrap: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25",
-        };
-      case "low":
-        return {
-          value: "Низкий",
-          sub: "в норме",
-          card: "border border-slate-600/50 bg-slate-900/40",
-          valueClass: "text-slate-100",
-          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
-        };
-      default:
-        return {
-          value: "Средний",
-          sub: "наблюдение",
-          card: "border border-slate-600/50 bg-slate-900/40",
-          valueClass: "text-slate-100",
-          iconWrap: "bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10",
-        };
-    }
-  }, [kpiStats.risk]);
-
-  const avgValueColor = useMemo(() => {
-    if (kpiStats.avgDev === null) return "#e2e8f0";
-    if (kpiStats.avgDev >= 0) return "#22c55e";
-    if (kpiStats.avgDev <= -GPR_DEP_KPI_THRESHOLD_DAYS) return "#ef4444";
-    return "#f59e0b";
-  }, [kpiStats.avgDev]);
-
-  const [kpiExplain, setKpiExplain] = useState<GprDepKpiExplainKey | null>(null);
-  const toggleKpiExplain = (k: GprDepKpiExplainKey) => {
-    setKpiExplain((prev) => (prev === k ? null : k));
-  };
-  const kpiInteractive = analyticDepth !== "presentation";
-
-  const avgExplainText = useMemo(
-    () => buildAvgDeviationExplanation(series, kpiStats.avgDev, reportDateLabel),
-    [series, kpiStats.avgDev, reportDateLabel],
-  );
-  const riskExplainText = useMemo(
-    () => buildTmcDependencyRiskExplanation(kpiStats.riskAssessment, reportDateLabel),
-    [kpiStats.riskAssessment, reportDateLabel],
-  );
-
-  const riskFactorCount = kpiStats.riskAssessment.factors.length;
 
   const chartData = useMemo(() => {
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
@@ -343,134 +257,6 @@ export function GPRTmcDependencyChart({
 
       <div className="mt-4 h-[260px] w-full min-w-0 sm:h-[300px] md:h-[340px]">
         <Chart type="line" data={chartData} options={options} />
-      </div>
-
-      <p className="mt-4 text-xs leading-relaxed text-slate-400">
-        Серая линия — плановый % по графику на дату отчёта, зелёная — факт выполнения ГПР (% completion корневых
-        работ; тот же источник, что в карточке объекта). Пунктир — обеспеченность ТМЦ (%).
-        <br />
-        Сводное «Выполнение ГПР» в карточке — взвешенное по этапам; на графике — по каждому этапу отдельно. Риск
-        срыва учитывает ТМЦ, срок (дни) и готовность (%).
-      </p>
-
-      <div className="mt-5 border-t border-slate-700/60 pt-5">
-        <div className="flex min-w-0 flex-col flex-wrap gap-4 lg:flex-row lg:items-stretch lg:gap-4">
-          <div className="w-full min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/35 p-4 lg:w-[min(100%,45%)] lg:max-w-full lg:shrink-0 xl:max-w-[50%]">
-            <h4 className="text-sm font-semibold text-slate-200">Отклонения по этапам</h4>
-            <ul className="mt-3 space-y-2.5 text-xs leading-snug">
-              {series.map((row) => {
-                const d = row.deviationDays;
-                const dot = stageDeviationDotColor(row.groupKey);
-                return (
-                  <li
-                    key={row.groupKey}
-                    className="flex items-baseline justify-between gap-3"
-                    title={row.stageFull}
-                  >
-                    <span className="flex min-w-0 flex-1 items-baseline gap-2 text-slate-200">
-                      <span
-                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-black/20"
-                        style={{ backgroundColor: dot }}
-                        aria-hidden
-                      />
-                      <span className="stage-title min-w-0 leading-snug">{row.stageTitle}</span>
-                    </span>
-                    <span
-                      className="value shrink-0 tabular-nums text-sm font-bold leading-snug"
-                      style={gprScheduleDeviationListStyle(d)}
-                    >
-                      {formatGprScheduleDeviationDisplayDays(d)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
-            <GprDepKpiAccordionCard
-              cardKey="threshold"
-              isOpen={kpiExplain === "threshold"}
-              onToggle={toggleKpiExplain}
-              interactive={kpiInteractive}
-              shellClassName="border border-slate-600/50 bg-slate-900/40"
-              explanation={KPI_THRESHOLD_EXPLAIN}
-              iconSlot={
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
-                  <KpiMiniIconRuler />
-                </span>
-              }
-            >
-              <>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Критический порог</div>
-                <div className="value mt-0.5 text-base font-bold tabular-nums text-slate-100">
-                  {GPR_DEP_KPI_THRESHOLD_DAYS} дн.
-                </div>
-                <div className="text-[11px] text-slate-500">норматив платформы · по сроку</div>
-              </>
-            </GprDepKpiAccordionCard>
-
-            <GprDepKpiAccordionCard
-              cardKey="avg"
-              isOpen={kpiExplain === "avg"}
-              onToggle={toggleKpiExplain}
-              interactive={kpiInteractive}
-              shellClassName="border border-slate-600/50 bg-slate-900/40"
-              explanation={avgExplainText}
-              iconSlot={
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/90 text-sky-400/90 ring-1 ring-white/10">
-                  <KpiMiniIconChart />
-                </span>
-              }
-            >
-              <>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Среднее отклонение</div>
-                <div
-                  className="value mt-0.5 text-base font-bold tabular-nums"
-                  style={{ color: avgValueColor }}
-                >
-                  {kpiStats.avgDev === null
-                    ? "—"
-                    : formatGprScheduleDeviationDisplayDays(kpiStats.avgDev, { decimals: true })}
-                </div>
-                <div className="text-[11px] text-slate-500">корневые этапы · дни</div>
-              </>
-            </GprDepKpiAccordionCard>
-
-            <GprDepKpiAccordionCard
-              cardKey="risk"
-              isOpen={kpiExplain === "risk"}
-              onToggle={toggleKpiExplain}
-              interactive={kpiInteractive}
-              shellClassName={riskCardUi.card}
-              explanation={riskExplainText}
-              iconSlot={
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riskCardUi.iconWrap}`}
-                >
-                  <KpiMiniIconAlert />
-                </span>
-              }
-            >
-              <>
-                <div
-                  className="text-[11px] font-medium uppercase tracking-wide"
-                  style={{ color: "#E6EDF3" }}
-                >
-                  Риск срыва
-                </div>
-                <div className={`mt-0.5 text-base font-bold leading-tight ${riskCardUi.valueClass}`}>
-                  {riskCardUi.value}
-                </div>
-                <div className="text-[11px]" style={{ color: "#A3B3C7" }}>
-                  {riskFactorCount > 0
-                    ? `${riskFactorCount} фактор(ов) · ТМЦ + срок + %`
-                    : "ТМЦ + срок + готовность"}
-                </div>
-              </>
-            </GprDepKpiAccordionCard>
-          </div>
-        </div>
       </div>
     </div>
   );

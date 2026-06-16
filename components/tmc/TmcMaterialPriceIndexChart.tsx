@@ -7,11 +7,13 @@ import {
   LineChart,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
 import type {
   TmcMaterialPriceIndexLineDataset,
   TmcMaterialPriceIndexLineSeries,
+  TmcPriceHeatmapMonth,
 } from "@/lib/tmcPresentationAnalytics";
 
 const COLORS = {
@@ -22,11 +24,25 @@ const COLORS = {
 const SPARKLINE_HEIGHT = 40;
 const SPARKLINE_STROKE = 2;
 const SPARKLINE_DOT_R = 3;
+/** Единые отступы линейной области для sparkline и общей шкалы — нужны для попиксельного совпадения. */
+const SPARKLINE_PLOT_MARGIN = { top: 6, right: 8, left: 8, bottom: 6 } as const;
+const SHARED_AXIS_HEIGHT = 56;
+const SHARED_AXIS_TICK_HEIGHT = 48;
+/** Единая сетка строки/колонок «Материал | Динамика | Цена | Индекс | Изменение». */
+const PRICE_INDEX_ROW_GRID_COLS =
+  "sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_64px_76px_84px]";
 
 type SparkPoint = {
   label: string;
   indexPct: number;
   priceRub: number;
+};
+
+/** Данные точки sparkline: nullable, чтобы X сохранял позицию даже без значения. */
+type SparklineDataPoint = {
+  label: string;
+  indexPct: number | null;
+  priceRub: number | null;
 };
 
 function pctSigned1(n: number): string {
@@ -98,10 +114,11 @@ function SparklineTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: Array<{ payload?: SparkPoint }>;
+  payload?: Array<{ payload?: SparklineDataPoint }>;
 }) {
   if (!active || !payload?.[0]?.payload) return null;
   const point = payload[0].payload;
+  if (point.indexPct == null || point.priceRub == null) return null;
 
   return (
     <div
@@ -151,25 +168,36 @@ function PriceIndexChangeBadge({ changePct }: { changePct: number | null }) {
 }
 
 function MaterialPriceIndexSparkline({ series }: { series: TmcMaterialPriceIndexLineSeries }) {
-  const sparkData = useMemo(() => getPlottableSparkPoints(series), [series]);
+  // Полный ряд месяцев (включая null) — точки X совпадают с общей шкалой снизу.
+  const sparkData = useMemo<SparklineDataPoint[]>(
+    () =>
+      series.points.map((point) => ({
+        label: point.label,
+        indexPct: point.indexPct,
+        priceRub: point.priceRub,
+      })),
+    [series.points],
+  );
+  const plottable = useMemo(() => getPlottableSparkPoints(series), [series]);
 
   const yDomain = useMemo((): [number, number] => {
-    if (sparkData.length === 0) return [95, 105];
-    const values = sparkData.map((point) => point.indexPct);
+    if (plottable.length === 0) return [95, 105];
+    const values = plottable.map((point) => point.indexPct);
     const min = Math.min(...values);
     const max = Math.max(...values);
     const padding = Math.max(2, (max - min) * 0.12);
     return [min - padding, max + padding];
-  }, [sparkData]);
+  }, [plottable]);
 
-  if (sparkData.length < 2) {
+  if (plottable.length < 2) {
     return <span className="text-xs text-slate-500">Недостаточно данных</span>;
   }
 
   return (
     <div className="h-[40px] w-full min-w-0">
       <ResponsiveContainer width="100%" height={SPARKLINE_HEIGHT}>
-        <LineChart data={sparkData} margin={{ top: 6, right: 8, left: 8, bottom: 6 }}>
+        <LineChart data={sparkData} margin={SPARKLINE_PLOT_MARGIN}>
+          <XAxis hide dataKey="label" type="category" interval={0} />
           <YAxis hide domain={yDomain} />
           <Tooltip
             content={<SparklineTooltip />}
@@ -201,6 +229,40 @@ function MaterialPriceIndexSparkline({ series }: { series: TmcMaterialPriceIndex
   );
 }
 
+/**
+ * Единая горизонтальная шкала месяцев под колонкой «Динамика».
+ * Использует те же отступы (`SPARKLINE_PLOT_MARGIN`) и категориальную ось,
+ * что и каждый sparkline, чтобы тики совпадали с точками графиков.
+ */
+function PriceIndexSharedMonthAxis({ months }: { months: TmcPriceHeatmapMonth[] }) {
+  const data = useMemo(
+    () => months.map((month) => ({ label: month.label })),
+    [months],
+  );
+
+  if (data.length === 0) return null;
+
+  return (
+    <div className="w-full min-w-0" style={{ height: SHARED_AXIS_HEIGHT }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={SPARKLINE_PLOT_MARGIN}>
+          <XAxis
+            dataKey="label"
+            type="category"
+            interval={0}
+            tickLine={false}
+            axisLine={{ stroke: "rgba(148,163,184,0.25)" }}
+            tick={{ fill: "#94a3b8", fontSize: 10, angle: -32, textAnchor: "end" }}
+            tickMargin={6}
+            height={SHARED_AXIS_TICK_HEIGHT}
+          />
+          <YAxis hide domain={[0, 1]} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function MaterialPriceIndexRow({ series }: { series: TmcMaterialPriceIndexLineSeries }) {
   const { currentIndex, changePct, currentUnitPrice } = useMemo(
     () => getSeriesSnapshot(series),
@@ -208,7 +270,9 @@ function MaterialPriceIndexRow({ series }: { series: TmcMaterialPriceIndexLineSe
   );
 
   return (
-    <div className="grid items-center gap-3 rounded-xl border border-slate-600/35 bg-slate-900/30 px-3 py-2.5 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_64px_76px_84px]">
+    <div
+      className={`grid items-center gap-3 rounded-xl border border-slate-600/35 bg-slate-900/30 px-3 py-2.5 ${PRICE_INDEX_ROW_GRID_COLS}`}
+    >
       <div className="min-w-0">
         <div className="break-words text-sm font-medium leading-snug text-slate-100">
           {series.name}
@@ -263,17 +327,32 @@ export function TmcMaterialPriceIndexLineChartView({
 
   return (
     <div className="w-full">
-      <div className="mb-2 hidden gap-3 px-3 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:grid sm:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_64px_76px_84px]">
+      <div
+        className={`mb-2 hidden gap-3 px-3 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:grid ${PRICE_INDEX_ROW_GRID_COLS}`}
+      >
         <span>Материал</span>
         <span className="text-center">Динамика</span>
         <span className="text-right">Цена</span>
         <span className="text-right">Индекс</span>
         <span className="text-right">Изменение</span>
       </div>
-      <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+      <div className="space-y-2">
         {sortedSeries.map((series) => (
           <MaterialPriceIndexRow key={series.dataKey} series={series} />
         ))}
+      </div>
+      {/* Единая шкала месяцев под колонкой «Динамика».
+          Та же колоночная сетка, что и у карточек материалов, поэтому тики
+          встают ровно под точками каждого sparkline. Внутреннего скролла нет —
+          блок растёт по высоте, страница использует общий скролл. */}
+      <div
+        className={`mt-2 hidden items-stretch gap-3 border-t border-slate-700/40 px-3 pt-2 sm:grid ${PRICE_INDEX_ROW_GRID_COLS}`}
+      >
+        <span aria-hidden />
+        <PriceIndexSharedMonthAxis months={dataset.months} />
+        <span aria-hidden />
+        <span aria-hidden />
+        <span aria-hidden />
       </div>
     </div>
   );
