@@ -19,7 +19,6 @@ import type { Tender } from "@/lib/tenderData";
 import {
   buildGprTenderDependencyTimelineModel,
   formatGprTimelineMonthLabel,
-  gprTenderDependencyKpiAtDate,
   type ForecastPart,
   type GprTenderDependencyTimelineModel,
 } from "@/lib/gprTmcDependency";
@@ -28,8 +27,7 @@ import {
   GPR_TENDER_COVERAGE_RISK_THRESHOLD,
 } from "@/lib/gprTenderCoverage";
 import { formatGprProgressDeltaPp } from "./gprDependencyKpiShared";
-import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
-import { toDate } from "@/lib/gprUtils";
+import { toLocalYmd } from "@/lib/gprReportDate";
 import {
   formatInstallmentPlatformDateLabel,
   INSTALLMENT_FORECAST_TODAY_LINE,
@@ -110,65 +108,22 @@ const SERIES_BY_VIEW_MODE: Record<GprTenderChartViewMode, ChartSeriesKey[]> = {
   all: ["planGpr", "factGpr", "planTender", "factTender"],
 };
 
-function pctLabel(v: number | null): string {
-  if (v == null || Number.isNaN(v)) return "—";
-  return `${v}%`;
-}
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  accent,
-  large,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: string;
-  large?: boolean;
-}) {
-  return (
-    <div
-      className={`min-w-0 rounded-xl border border-slate-600/50 bg-slate-900/40 px-4 py-3 ${
-        large ? "sm:col-span-2 lg:col-span-1" : ""
-      }`}
-    >
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div
-        className={`mt-0.5 font-bold tabular-nums text-slate-100 ${large ? "text-2xl" : "text-lg"}`}
-        style={accent ? { color: accent } : undefined}
-      >
-        {value}
-      </div>
-      {sub ? <div className="mt-0.5 text-[11px] text-slate-500">{sub}</div> : null}
-    </div>
-  );
-}
-
 export function GPRTenderDependencyChart({
   tasks,
   tenders,
   activeProjectPart,
   reportAsOfIso: reportAsOfIsoProp,
-  reportDateLabel: reportDateLabelProp,
 }: {
   tasks: GPRTask[];
   tenders: Tender[];
   activeProjectPart: ForecastPart;
   analyticDepth?: "work" | "presentation";
   reportAsOfIso?: string;
+  /** Подпись отчётной даты (DD.MM); приём оставлен для обратной совместимости — после удаления подписи под графиком значение не отображается. */
   reportDateLabel?: string;
 }) {
   const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
   const todayIso = reportAsOfIsoProp ?? sessionYmd;
-  const reportDateLabel = useMemo(
-    () =>
-      reportDateLabelProp?.trim()
-        ? reportDateLabelProp.trim()
-        : formatDate(toDate(todayIso) ?? new Date()),
-    [reportDateLabelProp, todayIso],
-  );
 
   const part: ForecastPart = activeProjectPart === "project" ? "project" : activeProjectPart;
 
@@ -178,21 +133,10 @@ export function GPRTenderDependencyChart({
     [tasks, tenders, todayIso, part],
   );
 
-  const kpiAtDate = useMemo(
-    () => gprTenderDependencyKpiAtDate(tasks, tenders, todayIso, part),
-    [tasks, tenders, todayIso, part],
-  );
-
   const coverage = useMemo(
     () => computeGprTenderCoverage(tasks, tenders, part),
     [tasks, tenders, part],
   );
-
-  const coverageAccent = useMemo(() => {
-    if (coverage.coveragePercent == null) return undefined;
-    if (coverage.belowRiskThreshold) return "#f59e0b";
-    return "#22c55e";
-  }, [coverage.belowRiskThreshold, coverage.coveragePercent]);
 
   /** По умолчанию «План» — две линии, удобнее для презентации руководству. */
   const [viewMode, setViewMode] = useState<GprTenderChartViewMode>("plan");
@@ -434,17 +378,6 @@ export function GPRTenderDependencyChart({
     [timeline, viewMode],
   );
 
-  const chartCaption = useMemo(() => {
-    const base = `По оси X — месяцы календаря проекта. KPI и обеспеченность — на дату отчёта (${reportDateLabel}).`;
-    if (viewMode === "plan") {
-      return `${base} Режим «План»: сопоставление планового графика стройки (серая линия) и плановой готовности закупок (оранжевая, пунктир).`;
-    }
-    if (viewMode === "fact") {
-      return `${base} Режим «Факт»: фактическое выполнение работ (зелёная) и фактическая готовность тендеров (жёлтая) на текущую дату.`;
-    }
-    return `${base} Режим «Все»: четыре линии план/факт ГПР и тендеров; заливка между планом и фактом ГПР — отклонение темпа.`;
-  }, [reportDateLabel, viewMode]);
-
   return (
     <div className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -480,7 +413,7 @@ export function GPRTenderDependencyChart({
         </div>
       </div>
 
-      <div className="mt-3 h-[260px] w-full min-w-0 sm:h-[300px] md:h-[340px]">
+      <div className="mt-3 h-[420px] w-full min-w-0 sm:h-[480px] md:h-[540px]">
         {timeline ? (
           <Chart key={viewMode} type="line" data={chartData} options={options} />
         ) : (
@@ -488,62 +421,6 @@ export function GPRTenderDependencyChart({
             Недостаточно дат ГПР и тендеров для построения календарной шкалы.
           </div>
         )}
-      </div>
-
-      <p className="mt-4 text-xs leading-relaxed text-slate-400">{chartCaption}</p>
-
-      <div className="mt-5 border-t border-slate-700/60 pt-5">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiCard label="План ГПР" value={pctLabel(kpiAtDate.planGpr)} sub="на дату отчёта" />
-          <KpiCard label="Факт ГПР" value={pctLabel(kpiAtDate.factGpr)} sub="на дату отчёта" />
-          <KpiCard label="План тендеров" value={pctLabel(kpiAtDate.planTenders)} sub="на дату отчёта" />
-          <KpiCard label="Факт тендеров" value={pctLabel(kpiAtDate.factTenders)} sub="на дату отчёта" />
-          <KpiCard
-            label="Обеспеченность ГПР тендерами"
-            value={pctLabel(coverage.coveragePercent)}
-            sub={`листовые работы · порог ${GPR_TENDER_COVERAGE_RISK_THRESHOLD}%`}
-            accent={coverageAccent}
-            large
-          />
-        </div>
-
-        <div className="mt-5">
-          <h4 className="text-sm font-semibold text-slate-200">Работы без обеспечивающих тендеров</h4>
-          {coverage.unprovided.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-400">
-              Все листовые работы с ненулевым весом обеспечены тендерами на дату отчёта.
-            </p>
-          ) : (
-            <div className="mt-3 max-h-[280px] overflow-auto rounded-lg border border-slate-700/50">
-              <table className="w-full min-w-[520px] text-left text-xs">
-                <thead className="sticky top-0 bg-slate-900/95 text-slate-400">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Шифр</th>
-                    <th className="px-3 py-2 font-medium">Работа</th>
-                    <th className="px-3 py-2 font-medium">Тендер</th>
-                    <th className="px-3 py-2 font-medium">Причина</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/40 text-slate-200">
-                  {coverage.unprovided.map((row) => (
-                    <tr key={`${row.partId}-${row.code}`} className="hover:bg-slate-800/40">
-                      <td className="whitespace-nowrap px-3 py-2 tabular-nums font-medium">{row.code}</td>
-                      <td className="max-w-[240px] px-3 py-2 leading-snug">{row.name}</td>
-                      <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-400">
-                        {row.matchedTenderCode ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 text-slate-400">{row.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <p className="mt-2 text-[11px] text-slate-500">
-            Показано {coverage.unprovided.length} из {coverage.leafCount} листовых работ с весом в расчёте.
-            Покрыто: {coverage.coveredLeafCount}.
-          </p>
-        </div>
       </div>
     </div>
   );

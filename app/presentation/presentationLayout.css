@@ -181,3 +181,63 @@ html.marketing-pdf-capturing .recharts-active-dot {
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+/* ============================================================
+ * Тёмный, тонкий, ненавязчивый скроллбар презентации.
+ * Действует ТОЛЬКО внутри .presentation-shell[data-presentation="dark"]
+ * — это ГПР / ТМЦ / Тендеры / Финансы / Строительство.
+ * Маркетинг (data-presentation="marketing") сохраняет системный скроллбар
+ * (там светлая тема, тёмный thumb смотрелся бы контрастно).
+ * Скроллит обычно <main class="overflow-y-auto …"> и вложенные таблицы.
+ * ============================================================ */
+
+/* Firefox */
+.presentation-shell[data-presentation="dark"],
+.presentation-shell[data-presentation="dark"] * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(51, 65, 85, 0.45) transparent;
+}
+
+/* WebKit / Chromium — дорожка прозрачная, ширина уже системной (8px вместо ~17px) */
+.presentation-shell[data-presentation="dark"]::-webkit-scrollbar,
+.presentation-shell[data-presentation="dark"] *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+.presentation-shell[data-presentation="dark"]::-webkit-scrollbar-track,
+.presentation-shell[data-presentation="dark"] *::-webkit-scrollbar-track {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+/* Ползунок: slate-700 ~45% над #0b1220 ≈ #1f2b3f — почти сливается с фоном.
+   Прозрачная рамка 2px визуально сужает thumb до ~4px. */
+.presentation-shell[data-presentation="dark"]::-webkit-scrollbar-thumb,
+.presentation-shell[data-presentation="dark"] *::-webkit-scrollbar-thumb {
+  background-color: rgba(51, 65, 85, 0.45);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+  min-height: 32px;
+  transition: background-color 0.15s ease;
+}
+
+@media (hover: hover) {
+  .presentation-shell[data-presentation="dark"]::-webkit-scrollbar-thumb:hover,
+  .presentation-shell[data-presentation="dark"] *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(71, 85, 105, 0.7); /* slate-600 ~70% — лёгкое повышение контраста */
+  }
+}
+
+.presentation-shell[data-presentation="dark"]::-webkit-scrollbar-thumb:active,
+.presentation-shell[data-presentation="dark"] *::-webkit-scrollbar-thumb:active {
+  background-color: rgba(71, 85, 105, 0.85);
+}
+
+.presentation-shell[data-presentation="dark"]::-webkit-scrollbar-corner,
+.presentation-shell[data-presentation="dark"] *::-webkit-scrollbar-corner {
+  background: transparent;
+}

@@ -852,7 +852,28 @@ export function buildGprTimeForecastModel(
   const todayMs = dateToMs(todayIso);
   const startMs = dateToMs(bounds.startIso);
   const endPlanMs = dateToMs(bounds.endIso);
-  const axisEndMs = Math.max(endPlanMs, todayMs) + 10 * 86400000;
+  const planDurMs = endPlanMs - startMs;
+
+  // Прогнозная дата завершения проекта: плановый конец + «дни отставания»,
+  // где дни отставания = lagPp × плановая длительность / 100
+  // (т.е. текущее отставание готовности транслируется в дни при плановой скорости работ).
+  // Используется только если факт < 100% и есть отставание — иначе прогноз и так
+  // успевает к плановому концу проекта.
+  const needsForecastTail =
+    factNow != null &&
+    factNow < 100 &&
+    planFactLagPp != null &&
+    planFactLagPp > 0 &&
+    planDurMs > 0;
+  const forecastTailEndMs = needsForecastTail
+    ? endPlanMs + (planFactLagPp / 100) * planDurMs
+    : null;
+
+  // Ось графика расширяется до прогнозной даты завершения, чтобы линия прогноза
+  // не обрезалась плановым концом / сегодня. todayMs остаётся только нижней
+  // границей (маркер «Сегодня» не должен резать прогноз).
+  const axisEndMs =
+    Math.max(endPlanMs, todayMs, forecastTailEndMs ?? 0) + 10 * 86400000;
   const axisMinMs = Math.min(startMs, todayMs) - 5 * 86400000;
 
   const monthMs = eachMonthStartMs(bounds.startIso, msToIso(axisEndMs));
@@ -884,10 +905,32 @@ export function buildGprTimeForecastModel(
   if (factNow != null) {
     const delayPp = planFactLagPp ?? 0;
     forecastSeries.push({ x: todayMs, y: factNow });
+
+    // Основной участок прогноза — повторяем форму плановой S-кривой со смещением вниз
+    // на текущий lagPp. Если будет «хвост» до 100%, останавливаемся на плановом конце,
+    // дальше его дорисует линейный участок.
     for (const p of planSeries) {
       if (p.x <= todayMs) continue;
+      if (forecastTailEndMs != null && p.x > endPlanMs) break;
       const y = clampPercent(p.y - delayPp);
       forecastSeries.push({ x: p.x, y });
+    }
+
+    // Линейный «хвост» от последней точки прогноза до достижения 100%
+    // на forecastTailEndMs. Промежуточные точки расставляем по тем же месяцам,
+    // что и ось графика, чтобы тики оси оставались равномерными.
+    if (forecastTailEndMs != null) {
+      const lastInside = forecastSeries[forecastSeries.length - 1]!;
+      if (forecastTailEndMs > lastInside.x) {
+        const slope = (100 - lastInside.y) / (forecastTailEndMs - lastInside.x);
+        for (const ms of monthMs) {
+          if (ms <= lastInside.x) continue;
+          if (ms >= forecastTailEndMs) break;
+          const y = clampPercent(lastInside.y + slope * (ms - lastInside.x));
+          forecastSeries.push({ x: ms, y });
+        }
+        forecastSeries.push({ x: forecastTailEndMs, y: 100 });
+      }
     }
   }
 
@@ -1122,6 +1165,26 @@ function tenderFactProgressAtDate(tender: Tender, dateIso: string, todayIso: str
   return 0;
 }
 
+/**
+ * Дата начала первого планового тендера (ISO YYYY-MM-DD) среди переданного набора.
+ * Используется как левая граница линии «План тендеров» — до этой даты тендерной программы
+ * фактически нет, поэтому линия не должна тянуться по 0 % с начала календаря проекта.
+ *
+ * Источник: `planStart`; если у тендера нет планового старта, берётся `planContractDate`
+ * (тогда тендер трактуется как точечное событие на дату договора).
+ *
+ * Возвращает `null`, если ни у одного тендера в наборе нет ни `planStart`, ни `planContractDate`.
+ */
+function firstTenderPlanStartIso(tenders: Tender[]): string | null {
+  let min: string | null = null;
+  for (const t of tenders) {
+    const candidate = t.planStart?.trim() || t.planContractDate?.trim();
+    if (!candidate) continue;
+    if (!min || candidate < min) min = candidate;
+  }
+  return min;
+}
+
 function weightedPlanTendersAtDate(scopedTenders: Tender[], dateIso: string): number | null {
   let wSum = 0;
   let dSum = 0;
@@ -1205,8 +1268,16 @@ export function buildGprTenderDependencyTimelineModel(
   const planTenderSeries: GprTimeForecastPoint[] = [];
   const factTenderSeries: GprTimeForecastPoint[] = [];
 
+  // Линия «План тендеров» не должна тянуться по 0 % до даты начала первого планового тендера —
+  // без этой границы `weightedPlanTendersAtDate` возвращает 0 для каждого месяца до старта
+  // тендерной программы (т.к. `plannedProgressBySchedule` отдаёт 0 для дат раньше planStart),
+  // и chart.js рисует ложный горизонтальный участок по 0 % с начала шкалы.
+  const firstTenderPlanIso = firstTenderPlanStartIso(scopedTenders);
+  const firstTenderPlanMs = firstTenderPlanIso ? dateToMs(firstTenderPlanIso) : null;
+
   for (const monthMs of monthMsList) {
     const monthEndIso = endOfMonthIso(monthMs);
+    const monthEndMs = dateToMs(monthEndIso);
     const planGpr = weightedPlanGprAllTasksAtDate(scopedTasks, monthEndIso);
     const factGpr = weightedFactGprAllTasksAtDate(scopedTasks, monthEndIso, todayIso);
     const planTenders = weightedPlanTendersAtDate(scopedTenders, monthEndIso);
@@ -1223,7 +1294,12 @@ export function buildGprTenderDependencyTimelineModel(
 
     if (planGpr != null) planSeries.push({ x: monthMs, y: planGpr });
     if (factGpr != null && monthMs <= todayMs) factSeries.push({ x: monthMs, y: factGpr });
-    if (planTenders != null) planTenderSeries.push({ x: monthMs, y: planTenders });
+    if (
+      planTenders != null &&
+      (firstTenderPlanMs == null || monthEndMs >= firstTenderPlanMs)
+    ) {
+      planTenderSeries.push({ x: monthMs, y: planTenders });
+    }
     if (factTenders != null && monthMs <= todayMs) {
       factTenderSeries.push({ x: monthMs, y: factTenders });
     }
