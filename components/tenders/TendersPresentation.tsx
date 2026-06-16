@@ -432,6 +432,119 @@ function filterTendersForScope(list: Tender[], scope: ConstructionObjectScope): 
   return list.filter((t) => t.partId === scope);
 }
 
+function deviationZoneColor(d: number): string {
+  if (d === 0) return COLORS.gray;
+  if (d < 0) return COLORS.green;
+  if (d <= 14) return COLORS.yellow;
+  return COLORS.red;
+}
+
+function daysWordRu(n: number): string {
+  const abs = Math.abs(Math.round(n));
+  const lastTwo = abs % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return "дней";
+  const last = abs % 10;
+  if (last === 1) return "день";
+  if (last >= 2 && last <= 4) return "дня";
+  return "дней";
+}
+
+function formatDaysSignedRu(n: number | null): string {
+  if (n === null) return "—";
+  const rounded = Math.round(n);
+  if (rounded === 0) return `0 ${daysWordRu(0)}`;
+  const abs = Math.abs(rounded);
+  const sign = rounded > 0 ? "+" : "−";
+  return `${sign}${abs} ${daysWordRu(abs)}`;
+}
+
+function formatRuDateDDMMYYYY(iso: string): string {
+  const d = parseIsoDate(iso);
+  if (!d) return iso;
+  return d.toLocaleDateString("ru-RU");
+}
+
+type ContractDeviationPoint = {
+  id: string;
+  code: string;
+  name: string;
+  planIso: string;
+  factIso: string;
+  ts: number;
+  deviation: number;
+};
+
+type DeviationKpiAccent = "green" | "yellow" | "red" | "gray" | "neutral";
+
+function DeviationKpiTile({
+  label,
+  value,
+  accent = "neutral",
+}: {
+  label: string;
+  value: string;
+  accent?: DeviationKpiAccent;
+}) {
+  const valueColor =
+    accent === "green"
+      ? COLORS.green
+      : accent === "yellow"
+        ? COLORS.yellow
+        : accent === "red"
+          ? COLORS.red
+          : accent === "gray"
+            ? COLORS.gray
+            : "#e2e8f0";
+  return (
+    <div className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-3.5">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1.5 text-lg font-bold tabular-nums" style={{ color: valueColor }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ContractDeviationTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: ContractDeviationPoint }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  const color = deviationZoneColor(row.deviation);
+  return (
+    <div
+      className="rounded-lg border px-3 py-2 text-xs shadow-lg"
+      style={{
+        background: COLORS.card,
+        borderColor: "rgba(148,163,184,0.35)",
+        color: "#e2e8f0",
+      }}
+    >
+      <div className="font-semibold text-slate-100">Тендер {row.code}</div>
+      <div className="mt-0.5 max-w-[260px] text-slate-300">{row.name}</div>
+      <div className="mt-2 tabular-nums text-slate-300">
+        План:{" "}
+        <span className="font-medium text-white">{formatRuDateDDMMYYYY(row.planIso)}</span>
+      </div>
+      <div className="tabular-nums text-slate-300">
+        Факт:{" "}
+        <span className="font-medium text-white">{formatRuDateDDMMYYYY(row.factIso)}</span>
+      </div>
+      <div className="mt-1 tabular-nums" style={{ color }}>
+        Отклонение:{" "}
+        <span className="font-semibold">{formatDaysSignedRu(row.deviation)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function TendersPresentation({
   activePartScope,
 }: {
@@ -730,6 +843,73 @@ export function TendersPresentation({
       riskLevel: riskLevel as "green" | "yellow" | "red",
     };
   }, [tenders, contractPlanDates, contractFactDates, today]);
+
+  const contractDeviationItems = useMemo<ContractDeviationPoint[]>(() => {
+    const items: ContractDeviationPoint[] = [];
+    for (const t of tenders) {
+      const planDate = parseIsoDate(t.planContractDate);
+      const factDate = parseIsoDate(t.factContractDate);
+      if (!planDate || !factDate) continue;
+      items.push({
+        id: t.id,
+        code: t.code,
+        name: t.name,
+        planIso: t.planContractDate ?? "",
+        factIso: t.factContractDate ?? "",
+        ts: factDate.getTime(),
+        deviation: daysDiff(factDate, planDate),
+      });
+    }
+    items.sort((a, b) => a.ts - b.ts);
+    return items;
+  }, [tenders]);
+
+  const contractDeviationKpi = useMemo(() => {
+    const total = tenders.length;
+    const unconcluded = tenders.filter((t) => !parseIsoDate(t.factContractDate)).length;
+    if (contractDeviationItems.length === 0) {
+      return {
+        avg: null as number | null,
+        maxLag: null as number | null,
+        maxLead: null as number | null,
+        withDeviation: 0,
+        considered: 0,
+        total,
+        unconcluded,
+      };
+    }
+    const devs = contractDeviationItems.map((d) => d.deviation);
+    const avg = devs.reduce((s, d) => s + d, 0) / devs.length;
+    const maxLagRaw = Math.max(...devs);
+    const minDevRaw = Math.min(...devs);
+    return {
+      avg,
+      maxLag: maxLagRaw > 0 ? maxLagRaw : 0,
+      maxLead: minDevRaw < 0 ? Math.abs(minDevRaw) : 0,
+      withDeviation: devs.filter((d) => d !== 0).length,
+      considered: devs.length,
+      total,
+      unconcluded,
+    };
+  }, [tenders, contractDeviationItems]);
+
+  const contractDeviationXTicks = useMemo<number[]>(() => {
+    if (contractDeviationItems.length === 0) return [];
+    const minTs = contractDeviationItems[0]!.ts;
+    const maxTs = contractDeviationItems[contractDeviationItems.length - 1]!.ts;
+    const ticks: number[] = [];
+    let cursor = monthStart(new Date(minTs));
+    const end = monthStart(new Date(maxTs));
+    while (cursor.getTime() <= end.getTime()) {
+      ticks.push(cursor.getTime());
+      cursor = addMonths(cursor, 1);
+    }
+    if (ticks.length > 12) {
+      const step = Math.ceil(ticks.length / 12);
+      return ticks.filter((_, i) => i % step === 0);
+    }
+    return ticks;
+  }, [contractDeviationItems]);
 
   return (
     <section className="space-y-4">
@@ -1041,6 +1221,176 @@ export function TendersPresentation({
               mode={contractChartMode}
             />
           )}
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+          Динамика заключения договоров в разрезе отклонений
+        </h3>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          <DeviationKpiTile
+            label="Среднее отклонение"
+            value={formatDaysSignedRu(contractDeviationKpi.avg)}
+            accent={
+              contractDeviationKpi.avg == null
+                ? "neutral"
+                : contractDeviationKpi.avg < 0
+                  ? "green"
+                  : contractDeviationKpi.avg === 0
+                    ? "gray"
+                    : contractDeviationKpi.avg <= 14
+                      ? "yellow"
+                      : "red"
+            }
+          />
+          <DeviationKpiTile
+            label="Максимальное отставание"
+            value={
+              contractDeviationKpi.maxLag == null
+                ? "—"
+                : contractDeviationKpi.maxLag === 0
+                  ? `0 ${daysWordRu(0)}`
+                  : `+${contractDeviationKpi.maxLag} ${daysWordRu(contractDeviationKpi.maxLag)}`
+            }
+            accent={
+              contractDeviationKpi.maxLag == null || contractDeviationKpi.maxLag === 0
+                ? "neutral"
+                : contractDeviationKpi.maxLag > 14
+                  ? "red"
+                  : "yellow"
+            }
+          />
+          <DeviationKpiTile
+            label="Максимальное опережение"
+            value={
+              contractDeviationKpi.maxLead == null
+                ? "—"
+                : contractDeviationKpi.maxLead === 0
+                  ? `0 ${daysWordRu(0)}`
+                  : `−${contractDeviationKpi.maxLead} ${daysWordRu(contractDeviationKpi.maxLead)}`
+            }
+            accent={
+              contractDeviationKpi.maxLead != null && contractDeviationKpi.maxLead > 0
+                ? "green"
+                : "neutral"
+            }
+          />
+          <DeviationKpiTile
+            label="Договоров с отклонением"
+            value={`${contractDeviationKpi.withDeviation} из ${contractDeviationKpi.considered}`}
+            accent="neutral"
+          />
+          <DeviationKpiTile
+            label="Незаключённые договоры"
+            value={`${contractDeviationKpi.unconcluded} из ${contractDeviationKpi.total}`}
+            accent="gray"
+          />
+        </div>
+
+        <div className="mt-5 h-[360px] w-full">
+          {contractDeviationItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              Недостаточно пар «план / факт» по датам договоров для построения отклонений
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={contractDeviationItems}
+                margin={{ top: 16, right: 28, left: 4, bottom: 8 }}
+              >
+                <CartesianGrid stroke="rgba(148,163,184,0.12)" strokeDasharray="4 4" />
+                <XAxis
+                  dataKey="ts"
+                  type="number"
+                  domain={["dataMin", "dataMax"]}
+                  ticks={contractDeviationXTicks}
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tickFormatter={(v) => monthLabel(new Date(Number(v)))}
+                />
+                <YAxis
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tickFormatter={(v) => `${v} дн.`}
+                  allowDecimals={false}
+                />
+                <Tooltip content={<ContractDeviationTooltip />} />
+                <ReferenceLine
+                  y={0}
+                  stroke="rgba(148,163,184,0.55)"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: "0 дней",
+                    fill: "#94a3b8",
+                    fontSize: 10,
+                    position: "right",
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="deviation"
+                  stroke="rgba(148,163,184,0.45)"
+                  strokeWidth={2}
+                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                    const idx = props.index ?? 0;
+                    const row = contractDeviationItems[idx];
+                    if (props.cx == null || props.cy == null || !row) {
+                      return <g key={`dev-dot-${idx}`} />;
+                    }
+                    const color = deviationZoneColor(row.deviation);
+                    return (
+                      <circle
+                        key={`dev-dot-${idx}`}
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={5}
+                        fill={color}
+                        stroke="#0f172a"
+                        strokeWidth={1.5}
+                      />
+                    );
+                  }}
+                  activeDot={(props: { cx?: number; cy?: number; index?: number }) => {
+                    const idx = props.index ?? 0;
+                    const row = contractDeviationItems[idx];
+                    if (props.cx == null || props.cy == null || !row) {
+                      return <g key={`dev-adot-${idx}`} />;
+                    }
+                    const color = deviationZoneColor(row.deviation);
+                    return (
+                      <circle
+                        key={`dev-adot-${idx}`}
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={7}
+                        fill={color}
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                        style={{ filter: `drop-shadow(0 0 6px ${color}aa)` }}
+                      />
+                    );
+                  }}
+                  connectNulls={false}
+                  name="deviation"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="mt-4 border-t border-slate-700/40 pt-3">
+          <AnalyticsLegendList>
+            <AnalyticsLegendItem markerColor={COLORS.green} label="Опережение (< 0)" />
+            <AnalyticsLegendItem markerColor={COLORS.gray} label="В срок (0)" />
+            <AnalyticsLegendItem markerColor={COLORS.yellow} label="Отставание (1–14 дней)" />
+            <AnalyticsLegendItem markerColor={COLORS.red} label="Критическое (> 14 дней)" />
+          </AnalyticsLegendList>
         </div>
       </div>
 
