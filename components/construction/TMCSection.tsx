@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { ReportPdfButton } from "@/components/reports/ReportPdfButton";
 import { SuppliersBlock } from "@/components/tmc/SuppliersBlock";
 import { TmcPresentation } from "@/components/tmc/TmcPresentation";
 import { TmcTable, type TmcTableHandle } from "@/components/tmc/TmcTable";
@@ -60,11 +61,15 @@ export function TMCSection({
         <TMCSectionPartTabs activePartScope={activePartScope} onChangePartScope={onChangePartScope} />
         <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
         <SuppliersBlock activePartId={editPartId} />
+        <ReportPdfButton section="tmc" />
       </EditLayout>
     );
   }
 
   return (
-    <TmcPresentation activePartScope={activePartScope} />
+    <>
+      <TmcPresentation activePartScope={activePartScope} />
+      <ReportPdfButton section="tmc" surface="dark" />
+    </>
   );
 }

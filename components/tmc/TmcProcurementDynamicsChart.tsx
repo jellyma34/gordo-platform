@@ -326,12 +326,28 @@ function TmcProcurementPointLabels({
 }
 
 function formatDynamicsAxisTick(value: number, unit: TmcDynamicsChartUnit): string {
-  if (unit === "count") return `${value}`;
+  if (unit === "count") return `${value} шт.`;
   if (unit === "rub") {
     const rounded = Math.round(value);
     return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
   }
-  return `${value} млн`;
+  return `${value} млн ₽`;
+}
+
+function formatDynamicsMlnRubValue(n: number): string {
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  if (!Number.isFinite(abs)) return "—";
+  const text =
+    abs >= 1 || abs === 0
+      ? abs.toFixed(1).replace(".", ",")
+      : abs.toFixed(2).replace(".", ",");
+  return `${sign}${text} млн ₽`;
+}
+
+function formatDynamicsCountValue(n: number): string {
+  const sign = n < 0 ? "−" : "";
+  return `${sign}${Math.abs(Math.round(n))} шт.`;
 }
 
 function formatDynamicsTooltipValue(
@@ -341,12 +357,61 @@ function formatDynamicsTooltipValue(
   if (value == null) return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
-  if (unit === "count") return `${n} ед.`;
+  if (unit === "count") return formatDynamicsCountValue(n);
   if (unit === "rub") {
     const rounded = Math.round(n);
     return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
   }
-  return `${n} млн ₽`;
+  return formatDynamicsMlnRubValue(n);
+}
+
+function TmcDynamicsPlanFactDeviationTooltip({
+  active,
+  payload,
+  label,
+  valueUnit,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: TmcProcurementChartRow }>;
+  label?: string;
+  valueUnit: TmcDynamicsChartUnit;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+
+  const plan = row.plan ?? 0;
+  const fact = row.fact;
+  const deviation = fact != null ? fact - plan : null;
+  const formatValue =
+    valueUnit === "count" ? formatDynamicsCountValue : formatDynamicsMlnRubValue;
+
+  return (
+    <div
+      className="rounded-lg border px-3 py-2 text-xs shadow-lg"
+      style={{
+        background: COLORS.card,
+        borderColor: "rgba(148,163,184,0.35)",
+        color: "#e2e8f0",
+      }}
+    >
+      {label ? <div className="mb-1 font-semibold text-slate-100">{label}</div> : null}
+      <div className="tabular-nums text-slate-300">
+        План: <span className="font-medium text-white">{formatValue(plan)}</span>
+      </div>
+      <div className="tabular-nums text-slate-300">
+        Факт:{" "}
+        <span className="font-medium text-white">
+          {fact != null ? formatValue(fact) : "—"}
+        </span>
+      </div>
+      {deviation != null ? (
+        <div className="tabular-nums text-slate-300">
+          Отклонение: <span className="font-medium text-white">{formatValue(deviation)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function TmcProcurementDynamicsChart({
@@ -355,12 +420,15 @@ export function TmcProcurementDynamicsChart({
   mode = "monthly",
   valueUnit = "mln",
   labels = DEFAULT_DYNAMICS_LABELS,
+  planFactDeviationTooltip = false,
 }: {
   chartData: TmcProcurementChartRow[];
   chartGradId: string;
   mode?: TmcProcurementChartMode;
   valueUnit?: TmcDynamicsChartUnit;
   labels?: TmcDynamicsChartLabels;
+  /** Tooltip: План / Факт / Отклонение (для «Динамика поставок»). */
+  planFactDeviationTooltip?: boolean;
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -391,15 +459,28 @@ export function TmcProcurementDynamicsChart({
           tickFormatter={(v) => formatDynamicsAxisTick(Number(v), valueUnit)}
         />
         <Tooltip
-          contentStyle={{
-            background: COLORS.card,
-            border: "1px solid rgba(148,163,184,0.35)",
-            color: "#e2e8f0",
-          }}
-          formatter={(value: unknown, name: unknown) => [
-            formatDynamicsTooltipValue(value, valueUnit),
-            String(name) === "plan" ? labels.planTooltip : labels.factTooltip,
-          ]}
+          content={
+            planFactDeviationTooltip ? (
+              <TmcDynamicsPlanFactDeviationTooltip valueUnit={valueUnit} />
+            ) : undefined
+          }
+          contentStyle={
+            planFactDeviationTooltip
+              ? undefined
+              : {
+                  background: COLORS.card,
+                  border: "1px solid rgba(148,163,184,0.35)",
+                  color: "#e2e8f0",
+                }
+          }
+          formatter={
+            planFactDeviationTooltip
+              ? undefined
+              : (value: unknown, name: unknown) => [
+                  formatDynamicsTooltipValue(value, valueUnit),
+                  String(name) === "plan" ? labels.planTooltip : labels.factTooltip,
+                ]
+          }
         />
         <Area
           type="monotone"

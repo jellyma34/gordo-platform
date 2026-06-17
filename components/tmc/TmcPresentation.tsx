@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, ShoppingCart, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, ShoppingCart, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { listTmcFromDb } from "@/lib/constructionApi";
+import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
+import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import type { Tender } from "@/lib/tenderData";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { TmcMaterialCostDynamicsChart } from "@/components/tmc/TmcMaterialCostDynamicsChart";
 import { TmcMaterialPlanFactChart } from "@/components/tmc/TmcMaterialPlanFactChart";
@@ -27,6 +29,7 @@ import { partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprU
 import {
   alignTmcMonthlySeriesToTimeline,
   buildTmcMonthlyDeliverySeries,
+  type TmcDynamicsValueMode,
   buildTmcMonthlyProcurementSeries,
   buildTmcMonthlyRequestSeries,
   computeTmcProcurementKpi,
@@ -39,18 +42,97 @@ import {
   computeTmcVolumeDynamics,
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
+  computeTmcOverdueReasonBreakdown,
   logTmcDataPipelineDiagnostics,
+  logTmcPipelineStatusDiagnostic,
+  logTmcPurchasedVsRequestDiagnostic,
+  logTmcContractFactKpiChartDiagnostic,
+  getTmcRequestChartFactCumulative,
   type TmcMaterialCostDynamicsMode,
   diagnoseTmcDeliveryDynamicsMonths,
   diagnoseTmcProcurementDynamicsMonths,
   type TmcMaterialPlanFactMode,
   enrichTmcItems,
   fillTmcMonthlyProcurementTimeline,
-  isTmcOverduePosition,
+  classifyTmcPipelineStatus,
   tmcItemFactCostRub,
 } from "@/lib/tmcPresentationAnalytics";
 
 const tmcLocalMode = isGprLocalStorageMode();
+const tenderLocalMode = isGprLocalStorageMode();
+
+function filterTendersForScope(list: Tender[], scope: ConstructionObjectScope): Tender[] {
+  if (scope === "project") {
+    return list.filter((t) => t.partId === 1 || t.partId === 2);
+  }
+  return list.filter((t) => t.partId === scope);
+}
+
+function formatTmcPlanDate(iso: string | null): string {
+  if (!iso?.trim()) return "—";
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}.${m}.${y}`;
+}
+
+function TmcOverdueDetailsPanel({
+  rows,
+  onClose,
+}: {
+  rows: ReturnType<typeof computeTmcOverdueReasonBreakdown>["rows"];
+  onClose: () => void;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-slate-600/45 bg-slate-950/55">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-600/35 px-3 py-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Детализация просрочки
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[10px] font-medium text-slate-500 transition-colors hover:text-slate-300"
+        >
+          Свернуть
+        </button>
+      </div>
+      <div className="max-h-[220px] overflow-auto">
+        <table className="w-full min-w-[520px] border-collapse text-left text-[10px]">
+          <thead className="sticky top-0 bg-slate-950/95 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Наименование ТМЦ</th>
+              <th className="px-3 py-2 font-semibold">Статус / причина</th>
+              <th className="px-3 py-2 font-semibold">Плановая дата</th>
+              <th className="px-3 py-2 font-semibold">Просрочка (дней)</th>
+              <th className="px-3 py-2 font-semibold">Ответственный контрагент</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-t border-slate-700/35 text-slate-300">
+                <td className="max-w-[160px] px-3 py-2 align-top font-medium text-slate-100">
+                  <span className="line-clamp-2 break-words">{row.name}</span>
+                </td>
+                <td className="px-3 py-2 align-top text-slate-300">{row.reason}</td>
+                <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums">
+                  {formatTmcPlanDate(row.planDate)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums font-semibold text-rose-300">
+                  {row.overdueDays}
+                </td>
+                <td className="max-w-[140px] px-3 py-2 align-top break-words text-slate-400">
+                  {row.contractor}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 const COLORS = {
   green: "#22c55e",
@@ -246,16 +328,18 @@ function TmcKpiCountBlock({
   primaryCount,
   totalCount,
   accentColor,
+  title,
 }: {
   label: string;
   primaryCount: number;
   totalCount: number;
   accentColor: string;
+  title?: string;
 }) {
   return (
     <div className="space-y-1.5">
       <TmcKpiDivider />
-      <div className="pt-5 pl-0.5">
+      <div className="pt-5 pl-0.5" title={title}>
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
           <span
             className="h-2 w-2 shrink-0 rounded-full"
@@ -446,8 +530,12 @@ export function TmcPresentation({
   const { token, hydrated } = useAuth();
   const projectId = useMemo(() => getGprProjectId(), []);
   const [allTmc, setAllTmc] = useState<Awaited<ReturnType<typeof listTmcFromDb>>>([]);
+  const [allTenders, setAllTenders] = useState<Tender[]>([]);
+  const [overdueDetailsOpen, setOverdueDetailsOpen] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("monthly");
+  const [procurementValueMode, setProcurementValueMode] = useState<TmcDynamicsValueMode>("cost");
   const [deliveryChartMode, setDeliveryChartMode] = useState<ChartMode>("monthly");
+  const [deliveryValueMode, setDeliveryValueMode] = useState<TmcDynamicsValueMode>("cost");
   const [requestChartMode, setRequestChartMode] = useState<ChartMode>("monthly");
   const [workTypeChartMode, setWorkTypeChartMode] = useState<MaterialChartMode>("cost");
   const [costDynamicsMode, setCostDynamicsMode] = useState<TmcMaterialCostDynamicsMode>("byMaterial");
@@ -478,6 +566,24 @@ export function TmcPresentation({
     }
   }, [projectId, token]);
 
+  const reloadTenders = useCallback(async () => {
+    if (tenderLocalMode) {
+      try {
+        const r = await loadPersistedTenderItems(projectId);
+        setAllTenders(r.tenders);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+    if (!token) return;
+    try {
+      setAllTenders(await listTendersFromDb(token));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [projectId, token]);
+
   useEffect(() => {
     if (tmcLocalMode) {
       void reloadTmc();
@@ -492,6 +598,20 @@ export function TmcPresentation({
     return () => window.removeEventListener("gordo-tmc-saved", bump);
   }, [tmcLocalMode, hydrated, token, reloadTmc]);
 
+  useEffect(() => {
+    if (tenderLocalMode) {
+      void reloadTenders();
+      const bump = () => void reloadTenders();
+      window.addEventListener("gordo-tenders-saved", bump);
+      return () => window.removeEventListener("gordo-tenders-saved", bump);
+    }
+    if (!hydrated || !token) return;
+    void reloadTenders();
+    const bump = () => void reloadTenders();
+    window.addEventListener("gordo-tenders-saved", bump);
+    return () => window.removeEventListener("gordo-tenders-saved", bump);
+  }, [tenderLocalMode, hydrated, token, reloadTenders]);
+
   const activeProjectPart = partIdToProjectPartKey(
     activePartScope === "project" ? 1 : activePartScope,
   );
@@ -504,8 +624,19 @@ export function TmcPresentation({
     return enrichTmcItems(items, today);
   }, [activePartScope, activeProjectPart, allTmc, today]);
 
-  const kpi = useMemo(() => computeTmcProcurementKpi(enriched, today), [enriched, today]);
-  const monthlySeries = useMemo(() => buildTmcMonthlyProcurementSeries(enriched, today), [enriched, today]);
+  const scopedTenders = useMemo(
+    () => filterTendersForScope(allTenders, activePartScope),
+    [allTenders, activePartScope],
+  );
+
+  const kpi = useMemo(
+    () => computeTmcProcurementKpi(enriched, today, scopedTenders),
+    [enriched, today, scopedTenders],
+  );
+  const monthlySeries = useMemo(
+    () => buildTmcMonthlyProcurementSeries(enriched, today, procurementValueMode),
+    [enriched, today, procurementValueMode],
+  );
   const chartTimeline = useMemo(
     () => fillTmcMonthlyProcurementTimeline(monthlySeries, today),
     [monthlySeries, today],
@@ -527,16 +658,19 @@ export function TmcPresentation({
   );
 
   const deliverySeries = useMemo(
-    () => buildTmcMonthlyDeliverySeries(enriched, today, "cost"),
-    [enriched, today],
+    () => buildTmcMonthlyDeliverySeries(enriched, today, deliveryValueMode),
+    [enriched, today, deliveryValueMode],
   );
 
   const deliveryTimeline = useMemo(() => {
+    const integerCumulative = deliveryValueMode === "quantity";
     if (chartTimeline.length > 0) {
-      return alignTmcMonthlySeriesToTimeline(deliverySeries, chartTimeline, today);
+      return alignTmcMonthlySeriesToTimeline(deliverySeries, chartTimeline, today, {
+        integerCumulative,
+      });
     }
     return fillTmcMonthlyProcurementTimeline(deliverySeries, today);
-  }, [chartTimeline, deliverySeries, today]);
+  }, [chartTimeline, deliverySeries, today, deliveryValueMode]);
 
   const deliveryChartData = useMemo(
     () =>
@@ -568,6 +702,11 @@ export function TmcPresentation({
         fact: requestChartMode === "monthly" ? p.factMln : p.factCumMln,
       })),
     [requestTimeline, requestChartMode],
+  );
+
+  const requestContractFactCount = useMemo(
+    () => getTmcRequestChartFactCumulative(requestTimeline, today),
+    [requestTimeline, today],
   );
 
   const materialPlanFact = useMemo(
@@ -642,11 +781,6 @@ export function TmcPresentation({
 
   const volumeDynamics = useMemo(() => computeTmcVolumeDynamics(enriched), [enriched]);
 
-  const overdueItemPct =
-    kpi.totalItemCount > 0
-      ? Math.round((kpi.overdueCount / kpi.totalItemCount) * 1000) / 10
-      : 0;
-
   const receiptCostExecutionPct =
     kpi.planRub > 0
       ? Math.round((kpi.receiptsFactRub / kpi.planRub) * 1000) / 10
@@ -655,9 +789,9 @@ export function TmcPresentation({
   const overdueFactCostRub = useMemo(
     () =>
       enriched
-        .filter(isTmcOverduePosition)
+        .filter((item) => classifyTmcPipelineStatus(item, scopedTenders, today) === "deliveryOverdue")
         .reduce((sum, item) => sum + tmcItemFactCostRub(item), 0),
-    [enriched],
+    [enriched, scopedTenders, today],
   );
 
   const receiptDeviation = useMemo(
@@ -670,7 +804,25 @@ export function TmcPresentation({
     [enriched],
   );
 
-  const kpiDonutSegments = useTmcKpiDonutSegments(enriched);
+  const kpiDonutSegments = useTmcKpiDonutSegments(enriched, scopedTenders, today);
+
+  const overdueReasonBreakdown = useMemo(
+    () => computeTmcOverdueReasonBreakdown(enriched, scopedTenders, today),
+    [enriched, scopedTenders, today],
+  );
+
+  useEffect(() => {
+    logTmcPipelineStatusDiagnostic(enriched, scopedTenders, today);
+  }, [enriched, scopedTenders, today]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    logTmcContractFactKpiChartDiagnostic(enriched, requestTimeline, today);
+  }, [enriched, requestTimeline, today]);
+
+  useEffect(() => {
+    if (kpi.remainingItemCount === 0) setOverdueDetailsOpen(false);
+  }, [kpi.remainingItemCount]);
 
   const financialCard = useMemo(() => {
     const { deviationRub } = financialResult;
@@ -745,10 +897,16 @@ export function TmcPresentation({
               accentColor={COLORS.blue}
             />
             <TmcKpiCountBlock
-              label="ЗАКУПЛЕНО"
+              label="ЗАКУПЛЕНО ТМЦ"
               primaryCount={kpi.purchasedItemCount}
               totalCount={kpi.totalItemCount}
               accentColor={COLORS.blue}
+            />
+            <TmcKpiCountBlock
+              label="ЗАКУПЛЕНО ПО ДОГОВОРУ"
+              primaryCount={requestContractFactCount}
+              totalCount={kpi.totalItemCount}
+              accentColor={COLORS.plan}
             />
             <TmcKpiMetricBlock
               label="ОСВОЕНИЕ БЮДЖЕТА"
@@ -778,15 +936,48 @@ export function TmcPresentation({
               <CalendarDays className="h-5 w-5" strokeWidth={2} />
             </TmcKpiIconBadge>
             <div className="min-w-0 flex-1">
-              <TmcKpiLabel>ПРОСРОЧЕНО</TmcKpiLabel>
-              <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
-                <span className="text-4xl font-extrabold text-white">{kpi.overdueCount}</span>
+              <TmcKpiLabel>В РАБОТЕ</TmcKpiLabel>
+              <button
+                type="button"
+                onClick={() => {
+                  if (kpi.remainingItemCount > 0) {
+                    setOverdueDetailsOpen((open) => !open);
+                  }
+                }}
+                className={`mt-1.5 flex w-full items-baseline gap-1 text-left tabular-nums tracking-tight transition-opacity ${
+                  kpi.remainingItemCount > 0
+                    ? "cursor-pointer hover:opacity-90"
+                    : "cursor-default"
+                }`}
+                aria-expanded={overdueDetailsOpen}
+                title={
+                  kpi.remainingItemCount > 0
+                    ? "Показать детализацию остатка"
+                    : undefined
+                }
+              >
+                <span className="text-4xl font-extrabold text-white">{kpi.overdueAmongRemainingCount}</span>
                 <span className="text-3xl font-medium text-slate-300/65">
-                  из {kpi.totalItemCount}
+                  из {kpi.remainingItemCount}
                 </span>
-              </div>
+                {kpi.remainingItemCount > 0 ? (
+                  <ChevronDown
+                    className={`ml-1 h-5 w-5 shrink-0 text-slate-400 transition-transform ${
+                      overdueDetailsOpen ? "rotate-180" : ""
+                    }`}
+                    aria-hidden
+                  />
+                ) : null}
+              </button>
             </div>
           </div>
+
+          {overdueDetailsOpen ? (
+            <TmcOverdueDetailsPanel
+              rows={overdueReasonBreakdown.rows}
+              onClose={() => setOverdueDetailsOpen(false)}
+            />
+          ) : null}
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
             <TmcKpiSplitMoneyBlock
@@ -797,13 +988,13 @@ export function TmcPresentation({
             />
             <TmcKpiCountBlock
               label="НЕ ЗАКУПЛЕНО"
-              primaryCount={kpi.overdueNotStartedCount}
-              totalCount={kpi.totalItemCount}
+              primaryCount={kpi.notPurchasedAmongRemainingCount}
+              totalCount={kpi.remainingItemCount}
               accentColor={COLORS.red}
             />
             <TmcKpiMetricBlock
               label="ДОЛЯ ПРОСРОЧКИ"
-              value={pct1(overdueItemPct)}
+              value={pct1(kpi.overdueAmongRemainingPct)}
               tier="primary"
               accentColor={COLORS.blue}
               sectionPt="pt-5"
@@ -813,7 +1004,12 @@ export function TmcPresentation({
           <div className="mt-auto space-y-1.5">
             <TmcKpiDivider />
             <div className="pt-3">
-              <KpiDonutChart segments={kpiDonutSegments.overdueStructure} chartHeight={100} />
+              <KpiDonutChart
+                segments={kpiDonutSegments.overdueReasons}
+                percentBase={kpi.remainingItemCount}
+                chartHeight={100}
+                reasonTooltip
+              />
             </div>
           </div>
         </TmcPremiumKpiCard>
@@ -901,22 +1097,41 @@ export function TmcPresentation({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-slate-50">Динамика закупок</h3>
-          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-            {(
-              [
-                { id: "monthly" as const, label: "Помесячно" },
-                { id: "cumulative" as const, label: "Нарастающим итогом" },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setChartMode(m.id)}
-                className={segmentedControlTabClass(chartMode === m.id, "dark")}
-              >
-                {m.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "cost" as const, label: "Стоимость" },
+                  { id: "quantity" as const, label: "Количество" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setProcurementValueMode(m.id)}
+                  className={segmentedControlTabClass(procurementValueMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "monthly" as const, label: "Помесячно" },
+                  { id: "cumulative" as const, label: "Нарастающим итогом" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setChartMode(m.id)}
+                  className={segmentedControlTabClass(chartMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="mt-4 h-[320px] w-full">
@@ -929,6 +1144,8 @@ export function TmcPresentation({
               chartData={chartData}
               chartGradId={chartGradId}
               mode={chartMode}
+              valueUnit={procurementValueMode === "quantity" ? "count" : "mln"}
+              planFactDeviationTooltip
             />
           )}
         </div>
@@ -946,22 +1163,41 @@ export function TmcPresentation({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-slate-50">Динамика поставок</h3>
-          <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
-            {(
-              [
-                { id: "monthly" as const, label: "Помесячно" },
-                { id: "cumulative" as const, label: "Нарастающим итогом" },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setDeliveryChartMode(m.id)}
-                className={segmentedControlTabClass(deliveryChartMode === m.id, "dark")}
-              >
-                {m.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "cost" as const, label: "Стоимость" },
+                  { id: "quantity" as const, label: "Количество" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setDeliveryValueMode(m.id)}
+                  className={segmentedControlTabClass(deliveryValueMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "monthly" as const, label: "Помесячно" },
+                  { id: "cumulative" as const, label: "Нарастающим итогом" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setDeliveryChartMode(m.id)}
+                  className={segmentedControlTabClass(deliveryChartMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="mt-4 h-[320px] w-full">
@@ -974,7 +1210,9 @@ export function TmcPresentation({
               chartData={deliveryChartData}
               chartGradId={deliveryChartGradId}
               mode={deliveryChartMode}
+              valueUnit={deliveryValueMode === "quantity" ? "count" : "mln"}
               labels={DELIVERY_DYNAMICS_LABELS}
+              planFactDeviationTooltip
             />
           )}
         </div>
@@ -992,7 +1230,7 @@ export function TmcPresentation({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
-            План / факт заявок
+            План / факт договоров поставки
           </h3>
           <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
             {(
@@ -1015,12 +1253,15 @@ export function TmcPresentation({
         <div className="mt-4 h-[320px] w-full">
           {requestTimeline.length === 0 && chartTimeline.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500">
-              Недостаточно дат план/факт заявок для построения динамики
+              Недостаточно дат план/факт договоров для построения динамики
             </div>
           ) : (
             <TmcRequestPlanFactChart chartData={requestChartData} mode={requestChartMode} />
           )}
         </div>
+        <p className="mt-2 text-xs text-slate-400">
+          Учитываются позиции с заполненной датой договора (contractFactDate) на дату отчёта.
+        </p>
         <div className="mt-3 border-t border-slate-700/40 pt-3">
           <TmcRequestDynamicsChartLegend />
         </div>

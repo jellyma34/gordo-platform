@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { HubReportingPeriodSelector } from "@/components/presentation/HubReportingPeriodSelector";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
@@ -44,7 +45,7 @@ export default function PresentationEntry() {
             Сводка проекта{" "}
             <span className="presentation-hero-accent">на сегодня</span>
           </h1>
-          <p className="presentation-hero-subtitle">Нажмите на блок, чтобы открыть раздел</p>
+          <HubReportingPeriodSelector />
         </header>
 
         <div className="presentation-cards-wrap">

@@ -34,6 +34,8 @@ type KpiDonutChartProps = {
   centerSublabel?: string;
   /** Цвет центрального значения. */
   centerValueColor?: string;
+  /** Tooltip в формате «Причина / Количество ТМЦ / Доля». */
+  reasonTooltip?: boolean;
 };
 
 function pct1(value: number, total: number): string {
@@ -51,6 +53,7 @@ export function KpiDonutChart({
   centerValue,
   centerSublabel,
   centerValueColor = "#f8fafc",
+  reasonTooltip = false,
 }: KpiDonutChartProps) {
   const gradPrefix = useId().replace(/:/g, "");
 
@@ -171,15 +174,36 @@ export function KpiDonutChart({
                         boxShadow: `0 8px 24px rgba(0,0,0,0.45), 0 0 16px ${row.color}33`,
                       }}
                     >
-                      <div className="font-semibold text-slate-100">{row.label}</div>
-                      <div className="mt-1 tabular-nums text-slate-300">
-                        Количество:{" "}
-                        <span className="font-medium text-white">{row.value}</span>
-                      </div>
-                      <div className="tabular-nums text-slate-300">
-                        Доля:{" "}
-                        <span className="font-medium text-white">{pct1(row.value, labelBase)}</span>
-                      </div>
+                      {reasonTooltip ? (
+                        <>
+                          <div className="text-slate-400">
+                            Причина:{" "}
+                            <span className="font-semibold text-slate-100">{row.label}</span>
+                          </div>
+                          <div className="mt-1 tabular-nums text-slate-300">
+                            Количество:{" "}
+                            <span className="font-medium text-white">
+                              {row.value} ТМЦ
+                            </span>
+                          </div>
+                          <div className="tabular-nums text-slate-300">
+                            Доля:{" "}
+                            <span className="font-medium text-white">{pct1(row.value, labelBase)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-semibold text-slate-100">{row.label}</div>
+                          <div className="mt-1 tabular-nums text-slate-300">
+                            Количество:{" "}
+                            <span className="font-medium text-white">{row.value}</span>
+                          </div>
+                          <div className="tabular-nums text-slate-300">
+                            Доля:{" "}
+                            <span className="font-medium text-white">{pct1(row.value, labelBase)}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 }}

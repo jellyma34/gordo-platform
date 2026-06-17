@@ -26,7 +26,6 @@ import {
   computeGprTenderCoverage,
   GPR_TENDER_COVERAGE_RISK_THRESHOLD,
 } from "@/lib/gprTenderCoverage";
-import { formatGprProgressDeltaPp } from "./gprDependencyKpiShared";
 import { toLocalYmd } from "@/lib/gprReportDate";
 import {
   formatInstallmentPlatformDateLabel,
@@ -338,38 +337,7 @@ export function GPRTenderDependencyChart({
                   label: (ctx) => {
                     const v = ctx.parsed.y;
                     const val = v == null || Number.isNaN(v) ? "—" : `${v}%`;
-                    return ` ${ctx.dataset.label}: ${val}`;
-                  },
-                  afterBody: (items) => {
-                    const raw = items[0]?.raw as { x?: number } | undefined;
-                    const x = raw?.x;
-                    if (x == null) return "";
-                    const row = timeline.points.find((p) => p.monthMs === x);
-                    if (!row) return "";
-                    const lines: string[] = [];
-                    const showPlanGpr = viewMode === "plan" || viewMode === "all";
-                    const showFactGpr = viewMode === "fact" || viewMode === "all";
-                    const showPlanT = viewMode === "plan" || viewMode === "all";
-                    const showFactT = viewMode === "fact" || viewMode === "all";
-                    if (showPlanGpr && showFactGpr && row.planGpr != null && row.factGpr != null) {
-                      lines.push(`ГПР план vs факт: ${formatGprProgressDeltaPp(row.factGpr - row.planGpr)}`);
-                    }
-                    if (showPlanT && showFactT && row.planTenders != null && row.factTenders != null) {
-                      lines.push(
-                        `Тендеры план vs факт: ${formatGprProgressDeltaPp(row.factTenders - row.planTenders)}`,
-                      );
-                    }
-                    if (viewMode === "plan" && row.planGpr != null && row.planTenders != null) {
-                      lines.push(
-                        `Закупки vs стройка (план): ${formatGprProgressDeltaPp(row.planTenders - row.planGpr)}`,
-                      );
-                    }
-                    if (viewMode === "fact" && row.factGpr != null && row.factTenders != null) {
-                      lines.push(
-                        `Закупки vs стройка (факт): ${formatGprProgressDeltaPp(row.factTenders - row.factGpr)}`,
-                      );
-                    }
-                    return lines;
+                    return `${ctx.dataset.label}: ${val}`;
                   },
                 },
               },

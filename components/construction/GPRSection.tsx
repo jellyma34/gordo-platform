@@ -12,6 +12,7 @@ import {
   type GPRTask,
 } from "@/lib/gprUtils";
 import { ConstructionEditErrorBoundary } from "@/components/construction/ConstructionEditErrorBoundary";
+import { ReportPdfButton } from "@/components/reports/ReportPdfButton";
 import { GPRAnalytics } from "./GPRAnalytics";
 import { GPRTable, type GPRTableHandle } from "./GPRTable";
 
@@ -187,6 +188,7 @@ export function GPRSection({
             hideEditToolbar
             embedded
           />
+          <ReportPdfButton section="gpr" />
         </EditLayout>
       </section>
     );
@@ -227,6 +229,7 @@ export function GPRSection({
           reportDate={reportDate}
         />
       </ConstructionEditErrorBoundary>
+      <ReportPdfButton section="gpr" surface="dark" />
     </section>
   );
 }

@@ -404,10 +404,10 @@ function RequestTooltip({
     >
       <div className="font-semibold text-slate-100">{label}</div>
       <div className="mt-1 tabular-nums text-slate-300">
-        План заявок: <span className="font-medium text-white">{row.plan}</span>
+        План договоров: <span className="font-medium text-white">{row.plan}</span>
       </div>
       <div className="tabular-nums text-slate-300">
-        Факт заявок:{" "}
+        Факт договоров:{" "}
         <span className="font-medium text-white">{row.fact ?? "—"}</span>
       </div>
       {pctText ? (
@@ -502,11 +502,11 @@ export function TmcRequestPlanFactChart({
 export function TmcRequestDynamicsChartLegend() {
   return (
     <AnalyticsLegendList>
-      <AnalyticsLegendItem markerColor="rgba(148,163,184,0.7)" label="План заявок (пунктир)" />
-      <AnalyticsLegendItem markerColor={COLORS.green} label="Факт заявок — выполнение" />
-      <AnalyticsLegendItem markerColor={COLORS.orange} label="Факт заявок — отставание" />
-      <AnalyticsLegendItem markerColor={COLORS.red} label="Факт заявок — сильное отставание" />
-      <AnalyticsLegendItem markerColor={COLORS.blue} label="Факт заявок — перевыполнение" />
+      <AnalyticsLegendItem markerColor="rgba(148,163,184,0.7)" label="План договоров (пунктир)" />
+      <AnalyticsLegendItem markerColor={COLORS.green} label="Факт договоров — выполнение" />
+      <AnalyticsLegendItem markerColor={COLORS.orange} label="Факт договоров — отставание" />
+      <AnalyticsLegendItem markerColor={COLORS.red} label="Факт договоров — сильное отставание" />
+      <AnalyticsLegendItem markerColor={COLORS.blue} label="Факт договоров — перевыполнение" />
     </AnalyticsLegendList>
   );
 }

@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { EditLayout } from "@/components/EditLayout";
 import { useAppMode } from "@/components/mode/ModeProvider";
+import { ReportPdfButton } from "@/components/reports/ReportPdfButton";
 import { TendersPresentation } from "@/components/tenders/TendersPresentation";
 import { TendersTable, type TendersTableHandle } from "@/components/tenders/TendersTable";
 import { type ConstructionObjectScope, PROJECT_PARTS } from "@/lib/gprUtils";
@@ -22,11 +23,14 @@ export function TendersSection({
 
   if (mode === "presentation") {
     return (
-      <TendersPresentation
-        activePartScope={activePartScope}
-        onChangePartScope={onChangePartScope}
-        hidePartTabs={hidePresentationPartStrip}
-      />
+      <>
+        <TendersPresentation
+          activePartScope={activePartScope}
+          onChangePartScope={onChangePartScope}
+          hidePartTabs={hidePresentationPartStrip}
+        />
+        <ReportPdfButton section="tenders" surface="dark" />
+      </>
     );
   }
 
@@ -59,6 +63,7 @@ export function TendersSection({
     >
       {partTabs}
       <TendersTable ref={tableRef} embedded activePartId={editPartId} />
+      <ReportPdfButton section="tenders" />
     </EditLayout>
   );
 }

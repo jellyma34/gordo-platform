@@ -1,4 +1,11 @@
-import { getStatusByDeviation } from "@/lib/gprUtils";
+import { getStatusByDeviation, PROJECT_PART_KEY_TO_ID } from "@/lib/gprUtils";
+import { hasTenderContractor } from "@/lib/tenderPresentationAnalytics";
+import {
+  getGprStageFromTenderCode,
+  hasTenderSignedContract,
+  resolveTenderCycleStatus,
+  type Tender,
+} from "@/lib/tenderData";
 import {
   TMC_GPR_STAGE_ROOT_CODE,
   tmcFactReferenceDate,
@@ -88,6 +95,11 @@ export function isTmcDeliveryFact(item: TMCItem): boolean {
   return item.volumeFact > 0;
 }
 
+/** Невыполненный остаток поставки (база средней KPI-карточки «Просрочено»). */
+export function isTmcRemainingPosition(item: TmcEnrichedItem): boolean {
+  return !isTmcDeliveryFact(item);
+}
+
 /**
  * Просроченная позиция ТМЦ — тот же критерий, что и сегмент «Просрочено» в распределении статусов:
  * поставка с отставанием (red) или плановая дата прошла без факта (overdue_not_started).
@@ -102,6 +114,355 @@ export function isTmcOverduePosition(item: TmcEnrichedItem): boolean {
  */
 export function isTmcPurchasedPosition(item: TmcEnrichedItem): boolean {
   return item.traffic === "green" || item.traffic === "yellow" || item.traffic === "red";
+}
+
+/** Взаимоисключающий статус позиции в невыполненном остатке (donut «Просрочено»). */
+export type TmcRemainingStatusBucket = "overdue" | "notPurchased" | "onTime";
+
+export type TmcRemainingStatusDonutCounts = {
+  overdue: number;
+  notPurchased: number;
+  onTime: number;
+  remainingTotal: number;
+  donutSum: number;
+};
+
+export function classifyTmcRemainingStatusBucket(
+  item: TmcEnrichedItem,
+): TmcRemainingStatusBucket | null {
+  if (!isTmcRemainingPosition(item)) return null;
+  if (isTmcOverduePosition(item)) return "overdue";
+  if (!isTmcPurchasedPosition(item)) return "notPurchased";
+  return "onTime";
+}
+
+/** Структура невыполненного остатка: просрочено / не закуплено / в срок. */
+export function computeTmcRemainingStatusDonutCounts(
+  items: TmcEnrichedItem[],
+  options?: { logDiagnostic?: boolean },
+): TmcRemainingStatusDonutCounts {
+  const counts: Record<TmcRemainingStatusBucket, number> = {
+    overdue: 0,
+    notPurchased: 0,
+    onTime: 0,
+  };
+
+  for (const item of items) {
+    const bucket = classifyTmcRemainingStatusBucket(item);
+    if (bucket) counts[bucket] += 1;
+  }
+
+  const donutSum = counts.overdue + counts.notPurchased + counts.onTime;
+
+  if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
+    console.table({
+      overdue: counts.overdue,
+      notPurchased: counts.notPurchased,
+      onTime: counts.onTime,
+      remainingTotal: donutSum,
+      donutSum,
+    });
+    if (donutSum !== counts.overdue + counts.notPurchased + counts.onTime) {
+      console.warn("[TMC remaining status donut] segment sum mismatch");
+    }
+  }
+
+  return {
+    overdue: counts.overdue,
+    notPurchased: counts.notPurchased,
+    onTime: counts.onTime,
+    remainingTotal: donutSum,
+    donutSum,
+  };
+}
+
+/**
+ * Взаимоисключающий статус позиции ТМЦ в цепочке закупки (сумма по всем позициям = total).
+ * Остаток: категории 1–5; «Поставлено» — вне остатка.
+ */
+export type TmcPipelineStatusBucket =
+  | "tenderNotAnnounced"
+  | "tenderInProgress"
+  | "contractNotSigned"
+  | "orderPlaced"
+  | "deliveryOverdue"
+  | "delivered";
+
+export const TMC_PIPELINE_STATUS_ORDER: TmcPipelineStatusBucket[] = [
+  "tenderNotAnnounced",
+  "tenderInProgress",
+  "contractNotSigned",
+  "orderPlaced",
+  "deliveryOverdue",
+  "delivered",
+];
+
+/** Категории невыполненного остатка (без «Поставлено»). */
+export const TMC_REMAINDER_PIPELINE_ORDER: TmcPipelineStatusBucket[] = [
+  "tenderNotAnnounced",
+  "tenderInProgress",
+  "contractNotSigned",
+  "orderPlaced",
+  "deliveryOverdue",
+];
+
+export const TMC_PIPELINE_STATUS_LABELS: Record<TmcPipelineStatusBucket, string> = {
+  tenderNotAnnounced: "Не объявлен тендер",
+  tenderInProgress: "Тендер в работе",
+  contractNotSigned: "Договор не подписан",
+  orderPlaced: "Заказ размещен",
+  deliveryOverdue: "Просрочена поставка",
+  delivered: "Поставлено",
+};
+
+const TMC_PIPELINE_STATUS_COLORS: Record<TmcPipelineStatusBucket, string> = {
+  tenderNotAnnounced: "#6b7280",
+  tenderInProgress: "#eab308",
+  contractNotSigned: "#dc2626",
+  orderPlaced: "#3b82f6",
+  deliveryOverdue: "#ef4444",
+  delivered: "#22c55e",
+};
+
+const TMC_PIPELINE_TENDER_IN_PROGRESS_CYCLES = new Set([
+  "conducted",
+  "underReview",
+  "negotiations",
+  "onApproval",
+  "contractPrepared",
+  "contractSent",
+  "postponed",
+  "other",
+]);
+
+function emptyTmcPipelineStatusCounts(): Record<TmcPipelineStatusBucket, number> {
+  return {
+    tenderNotAnnounced: 0,
+    tenderInProgress: 0,
+    contractNotSigned: 0,
+    orderPlaced: 0,
+    deliveryOverdue: 0,
+    delivered: 0,
+  };
+}
+
+function tmcContractRef(item: TMCItem): string | null {
+  const contract = item.contract?.trim();
+  if (!contract || contract === "0" || contract === "-") return null;
+  return contract;
+}
+
+/**
+ * Единая классификация позиции ТМЦ (приоритет: поставлено → тендер → договор → просрочка поставки → заказ).
+ */
+export function classifyTmcPipelineStatus(
+  item: TmcEnrichedItem,
+  tenders: Tender[],
+  today: Date = new Date(),
+): TmcPipelineStatusBucket {
+  if (isTmcDeliveryFact(item)) return "delivered";
+
+  const tender = findBestMatchingTenderForTmc(item, tenders);
+
+  if (tender) {
+    if (!tender.factStart?.trim()) return "tenderNotAnnounced";
+  } else if (!hasTendersForTmcStage(item, tenders)) {
+    return "tenderNotAnnounced";
+  }
+
+  if (tender && !hasTenderSignedContract(tender)) {
+    const cycle = resolveTenderCycleStatus(tender);
+    const contractor = hasTenderContractor(tender);
+
+    if (
+      contractor &&
+      (cycle === "contractPrepared" ||
+        cycle === "contractSent" ||
+        cycle === "onApproval" ||
+        cycle === "contractNotConcluded")
+    ) {
+      return "contractNotSigned";
+    }
+
+    if (
+      !contractor ||
+      TMC_PIPELINE_TENDER_IN_PROGRESS_CYCLES.has(cycle) ||
+      tender.status === "in_progress" ||
+      tender.status === "delayed" ||
+      tender.status === "planned"
+    ) {
+      return "tenderInProgress";
+    }
+
+    return "contractNotSigned";
+  }
+
+  if (!item.contractFactDate?.trim()) {
+    if (tmcContractRef(item) && !hasTmcPurchaseFact(item)) return "contractNotSigned";
+    if (isTmcContractPlanOverdue(item, today) && !hasTmcPurchaseFact(item)) {
+      return "contractNotSigned";
+    }
+  }
+
+  if (isTmcSupplyDeliveryOverdueProblem(item, today)) return "deliveryOverdue";
+  if (item.traffic === "red") return "deliveryOverdue";
+  if (
+    item.traffic === "overdue_not_started" &&
+    (hasTmcPurchaseFact(item) || isTmcPurchasedPosition(item))
+  ) {
+    return "deliveryOverdue";
+  }
+
+  if (hasTmcPurchaseFact(item) || isTmcPurchasedPosition(item)) return "orderPlaced";
+  if (item.supplier?.trim() || tmcContractRef(item)) return "orderPlaced";
+  if (item.traffic === "yellow" || item.traffic === "green") return "orderPlaced";
+
+  if (item.traffic === "overdue_not_started") {
+    return tender?.factStart?.trim() ? "tenderInProgress" : "tenderNotAnnounced";
+  }
+
+  return tender?.factStart?.trim() ? "tenderInProgress" : "tenderNotAnnounced";
+}
+
+export type TmcPipelineStatusRow = {
+  id: string;
+  name: string;
+  itemCode: string;
+  status: TmcPipelineStatusBucket;
+  statusLabel: string;
+  planDate: string | null;
+  overdueDays: number;
+  contractor: string;
+};
+
+export type TmcPipelineStatusDistribution = {
+  counts: Record<TmcPipelineStatusBucket, number>;
+  totalItems: number;
+  deliveredCount: number;
+  remainingItemCount: number;
+  notPurchasedAmongRemaining: number;
+  inProgressAmongRemaining: number;
+  deliveryOverdueAmongRemaining: number;
+  remainderSumCheck: number;
+  remainderRows: TmcPipelineStatusRow[];
+  remainderDonutSegments: TmcKpiDonutSegment[];
+};
+
+function buildRemainderPipelineDonutSegments(
+  counts: Record<TmcPipelineStatusBucket, number>,
+): TmcKpiDonutSegment[] {
+  return TMC_REMAINDER_PIPELINE_ORDER.filter((key) => counts[key] > 0).map((key) => ({
+    label: TMC_PIPELINE_STATUS_LABELS[key],
+    value: counts[key],
+    color: TMC_PIPELINE_STATUS_COLORS[key],
+  }));
+}
+
+/** Распределение всех позиций ТМЦ по взаимоисключающим статусам pipeline. */
+export function computeTmcPipelineStatusDistribution(
+  items: TmcEnrichedItem[],
+  tenders: Tender[],
+  today: Date = new Date(),
+): TmcPipelineStatusDistribution {
+  const counts = emptyTmcPipelineStatusCounts();
+  const remainderRows: TmcPipelineStatusRow[] = [];
+
+  for (const item of items) {
+    const status = classifyTmcPipelineStatus(item, tenders, today);
+    counts[status] += 1;
+
+    if (status !== "delivered") {
+      const matchedTender = findBestMatchingTenderForTmc(item, tenders);
+      remainderRows.push({
+        id: item.id,
+        name: item.name,
+        itemCode: item.itemCode,
+        status,
+        statusLabel: TMC_PIPELINE_STATUS_LABELS[status],
+        planDate: tmcPlanReferenceDate(item),
+        overdueDays: item.overdueDays,
+        contractor: item.supplier?.trim() || matchedTender?.contractor?.trim() || "—",
+      });
+    }
+  }
+
+  remainderRows.sort(
+    (a, b) => b.overdueDays - a.overdueDays || a.name.localeCompare(b.name, "ru"),
+  );
+
+  const deliveredCount = counts.delivered;
+  const remainingItemCount = items.length - deliveredCount;
+  const notPurchasedAmongRemaining = counts.tenderNotAnnounced;
+  const deliveryOverdueAmongRemaining = counts.deliveryOverdue;
+  const inProgressAmongRemaining =
+    counts.tenderInProgress + counts.contractNotSigned + counts.orderPlaced;
+  const remainderSumCheck =
+    notPurchasedAmongRemaining + inProgressAmongRemaining + deliveryOverdueAmongRemaining;
+
+  return {
+    counts,
+    totalItems: items.length,
+    deliveredCount,
+    remainingItemCount,
+    notPurchasedAmongRemaining,
+    inProgressAmongRemaining,
+    deliveryOverdueAmongRemaining,
+    remainderSumCheck,
+    remainderRows,
+    remainderDonutSegments: buildRemainderPipelineDonutSegments(counts),
+  };
+}
+
+/** Диагностика: таблица всех позиций и сводка по статусам (сумма = total). */
+export function logTmcPipelineStatusDiagnostic(
+  items: TmcEnrichedItem[],
+  tenders: Tender[],
+  today: Date = new Date(),
+): TmcPipelineStatusDistribution {
+  const dist = computeTmcPipelineStatusDistribution(items, tenders, today);
+
+  console.group("[TMC] Диагностика статусов pipeline (взаимоисключающие)");
+  console.table(
+    items.map((item) => {
+      const status = classifyTmcPipelineStatus(item, tenders, today);
+      return {
+        id: item.id,
+        name: item.name,
+        itemCode: item.itemCode,
+        traffic: item.traffic,
+        status: TMC_PIPELINE_STATUS_LABELS[status],
+        bucket: status,
+        overdueDays: item.overdueDays,
+      };
+    }),
+  );
+  console.table({
+    "1 Не объявлен тендер": dist.counts.tenderNotAnnounced,
+    "2 Тендер в работе": dist.counts.tenderInProgress,
+    "3 Договор не подписан": dist.counts.contractNotSigned,
+    "4 Заказ размещен": dist.counts.orderPlaced,
+    "5 Просрочена поставка": dist.counts.deliveryOverdue,
+    "6 Поставлено": dist.counts.delivered,
+    "Σ всех категорий": Object.values(dist.counts).reduce((s, n) => s + n, 0),
+    "Всего позиций": dist.totalItems,
+    "— остаток": dist.remainingItemCount,
+    "Не закуплено (остаток)": dist.notPurchasedAmongRemaining,
+    "В работе (остаток)": dist.inProgressAmongRemaining,
+    "Просрочена поставка (остаток)": dist.deliveryOverdueAmongRemaining,
+    "Контроль остатка (сумма)": dist.remainderSumCheck,
+  });
+  if (dist.totalItems !== Object.values(dist.counts).reduce((s, n) => s + n, 0)) {
+    console.warn("[TMC pipeline] сумма категорий ≠ totalItems");
+  }
+  if (dist.remainderSumCheck !== dist.remainingItemCount) {
+    console.warn("[TMC pipeline] контроль остатка не сходится", {
+      remainderSumCheck: dist.remainderSumCheck,
+      remainingItemCount: dist.remainingItemCount,
+    });
+  }
+  console.groupEnd();
+
+  return dist;
 }
 
 /** Просрочка по дням (для таблицы критических поставок; шире, чем KPI «Просрочено»). */
@@ -141,6 +502,18 @@ export type TmcProcurementKpi = {
   deviationPct: number | null;
   overdueCount: number;
   overdueCostRub: number;
+  /** Невыполненный остаток: всего позиций − поставлено. */
+  remainingItemCount: number;
+  /** Просрочено среди остатка. */
+  overdueAmongRemainingCount: number;
+  /** Не закуплено среди остатка (без пересечения с просрочкой). */
+  notPurchasedAmongRemainingCount: number;
+  /** В работе среди остатка: тендер + договор + заказ размещён. */
+  inProgressAmongRemainingCount: number;
+  /** В срок среди остатка (закуплено, без просрочки, поставка не завершена). */
+  onTimeAmongRemainingCount: number;
+  /** overdueAmongRemaining / remainingItemCount, %. */
+  overdueAmongRemainingPct: number;
   /** Доля planCost с planDate ≤ today, %. */
   plannedExecutionPct: number;
   /** Σ factCost / Σ planCost, не выше 100%. */
@@ -150,13 +523,14 @@ export type TmcProcurementKpi = {
 export function computeTmcProcurementKpi(
   items: TmcEnrichedItem[],
   today: Date = new Date(),
+  tenders: Tender[] = [],
 ): TmcProcurementKpi {
   const planRub = items.reduce((s, i) => s + i.planCost, 0);
   const procurementFactRub = items.reduce((s, i) => s + tmcItemFactCostRub(i), 0);
   const deliveryItems = items.filter(isTmcDeliveryFact);
   const receiptsFactRub = deliveryItems.reduce((s, i) => s + tmcItemFactCostRub(i), 0);
-  const deliveryPipeline = computeTmcDeliveryPipelineCounts(items);
-  const deliveryCount = deliveryPipeline.deliveredKpi;
+  const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
+  const deliveryCount = pipelineDist.deliveredCount;
   const totalItemCount = items.length;
   const purchasedItems = items.filter(isTmcPurchasedPosition);
   const purchasedItemCount = purchasedItems.length;
@@ -167,6 +541,10 @@ export function computeTmcProcurementKpi(
   const overdueItems = items.filter(isTmcOverduePosition);
   const overdueAmongPurchasedCount = items.filter((i) => i.traffic === "red").length;
   const overdueNotStartedCount = items.filter((i) => i.traffic === "overdue_not_started").length;
+  const overdueAmongRemainingItems = items.filter(
+    (i) =>
+      classifyTmcPipelineStatus(i, tenders, today) === "deliveryOverdue",
+  );
   const planDueRub = items
     .filter((i) => isTmcPlanDueByToday(i, today))
     .reduce((s, i) => s + i.planCost, 0);
@@ -192,7 +570,19 @@ export function computeTmcProcurementKpi(
     deviationPct:
       planRub > 0 ? Math.round(((procurementFactRub - planRub) / planRub) * 1000) / 10 : null,
     overdueCount: overdueItems.length,
-    overdueCostRub: overdueItems.reduce((s, i) => s + i.planCost, 0),
+    overdueCostRub: overdueAmongRemainingItems.reduce((s, i) => s + i.planCost, 0),
+    remainingItemCount: pipelineDist.remainingItemCount,
+    overdueAmongRemainingCount: pipelineDist.deliveryOverdueAmongRemaining,
+    notPurchasedAmongRemainingCount: pipelineDist.notPurchasedAmongRemaining,
+    inProgressAmongRemainingCount: pipelineDist.inProgressAmongRemaining,
+    onTimeAmongRemainingCount: pipelineDist.counts.orderPlaced,
+    overdueAmongRemainingPct:
+      pipelineDist.remainingItemCount > 0
+        ? Math.round(
+            (pipelineDist.deliveryOverdueAmongRemaining / pipelineDist.remainingItemCount) *
+              1000,
+          ) / 10
+        : 0,
     plannedExecutionPct,
     actualExecutionPct,
   };
@@ -440,10 +830,31 @@ export function fillTmcMonthlyProcurementTimeline(
   return points;
 }
 
-/** Помесячная динамика закупок (млн ₽): план — contractPlanDate, факт — contractFactDate. */
+/** Режим единиц для динамики закупок / поставок. */
+export type TmcDynamicsValueMode = "cost" | "quantity";
+
+/** @deprecated Используйте TmcDynamicsValueMode */
+export type TmcDeliveryDynamicsValueMode = TmcDynamicsValueMode;
+
+function toDynamicsChartValue(
+  rawRubOrCount: number,
+  valueMode: TmcDynamicsValueMode,
+): number {
+  if (valueMode === "cost") {
+    return Math.round((rawRubOrCount / 1_000_000) * 10) / 10;
+  }
+  return rawRubOrCount;
+}
+
+function roundDynamicsCumulative(value: number, valueMode: TmcDynamicsValueMode): number {
+  return valueMode === "cost" ? roundMln10(value) : value;
+}
+
+/** Помесячная динамика закупок: план — contractPlanDate, факт — contractFactDate. */
 export function buildTmcMonthlyProcurementSeries(
   items: TMCItem[],
   today: Date = new Date(),
+  valueMode: TmcDynamicsValueMode = "cost",
 ): TmcMonthlyProcurementPoint[] {
   const planByMonth = new Map<string, number>();
   const factByMonth = new Map<string, number>();
@@ -454,13 +865,14 @@ export function buildTmcMonthlyProcurementSeries(
     const factDate = item.contractFactDate?.trim() || null;
     if (planDate) {
       const mk = planDate.slice(0, 7);
-      planByMonth.set(mk, (planByMonth.get(mk) ?? 0) + item.planCost);
+      const delta = valueMode === "cost" ? item.planCost : 1;
+      planByMonth.set(mk, (planByMonth.get(mk) ?? 0) + delta);
     }
     if (factDate) {
-      const factRub = tmcItemFactCostRub(item);
-      if (factRub > 0) {
-        const mk = factDate.slice(0, 7);
-        factByMonth.set(mk, (factByMonth.get(mk) ?? 0) + factRub);
+      const mk = factDate.slice(0, 7);
+      const delta = valueMode === "cost" ? tmcItemFactCostRub(item) : 1;
+      if (valueMode === "quantity" || delta > 0) {
+        factByMonth.set(mk, (factByMonth.get(mk) ?? 0) + delta);
       }
     }
   }
@@ -474,47 +886,44 @@ export function buildTmcMonthlyProcurementSeries(
 
   const todayMonth = todayIso.slice(0, 7);
   const points: TmcMonthlyProcurementPoint[] = [];
-  let planCum = 0;
-  let factCum = 0;
+  let planCumRaw = 0;
+  let factCumRaw = 0;
   let cursor = start;
   while (cursor.getTime() <= end.getTime()) {
     const iso = cursor.toISOString().slice(0, 10);
     const mk = iso.slice(0, 7);
-    const planRub = planByMonth.get(mk) ?? 0;
-    const factRub = factByMonth.get(mk) ?? 0;
-    planCum += planRub;
-    factCum += factRub;
+    const planRaw = planByMonth.get(mk) ?? 0;
+    const factRaw = factByMonth.get(mk) ?? 0;
+    planCumRaw += planRaw;
+    factCumRaw += factRaw;
     const factVisible = mk <= todayMonth;
     points.push({
       iso,
       label: monthLabelRu(cursor),
-      planMln: Math.round((planRub / 1_000_000) * 10) / 10,
-      factMln: factVisible ? Math.round((factRub / 1_000_000) * 10) / 10 : null,
-      planCumMln: Math.round((planCum / 1_000_000) * 10) / 10,
-      factCumMln: factVisible ? Math.round((factCum / 1_000_000) * 10) / 10 : null,
+      planMln: toDynamicsChartValue(planRaw, valueMode),
+      factMln: factVisible ? toDynamicsChartValue(factRaw, valueMode) : null,
+      planCumMln: roundDynamicsCumulative(toDynamicsChartValue(planCumRaw, valueMode), valueMode),
+      factCumMln: factVisible
+        ? roundDynamicsCumulative(toDynamicsChartValue(factCumRaw, valueMode), valueMode)
+        : null,
     });
     cursor = addMonths(cursor, 1);
   }
   return points;
 }
 
-export type TmcDeliveryDynamicsValueMode = "cost" | "quantity";
-
 function toDeliveryChartValue(
   rawRubOrCount: number,
-  valueMode: TmcDeliveryDynamicsValueMode,
+  valueMode: TmcDynamicsValueMode,
 ): number {
-  if (valueMode === "cost") {
-    return Math.round((rawRubOrCount / 1_000_000) * 10) / 10;
-  }
-  return rawRubOrCount;
+  return toDynamicsChartValue(rawRubOrCount, valueMode);
 }
 
 function roundDeliveryCumulative(
   value: number,
-  valueMode: TmcDeliveryDynamicsValueMode,
+  valueMode: TmcDynamicsValueMode,
 ): number {
-  return valueMode === "cost" ? roundMln10(value) : value;
+  return roundDynamicsCumulative(value, valueMode);
 }
 
 /**
@@ -524,7 +933,7 @@ function roundDeliveryCumulative(
 export function buildTmcMonthlyDeliverySeries(
   items: TMCItem[],
   today: Date = new Date(),
-  valueMode: TmcDeliveryDynamicsValueMode = "cost",
+  valueMode: TmcDynamicsValueMode = "cost",
 ): TmcMonthlyProcurementPoint[] {
   const planByMonth = new Map<string, number>();
   const factByMonth = new Map<string, number>();
@@ -595,6 +1004,7 @@ export function alignTmcMonthlySeriesToTimeline(
   series: TmcMonthlyProcurementPoint[],
   referenceTimeline: TmcMonthlyProcurementPoint[],
   today: Date = new Date(),
+  options?: { integerCumulative?: boolean },
 ): TmcMonthlyProcurementPoint[] {
   if (referenceTimeline.length === 0) return series;
 
@@ -602,6 +1012,8 @@ export function alignTmcMonthlySeriesToTimeline(
   const byMonth = new Map(series.map((p) => [p.iso.slice(0, 7), p]));
   let planCum = 0;
   let factCum = 0;
+  const roundCum = (value: number) =>
+    options?.integerCumulative ? value : roundMln10(value);
 
   return referenceTimeline.map((ref) => {
     const mk = ref.iso.slice(0, 7);
@@ -617,8 +1029,8 @@ export function alignTmcMonthlySeriesToTimeline(
       label: ref.label,
       planMln: plan,
       factMln: fact,
-      planCumMln: roundMln10(planCum),
-      factCumMln: factVisible ? roundMln10(factCum) : null,
+      planCumMln: roundCum(planCum),
+      factCumMln: factVisible ? roundCum(factCum) : null,
     };
   });
 }
@@ -881,8 +1293,10 @@ export function computeTmcRequestDynamicsKpi(
       }
     }
     if (contractFact) {
-      submittedFactCount += 1;
-      factCostRub += item.planCost;
+      if (contractFact <= todayIso) {
+        submittedFactCount += 1;
+        factCostRub += item.planCost;
+      }
     }
   }
 
@@ -899,6 +1313,232 @@ export function computeTmcRequestDynamicsKpi(
     executionPct,
     notSubmittedCount,
   };
+}
+
+/** Позиция с фактом заявки на закупку — заполнена contractFactDate. */
+export function isTmcRequestFactPosition(item: TMCItem): boolean {
+  return Boolean(item.contractFactDate?.trim());
+}
+
+/** Договор учтён на дату отчёта: contractFactDate ≤ today. */
+export function isTmcRequestFactThroughToday(item: TMCItem, today: Date = new Date()): boolean {
+  const contractFact = item.contractFactDate?.trim();
+  if (!contractFact) return false;
+  const todayIso = today.toISOString().slice(0, 10);
+  return contractFact <= todayIso;
+}
+
+/** Количество позиций с фактом договора на дату отчёта (источник KPI и графика). */
+export function countTmcRequestFactsThroughToday(
+  items: TMCItem[],
+  today: Date = new Date(),
+): number {
+  let count = 0;
+  for (const item of items) {
+    if (isTmcRequestFactThroughToday(item, today)) count += 1;
+  }
+  return count;
+}
+
+/** Нарастающий итог факта договоров на графике на последний видимый месяц ≤ today. */
+export function getTmcRequestChartFactCumulative(
+  timeline: TmcMonthlyProcurementPoint[],
+  today: Date = new Date(),
+): number {
+  const todayMonth = today.toISOString().slice(0, 7);
+  const lastVisible = [...timeline]
+    .reverse()
+    .find((p) => p.iso.slice(0, 7) <= todayMonth);
+  return lastVisible?.factCumMln ?? 0;
+}
+
+/** Позиция с плановой датой заявки — заполнена contractPlanDate. */
+export function isTmcRequestPlanPosition(item: TMCItem): boolean {
+  return Boolean(item.contractPlanDate?.trim());
+}
+
+export type TmcPurchasedVsRequestDiagnostic = {
+  kpiPurchasedCount: number;
+  chartFactTotalCount: number;
+  chartCumulativeFactAtToday: number;
+  inKpiNotInChart: TmcEnrichedItem[];
+  inChartNotInKpi: TmcEnrichedItem[];
+  kpiCriteria: string;
+  chartCriteria: string;
+};
+
+/** Сравнение KPI «Закуплено» и графика «План / факт заявок». */
+export function diagnoseTmcPurchasedVsRequest(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+): TmcPurchasedVsRequestDiagnostic {
+  const todayIso = today.toISOString().slice(0, 10);
+  const todayMonth = todayIso.slice(0, 7);
+  const requestSeries = buildTmcMonthlyRequestSeries(items, today);
+  const lastVisiblePoint = [...requestSeries]
+    .reverse()
+    .find((p) => p.iso.slice(0, 7) <= todayMonth);
+
+  const kpiPurchased = items.filter(isTmcPurchasedPosition);
+  const chartFactItems = items.filter(isTmcRequestFactPosition);
+  const inKpiNotInChart = kpiPurchased.filter((item) => !isTmcRequestFactPosition(item));
+  const inChartNotInKpi = chartFactItems.filter((item) => !isTmcPurchasedPosition(item));
+
+  return {
+    kpiPurchasedCount: kpiPurchased.length,
+    chartFactTotalCount: chartFactItems.length,
+    chartCumulativeFactAtToday: lastVisiblePoint?.factCumMln ?? 0,
+    inKpiNotInChart,
+    inChartNotInKpi,
+    kpiCriteria:
+      "isTmcPurchasedPosition: traffic green | yellow | red (факт по объёму/стоимости, опорные даты supplyFactDate | contractFactDate)",
+    chartCriteria:
+      "contractFactDate: 1 ТМЦ = 1 заявка; на графике нарастающий итог факта ≤ текущего месяца",
+  };
+}
+
+function tmcPurchasedVsRequestRow(item: TmcEnrichedItem) {
+  return {
+    id: item.id,
+    itemCode: item.itemCode,
+    name: item.name,
+    traffic: item.traffic,
+    contractPlanDate: item.contractPlanDate ?? "—",
+    contractFactDate: item.contractFactDate ?? "—",
+    supplyPlanDate: item.supplyPlanDate ?? "—",
+    supplyFactDate: item.supplyFactDate ?? "—",
+    factCost: tmcItemFactCostRub(item),
+    volumeFact: item.volumeFact,
+    isKpiPurchased: isTmcPurchasedPosition(item),
+    isChartRequestFact: isTmcRequestFactPosition(item),
+    factReferenceDate: tmcFactReferenceDate(item) ?? "—",
+    planReferenceDate: tmcPlanReferenceDate(item) ?? "—",
+  };
+}
+
+/** Диагностика расхождения KPI «Закуплено» и графика «План / факт заявок». */
+export function logTmcPurchasedVsRequestDiagnostic(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+): TmcPurchasedVsRequestDiagnostic {
+  const diag = diagnoseTmcPurchasedVsRequest(items, today);
+  const kpiPurchased = items.filter(isTmcPurchasedPosition);
+  const chartFactItems = items.filter(isTmcRequestFactPosition);
+
+  console.group("[TMC] KPI «Закуплено» vs график «План / факт заявок»");
+  console.table({
+    "KPI Закуплено": diag.kpiPurchasedCount,
+    "График факт заявок (всего с contractFactDate)": diag.chartFactTotalCount,
+    "График нарастающий итог факта на текущий месяц": diag.chartCumulativeFactAtToday,
+    "В KPI, но не в графике": diag.inKpiNotInChart.length,
+    "В графике, но не в KPI": diag.inChartNotInKpi.length,
+  });
+  console.log("Критерий KPI:", diag.kpiCriteria);
+  console.log("Критерий графика:", diag.chartCriteria);
+  console.log("1. Записи KPI «Закуплено»:");
+  console.table(kpiPurchased.map(tmcPurchasedVsRequestRow));
+  console.log("2. Записи графика «Факт заявок» (contractFactDate):");
+  console.table(chartFactItems.map(tmcPurchasedVsRequestRow));
+  if (diag.inKpiNotInChart.length > 0) {
+    console.log("3. В KPI, но отсутствуют в графике (нет contractFactDate):");
+    console.table(diag.inKpiNotInChart.map(tmcPurchasedVsRequestRow));
+  }
+  if (diag.inChartNotInKpi.length > 0) {
+    console.log("4. В графике, но отсутствуют в KPI (traffic не green/yellow/red):");
+    console.table(diag.inChartNotInKpi.map(tmcPurchasedVsRequestRow));
+  }
+  if (diag.kpiPurchasedCount !== diag.chartFactTotalCount) {
+    console.warn(
+      "[TMC] KPI и график считают разные сущности: закупка ТМЦ (объём/стоимость) vs заявки по дате договора.",
+    );
+  }
+  console.groupEnd();
+  return diag;
+}
+
+export type TmcContractFactKpiChartDiagnostic = {
+  kpiContractFactCount: number;
+  chartFactCumulative: number;
+  kpiAllContractFactCount: number;
+  kpiItems: TmcEnrichedItem[];
+  chartItems: TmcEnrichedItem[];
+  onlyInKpi: TmcEnrichedItem[];
+  kpiCriteria: string;
+  chartCriteria: string;
+};
+
+function tmcContractFactDiagnosticRow(item: TmcEnrichedItem, today: Date) {
+  const contractFact = item.contractFactDate?.trim() ?? "";
+  const todayIso = today.toISOString().slice(0, 10);
+  return {
+    id: item.id,
+    itemCode: item.itemCode,
+    name: item.name,
+    contractFactDate: contractFact || "—",
+    inKpiThroughToday: isTmcRequestFactThroughToday(item, today),
+    inKpiAllDates: isTmcRequestFactPosition(item),
+    futureContractFact: Boolean(contractFact && contractFact > todayIso),
+  };
+}
+
+/** Диагностика KPI «Закуплено по договору» vs факт на графике договоров. */
+export function diagnoseTmcContractFactKpiVsChart(
+  items: TmcEnrichedItem[],
+  requestTimeline: TmcMonthlyProcurementPoint[],
+  today: Date = new Date(),
+): TmcContractFactKpiChartDiagnostic {
+  const kpiContractFactCount = countTmcRequestFactsThroughToday(items, today);
+  const chartFactCumulative = getTmcRequestChartFactCumulative(requestTimeline, today);
+  const kpiAllContractFactCount = items.filter(isTmcRequestFactPosition).length;
+  const kpiItems = items.filter((item) => isTmcRequestFactThroughToday(item, today));
+  const chartItemIds = new Set(kpiItems.map((item) => item.id));
+  const chartItems = items.filter((item) => chartItemIds.has(item.id));
+  const onlyInKpi = items.filter(
+    (item) => isTmcRequestFactPosition(item) && !isTmcRequestFactThroughToday(item, today),
+  );
+
+  return {
+    kpiContractFactCount,
+    chartFactCumulative,
+    kpiAllContractFactCount,
+    kpiItems,
+    chartItems,
+    onlyInKpi,
+    kpiCriteria: "contractFactDate заполнена и contractFactDate ≤ дата отчёта",
+    chartCriteria:
+      "нарастающий итог factCumMln на графике «План / факт договоров» на последний месяц ≤ текущего",
+  };
+}
+
+export function logTmcContractFactKpiChartDiagnostic(
+  items: TmcEnrichedItem[],
+  requestTimeline: TmcMonthlyProcurementPoint[],
+  today: Date = new Date(),
+): TmcContractFactKpiChartDiagnostic {
+  const diag = diagnoseTmcContractFactKpiVsChart(items, requestTimeline, today);
+
+  console.group("[TMC] KPI «Закуплено по договору» vs график «Факт договоров»");
+  console.table({
+    "KPI Закуплено по договору": diag.kpiContractFactCount,
+    "График — последний факт (нарастающий итог)": diag.chartFactCumulative,
+    "Всего с contractFactDate (включая будущие)": diag.kpiAllContractFactCount,
+    "Расхождение KPI − график": diag.kpiContractFactCount - diag.chartFactCumulative,
+  });
+  console.log("Критерий KPI:", diag.kpiCriteria);
+  console.log("Критерий графика:", diag.chartCriteria);
+  console.log("1. Записи KPI «Закуплено по договору»:");
+  console.table(diag.kpiItems.map((item) => tmcContractFactDiagnosticRow(item, today)));
+  console.log("2. Записи графика «Факт договоров» (на дату отчёта):");
+  console.table(diag.chartItems.map((item) => tmcContractFactDiagnosticRow(item, today)));
+  if (diag.onlyInKpi.length > 0) {
+    console.log("3. Расхождение: contractFactDate в будущем (в KPI ранее, на графике не видны):");
+    console.table(diag.onlyInKpi.map((item) => tmcContractFactDiagnosticRow(item, today)));
+  }
+  if (diag.kpiContractFactCount !== diag.chartFactCumulative) {
+    console.warn("[TMC] KPI и график по договорам не сходятся — проверьте ось графика и даты.");
+  }
+  console.groupEnd();
+  return diag;
 }
 
 const TMC_WORK_TYPE_NAME_BY_CODE: Record<string, string> = Object.fromEntries(
@@ -3262,9 +3902,221 @@ export function computeTmcPurchasedBudgetDonutCounts(
   };
 }
 
+/** Причина просрочки позиции ТМЦ (среди невыполненного остатка). */
+export type TmcOverdueReasonBucket =
+  | "tenderNotAnnounced"
+  | "noApplications"
+  | "tenderNotCompleted"
+  | "contractNotSigned"
+  | "orderNotPlaced"
+  | "deliveryOverdue"
+  | "other";
+
+export const TMC_OVERDUE_REASON_ORDER: TmcOverdueReasonBucket[] = [
+  "tenderNotAnnounced",
+  "noApplications",
+  "tenderNotCompleted",
+  "contractNotSigned",
+  "orderNotPlaced",
+  "deliveryOverdue",
+  "other",
+];
+
+export const TMC_OVERDUE_REASON_LABELS: Record<TmcOverdueReasonBucket, string> = {
+  tenderNotAnnounced: "Не объявлен тендер",
+  noApplications: "Нет заявок",
+  tenderNotCompleted: "Тендер не завершен",
+  contractNotSigned: "Договор не подписан",
+  orderNotPlaced: "Не размещен заказ",
+  deliveryOverdue: "Просрочена поставка",
+  other: "Иное",
+};
+
+const TMC_OVERDUE_REASON_COLORS: Record<TmcOverdueReasonBucket, string> = {
+  tenderNotAnnounced: "#6b7280",
+  noApplications: "#f59e0b",
+  tenderNotCompleted: "#eab308",
+  contractNotSigned: "#dc2626",
+  orderNotPlaced: "#f97316",
+  deliveryOverdue: "#ef4444",
+  other: "#94a3b8",
+};
+
+const TENDER_INCOMPLETE_CYCLE_STATUSES = new Set([
+  "conducted",
+  "underReview",
+  "negotiations",
+  "onApproval",
+  "contractPrepared",
+  "contractSent",
+]);
+
+/** Ближайший тендер по шифру позиции или этапу ГПР. */
+export function findBestMatchingTenderForTmc(item: TMCItem, tenders: Tender[]): Tender | null {
+  const partId = PROJECT_PART_KEY_TO_ID[item.projectPart];
+  const candidates = tenders.filter((t) => t.partId === partId);
+  if (candidates.length === 0) return null;
+
+  const itemCode = item.itemCode.trim().replace(/,/g, ".");
+  const byCode = candidates
+    .filter((t) => {
+      const tc = t.code.trim();
+      if (!tc) return false;
+      if (itemCode.startsWith(tc) || tc.startsWith(itemCode)) return true;
+      const itemPrefix = itemCode.split(".").slice(0, 3).join(".");
+      const tenderPrefix = tc.split(".").slice(0, 3).join(".");
+      return itemPrefix.length > 0 && itemPrefix === tenderPrefix;
+    })
+    .sort((a, b) => b.code.length - a.code.length);
+  if (byCode.length > 0) return byCode[0]!;
+
+  const stageCode = tmcWorkTypeCodeFromItem(item);
+  const stageTenders = candidates.filter(
+    (t) => getGprStageFromTenderCode(t.code) === stageCode || t.stage === stageCode,
+  );
+  return stageTenders[0] ?? null;
+}
+
+function hasTendersForTmcStage(item: TMCItem, tenders: Tender[]): boolean {
+  const partId = PROJECT_PART_KEY_TO_ID[item.projectPart];
+  const stageCode = tmcWorkTypeCodeFromItem(item);
+  return tenders.some(
+    (t) =>
+      t.partId === partId &&
+      (getGprStageFromTenderCode(t.code) === stageCode || t.stage === stageCode),
+  );
+}
+
+/**
+ * Взаимоисключающая причина просрочки среди невыполненного остатка.
+ * Приоритет: тендер → договор → заказ → поставка → иное.
+ */
+export function classifyTmcOverdueReasonBucket(
+  item: TmcEnrichedItem,
+  tenders: Tender[],
+  today: Date = new Date(),
+): TmcOverdueReasonBucket {
+  const tender = findBestMatchingTenderForTmc(item, tenders);
+
+  if (tender) {
+    if (!tender.factStart?.trim()) return "tenderNotAnnounced";
+    if (!hasTenderContractor(tender)) {
+      if (tender.status === "in_progress" || tender.status === "delayed") {
+        return "tenderNotCompleted";
+      }
+      return "noApplications";
+    }
+    if (!hasTenderSignedContract(tender)) {
+      const cycle = resolveTenderCycleStatus(tender);
+      if (TENDER_INCOMPLETE_CYCLE_STATUSES.has(cycle)) return "tenderNotCompleted";
+      return "contractNotSigned";
+    }
+  } else if (!hasTendersForTmcStage(item, tenders) && !hasTmcPurchaseFact(item)) {
+    return "tenderNotAnnounced";
+  }
+
+  if (isTmcSupplyDeliveryOverdueProblem(item, today) || item.traffic === "red") {
+    return "deliveryOverdue";
+  }
+  if (!item.contractFactDate?.trim() && isTmcContractPlanOverdue(item, today)) {
+    return "contractNotSigned";
+  }
+  if (!hasTmcPurchaseFact(item) || isTmcNotInitiatedPurchase(item)) {
+    return "orderNotPlaced";
+  }
+
+  const problem = classifyTmcProblemBucket(item, today);
+  if (problem === "notPurchased") return "orderNotPlaced";
+  if (problem === "overdueContract" || problem === "overduePayment") return "contractNotSigned";
+  if (problem === "overdueDelivery") return "deliveryOverdue";
+
+  return "other";
+}
+
+export type TmcOverdueDetailRow = {
+  id: string;
+  name: string;
+  reason: string;
+  reasonBucket: TmcOverdueReasonBucket;
+  planDate: string | null;
+  overdueDays: number;
+  contractor: string;
+};
+
+export type TmcOverdueReasonBreakdown = {
+  /** Просрочена поставка среди остатка. */
+  totalOverdue: number;
+  /** Весь невыполненный остаток. */
+  totalRemaining: number;
+  rows: TmcOverdueDetailRow[];
+  donutSegments: TmcKpiDonutSegment[];
+  pipeline: TmcPipelineStatusDistribution;
+};
+
+function emptyTmcOverdueReasonCounts(): Record<TmcOverdueReasonBucket, number> {
+  return {
+    tenderNotAnnounced: 0,
+    noApplications: 0,
+    tenderNotCompleted: 0,
+    contractNotSigned: 0,
+    orderNotPlaced: 0,
+    deliveryOverdue: 0,
+    other: 0,
+  };
+}
+
+function buildTmcOverdueReasonDonutSegments(
+  counts: Record<TmcOverdueReasonBucket, number>,
+): TmcKpiDonutSegment[] {
+  return TMC_OVERDUE_REASON_ORDER.filter((key) => counts[key] > 0).map((key) => ({
+    label: TMC_OVERDUE_REASON_LABELS[key],
+    value: counts[key],
+    color: TMC_OVERDUE_REASON_COLORS[key],
+  }));
+}
+
+/** Агрегат структуры остатка и детализация по позициям (взаимоисключающие статусы). */
+export function computeTmcOverdueReasonBreakdown(
+  items: TmcEnrichedItem[],
+  tenders: Tender[],
+  today: Date = new Date(),
+): TmcOverdueReasonBreakdown {
+  const pipeline = computeTmcPipelineStatusDistribution(items, tenders, today);
+
+  const rows: TmcOverdueDetailRow[] = pipeline.remainderRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    reason: row.statusLabel,
+    reasonBucket: mapPipelineToLegacyReasonBucket(row.status),
+    planDate: row.planDate,
+    overdueDays: row.overdueDays,
+    contractor: row.contractor,
+  }));
+
+  return {
+    totalOverdue: pipeline.deliveryOverdueAmongRemaining,
+    totalRemaining: pipeline.remainingItemCount,
+    rows,
+    donutSegments: pipeline.remainderDonutSegments,
+    pipeline,
+  };
+}
+
+function mapPipelineToLegacyReasonBucket(
+  status: TmcPipelineStatusBucket,
+): TmcOverdueReasonBucket {
+  if (status === "tenderNotAnnounced") return "tenderNotAnnounced";
+  if (status === "tenderInProgress") return "tenderNotCompleted";
+  if (status === "contractNotSigned") return "contractNotSigned";
+  if (status === "orderPlaced") return "orderNotPlaced";
+  if (status === "deliveryOverdue") return "deliveryOverdue";
+  return "other";
+}
+
 export type TmcKpiDonutDistributions = {
   deliveryStatus: TmcKpiDonutSegment[];
   overdueStructure: TmcKpiDonutSegment[];
+  overdueReasons: TmcKpiDonutSegment[];
   budgetDeviation: TmcKpiDonutSegment[];
 };
 
@@ -3315,6 +4167,29 @@ const PROBLEM_DONUT_COLORS: Record<TmcProblemBucket, string> = {
   overdueOther: "#94a3b8",
 };
 
+const REMAINING_STATUS_LABELS: Record<TmcRemainingStatusBucket, string> = {
+  overdue: "Просрочено",
+  notPurchased: "Не закуплено",
+  onTime: "В работе",
+};
+
+const REMAINING_STATUS_COLORS: Record<TmcRemainingStatusBucket, string> = {
+  overdue: TMC_KPI_DONUT_COLORS.overdue,
+  notPurchased: TMC_KPI_DONUT_COLORS.notPurchased,
+  onTime: TMC_KPI_DONUT_COLORS.deliveredOnTime,
+};
+
+function buildRemainingStatusDonutSegments(
+  counts: Record<TmcRemainingStatusBucket, number>,
+): TmcKpiDonutSegment[] {
+  const order: TmcRemainingStatusBucket[] = ["overdue", "notPurchased", "onTime"];
+  return order.map((key) => ({
+    label: REMAINING_STATUS_LABELS[key],
+    value: counts[key],
+    color: REMAINING_STATUS_COLORS[key],
+  }));
+}
+
 function buildProblemDonutSegments(counts: Record<TmcProblemBucket, number>): TmcKpiDonutSegment[] {
   const order: TmcProblemBucket[] = [
     "notPurchased",
@@ -3364,14 +4239,13 @@ export function computeTmcKpiDonutDistributions(
     logBudgetDiagnostic?: boolean;
   },
   today: Date = new Date(),
+  tenders: Tender[] = [],
 ): TmcKpiDonutDistributions {
   const purchasedDeliveryDonut = computeTmcPurchasedDeliveryDonutCounts(items, {
     logDiagnostic: options?.logDeliveryDiagnostic,
   });
 
-  const problemDonut = computeTmcProblemDonutCounts(items, today, {
-    logDiagnostic: options?.logProblemDiagnostic,
-  });
+  const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
 
   const purchasedBudgetDonut = computeTmcPurchasedBudgetDonutCounts(items, {
     logDiagnostic: options?.logBudgetDiagnostic,
@@ -3384,13 +4258,24 @@ export function computeTmcKpiDonutDistributions(
     cancelled: purchasedDeliveryDonut.cancelled,
   };
 
-  const problemCounts: Record<TmcProblemBucket, number> = {
-    notPurchased: problemDonut.notPurchased,
-    overdueDelivery: problemDonut.overdueDelivery,
-    overdueContract: problemDonut.overdueContract,
-    overduePayment: problemDonut.overduePayment,
-    overdueOther: problemDonut.overdueOther,
+  const remainingStatusCounts: Record<TmcRemainingStatusBucket, number> = {
+    overdue: pipelineDist.deliveryOverdueAmongRemaining,
+    notPurchased: pipelineDist.notPurchasedAmongRemaining,
+    onTime: pipelineDist.inProgressAmongRemaining,
   };
+
+  if (options?.logProblemDiagnostic && process.env.NODE_ENV !== "production") {
+    console.table({
+      overdue: remainingStatusCounts.overdue,
+      notPurchased: remainingStatusCounts.notPurchased,
+      inProgress: remainingStatusCounts.onTime,
+      remainingTotal: pipelineDist.remainingItemCount,
+      donutSum:
+        remainingStatusCounts.overdue +
+        remainingStatusCounts.notPurchased +
+        remainingStatusCounts.onTime,
+    });
+  }
 
   const budgetCounts: Record<TmcPurchasedBudgetBucket, number> = {
     economy: purchasedBudgetDonut.economyCount,
@@ -3399,9 +4284,12 @@ export function computeTmcKpiDonutDistributions(
     noFact: purchasedBudgetDonut.noFactCount,
   };
 
+  const overdueReasons = pipelineDist.remainderDonutSegments;
+
   return {
     deliveryStatus: buildPurchasedDeliveryDonutSegments(purchasedCounts),
-    overdueStructure: buildProblemDonutSegments(problemCounts),
+    overdueStructure: buildRemainingStatusDonutSegments(remainingStatusCounts),
+    overdueReasons,
     budgetDeviation: buildPurchasedBudgetDonutSegments(budgetCounts),
   };
 }
