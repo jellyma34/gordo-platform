@@ -1,39 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
 import {
-  BarController,
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  LinearScale,
-  Tooltip as ChartTooltip,
-} from "chart.js";
-import type { Plugin } from "chart.js";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type MouseEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import { formatTmcMaterialAxisTickLabel } from "@/lib/tmcMaterialAxisLabels";
 import type { TmcVolumeDynamicsRow } from "@/lib/tmcPresentationAnalytics";
 
 const COLORS = {
-  purchased: "#22c55e",
   remaining: "#f59e0b",
 } as const;
 
-const ROW_HEIGHT_PX = 44;
-const LABEL_RIGHT_PAD = 220;
-const LABEL_LINE_HEIGHT = 14;
-const LABEL_FONT = "600 11px system-ui, sans-serif";
-const LABEL_SUB_FONT = "500 10px system-ui, sans-serif";
-const LABEL_COLOR = "#e2e8f0";
-const LABEL_MUTED = "#94a3b8";
+const AXIS_TICKS = [0, 25, 50, 75, 100] as const;
 
-type BarElementGeom = { x: number; y: number; base: number; height?: number };
-
-function barEndX(bar: BarElementGeom): number {
-  const end = Number.isFinite(bar.x) ? bar.x : bar.base;
-  const start = Number.isFinite(bar.base) ? bar.base : end;
-  return Math.max(end, start);
-}
+const TOOLTIP_MARGIN = 12;
+const TOOLTIP_GAP = 8;
+const TOOLTIP_Z_INDEX = 250;
 
 function fmtQty(n: number): string {
   if (!Number.isFinite(n)) return "—";
@@ -46,292 +35,289 @@ function fmtQtyWithUnit(n: number, unit: string): string {
   return unit && unit !== "—" ? `${formatted} ${unit}` : formatted;
 }
 
-/** Сегмент «Закуплено» в stacked bar: не превышает плановый объём. */
-function purchasedBarQty(row: TmcVolumeDynamicsRow): number {
-  return Math.max(0, row.plannedQty - row.remainingQty);
+function formatRemainingPercentBarLabel(pct: number): string {
+  const rounded = Math.round(pct * 10) / 10;
+  if (Number.isInteger(rounded)) return `${Math.round(rounded)}%`;
+  return `${rounded.toFixed(1).replace(".", ",")}%`;
 }
 
-function ceilToNiceAxisMax(rawMax: number): number {
-  if (!Number.isFinite(rawMax) || rawMax <= 0) return 1;
-  const value = rawMax * 1.02;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const fraction = value / magnitude;
-  const niceFractions = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
-  for (const f of niceFractions) {
-    if (fraction <= f) return f * magnitude;
+function formatRemainingPercentTooltip(pct: number): string {
+  const rounded = Math.round(pct * 10) / 10;
+  return `${rounded.toFixed(1).replace(".", ",")}%`;
+}
+
+function gprStageTooltipLabel(text: string): string {
+  return text.replace(/^•\s*/, "- ");
+}
+
+function formatGprWorkGroupStageCount(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} этап`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} этапа`;
+  return `${count} этапов`;
+}
+
+function computeFloatingTooltipPosition(
+  anchor: DOMRect,
+  tooltipWidth: number,
+  tooltipHeight: number,
+): { top: number; left: number } {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let left = anchor.left;
+  let top = anchor.bottom + TOOLTIP_GAP;
+
+  if (left + tooltipWidth > vw - TOOLTIP_MARGIN) {
+    left = Math.max(TOOLTIP_MARGIN, anchor.right - tooltipWidth);
   }
-  return 10 * magnitude;
-}
+  if (left < TOOLTIP_MARGIN) left = TOOLTIP_MARGIN;
 
-function niceAxisStep(max: number): number {
-  const targetTicks = 5;
-  const rough = max / targetTicks;
-  if (rough <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const norm = rough / magnitude;
-  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
-  return nice * magnitude;
-}
-
-function drawBarEndLabels(
-  ctx: CanvasRenderingContext2D,
-  anchorBar: BarElementGeom,
-  chartArea: { left: number; right: number },
-  chartWidth: number,
-  lines: string[],
-) {
-  if (!Number.isFinite(anchorBar.y) || lines.length === 0) return;
-
-  const endX = barEndX(anchorBar);
-  const gap = 6;
-  const x = endX + gap;
-  const y = anchorBar.y;
-  const maxLabelX = chartWidth - 4;
-  const maxWidth = maxLabelX - x;
-
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-
-  const measureLines = (font: string) => {
-    ctx.font = font;
-    return lines.map((line) => ctx.measureText(line).width);
-  };
-
-  const primaryWidths = measureLines(LABEL_FONT);
-  const fitsRight =
-    maxWidth > 0 &&
-    primaryWidths.every((w) => w <= maxWidth) &&
-    primaryWidths.reduce((a, b) => Math.max(a, b), 0) <= maxWidth;
-
-  const drawStack = (baseX: number, baseY: number, below = false) => {
-    let cy = baseY - ((lines.length - 1) * LABEL_LINE_HEIGHT) / 2;
-    if (below) cy = baseY + 14;
-    for (let i = 0; i < lines.length; i++) {
-      ctx.font = i === 0 ? LABEL_FONT : LABEL_SUB_FONT;
-      ctx.fillStyle = i === 0 ? LABEL_COLOR : LABEL_MUTED;
-      ctx.fillText(lines[i]!, baseX, cy);
-      cy += LABEL_LINE_HEIGHT;
-    }
-  };
-
-  if (fitsRight) {
-    drawStack(x, y);
-    return;
+  if (top + tooltipHeight > vh - TOOLTIP_MARGIN) {
+    top = anchor.top - tooltipHeight - TOOLTIP_GAP;
+  }
+  if (top < TOOLTIP_MARGIN) {
+    top = Math.max(TOOLTIP_MARGIN, Math.min(anchor.top, vh - tooltipHeight - TOOLTIP_MARGIN));
   }
 
-  drawStack(chartArea.left + 4, y, true);
+  return { top, left };
 }
 
-function createTmcVolumeStackedBarLabelPlugin(rows: TmcVolumeDynamicsRow[]): Plugin<"bar"> {
-  return {
-    id: "tmcVolumeStackedBarLabel",
-    afterDatasetsDraw(chart) {
-      const remainingMeta = chart.getDatasetMeta(1);
-      const purchasedMeta = chart.getDatasetMeta(0);
-      if (!remainingMeta?.data?.length) return;
+function TmcVolumeDynamicsTooltipContent({ row }: { row: TmcVolumeDynamicsRow }) {
+  const stageLines = row.gprStageTooltipLines.map((line) => gprStageTooltipLabel(line.text));
 
-      const { ctx, chartArea, width } = chart;
-      ctx.save();
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const remainingBar = remainingMeta.data[i] as unknown as BarElementGeom | undefined;
-        const purchasedBar = purchasedMeta.data[i] as unknown as BarElementGeom | undefined;
-        if (!row) continue;
-
-        const anchor =
-          row.remainingQty > 0 && remainingBar && Number.isFinite(remainingBar.y)
-            ? remainingBar
-            : purchasedBar && Number.isFinite(purchasedBar.y)
-              ? purchasedBar
-              : null;
-        if (!anchor) continue;
-
-        drawBarEndLabels(ctx, anchor, chartArea, width, [
-          `Закуплено: ${fmtQtyWithUnit(row.purchasedQty, row.unit)}`,
-          `Осталось: ${fmtQtyWithUnit(row.remainingQty, row.unit)}`,
-        ]);
-      }
-
-      ctx.restore();
-    },
-  };
+  return (
+    <>
+      <div className="font-semibold text-slate-100">{row.name}</div>
+      <div className="mt-2 space-y-1 tabular-nums text-slate-300">
+        <div>План: {fmtQtyWithUnit(row.plannedQty, row.unit)}</div>
+        <div>Закуплено: {fmtQtyWithUnit(row.purchasedQty, row.unit)}</div>
+        <div>Осталось: {fmtQtyWithUnit(row.remainingQty, row.unit)}</div>
+        <div>Осталось докупить: {formatRemainingPercentTooltip(row.remainingPercent)}</div>
+      </div>
+      <div className="mt-2 text-slate-300">
+        <div className="font-medium text-slate-200">Связанные этапы:</div>
+        <ul className="mt-1 space-y-0.5">
+          {stageLines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
 }
 
-ChartJS.register(CategoryScale, LinearScale, BarController, BarElement, ChartTooltip);
+function TmcVolumeDynamicsFloatingTooltip({
+  row,
+  anchorRect,
+  anchorEl,
+}: {
+  row: TmcVolumeDynamicsRow;
+  anchorRect: DOMRect;
+  anchorEl: HTMLElement;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState(() => ({ top: anchorRect.bottom + TOOLTIP_GAP, left: anchorRect.left }));
 
-export function TmcVolumeDynamicsChart({ rows }: { rows: TmcVolumeDynamicsRow[] }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const chartRef = useRef<ChartJS<"bar"> | null>(null);
+  const reposition = useCallback(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const tooltipRect = el.getBoundingClientRect();
+    const anchor = anchorEl.getBoundingClientRect();
+    setPos(computeFloatingTooltipPosition(anchor, tooltipRect.width, tooltipRect.height));
+  }, [anchorEl]);
 
-  const xMax = useMemo(() => {
-    let max = 0;
-    for (const row of rows) {
-      max = Math.max(max, row.plannedQty);
-    }
-    return ceilToNiceAxisMax(max);
-  }, [rows]);
+  useLayoutEffect(() => {
+    reposition();
+  }, [reposition, row, anchorRect]);
 
-  const axisStep = useMemo(() => niceAxisStep(xMax), [xMax]);
+  useEffect(() => {
+    const onViewportChange = () => reposition();
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
+    };
+  }, [reposition]);
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      role="tooltip"
+      className="tmc-volume-dynamics-chart__tooltip pointer-events-none fixed z-[250] w-[min(320px,calc(100vw-24px))] rounded-lg border border-slate-600/50 bg-[#1e293b] px-3 py-2.5 text-xs shadow-lg"
+      style={{ top: pos.top, left: pos.left, zIndex: TOOLTIP_Z_INDEX }}
+    >
+      <TmcVolumeDynamicsTooltipContent row={row} />
+    </div>,
+    document.body,
+  );
+}
+
+type ActiveTooltip = {
+  row: TmcVolumeDynamicsRow;
+  anchorRect: DOMRect;
+  anchorEl: HTMLElement;
+};
+
+export function TmcVolumeDynamicsChart({
+  rows,
+  allProcured = false,
+}: {
+  rows: TmcVolumeDynamicsRow[];
+  allProcured?: boolean;
+}) {
+  const [portalMounted, setPortalMounted] = useState(false);
+  const [activeTooltip, setActiveTooltip] = useState<ActiveTooltip | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const chartHeight = useMemo(() => {
-    return Math.min(720, Math.max(320, rows.length * ROW_HEIGHT_PX + 48));
+    return Math.min(900, Math.max(320, rows.length * 96 + 72));
   }, [rows.length]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || rows.length === 0) return;
+    setPortalMounted(true);
+  }, []);
 
-    chartRef.current?.destroy();
-    const labelPlugin = createTmcVolumeStackedBarLabelPlugin(rows);
-
-    chartRef.current = new ChartJS(canvas, {
-      type: "bar",
-      data: {
-        labels: rows.map((r) => r.name),
-        datasets: [
-          {
-            label: "Закуплено",
-            data: rows.map((r) => purchasedBarQty(r)),
-            backgroundColor: COLORS.purchased,
-            borderColor: COLORS.purchased,
-            borderWidth: 0,
-            borderRadius: 4,
-            borderSkipped: false,
-            maxBarThickness: 18,
-            stack: "volume",
-          },
-          {
-            label: "Осталось докупить",
-            data: rows.map((r) => r.remainingQty),
-            backgroundColor: COLORS.remaining,
-            borderColor: COLORS.remaining,
-            borderWidth: 0,
-            borderRadius: 4,
-            borderSkipped: false,
-            maxBarThickness: 18,
-            stack: "volume",
-          },
-        ],
-      },
-      options: {
-        indexAxis: "y",
-        responsive: true,
-        maintainAspectRatio: false,
-        layout: { padding: { top: 4, right: LABEL_RIGHT_PAD, left: 0, bottom: 4 } },
-        interaction: { mode: "nearest", axis: "y", intersect: true },
-        datasets: {
-          bar: {
-            categoryPercentage: 0.94,
-            barPercentage: 0.92,
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            enabled: true,
-            backgroundColor: "rgba(15,23,42,0.94)",
-            borderColor: "rgba(148,163,184,0.35)",
-            borderWidth: 1,
-            titleColor: "#f8fafc",
-            bodyColor: "#e2e8f0",
-            padding: 10,
-            callbacks: {
-              title: (items) => {
-                const i = items[0]?.dataIndex;
-                if (typeof i !== "number" || i < 0) return "";
-                return rows[i]?.name ?? "";
-              },
-              label: (item) => {
-                const i = item.dataIndex;
-                const row = typeof i === "number" ? rows[i] : undefined;
-                if (!row) return "";
-                if (item.datasetIndex === 0) {
-                  return `Закуплено: ${fmtQtyWithUnit(row.purchasedQty, row.unit)}`;
-                }
-                return `Осталось докупить: ${fmtQtyWithUnit(row.remainingQty, row.unit)}`;
-              },
-              afterBody: (items) => {
-                const i = items[0]?.dataIndex;
-                const row = typeof i === "number" ? rows[i] : undefined;
-                if (!row) return [];
-                return [`Плановый объём: ${fmtQtyWithUnit(row.plannedQty, row.unit)}`];
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            type: "linear",
-            min: 0,
-            max: xMax,
-            stacked: true,
-            grid: { color: "rgba(148,163,184,0.12)" },
-            border: { display: false },
-            ticks: {
-              color: "#94a3b8",
-              font: { size: 10 },
-              stepSize: axisStep,
-              callback(tickValue) {
-                const n = Number(tickValue);
-                return Number.isFinite(n) ? fmtQty(n) : "";
-              },
-            },
-            title: {
-              display: true,
-              text: "Объём",
-              color: "#94a3b8",
-              font: { size: 11 },
-            },
-          },
-          y: {
-            stacked: true,
-            grid: { display: false },
-            border: { display: false },
-            ticks: {
-              color: "#cbd5e1",
-              font: { size: 11, lineHeight: 1.2 },
-              autoSkip: false,
-              callback(tickValue) {
-                const label =
-                  typeof tickValue === "string"
-                    ? tickValue
-                    : String(this.getLabelForValue(tickValue));
-                return formatTmcMaterialAxisTickLabel(label);
-              },
-            },
-          },
-        },
-      },
-      plugins: [labelPlugin],
+  const showTooltip = useCallback((row: TmcVolumeDynamicsRow, target: HTMLElement) => {
+    setActiveTooltip({
+      row,
+      anchorRect: target.getBoundingClientRect(),
+      anchorEl: target,
     });
+  }, []);
 
-    return () => {
-      chartRef.current?.destroy();
-      chartRef.current = null;
-    };
-  }, [axisStep, rows, xMax]);
+  const hideTooltip = useCallback(() => {
+    setActiveTooltip(null);
+  }, []);
+
+  const handleRowMouseEnter = useCallback(
+    (row: TmcVolumeDynamicsRow, event: MouseEvent<HTMLDivElement>) => {
+      showTooltip(row, event.currentTarget);
+    },
+    [showTooltip],
+  );
+
+  const handleRowFocus = useCallback(
+    (row: TmcVolumeDynamicsRow, event: FocusEvent<HTMLDivElement>) => {
+      showTooltip(row, event.currentTarget);
+    },
+    [showTooltip],
+  );
+
+  const handleRowBlur = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        hideTooltip();
+      }
+    },
+    [hideTooltip],
+  );
 
   if (rows.length === 0) {
     return (
-      <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
-        Нет данных для построения графика закупок
+      <div className="flex h-[320px] items-center justify-center px-6 text-center text-sm text-slate-400">
+        {allProcured
+          ? "Все позиции ТМЦ обеспечены закупками"
+          : "Нет данных для построения графика закупок"}
       </div>
     );
   }
 
   return (
-    <div className="w-full">
-      <div className="min-h-[320px] w-full overflow-y-auto" style={{ height: chartHeight }}>
-        <div className="relative h-full min-h-[320px] w-full">
-          <canvas ref={canvasRef} />
+    <div className="tmc-volume-dynamics-chart w-full min-w-0">
+      <div
+        ref={scrollRef}
+        className="tmc-volume-dynamics-chart__scroll min-h-[320px] w-full overflow-y-auto overflow-x-hidden"
+        style={{ height: chartHeight }}
+        onScroll={hideTooltip}
+      >
+        <div className="tmc-volume-dynamics-chart__rows flex min-w-0 flex-col pr-1">
+          {rows.map((row) => (
+            <div
+              key={row.name}
+              className="tmc-volume-dynamics-chart__row group relative flex min-w-0 items-center gap-2 border-b border-slate-700/25 py-3 sm:gap-3"
+              tabIndex={0}
+              onMouseEnter={(event) => handleRowMouseEnter(row, event)}
+              onMouseLeave={hideTooltip}
+              onFocus={(event) => handleRowFocus(row, event)}
+              onBlur={handleRowBlur}
+            >
+              <div className="tmc-volume-dynamics-chart__labels w-[min(280px,46%)] min-w-0 shrink-0 sm:w-[min(300px,42%)]">
+                <p className="tmc-volume-dynamics-chart__material-name break-words text-xs font-bold leading-snug text-slate-100 [overflow-wrap:anywhere]">
+                  {row.name}
+                </p>
+
+                {row.gprWorkGroups.length === 0 ? (
+                  <p className="tmc-volume-dynamics-chart__work-undefined mt-1.5 pl-1 text-[10px] leading-snug text-slate-500">
+                    Этап не определён
+                  </p>
+                ) : (
+                  <div className="tmc-volume-dynamics-chart__work-groups mt-1.5 space-y-1.5 pl-1">
+                    {row.gprWorkGroups.map((group) => (
+                      <div key={group.groupCode} className="tmc-volume-dynamics-chart__work-group">
+                        <p className="tmc-volume-dynamics-chart__work-title break-words text-[11px] leading-snug text-slate-300">
+                          {group.workTitle}
+                        </p>
+                        <p className="tmc-volume-dynamics-chart__work-meta text-[10px] leading-snug text-slate-500">
+                          {group.groupCode} ({formatGprWorkGroupStageCount(group.stageCount)})
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="tmc-volume-dynamics-chart__bar-area flex min-w-0 flex-1 items-center gap-2">
+                <div className="tmc-volume-dynamics-chart__bar-track relative h-[18px] min-w-0 flex-1 rounded bg-slate-800/35">
+                  <div
+                    className="tmc-volume-dynamics-chart__bar h-full rounded bg-[#f59e0b]"
+                    style={{ width: `${Math.min(100, Math.max(0, row.remainingPercent))}%` }}
+                  />
+                </div>
+                <span className="tmc-volume-dynamics-chart__percent w-10 shrink-0 text-right text-[11px] font-bold tabular-nums text-slate-100">
+                  {formatRemainingPercentBarLabel(row.remainingPercent)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="tmc-volume-dynamics-chart__axis mt-3 border-t border-slate-700/30 pt-2">
+          <div className="tmc-volume-dynamics-chart__axis-track ml-[min(280px,46%)] flex min-w-0 items-center gap-2 sm:ml-[min(300px,42%)]">
+            <div className="tmc-volume-dynamics-chart__axis-scale relative mr-10 h-4 min-w-0 flex-1">
+              {AXIS_TICKS.map((tick) => (
+                <span
+                  key={tick}
+                  className="tmc-volume-dynamics-chart__axis-tick absolute -translate-x-1/2 text-[10px] tabular-nums text-slate-500"
+                  style={{ left: `${tick}%` }}
+                >
+                  {tick}%
+                </span>
+              ))}
+            </div>
+          </div>
+          <p className="tmc-volume-dynamics-chart__axis-title ml-[min(280px,46%)] mt-1 text-[11px] text-slate-500 sm:ml-[min(300px,42%)]">
+            Процент незакрытой потребности
+          </p>
         </div>
       </div>
 
+      {portalMounted && activeTooltip ? (
+        <TmcVolumeDynamicsFloatingTooltip
+          row={activeTooltip.row}
+          anchorRect={activeTooltip.anchorRect}
+          anchorEl={activeTooltip.anchorEl}
+        />
+      ) : null}
+
       <div className="mt-3 border-t border-slate-700/40 pt-3">
         <AnalyticsLegendList>
-          <AnalyticsLegendItem markerColor={COLORS.purchased} label="Закуплено" />
-          <AnalyticsLegendItem markerColor={COLORS.remaining} label="Осталось докупить" />
+          <AnalyticsLegendItem
+            markerColor={COLORS.remaining}
+            label="Процент незакрытой потребности"
+          />
         </AnalyticsLegendList>
       </div>
     </div>

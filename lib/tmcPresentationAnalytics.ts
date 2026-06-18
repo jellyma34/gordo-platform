@@ -1,4 +1,21 @@
-import { getStatusByDeviation, PROJECT_PART_KEY_TO_ID } from "@/lib/gprUtils";
+import { GPR_DATA } from "@/lib/gprData";
+import {
+  effectiveTmcGprCode,
+  tmcImpactStatus,
+  tmcItemBelongsToWorkCode,
+  tmcSupplyPercentForWorkCode,
+} from "@/lib/gprTmcDependency";
+import { isGprTaskBlockedByTmc } from "@/lib/gprScheduleDeviationInsight";
+import {
+  compareGprCodesByNumericPath,
+  getStatusByDeviation,
+  gprTaskScheduleDeviationDisplayDays,
+  normalizeGprCodeFinal,
+  PROJECT_PART_KEY_TO_ID,
+  resolveGprTaskEffectivePartId,
+  type GPRTask,
+  type ProjectPartKey,
+} from "@/lib/gprUtils";
 import { hasTenderContractor } from "@/lib/tenderPresentationAnalytics";
 import {
   getGprStageFromTenderCode,
@@ -3339,6 +3356,21 @@ export function computeTmcMaterialPriceIndexLineDataset(
   };
 }
 
+export type TmcVolumeGprStageLine = {
+  text: string;
+  tone: "stage" | "part" | "undefined";
+};
+
+/** Укрупнённая группа этапов ГПР для подписи на диаграмме. */
+export type TmcVolumeGprWorkGroup = {
+  /** Код вида работ (3 сегмента WBS, напр. 2.05.04). */
+  groupCode: string;
+  /** Официальное наименование вида работ из справочника ГПР. */
+  workTitle: string;
+  /** Число уникальных детальных этапов в группе. */
+  stageCount: number;
+};
+
 export type TmcVolumeDynamicsRow = {
   name: string;
   shortLabel: string;
@@ -3349,21 +3381,305 @@ export type TmcVolumeDynamicsRow = {
   purchasedQty: number;
   /** Остаток к закупке: max(plannedQty − purchasedQty, 0). */
   remainingQty: number;
+  /** Процент незакрытой потребности: (remainingQty / plannedQty) × 100. */
+  remainingPercent: number;
+  /** Укрупнённые группы этапов ГПР для подписи на диаграмме. */
+  gprWorkGroups: TmcVolumeGprWorkGroup[];
+  /** Полные подписи этапов для tooltip (без изменений). */
+  gprStageTooltipLines: TmcVolumeGprStageLine[];
+  /** Число связанных этапов ГПР под риском из‑за дефицита ТМЦ. */
+  atRiskStageCount: number;
 };
 
-/** Закуплено / осталось докупить по объёмам ТМЦ для stacked bar chart. */
+export type TmcVolumeDynamicsResult = {
+  /** Позиции с remainingQty > 0, отсортированы по % дефицита по убыванию (без top-N по умолчанию). */
+  rows: TmcVolumeDynamicsRow[];
+  /** Есть плановые позиции, но дефицит по всем = 0. */
+  allProcured: boolean;
+};
+
+const TMC_VOLUME_PROJECT_PART_SHORT: Record<ProjectPartKey, string> = {
+  residential: "Жилой дом",
+  parking: "Автостоянка",
+};
+
+function lookupGprCatalogTitle(code: string): string {
+  const normalized = normalizeGprCodeFinal(code);
+  if (!normalized) return "";
+  let best = "";
+  let bestLen = -1;
+  for (const row of GPR_DATA) {
+    const rowCode = normalizeGprCodeFinal(row.code);
+    if (normalized === rowCode || normalized.startsWith(`${rowCode}.`)) {
+      if (rowCode.length > bestLen) {
+        bestLen = rowCode.length;
+        best = row.name;
+      }
+    }
+  }
+  return best;
+}
+
+function parseTmcItemGprStage(item: TMCItem): { code: string; title: string; defined: boolean } {
+  const code = effectiveTmcGprCode(item);
+  const stageText = item.gprStage?.trim() ?? "";
+
+  if (!code && !stageText) {
+    return { code: "", title: "", defined: false };
+  }
+
+  let title = "";
+  if (stageText) {
+    const matched = stageText.match(/^([\d]+(?:\.[\d]+)*)\s*[.\-–—]?\s*(.*)$/u);
+    if (matched?.[1]) {
+      title = (matched[2] ?? "").trim();
+    } else {
+      title = stageText;
+    }
+  }
+
+  if (!title && code) {
+    title = lookupGprCatalogTitle(code);
+  }
+
+  if (!title && code) {
+    const root = code.split(".").slice(0, 2).join(".");
+    title = lookupGprCatalogTitle(root) || code;
+  }
+
+  return {
+    code,
+    title,
+    defined: Boolean(code || title),
+  };
+}
+
+/** Процент незакрытой потребности ТМЦ. */
+export function computeTmcRemainingPercent(plannedQty: number, remainingQty: number): number {
+  if (plannedQty <= 0) return 0;
+  return Math.round((remainingQty / plannedQty) * 1000) / 10;
+}
+
+
+function lookupGprWorkGroupTitle(groupCode: string): string {
+  const normalized = normalizeGprCodeFinal(groupCode);
+  const exact = GPR_DATA.find((row) => normalizeGprCodeFinal(row.code) === normalized);
+  if (exact?.name) return exact.name;
+  return lookupGprCatalogTitle(groupCode) || normalized;
+}
+
+/** Укрупнённый код вида работ: первые 3 сегмента WBS (напр. 2.05.04). */
+function aggregateGprWorkGroupCode(detailCode: string): string {
+  const normalized = normalizeGprCodeFinal(detailCode);
+  const parts = normalized.split(".").filter(Boolean);
+  if (parts.length >= 3) return parts.slice(0, 3).join(".");
+  return normalized;
+}
+
+function formatGprWorkGroupStageCount(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} этап`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} этапа`;
+  return `${count} этапов`;
+}
+
+function buildTmcMaterialGprStageLines(materialItems: TMCItem[]): {
+  workGroups: TmcVolumeGprWorkGroup[];
+  tooltipLines: TmcVolumeGprStageLine[];
+} {
+  const detailCodes = new Set<string>();
+  const tooltipStages = new Map<string, { code: string; title: string }>();
+  const parts = new Set<ProjectPartKey>();
+
+  for (const item of materialItems) {
+    parts.add(item.projectPart);
+    const parsed = parseTmcItemGprStage(item);
+    if (!parsed.defined) continue;
+
+    const tooltipKey = parsed.code || parsed.title;
+    tooltipStages.set(tooltipKey, { code: parsed.code, title: parsed.title });
+
+    const codeKey = normalizeGprCodeFinal(parsed.code);
+    if (codeKey) detailCodes.add(codeKey);
+  }
+
+  const groupedStages = new Map<string, Set<string>>();
+  for (const detailCode of detailCodes) {
+    const groupCode = aggregateGprWorkGroupCode(detailCode);
+    if (!groupCode) continue;
+    const bucket = groupedStages.get(groupCode) ?? new Set<string>();
+    bucket.add(detailCode);
+    groupedStages.set(groupCode, bucket);
+  }
+
+  const workGroups = [...groupedStages.entries()]
+    .map(([groupCode, details]) => ({
+      groupCode,
+      workTitle: lookupGprWorkGroupTitle(groupCode),
+      stageCount: details.size,
+    }))
+    .sort((a, b) => compareGprCodesByNumericPath(a.groupCode, b.groupCode));
+
+  const tooltipStageList = [...tooltipStages.values()].sort((a, b) =>
+    compareGprCodesByNumericPath(a.code || a.title, b.code || b.title),
+  );
+  const partList = [...parts].sort(
+    (a, b) => (PROJECT_PART_KEY_TO_ID[a] ?? 0) - (PROJECT_PART_KEY_TO_ID[b] ?? 0),
+  );
+
+  const tooltipLines: TmcVolumeGprStageLine[] = [];
+
+  if (tooltipStageList.length === 0) {
+    tooltipLines.push({
+      text: "• Этап не определён",
+      tone: "undefined",
+    });
+  } else {
+    for (const stage of tooltipStageList) {
+      const codePrefix = stage.code ? `${stage.code} ` : "";
+      tooltipLines.push({
+        text: `• ${codePrefix}${stage.title}`.trim(),
+        tone: "stage",
+      });
+    }
+  }
+
+  for (const part of partList) {
+    tooltipLines.push({
+      text: `• ${TMC_VOLUME_PROJECT_PART_SHORT[part]}`,
+      tone: "part",
+    });
+  }
+
+  return { workGroups, tooltipLines };
+}
+
+function isGprTaskAtRiskForMaterial(
+  task: GPRTask,
+  materialItems: TMCItem[],
+  allTmcItems: TMCItem[],
+  today: Date,
+): boolean {
+  if (task.completion >= 100) return false;
+
+  const blocked = isGprTaskBlockedByTmc(task, allTmcItems, today);
+  const deviation = gprTaskScheduleDeviationDisplayDays(task);
+  const behindSchedule = deviation != null && deviation > 0;
+  const supplyPct = tmcSupplyPercentForWorkCode(materialItems, task.code);
+  const impact = tmcImpactStatus(supplyPct);
+
+  return blocked || behindSchedule || impact === "risk" || impact === "block";
+}
+
+function countAtRiskGprStagesForMaterial(
+  materialItems: TMCItem[],
+  gprTasks: GPRTask[],
+  allTmcItems: TMCItem[],
+  today: Date,
+): number {
+  if (materialItems.length === 0) return 0;
+
+  const materialIds = new Set(materialItems.map((item) => item.id));
+  const matched = new Map<string, GPRTask>();
+
+  for (const task of gprTasks) {
+    if (task.missingFromImport) continue;
+
+    let linked = false;
+    for (const tmcId of task.relatedTmcIds ?? []) {
+      if (materialIds.has(tmcId)) {
+        linked = true;
+        break;
+      }
+    }
+    if (!linked) {
+      linked = materialItems.some((item) => tmcItemBelongsToWorkCode(item, task.code));
+    }
+    if (!linked) continue;
+
+    const key = `${normalizeGprCodeFinal(task.code)}|${resolveGprTaskEffectivePartId(task)}`;
+    matched.set(key, task);
+  }
+
+  let count = 0;
+  for (const task of matched.values()) {
+    if (isGprTaskAtRiskForMaterial(task, materialItems, allTmcItems, today)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function aggregateTmcItemsByNameWithSources(items: TMCItem[]): Map<
+  string,
+  {
+    planCost: number;
+    factCost: number;
+    volumePlan: number;
+    volumeFact: number;
+    units: Set<string>;
+    items: TMCItem[];
+  }
+> {
+  const buckets = new Map<
+    string,
+    {
+      planCost: number;
+      factCost: number;
+      volumePlan: number;
+      volumeFact: number;
+      units: Set<string>;
+      items: TMCItem[];
+    }
+  >();
+
+  for (const item of items) {
+    const name = tmcMaterialPlanFactBucketKey(item);
+    const cur = buckets.get(name) ?? {
+      planCost: 0,
+      factCost: 0,
+      volumePlan: 0,
+      volumeFact: 0,
+      units: new Set<string>(),
+      items: [],
+    };
+    cur.planCost += item.planCost;
+    cur.factCost += tmcItemFactCostRub(item);
+    cur.volumePlan += item.volumePlan;
+    cur.volumeFact += item.volumeFact;
+    const unit = item.unit?.trim();
+    if (unit) cur.units.add(unit);
+    cur.items.push(item);
+    buckets.set(name, cur);
+  }
+
+  return buckets;
+}
+
+/** Риск дефицита ТМЦ: % незакрытой потребности (remainingQty > 0). */
 export function computeTmcVolumeDynamics(
   items: TMCItem[],
-  limit = TMC_MATERIAL_PLAN_FACT_TOP_N,
-): TmcVolumeDynamicsRow[] {
-  const buckets = aggregateTmcItemsByName(items);
+  options?: {
+    /** Явный лимит строк; по умолчанию без ограничения top-N. */
+    limit?: number;
+    gprTasks?: GPRTask[];
+    today?: Date;
+  },
+): TmcVolumeDynamicsResult {
+  const gprTasks = options?.gprTasks ?? [];
+  const today = options?.today ?? new Date();
+  const buckets = aggregateTmcItemsByNameWithSources(items);
 
-  return [...buckets.entries()]
+  const mapped = [...buckets.entries()]
     .filter(([, v]) => v.volumePlan > 0)
     .map(([name, v]) => {
       const plannedQty = v.volumePlan;
       const purchasedQty = v.volumeFact;
       const remainingQty = Math.max(plannedQty - purchasedQty, 0);
+      const remainingPercent = computeTmcRemainingPercent(plannedQty, remainingQty);
+      const { workGroups, tooltipLines } = buildTmcMaterialGprStageLines(v.items);
+      const atRiskStageCount = countAtRiskGprStagesForMaterial(v.items, gprTasks, items, today);
 
       return {
         name,
@@ -3372,10 +3688,123 @@ export function computeTmcVolumeDynamics(
         plannedQty,
         purchasedQty,
         remainingQty,
+        remainingPercent,
+        gprWorkGroups: workGroups,
+        gprStageTooltipLines: tooltipLines,
+        atRiskStageCount,
+      };
+    });
+
+  const atRisk = mapped
+    .filter((r) => r.remainingQty > 0)
+    .sort((a, b) => b.remainingPercent - a.remainingPercent);
+
+  const rows =
+    options?.limit != null && options.limit > 0 ? atRisk.slice(0, options.limit) : atRisk;
+
+  return {
+    rows,
+    allProcured: mapped.length > 0 && atRisk.length === 0,
+  };
+}
+
+export type TmcVolumeDynamicsDiagnosticRow = {
+  material: string;
+  planCost: number;
+  factCost: number;
+  volumePlan: number;
+  volumeFact: number;
+  remainingQty: number;
+  remainingPercent: number;
+  unit: string;
+  gprLinked: boolean;
+  gprLinkLabel: string;
+  shownInPlanFactBlock: boolean;
+  shownInRiskBlock: boolean;
+  exclusionReason: string;
+};
+
+function resolveTmcVolumeDynamicsExclusionReason(
+  volumePlan: number,
+  remainingQty: number,
+  remainingPercent: number,
+  shownInRiskBlock: boolean,
+  limit?: number,
+): string {
+  if (volumePlan <= 0) {
+    return "volumePlan = 0 (нет планового объёма)";
+  }
+  if (remainingQty <= 0) {
+    return "remainingQty = 0 (объём закуплен полностью; в План/Факт отставание может быть только по стоимости)";
+  }
+  if (remainingPercent <= 0 && remainingQty > 0) {
+    return `remainingPercent округлён до 0% (фактический остаток ${remainingQty}); должен отображаться в блоке риска`;
+  }
+  if (!shownInRiskBlock && limit != null && limit > 0) {
+    return `top-N (${limit}): не вошёл в лимит по remainingPercent`;
+  }
+  if (!shownInRiskBlock) {
+    return "не попал в выборку блока риска";
+  }
+  return "—";
+}
+
+/** Диагностика: полная сверка блоков «План/Факт» и «Риск дефицита ТМЦ». */
+export function diagnoseTmcVolumeDynamicsExclusions(
+  items: TMCItem[],
+  options?: {
+    gprTasks?: GPRTask[];
+    today?: Date;
+    limit?: number;
+    planFactLimit?: number;
+  },
+): TmcVolumeDynamicsDiagnosticRow[] {
+  const today = options?.today ?? new Date();
+  const planFactLimit = options?.planFactLimit ?? TMC_MATERIAL_PLAN_FACT_TOP_N;
+  const planFactNames = new Set(
+    computeTmcMaterialPlanFact(items, planFactLimit, today).map((r) => r.name),
+  );
+  const risk = computeTmcVolumeDynamics(items, {
+    gprTasks: options?.gprTasks,
+    today,
+    limit: options?.limit,
+  });
+  const riskNames = new Set(risk.rows.map((r) => r.name));
+  const buckets = aggregateTmcItemsByNameWithSources(items);
+
+  return [...buckets.entries()]
+    .map(([name, v]) => {
+      const remainingQty = Math.max(v.volumePlan - v.volumeFact, 0);
+      const remainingPercent = computeTmcRemainingPercent(v.volumePlan, remainingQty);
+      const { workGroups } = buildTmcMaterialGprStageLines(v.items);
+      const gprLinked = workGroups.length > 0;
+      const shownInRiskBlock = riskNames.has(name);
+      const shownInPlanFactBlock = planFactNames.has(name);
+
+      return {
+        material: name,
+        planCost: v.planCost,
+        factCost: v.factCost,
+        volumePlan: v.volumePlan,
+        volumeFact: v.volumeFact,
+        remainingQty,
+        remainingPercent,
+        unit: formatTmcAggregatedUnits(v.units),
+        gprLinked,
+        gprLinkLabel: gprLinked ? `да (${workGroups.length} групп)` : "нет → «Этап не определён»",
+        shownInPlanFactBlock,
+        shownInRiskBlock,
+        exclusionReason: resolveTmcVolumeDynamicsExclusionReason(
+          v.volumePlan,
+          remainingQty,
+          remainingPercent,
+          shownInRiskBlock,
+          options?.limit,
+        ),
       };
     })
-    .sort((a, b) => b.plannedQty - a.plannedQty)
-    .slice(0, limit);
+    .filter((r) => r.remainingPercent > 0 || r.planCost > 0 || r.factCost > 0)
+    .sort((a, b) => b.remainingPercent - a.remainingPercent);
 }
 
 export function tmcStatusLabel(status: TmcSupplyStatus): string {

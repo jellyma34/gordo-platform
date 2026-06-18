@@ -216,7 +216,7 @@ function pctFromItems(items: TMCItem[]): number | null {
  * Никаких подстрочных эвристик по названию материала и текстовому совпадению `gprStage`
  * с подписью этапа не используется.
  */
-function effectiveTmcGprCode(item: TMCItem): string {
+export function effectiveTmcGprCode(item: TMCItem): string {
   const fromItem = normalizeGprCodeFinal(item.itemCode || "");
   const fromStage = normalizeGprCodeFinal(item.gprStage || "");
   const stageEncodesCode = fromStage.split(".").filter(Boolean).length >= 2;
@@ -225,7 +225,7 @@ function effectiveTmcGprCode(item: TMCItem): string {
 }
 
 /** Принадлежит ли позиция ТМЦ работе ГПР по шифру: `itemCode === workCode || itemCode.startsWith(workCode + ".")`. */
-function tmcItemBelongsToWorkCode(item: TMCItem, workCode: string): boolean {
+export function tmcItemBelongsToWorkCode(item: TMCItem, workCode: string): boolean {
   const wc = normalizeGprCodeFinal(workCode);
   if (!wc) return false;
   const code = effectiveTmcGprCode(item);

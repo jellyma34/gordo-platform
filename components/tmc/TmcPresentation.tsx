@@ -11,9 +11,10 @@ import {
   PDF_REPORT_PERIOD_ATTR,
   PDF_SUMMARY_JSON_ATTR,
 } from "@/lib/pdf/constructionPdfConstants";
-import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
+import { listTendersFromDb, listTmcFromDb, listGprTasksFromDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
-import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
+import { getGprProjectId, loadPersistedGprTasks } from "@/lib/gprImportPersistence";
+import { loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
 import type { Tender } from "@/lib/tenderData";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
@@ -33,7 +34,8 @@ import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import { useTmcKpiDonutSegments } from "@/components/tmc/useTmcKpiDonutSegments";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { formatCurrencyCompact } from "@/lib/chartFormatters";
-import { partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
+import { gprMockData } from "@/lib/gprMockData";
+import { filterGprTasksByObjectScope, partIdToProjectPartKey, type ConstructionObjectScope, type GPRTask } from "@/lib/gprUtils";
 import {
   alignTmcMonthlySeriesToTimeline,
   buildTmcMonthlyDeliverySeries,
@@ -48,6 +50,7 @@ import {
   diagnoseTmcMaterialCostDynamicsChain,
   computeTmcMaterialPriceIndexLineDataset,
   computeTmcVolumeDynamics,
+  diagnoseTmcVolumeDynamicsExclusions,
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
   computeTmcOverdueReasonBreakdown,
@@ -560,6 +563,7 @@ export function TmcPresentation({
   const projectId = useMemo(() => getGprProjectId(), []);
   const [allTmc, setAllTmc] = useState<Awaited<ReturnType<typeof listTmcFromDb>>>([]);
   const [allTenders, setAllTenders] = useState<Tender[]>([]);
+  const [gprTasks, setGprTasks] = useState<GPRTask[]>([]);
   const [overdueDetailsOpen, setOverdueDetailsOpen] = useState(false);
   const [chartMode, setChartMode] = useState<ChartMode>("monthly");
   const [procurementValueMode, setProcurementValueMode] = useState<TmcDynamicsValueMode>("cost");
@@ -613,6 +617,24 @@ export function TmcPresentation({
     }
   }, [projectId, token]);
 
+  const reloadGprTasks = useCallback(async () => {
+    if (tmcLocalMode) {
+      try {
+        const r = await loadPersistedGprTasks(projectId, gprMockData);
+        setGprTasks(r.tasks);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+    if (!token) return;
+    try {
+      setGprTasks(await listGprTasksFromDb(token));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [projectId, token]);
+
   useEffect(() => {
     if (tmcLocalMode) {
       void reloadTmc();
@@ -640,6 +662,20 @@ export function TmcPresentation({
     window.addEventListener("gordo-tenders-saved", bump);
     return () => window.removeEventListener("gordo-tenders-saved", bump);
   }, [tenderLocalMode, hydrated, token, reloadTenders]);
+
+  useEffect(() => {
+    if (tmcLocalMode) {
+      void reloadGprTasks();
+      const bump = () => void reloadGprTasks();
+      window.addEventListener("gordo-gpr-saved", bump);
+      return () => window.removeEventListener("gordo-gpr-saved", bump);
+    }
+    if (!hydrated || !token) return;
+    void reloadGprTasks();
+    const bump = () => void reloadGprTasks();
+    window.addEventListener("gordo-gpr-saved", bump);
+    return () => window.removeEventListener("gordo-gpr-saved", bump);
+  }, [tmcLocalMode, hydrated, token, reloadGprTasks]);
 
   const activeProjectPart = partIdToProjectPartKey(
     activePartScope === "project" ? 1 : activePartScope,
@@ -808,7 +844,44 @@ export function TmcPresentation({
     [enriched, priceIndexTimeline],
   );
 
-  const volumeDynamics = useMemo(() => computeTmcVolumeDynamics(enriched), [enriched]);
+  const scopedGprTasks = useMemo(
+    () => filterGprTasksByObjectScope(gprTasks, activePartScope),
+    [gprTasks, activePartScope],
+  );
+
+  const volumeDynamics = useMemo(
+    () =>
+      computeTmcVolumeDynamics(enriched, {
+        gprTasks: scopedGprTasks,
+        today,
+      }),
+    [enriched, scopedGprTasks, today],
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const diag = diagnoseTmcVolumeDynamicsExclusions(enriched, {
+      gprTasks: scopedGprTasks,
+      today,
+    });
+    const atRisk = diag.filter((r) => r.remainingQty > 0);
+    const excluded = atRisk.filter((r) => !r.shownInRiskBlock);
+    console.group("[TMC] Риск дефицита — диагностика vs План/Факт");
+    console.log("Позиций с remainingQty > 0:", atRisk.length);
+    console.log("Показано в блоке риска:", volumeDynamics.rows.length);
+    if (excluded.length > 0) {
+      console.table(
+        excluded.map((r) => ({
+          Материал: r.material,
+          "План (₽)": Math.round(r.planCost),
+          "Факт (₽)": Math.round(r.factCost),
+          remainingPercent: r.remainingPercent,
+          Причина: r.exclusionReason,
+        })),
+      );
+    }
+    console.groupEnd();
+  }, [enriched, scopedGprTasks, today, volumeDynamics.rows.length]);
 
   const receiptCostExecutionPct =
     kpi.planRub > 0
@@ -1033,17 +1106,21 @@ export function TmcPresentation({
 
   const volumeDynamicsMeta = useMemo(() => {
     return encodePdfJson({
-      description: "Закуплено / осталось докупить по объёмам ТМЦ.",
-      source: "Импорт ТМЦ",
+      description: "Риск дефицита ТМЦ: процент незакрытой потребности с привязкой к этапам ГПР.",
+      source: "Импорт ТМЦ + ГПР",
       period: pdfReportPeriodLabel,
       table: {
-        headers: ["ТМЦ", "Ед.", "План", "Закуплено", "Осталось"],
-        rows: volumeDynamics.slice(0, 60).map((r) => [
+        headers: ["ТМЦ", "Ед.", "План", "Закуплено", "Осталось", "%", "Группы этапов ГПР"],
+        rows: volumeDynamics.rows.slice(0, 60).map((r) => [
           r.name,
           r.unit,
           new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.plannedQty),
           new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.purchasedQty),
           new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.remainingQty),
+          `${String(r.remainingPercent).replace(".", ",")}%`,
+          r.gprWorkGroups
+            .map((g) => `${g.workTitle} ${g.groupCode} (${g.stageCount})`)
+            .join("; "),
         ]),
       },
     });
@@ -1554,7 +1631,7 @@ export function TmcPresentation({
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
         data-pdf-chart-block
-        data-pdf-section-title="Закуплено / Осталось докупить"
+        data-pdf-section-title="Риск дефицита ТМЦ по этапам ГПР"
         {...{ [PDF_CHART_META_ATTR]: volumeDynamicsMeta }}
         style={{
           background:
@@ -1562,10 +1639,13 @@ export function TmcPresentation({
         }}
       >
         <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
-          Закуплено / Осталось докупить
+          Риск дефицита ТМЦ по этапам ГПР
         </h3>
         <div className="mt-4">
-          <TmcVolumeDynamicsChart rows={volumeDynamics} />
+          <TmcVolumeDynamicsChart
+            rows={volumeDynamics.rows}
+            allProcured={volumeDynamics.allProcured}
+          />
         </div>
       </div>
     </section>

@@ -823,14 +823,21 @@ export type TmcVolumeDynamicsRow = {
   remainingQty: number;
 };
 
-/** Закуплено / осталось докупить по объёмам ТМЦ для stacked bar chart. */
+export type TmcVolumeDynamicsResult = {
+  /** Позиции с remainingQty > 0, отсортированы по дефициту по убыванию. */
+  rows: TmcVolumeDynamicsRow[];
+  /** Есть плановые позиции, но дефицит по всем = 0. */
+  allProcured: boolean;
+};
+
+/** Незакрытый объём закупок ТМЦ (только remainingQty > 0) для bar chart. */
 export function computeTmcVolumeDynamics(
   items: TMCItem[],
   limit = TMC_MATERIAL_PLAN_FACT_TOP_N,
-): TmcVolumeDynamicsRow[] {
+): TmcVolumeDynamicsResult {
   const buckets = aggregateTmcItemsByName(items);
 
-  return [...buckets.entries()]
+  const mapped = [...buckets.entries()]
     .filter(([, v]) => v.volumePlan > 0)
     .map(([name, v]) => {
       const plannedQty = v.volumePlan;
@@ -845,9 +852,17 @@ export function computeTmcVolumeDynamics(
         purchasedQty,
         remainingQty,
       };
-    })
-    .sort((a, b) => b.plannedQty - a.plannedQty)
+    });
+
+  const rows = mapped
+    .filter((r) => r.remainingQty > 0)
+    .sort((a, b) => b.remainingQty - a.remainingQty)
     .slice(0, limit);
+
+  return {
+    rows,
+    allProcured: mapped.length > 0 && rows.length === 0,
+  };
 }
 
 export function tmcStatusLabel(status: TmcSupplyStatus): string {
