@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, ChevronDown, ShoppingCart, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { ConstructionPdfKpiLines } from "@/components/reports/ConstructionPdfKpiLines";
+import {
+  CONSTRUCTION_PDF_ROOT_ATTR,
+  PDF_CHART_META_ATTR,
+  PDF_FINAL_JSON_ATTR,
+  PDF_REPORT_PERIOD_ATTR,
+  PDF_SUMMARY_JSON_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
 import { listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
@@ -171,6 +179,27 @@ function rubKpiSignedAmount(value: number): string {
   const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
   if (value < 0) return `−${formatted}`;
   return `+${formatted}`;
+}
+
+function encodePdfJson(value: unknown): string {
+  return encodeURIComponent(JSON.stringify(value));
+}
+
+function formatMonthLabelRu(ym: string): string {
+  const [yRaw, mRaw] = ym.split("-", 2);
+  const y = Number(yRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return ym;
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  return d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+}
+
+function formatPeriodRangeRu(labels: string[]): string {
+  const clean = labels.map((s) => s.trim()).filter(Boolean);
+  if (clean.length === 0) return "—";
+  const first = clean[0]!;
+  const last = clean[clean.length - 1]!;
+  return `${formatMonthLabelRu(first)} — ${formatMonthLabelRu(last)}`;
 }
 
 function pct1(n: number): string {
@@ -862,8 +891,173 @@ export function TmcPresentation({
   const chartGradId = useId().replace(/:/g, "");
   const deliveryChartGradId = useId().replace(/:/g, "");
 
+  const pdfKpiLines = useMemo(
+    () => [
+      `Поставлено: ${kpi.deliveryCount} из ${kpi.totalItemCount}`,
+      `Фактическая стоимость поставок: ${rubKpiAmount(kpi.receiptsFactRub)} ₽`,
+      `Закуплено ТМЦ: ${kpi.purchasedItemCount} из ${kpi.totalItemCount}`,
+      `Освоение бюджета: ${pct1(receiptCostExecutionPct)}`,
+      `В работе: ${kpi.overdueAmongRemainingCount} из ${kpi.remainingItemCount}`,
+      `Не закуплено: ${kpi.notPurchasedAmongRemainingCount} из ${kpi.remainingItemCount}`,
+      `Доля просрочки: ${pct1(kpi.overdueAmongRemainingPct)}`,
+      `Экономия: ${rubKpiAmount(financialResult.economyRub)} ₽`,
+      `Перерасход: ${rubKpiAmount(financialResult.overrunRub)} ₽`,
+      `Отклонение от закупленного: ${pctSigned1(financialResult.deviationPct)}`,
+    ],
+    [kpi, receiptCostExecutionPct, financialResult],
+  );
+
+  const pdfSummaryRows = useMemo(
+    () =>
+      pdfKpiLines.map((line) => {
+        const idx = line.indexOf(":");
+        return idx > 0
+          ? { label: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim() }
+          : { label: line, value: "" };
+      }),
+    [pdfKpiLines],
+  );
+
+  const pdfFinalRows = useMemo(
+    () => [
+      { label: "Всего позиций", value: String(kpi.totalItemCount) },
+      { label: "Закуплено", value: String(kpi.purchasedItemCount) },
+      { label: "Не закуплено", value: String(kpi.remainingItemCount) },
+      { label: "Сумма поставок (факт)", value: `${rubKpiAmount(kpi.receiptsFactRub)} ₽` },
+      { label: "Экономия", value: `${rubKpiAmount(financialResult.economyRub)} ₽` },
+      { label: "Отклонение бюджета", value: `${pctSigned1(financialResult.deviationPct)}` },
+    ],
+    [kpi, financialResult],
+  );
+
+  const pdfReportPeriodLabel = useMemo(() => formatPeriodRangeRu(chartData.map((r) => r.label)), [chartData]);
+
+  const procurementChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          procurementValueMode === "quantity"
+            ? "Сравнение планового и фактического количества закупленных позиций по месяцам."
+            : "Сравнение плановой и фактической стоимости закупок по месяцам.",
+        source: "Импорт ТМЦ",
+        period: pdfReportPeriodLabel,
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: chartData.map((r) => [
+            formatMonthLabelRu(r.label),
+            procurementValueMode === "quantity" ? `${Math.round(Number(r.plan) || 0)} шт` : `${String(r.plan).replace(".", ",")} млн ₽`,
+            procurementValueMode === "quantity" ? `${Math.round(Number(r.fact) || 0)} шт` : `${String(r.fact).replace(".", ",")} млн ₽`,
+          ]),
+        },
+      }),
+    [chartData, procurementValueMode, pdfReportPeriodLabel],
+  );
+
+  const deliveryChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          deliveryValueMode === "quantity"
+            ? "Сравнение планового и фактического количества поставленных позиций по месяцам."
+            : "Сравнение плановой и фактической стоимости поставок по месяцам.",
+        source: "Импорт ТМЦ",
+        period: formatPeriodRangeRu(deliveryChartData.map((r) => r.label)),
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: deliveryChartData.map((r) => [
+            formatMonthLabelRu(r.label),
+            deliveryValueMode === "quantity" ? `${Math.round(Number(r.plan) || 0)} шт` : `${String(r.plan).replace(".", ",")} млн ₽`,
+            deliveryValueMode === "quantity" ? `${Math.round(Number(r.fact) || 0)} шт` : `${String(r.fact).replace(".", ",")} млн ₽`,
+          ]),
+        },
+      }),
+    [deliveryChartData, deliveryValueMode],
+  );
+
+  const requestChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          "Сравнение плановой и фактической стоимости договоров поставки по месяцам (позиции с заполненной датой договора).",
+        source: "Импорт ТМЦ",
+        period: formatPeriodRangeRu(requestChartData.map((r) => r.label)),
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: requestChartData.map((r) => [
+            formatMonthLabelRu(r.label),
+            `${String(r.plan).replace(".", ",")} млн ₽`,
+            `${String(r.fact).replace(".", ",")} млн ₽`,
+          ]),
+        },
+      }),
+    [requestChartData],
+  );
+
+  const materialPlanFactMeta = useMemo(() => {
+    const rows = materialPlanFact as unknown as any[];
+    return encodePdfJson({
+      description:
+        "План/факт по ключевым видам ТМЦ. В зависимости от режима отображается стоимость или процент выполнения.",
+      source: "Импорт ТМЦ",
+      period: pdfReportPeriodLabel,
+      table: {
+        headers: ["ТМЦ", "План", "Факт", "Отклонение"],
+        rows: rows.slice(0, 30).map((r) => [
+          String(r?.materialLabel ?? r?.material ?? r?.name ?? r?.key ?? "—"),
+          r?.plan == null ? "—" : `${rubKpiAmount(Number(r.plan) || 0)} ₽`,
+          r?.fact == null ? "—" : `${rubKpiAmount(Number(r.fact) || 0)} ₽`,
+          r?.deviation == null ? "—" : `${rubKpiSignedAmount(Number(r.deviation) || 0)} ₽`,
+        ]),
+      },
+    });
+  }, [materialPlanFact, pdfReportPeriodLabel]);
+
+  const unitCostDynamicsMeta = useMemo(() => {
+    const rows = materialCostDynamics as unknown as any[];
+    return encodePdfJson({
+      description:
+        "Динамика стоимости единицы ТМЦ (по ТМЦ или индекс цены) — позволяет оценить изменение удельной стоимости во времени.",
+      source: "Импорт ТМЦ",
+      period: pdfReportPeriodLabel,
+      table: {
+        headers: ["ТМЦ", "Ед.", "Мин", "Макс"],
+        rows: rows.slice(0, 30).map((r) => [
+          String(r?.materialLabel ?? r?.material ?? r?.name ?? "—"),
+          String(r?.unit ?? "—"),
+          r?.min == null ? "—" : `${rubKpiAmount(Number(r.min) || 0)} ₽`,
+          r?.max == null ? "—" : `${rubKpiAmount(Number(r.max) || 0)} ₽`,
+        ]),
+      },
+    });
+  }, [materialCostDynamics, pdfReportPeriodLabel]);
+
+  const volumeDynamicsMeta = useMemo(() => {
+    const rows = volumeDynamics as unknown as any[];
+    return encodePdfJson({
+      description: "Динамика объёмов закупок ТМЦ: сравнение в процентах по месяцам.",
+      source: "Импорт ТМЦ",
+      period: pdfReportPeriodLabel,
+      table: {
+        headers: ["Период", "Значение"],
+        rows: rows.slice(0, 60).map((r) => [
+          String(r?.label ?? r?.period ?? r?.month ?? "—"),
+          r?.value == null ? "—" : `${String(r.value).replace(".", ",")}%`,
+        ]),
+      },
+    });
+  }, [volumeDynamics, pdfReportPeriodLabel]);
+
   return (
-    <section className="space-y-4">
+    <section
+      className="space-y-4"
+      {...{
+        [CONSTRUCTION_PDF_ROOT_ATTR]: "tmc",
+        [PDF_REPORT_PERIOD_ATTR]: pdfReportPeriodLabel,
+        [PDF_SUMMARY_JSON_ATTR]: encodePdfJson(pdfSummaryRows),
+        [PDF_FINAL_JSON_ATTR]: encodePdfJson(pdfFinalRows),
+      }}
+    >
+      <ConstructionPdfKpiLines lines={pdfKpiLines} />
       <div className="mb-4">
         <h2 className="text-xl font-semibold text-slate-50">Закупка ТМЦ</h2>
       </div>
@@ -1090,6 +1284,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика закупок"
+        {...{ [PDF_CHART_META_ATTR]: procurementChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1156,6 +1353,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика поставок"
+        {...{ [PDF_CHART_META_ATTR]: deliveryChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1223,6 +1423,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="План / факт договоров поставки"
+        {...{ [PDF_CHART_META_ATTR]: requestChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1269,6 +1472,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="План / факт по ТМЦ"
+        {...{ [PDF_CHART_META_ATTR]: materialPlanFactMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1304,6 +1510,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика стоимости единицы ТМЦ"
+        {...{ [PDF_CHART_META_ATTR]: unitCostDynamicsMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1342,6 +1551,9 @@ export function TmcPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика объёмов закупок ТМЦ"
+        {...{ [PDF_CHART_META_ATTR]: volumeDynamicsMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",

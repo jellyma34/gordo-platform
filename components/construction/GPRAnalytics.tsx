@@ -3,6 +3,10 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+function encodePdfJson(value: unknown): string {
+  return encodeURIComponent(JSON.stringify(value));
+}
+
 import {
   calculateDeviation,
   filterByPeriod,
@@ -44,6 +48,15 @@ import {
 import type { Plugin } from "chart.js";
 import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
 import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
+import {
+  CONSTRUCTION_PDF_ROOT_ATTR,
+  PDF_CHART_BLOCK_ATTR,
+  PDF_FINAL_JSON_ATTR,
+  PDF_KPI_CAPTURE_ATTR,
+  PDF_REPORT_PERIOD_ATTR,
+  PDF_SECTION_TITLE_ATTR,
+  PDF_SUMMARY_JSON_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
 import {
@@ -3142,6 +3155,34 @@ export function GPRAnalytics({
           ? `+${aggregateDeviationDeltaPp}`
           : "0";
 
+  const pdfReportPeriodLabel = useMemo(
+    () => `по состоянию на ${gprReportDateLabel}`,
+    [gprReportDateLabel],
+  );
+
+  const pdfSummaryRows = useMemo(
+    () => [
+      { label: "Фактическая готовность", value: aggregateTotalProgressUi.display },
+      { label: "Плановая готовность", value: aggregatePlanDisplay },
+      { label: "Отклонение готовности", value: `${aggregateDeviationDisplay}%` },
+      { label: "Критические отклонения", value: String(aggregateStageBreakdown.trafficRed) },
+      { label: "Риск (≤ 2 дн.)", value: String(aggregateStageBreakdown.trafficYellow) },
+      { label: "В срок / раньше", value: String(aggregateStageBreakdown.trafficGreen) },
+    ],
+    [aggregateTotalProgressUi.display, aggregatePlanDisplay, aggregateDeviationDisplay, aggregateStageBreakdown],
+  );
+
+  const pdfFinalRows = useMemo(
+    () => [
+      { label: "Фактическая готовность", value: aggregateTotalProgressUi.display },
+      { label: "Плановая готовность", value: aggregatePlanDisplay },
+      { label: "Критические отклонения", value: String(aggregateStageBreakdown.trafficRed) },
+      { label: "Всего этапов (агрегат)", value: String(aggregateStageBreakdown.workTotal) },
+      { label: "Завершено этапов", value: String(aggregateStageBreakdown.workCompleted) },
+    ],
+    [aggregateTotalProgressUi.display, aggregatePlanDisplay, aggregateStageBreakdown],
+  );
+
   if (mode === "edit") {
     return (
       <section className="min-w-0 space-y-4 overflow-x-clip">
@@ -3212,7 +3253,15 @@ export function GPRAnalytics({
   );
 
   return (
-    <section className="min-w-0 space-y-4 overflow-x-clip">
+    <section
+      className="min-w-0 space-y-4 overflow-x-clip"
+      {...{
+        [CONSTRUCTION_PDF_ROOT_ATTR]: "gpr",
+        [PDF_REPORT_PERIOD_ATTR]: pdfReportPeriodLabel,
+        [PDF_SUMMARY_JSON_ATTR]: encodePdfJson(pdfSummaryRows),
+        [PDF_FINAL_JSON_ATTR]: encodePdfJson(pdfFinalRows),
+      }}
+    >
       {/*
         На вкладке «Проект» итоговая агрегированная карточка стоит ПЕРВОЙ в секции,
         ВЫШЕ ряда из четырёх карточек этапов 2.04–2.07. Это делает её главным KPI-блоком
@@ -3224,6 +3273,7 @@ export function GPRAnalytics({
         внутри ряда этапов (см. ниже) — там она логически парная к двум этапам части,
         поэтому порядок «сводка сверху» к ним не применяется.
       */}
+      <div className="min-w-0 space-y-4" {...{ [PDF_KPI_CAPTURE_ATTR]: "" }}>
       {isProjectWide ? (
         <div className="min-w-0">{partAggregateCard}</div>
       ) : null}
@@ -3366,9 +3416,14 @@ export function GPRAnalytics({
         */}
         {!isProjectWide ? partAggregateCard : null}
       </div>
+      </div>
 
       <div className="grid grid-cols-1 min-w-0">
-        <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
+        <div
+          className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6"
+          {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
+          {...{ [PDF_SECTION_TITLE_ATTR]: "Динамика выполнения ГПР" }}
+        >
           <div className="flex flex-wrap items-end justify-between gap-3">
             <h3 className="min-w-0 text-lg font-semibold leading-snug text-slate-50">
               Динамика выполнения ГПР
@@ -3738,7 +3793,11 @@ export function GPRAnalytics({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+      <div
+        className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm"
+        {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
+        {...{ [PDF_SECTION_TITLE_ATTR]: "Отклонения по этапам" }}
+      >
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         {(() => {
           const allowedGroupKeys = isProjectWide

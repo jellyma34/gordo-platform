@@ -61,7 +61,6 @@ export function TMCSection({
         <TMCSectionPartTabs activePartScope={activePartScope} onChangePartScope={onChangePartScope} />
         <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
         <SuppliersBlock activePartId={editPartId} />
-        <ReportPdfButton section="tmc" />
       </EditLayout>
     );
   }

@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  PDF_CHART_BLOCK_ATTR,
+  PDF_SECTION_TITLE_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
+
 import { useMemo } from "react";
 import {
   Chart as ChartJS,
@@ -250,7 +255,11 @@ export function GPRTmcDependencyChart({
   );
 
   return (
-    <div className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
+    <div
+      className="min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6"
+      {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
+      {...{ [PDF_SECTION_TITLE_ATTR]: "Зависимость выполнения ГПР от обеспеченности ТМЦ" }}
+    >
       <h3 className="text-lg font-semibold text-slate-50">
         Зависимость выполнения ГПР от обеспеченности ТМЦ
       </h3>

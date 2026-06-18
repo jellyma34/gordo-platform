@@ -63,7 +63,6 @@ export function TendersSection({
     >
       {partTabs}
       <TendersTable ref={tableRef} embedded activePartId={editPartId} />
-      <ReportPdfButton section="tenders" />
     </EditLayout>
   );
 }

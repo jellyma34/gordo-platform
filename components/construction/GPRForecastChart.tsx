@@ -3,6 +3,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Chart as ChartJS } from "chart.js";
 import type { ChartData, ChartOptions } from "chart.js/auto";
+import {
+  PDF_CHART_BLOCK_ATTR,
+  PDF_SECTION_TITLE_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
 import type { GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import type { TMCItem } from "@/lib/tmcData";
@@ -411,7 +415,11 @@ export function GPRForecastChart({
       : "";
 
   return (
-    <div className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
+    <div
+      className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6"
+      {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
+      {...{ [PDF_SECTION_TITLE_ATTR]: "Прогноз выполнения ГПР" }}
+    >
       <h3 className="text-lg font-semibold text-slate-50">Прогноз выполнения ГПР</h3>
 
       <div ref={chartWrapRef} className="relative mt-4 h-[260px] w-full min-w-0 sm:h-[320px] md:h-[340px]">

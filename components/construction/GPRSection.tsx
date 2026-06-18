@@ -188,7 +188,6 @@ export function GPRSection({
             hideEditToolbar
             embedded
           />
-          <ReportPdfButton section="gpr" />
         </EditLayout>
       </section>
     );

@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, CheckCircle2, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { ConstructionPdfKpiLines } from "@/components/reports/ConstructionPdfKpiLines";
+import {
+  CONSTRUCTION_PDF_ROOT_ATTR,
+  PDF_CHART_META_ATTR,
+  PDF_FINAL_JSON_ATTR,
+  PDF_REPORT_PERIOD_ATTR,
+  PDF_SUMMARY_JSON_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
 import { listTendersFromDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import { getGprProjectId, loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
@@ -86,6 +94,18 @@ function pctSigned1(n: number): string {
   if (n < 0) return `−${formatted}%`;
   if (n > 0) return `+${formatted}%`;
   return `${formatted}%`;
+}
+
+function encodePdfJson(value: unknown): string {
+  return encodeURIComponent(JSON.stringify(value));
+}
+
+function formatPeriodRangeRu(labels: string[]): string {
+  const clean = labels.map((s) => s.trim()).filter(Boolean);
+  if (clean.length === 0) return "—";
+  const first = clean[0]!;
+  const last = clean[clean.length - 1]!;
+  return `${first} — ${last}`;
 }
 
 function TenderKpiDivider() {
@@ -911,8 +931,183 @@ export function TendersPresentation({
     return ticks;
   }, [contractDeviationItems]);
 
+  const pdfKpiLines = useMemo(
+    () => [
+      `Проведено: ${kpi.conductedCount} из ${kpi.totalCount} шт`,
+      `Объём проведённых тендеров: ${rubKpiAmount(kpi.conductedFactRub)} ₽`,
+      `Средний чек тендера: ${rubKpiAmount(kpi.conductedAvgCheckRub)} ₽`,
+      `Выполнение общего объёма: ${pct1(kpi.totalVolumeExecutionPct)}`,
+      `Просрочены: ${kpi.overdueCount} из ${kpi.totalCount} шт`,
+      `Объём просроченных тендеров: ${rubKpiAmount(kpi.overduePlanRub)} ₽`,
+      `Средний чек просроченного тендера: ${rubKpiAmount(kpi.overdueAvgCheckRub)} ₽`,
+      `Доля просроченного объёма: ${pct1(kpi.overdueVolumeSharePct)}`,
+      `Экономия: ${rubKpiAmount(financialResult.economyRub)} ₽`,
+      `Перерасход: ${rubKpiAmount(financialResult.overrunRub)} ₽`,
+      `Отклонение от закупленного: ${pctSigned1(financialResult.deviationPct)}`,
+    ],
+    [kpi, financialResult],
+  );
+
+  const pdfSummaryRows = useMemo(
+    () =>
+      pdfKpiLines.map((line) => {
+        const idx = line.indexOf(":");
+        return idx > 0
+          ? { label: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim() }
+          : { label: line, value: "" };
+      }),
+    [pdfKpiLines],
+  );
+
+  const pdfFinalRows = useMemo(
+    () => [
+      { label: "Проведено", value: `${kpi.conductedCount} из ${kpi.totalCount}` },
+      { label: "Просрочено", value: `${kpi.overdueCount} из ${kpi.totalCount}` },
+      { label: "Объём тендеров (факт)", value: `${rubKpiAmount(kpi.conductedFactRub)} ₽` },
+      { label: "Экономический эффект (экономия)", value: `${rubKpiAmount(financialResult.economyRub)} ₽` },
+      { label: "Перерасход", value: `${rubKpiAmount(financialResult.overrunRub)} ₽` },
+      { label: "Отклонение от закупленного", value: `${pctSigned1(financialResult.deviationPct)}` },
+    ],
+    [kpi, financialResult],
+  );
+
+  const pdfReportPeriodLabel = useMemo(
+    () => formatPeriodRangeRu(conductSeries.map((r) => r.label)),
+    [conductSeries],
+  );
+
+  const conductChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description: "Сравнение плановой и фактической динамики проведения тендеров по месяцам.",
+        source: "Импорт тендеров",
+        period: pdfReportPeriodLabel,
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: conductChartData.map((r) => [r.label, `${r.plan} шт`, r.fact == null ? "—" : `${r.fact} шт`]),
+        },
+      }),
+    [conductChartData, pdfReportPeriodLabel],
+  );
+
+  const costChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description: "Сравнение плановой и фактической стоимости тендеров по месяцам.",
+        source: "Импорт тендеров",
+        period: formatPeriodRangeRu(costSeries.map((r) => r.label)),
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: costChartData.map((r) => [
+            r.label,
+            `${rubKpiAmount(Number(r.plan) || 0)} ₽`,
+            r.fact == null ? "—" : `${rubKpiAmount(Number(r.fact) || 0)} ₽`,
+          ]),
+        },
+      }),
+    [costChartData, costSeries],
+  );
+
+  const contractChartMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description: "Динамика заключения договоров по тендерам: план и факт по месяцам.",
+        source: "Импорт тендеров",
+        period: formatPeriodRangeRu(contractSeries.map((r) => r.label)),
+        table: {
+          headers: ["Месяц", "План", "Факт"],
+          rows: contractChartData.map((r) => [r.label, `${r.plan} шт`, r.fact == null ? "—" : `${r.fact} шт`]),
+        },
+      }),
+    [contractChartData, contractSeries],
+  );
+
+  const contractDeviationMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          "Свод по отклонениям заключения договоров: метрики отклонения и распределение по статусам (опережение/в срок/отставание).",
+        source: "Импорт тендеров",
+        period: formatPeriodRangeRu(contractSeries.map((r) => r.label)),
+        table: {
+          headers: ["Показатель", "Значение"],
+          rows: [
+            ["Среднее отклонение", formatDaysSignedRu(contractDeviationKpi.avg)],
+            ["Максимальное отставание", formatDaysSignedRu(contractDeviationKpi.maxLag)],
+            ["Максимальное опережение", formatDaysSignedRu(contractDeviationKpi.maxAhead)],
+            ["Опережение (< 0)", String(contractDeviationKpi.statusCounts.green)],
+            ["В срок (0)", String(contractDeviationKpi.statusCounts.gray)],
+            ["Отставание (1–14)", String(contractDeviationKpi.statusCounts.yellow)],
+            ["Критическое (> 14)", String(contractDeviationKpi.statusCounts.red)],
+          ],
+        },
+      }),
+    [contractDeviationKpi, contractSeries],
+  );
+
+  const planVsFactMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          "План vs факт по готовности тендеров: доля завершённых тендеров во времени (факт — до текущей даты).",
+        source: "Импорт тендеров",
+        period: formatPeriodRangeRu(planVsFactSeries.map((r) => String(r.label))),
+        table: {
+          headers: ["Месяц", "План, %", "Факт, %"],
+          rows: planVsFactSeries.map((r) => [String(r.label), r.planPct, r.factPct]),
+        },
+      }),
+    [planVsFactSeries],
+  );
+
+  const dependencyMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          "Сопоставление готовности тендеров и прогресса ГПР по стадиям: показывает, как обеспеченность тендерами влияет на выполнение ГПР.",
+        source: "Импорт тендеров + ГПР",
+        period: pdfReportPeriodLabel,
+        table: {
+          headers: ["Стадия", "Тендеры, %", "Факт ГПР, %", "План ГПР, %"],
+          rows: dependencySeries.map((r) => [
+            String(r.stageShort ?? r.stage ?? "—"),
+            r.tenderReadiness ?? "—",
+            r.factGpr ?? "—",
+            r.planGpr ?? "—",
+          ]),
+        },
+      }),
+    [dependencySeries, pdfReportPeriodLabel],
+  );
+
+  const forecastMeta = useMemo(
+    () =>
+      encodePdfJson({
+        description:
+          "Прогноз тендерной готовности: факт до сегодня и прогноз до конца проекта на основе текущего темпа.",
+        source: "Импорт тендеров",
+        period: tenderForecast ? `${tenderForecast.rows[0]?.label ?? "—"} — ${tenderForecast.rows.at(-1)?.label ?? "—"}` : pdfReportPeriodLabel,
+        table: {
+          headers: ["Месяц", "Факт, %", "Прогноз, %"],
+          rows: tenderForecast
+            ? tenderForecast.rows.map((r) => [String(r.label), r.factPct ?? "—", r.forecastPct ?? "—"])
+            : [],
+        },
+      }),
+    [tenderForecast, pdfReportPeriodLabel],
+  );
+
   return (
-    <section className="space-y-4">
+    <section
+      className="space-y-4"
+      {...{
+        [CONSTRUCTION_PDF_ROOT_ATTR]: "tenders",
+        [PDF_REPORT_PERIOD_ATTR]: pdfReportPeriodLabel,
+        [PDF_SUMMARY_JSON_ATTR]: encodePdfJson(pdfSummaryRows),
+        [PDF_FINAL_JSON_ATTR]: encodePdfJson(pdfFinalRows),
+      }}
+    >
+      <ConstructionPdfKpiLines lines={pdfKpiLines} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h2 className="text-xl font-semibold text-slate-50">Закупка услуг (тендеры)</h2>
       </div>
@@ -1103,6 +1298,9 @@ export function TendersPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Аналитика проведения тендеров (план / факт)"
+        {...{ [PDF_CHART_META_ATTR]: conductChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1143,6 +1341,9 @@ export function TendersPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Аналитика стоимости (руб.)"
+        {...{ [PDF_CHART_META_ATTR]: costChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1183,6 +1384,9 @@ export function TendersPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика заключения договоров"
+        {...{ [PDF_CHART_META_ATTR]: contractChartMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1226,6 +1430,9 @@ export function TendersPresentation({
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Динамика заключения договоров в разрезе отклонений"
+        {...{ [PDF_CHART_META_ATTR]: contractDeviationMeta }}
         style={{
           background:
             "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
@@ -1394,7 +1601,12 @@ export function TendersPresentation({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+      <div
+        className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm"
+        data-pdf-chart-block
+        data-pdf-section-title="План vs Факт (тендеры)"
+        {...{ [PDF_CHART_META_ATTR]: planVsFactMeta }}
+      >
           <div className="flex min-h-[3rem] flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
             <h3 className="text-lg font-semibold leading-snug text-slate-50">План vs Факт (тендеры)</h3>
             <span className="text-sm font-semibold" style={{ color: factStatusColor }}>
@@ -1457,7 +1669,12 @@ export function TendersPresentation({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+      <div
+        className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm"
+        data-pdf-chart-block
+        data-pdf-section-title="Зависимость (тендеры → ГПР)"
+        {...{ [PDF_CHART_META_ATTR]: dependencyMeta }}
+      >
         <h3 className="text-lg font-semibold text-slate-50">Зависимость (тендеры → ГПР)</h3>
         <p className="mt-1 text-xs text-slate-400">
           План ГПР, факт ГПР и пунктир готовности тендеров в едином формате, как в связке ТМЦ → ГПР.
@@ -1478,7 +1695,12 @@ export function TendersPresentation({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm">
+      <div
+        className="rounded-2xl border border-slate-700/60 bg-[#1e293b] p-6 shadow-sm"
+        data-pdf-chart-block
+        data-pdf-section-title="Прогноз (тендерная готовность)"
+        {...{ [PDF_CHART_META_ATTR]: forecastMeta }}
+      >
         <h3 className="text-lg font-semibold text-slate-50">Прогноз (тендерная готовность)</h3>
         <p className="mt-1 text-xs text-slate-400">
           Факт до сегодня, прогноз до конца проекта на основе текущего темпа заключения договоров.

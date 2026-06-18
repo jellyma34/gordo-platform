@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import {
+  PDF_CHART_BLOCK_ATTR,
+  PDF_SECTION_TITLE_ATTR,
+} from "@/lib/pdf/constructionPdfConstants";
+import {
   Chart as ChartJS,
   LinearScale,
   PointElement,
@@ -347,7 +351,11 @@ export function GPRTenderDependencyChart({
   );
 
   return (
-    <div className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6">
+    <div
+      className="mt-6 min-w-0 rounded-2xl border border-slate-700/60 bg-[#1e293b] p-4 shadow-sm sm:p-6"
+      {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
+      {...{ [PDF_SECTION_TITLE_ATTR]: "Зависимость выполнения ГПР от тендеров" }}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h3 className="text-lg font-semibold text-slate-50">
           Зависимость выполнения ГПР от тендеров
