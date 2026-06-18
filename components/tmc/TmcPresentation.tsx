@@ -1032,16 +1032,18 @@ export function TmcPresentation({
   }, [materialCostDynamics, pdfReportPeriodLabel]);
 
   const volumeDynamicsMeta = useMemo(() => {
-    const rows = volumeDynamics as unknown as any[];
     return encodePdfJson({
-      description: "Динамика объёмов закупок ТМЦ: сравнение в процентах по месяцам.",
+      description: "Закуплено / осталось докупить по объёмам ТМЦ.",
       source: "Импорт ТМЦ",
       period: pdfReportPeriodLabel,
       table: {
-        headers: ["Период", "Значение"],
-        rows: rows.slice(0, 60).map((r) => [
-          String(r?.label ?? r?.period ?? r?.month ?? "—"),
-          r?.value == null ? "—" : `${String(r.value).replace(".", ",")}%`,
+        headers: ["ТМЦ", "Ед.", "План", "Закуплено", "Осталось"],
+        rows: volumeDynamics.slice(0, 60).map((r) => [
+          r.name,
+          r.unit,
+          new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.plannedQty),
+          new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.purchasedQty),
+          new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.remainingQty),
         ]),
       },
     });
@@ -1552,7 +1554,7 @@ export function TmcPresentation({
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
         data-pdf-chart-block
-        data-pdf-section-title="Динамика объёмов закупок ТМЦ"
+        data-pdf-section-title="Закуплено / Осталось докупить"
         {...{ [PDF_CHART_META_ATTR]: volumeDynamicsMeta }}
         style={{
           background:
@@ -1560,7 +1562,7 @@ export function TmcPresentation({
         }}
       >
         <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
-          Динамика объёмов закупок ТМЦ, %
+          Закуплено / Осталось докупить
         </h3>
         <div className="mt-4">
           <TmcVolumeDynamicsChart rows={volumeDynamics} />

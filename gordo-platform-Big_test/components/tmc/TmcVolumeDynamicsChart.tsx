@@ -1,86 +1,38 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  usePlotArea,
-  useXAxisScale,
-  useYAxisScale,
-  XAxis,
-  YAxis,
-} from "@/components/charting/rechartsClient";
+  BarController,
+  BarElement,
+  CategoryScale,
+  Chart as ChartJS,
+  LinearScale,
+  Tooltip as ChartTooltip,
+} from "chart.js";
+import type { Plugin } from "chart.js";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import { createTmcMaterialXAxisTick } from "@/components/tmc/TmcMaterialXAxisTick";
-import type { TmcVolumeCompletionTone, TmcVolumeDynamicsRow } from "@/lib/tmcPresentationAnalytics";
-import { tmcMaterialAxisLineCount } from "@/lib/tmcMaterialAxisLabels";
+import { formatTmcMaterialAxisTickLabel } from "@/lib/tmcMaterialAxisLabels";
+import type { TmcVolumeDynamicsRow } from "@/lib/tmcPresentationAnalytics";
 
 const COLORS = {
-  green: "#22c55e",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-  teal: "#2dd4bf",
-  plan: "#94a3b8",
-  card: "#1e293b",
+  purchased: "#22c55e",
+  remaining: "#f59e0b",
 } as const;
 
-const Y_TICKS = [0, 25, 50, 75, 100, 125, 150] as const;
-const PLAN_LABEL_Y_OFFSET = 18;
-const FACT_LABEL_Y_OFFSET = 8;
-const LABEL_HALF_H = 6;
-const LABEL_MIN_X_GAP = 4;
-const LABEL_FONT_SIZE = 10;
-const CLOSE_POINT_PX = 14;
+const ROW_HEIGHT_PX = 44;
+const LABEL_RIGHT_PAD = 220;
+const LABEL_LINE_HEIGHT = 14;
+const LABEL_FONT = "600 11px system-ui, sans-serif";
+const LABEL_SUB_FONT = "500 10px system-ui, sans-serif";
+const LABEL_COLOR = "#e2e8f0";
+const LABEL_MUTED = "#94a3b8";
 
-type ChartRow = TmcVolumeDynamicsRow & { label: string };
+type BarElementGeom = { x: number; y: number; base: number; height?: number };
 
-type PlotRect = { x: number; y: number; width: number; height: number };
-
-type XScale = {
-  (value: string): number | undefined;
-  (value: string, opts: { position: "middle" }): number | undefined;
-};
-
-type LabelSeries = "plan" | "fact";
-
-type PointLabel = {
-  key: string;
-  index: number;
-  series: LabelSeries;
-  x: number;
-  y: number;
-  text: string;
-  halfW: number;
-  priority: number;
-};
-
-function factDotColor(tone: TmcVolumeCompletionTone): string {
-  if (tone === "critical") return COLORS.red;
-  if (tone === "warning") return COLORS.yellow;
-  if (tone === "over") return COLORS.teal;
-  return COLORS.green;
-}
-
-function formatCompletionPctText(pct: number): string {
-  const rounded = Math.round(pct * 10) / 10;
-  if (Number.isInteger(rounded)) return String(Math.round(rounded));
-  return rounded.toFixed(1).replace(".", ",");
-}
-
-function formatCompletionLabel(pct: number): string {
-  return `${formatCompletionPctText(pct)}%`;
-}
-
-function pctSigned1(n: number): string {
-  const rounded = Math.round(n * 10) / 10;
-  const formatted = Math.abs(rounded).toFixed(1).replace(".", ",");
-  if (rounded < 0) return `−${formatted}%`;
-  if (rounded > 0) return `+${formatted}%`;
-  return `${formatted}%`;
+function barEndX(bar: BarElementGeom): number {
+  const end = Number.isFinite(bar.x) ? bar.x : bar.base;
+  const start = Number.isFinite(bar.base) ? bar.base : end;
+  return Math.max(end, start);
 }
 
 function fmtQty(n: number): string {
@@ -94,327 +46,292 @@ function fmtQtyWithUnit(n: number, unit: string): string {
   return unit && unit !== "—" ? `${formatted} ${unit}` : formatted;
 }
 
-function estimateLabelHalfWidth(text: string): number {
-  return Math.max(12, text.length * 3.5);
+/** Сегмент «Закуплено» в stacked bar: не превышает плановый объём. */
+function purchasedBarQty(row: TmcVolumeDynamicsRow): number {
+  return Math.max(0, row.plannedQty - row.remainingQty);
 }
 
-function categoryPointX(
-  row: ChartRow,
-  index: number,
-  chartLen: number,
-  xScale: XScale,
-  plot: PlotRect | null | undefined,
-): number | null {
-  let cx = xScale(row.label, { position: "middle" }) ?? xScale(row.label);
-  if (cx == null && plot && chartLen > 0) {
-    cx = plot.x + ((index + 0.5) / chartLen) * plot.width;
+function ceilToNiceAxisMax(rawMax: number): number {
+  if (!Number.isFinite(rawMax) || rawMax <= 0) return 1;
+  const value = rawMax * 1.02;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const fraction = value / magnitude;
+  const niceFractions = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  for (const f of niceFractions) {
+    if (fraction <= f) return f * magnitude;
   }
-  return cx != null && Number.isFinite(cx) ? cx : null;
+  return 10 * magnitude;
 }
 
-function labelsOverlap(a: PointLabel, b: PointLabel): boolean {
-  const xOverlap = !(
-    a.x + a.halfW + LABEL_MIN_X_GAP < b.x - b.halfW ||
-    a.x - a.halfW - LABEL_MIN_X_GAP > b.x + b.halfW
-  );
-  const yOverlap = !(
-    a.y + LABEL_HALF_H < b.y - LABEL_HALF_H || a.y - LABEL_HALF_H > b.y + LABEL_HALF_H
-  );
-  return xOverlap && yOverlap;
+function niceAxisStep(max: number): number {
+  const targetTicks = 5;
+  const rough = max / targetTicks;
+  if (rough <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / magnitude;
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return nice * magnitude;
 }
 
-function resolvePointLabels(draft: PointLabel[]): PointLabel[] {
-  const sorted = [...draft].sort((a, b) => b.priority - a.priority);
-  const placed: PointLabel[] = [];
+function drawBarEndLabels(
+  ctx: CanvasRenderingContext2D,
+  anchorBar: BarElementGeom,
+  chartArea: { left: number; right: number },
+  chartWidth: number,
+  lines: string[],
+) {
+  if (!Number.isFinite(anchorBar.y) || lines.length === 0) return;
 
-  for (const candidate of sorted) {
-    let accepted = false;
-    for (let step = 0; step <= 4; step++) {
-      const tryLabel = { ...candidate, y: candidate.y - step * 10 };
-      if (!placed.some((p) => labelsOverlap(tryLabel, p))) {
-        placed.push(tryLabel);
-        accepted = true;
-        break;
-      }
+  const endX = barEndX(anchorBar);
+  const gap = 6;
+  const x = endX + gap;
+  const y = anchorBar.y;
+  const maxLabelX = chartWidth - 4;
+  const maxWidth = maxLabelX - x;
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  const measureLines = (font: string) => {
+    ctx.font = font;
+    return lines.map((line) => ctx.measureText(line).width);
+  };
+
+  const primaryWidths = measureLines(LABEL_FONT);
+  const fitsRight =
+    maxWidth > 0 &&
+    primaryWidths.every((w) => w <= maxWidth) &&
+    primaryWidths.reduce((a, b) => Math.max(a, b), 0) <= maxWidth;
+
+  const drawStack = (baseX: number, baseY: number, below = false) => {
+    let cy = baseY - ((lines.length - 1) * LABEL_LINE_HEIGHT) / 2;
+    if (below) cy = baseY + 14;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.font = i === 0 ? LABEL_FONT : LABEL_SUB_FONT;
+      ctx.fillStyle = i === 0 ? LABEL_COLOR : LABEL_MUTED;
+      ctx.fillText(lines[i]!, baseX, cy);
+      cy += LABEL_LINE_HEIGHT;
     }
-    if (!accepted) continue;
+  };
+
+  if (fitsRight) {
+    drawStack(x, y);
+    return;
   }
 
-  return placed;
+  drawStack(chartArea.left + 4, y, true);
 }
 
-function buildVolumePointLabels(
-  chartData: ChartRow[],
-  xCat: XScale,
-  plot: PlotRect | null | undefined,
-  yScale: (value: number) => number | undefined,
-): PointLabel[] {
-  const draft: PointLabel[] = [];
+function createTmcVolumeStackedBarLabelPlugin(rows: TmcVolumeDynamicsRow[]): Plugin<"bar"> {
+  return {
+    id: "tmcVolumeStackedBarLabel",
+    afterDatasetsDraw(chart) {
+      const remainingMeta = chart.getDatasetMeta(1);
+      const purchasedMeta = chart.getDatasetMeta(0);
+      if (!remainingMeta?.data?.length) return;
 
-  chartData.forEach((row, index) => {
-    const x = categoryPointX(row, index, chartData.length, xCat, plot);
-    if (x == null) return;
+      const { ctx, chartArea, width } = chart;
+      ctx.save();
 
-    const planPointY = yScale(row.plan);
-    const factPointY = yScale(row.fact);
-    if (planPointY == null || factPointY == null) return;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const remainingBar = remainingMeta.data[i] as unknown as BarElementGeom | undefined;
+        const purchasedBar = purchasedMeta.data[i] as unknown as BarElementGeom | undefined;
+        if (!row) continue;
 
-    const samePoint = Math.abs(row.fact - row.plan) < 0.05;
-    const factText = formatCompletionPctText(row.fact);
+        const anchor =
+          row.remainingQty > 0 && remainingBar && Number.isFinite(remainingBar.y)
+            ? remainingBar
+            : purchasedBar && Number.isFinite(purchasedBar.y)
+              ? purchasedBar
+              : null;
+        if (!anchor) continue;
 
-    if (samePoint) {
-      draft.push({
-        key: `single-${row.name}-${index}`,
-        index,
-        series: "fact",
-        x,
-        y: factPointY - FACT_LABEL_Y_OFFSET,
-        text: "100",
-        halfW: estimateLabelHalfWidth("100"),
-        priority: 2000,
-      });
-      return;
-    }
-
-    let planY = planPointY - PLAN_LABEL_Y_OFFSET;
-    let factY = factPointY - FACT_LABEL_Y_OFFSET;
-
-    if (Math.abs(planPointY - factPointY) <= CLOSE_POINT_PX) {
-      const probePlan: PointLabel = {
-        key: "probe-plan",
-        index,
-        series: "plan",
-        x,
-        y: planY,
-        text: "100",
-        halfW: estimateLabelHalfWidth("100"),
-        priority: 0,
-      };
-      const probeFact: PointLabel = {
-        key: "probe-fact",
-        index,
-        series: "fact",
-        x,
-        y: factY,
-        text: factText,
-        halfW: estimateLabelHalfWidth(factText),
-        priority: 0,
-      };
-      if (labelsOverlap(probePlan, probeFact)) {
-        planY -= 10;
+        drawBarEndLabels(ctx, anchor, chartArea, width, [
+          `Закуплено: ${fmtQtyWithUnit(row.purchasedQty, row.unit)}`,
+          `Осталось: ${fmtQtyWithUnit(row.remainingQty, row.unit)}`,
+        ]);
       }
-    }
 
-    draft.push({
-      key: `plan-${row.name}-${index}`,
-      index,
-      series: "plan",
-      x,
-      y: planY,
-      text: "100",
-      halfW: estimateLabelHalfWidth("100"),
-      priority: row.volumePlan + 1,
-    });
-
-    draft.push({
-      key: `fact-${row.name}-${index}`,
-      index,
-      series: "fact",
-      x,
-      y: factY,
-      text: factText,
-      halfW: estimateLabelHalfWidth(factText),
-      priority: row.completionPct + 1000,
-    });
-  });
-
-  return resolvePointLabels(draft);
+      ctx.restore();
+    },
+  };
 }
 
-function TmcVolumePointLabels({ chartData }: { chartData: ChartRow[] }) {
-  const xScale = useXAxisScale();
-  const yScale = useYAxisScale();
-  const plot = usePlotArea();
-
-  const labels = useMemo(() => {
-    if (!xScale || !yScale) return [] as PointLabel[];
-    return buildVolumePointLabels(
-      chartData,
-      xScale as unknown as XScale,
-      plot,
-      yScale as unknown as (value: number) => number | undefined,
-    );
-  }, [chartData, plot, xScale, yScale]);
-
-  if (labels.length === 0) return null;
-
-  return (
-    <g pointerEvents="none">
-      {labels.map((item) => (
-        <text
-          key={item.key}
-          x={item.x}
-          y={item.y}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={item.series === "plan" ? COLORS.plan : factDotColor(chartData[item.index]?.tone ?? "complete")}
-          fontSize={LABEL_FONT_SIZE}
-          fontWeight={item.series === "fact" ? 700 : 500}
-          className="tabular-nums"
-        >
-          {item.text}
-        </text>
-      ))}
-    </g>
-  );
-}
-
-function TmcVolumeDynamicsTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: ReadonlyArray<{ payload: ChartRow }>;
-}) {
-  if (!active || !payload?.[0]?.payload) return null;
-  const row = payload[0].payload;
-
-  return (
-    <div className="rounded-lg border border-slate-600/50 bg-[#1e293b] px-3 py-2.5 text-xs shadow-lg">
-      <div className="font-semibold text-slate-100">{row.name}</div>
-      <div className="mt-2 space-y-1 tabular-nums text-slate-300">
-        <div>План объёма: {fmtQtyWithUnit(row.volumePlan, row.unit)}</div>
-        <div>Факт объёма: {fmtQtyWithUnit(row.volumeFact, row.unit)}</div>
-        <div>Процент выполнения: {formatCompletionLabel(row.completionPct)}</div>
-        <div>Отклонение %: {pctSigned1(row.deviationPct)}</div>
-      </div>
-    </div>
-  );
-}
-
-function VolumeFactDot(props: {
-  cx?: number;
-  cy?: number;
-  payload?: ChartRow;
-}) {
-  const { cx, cy, payload } = props;
-  if (cx == null || cy == null || !payload) return null;
-  const color = factDotColor(payload.tone);
-  return (
-    <circle cx={cx} cy={cy} r={4} fill={color} stroke="#ffffff" strokeWidth={2} />
-  );
-}
+ChartJS.register(CategoryScale, LinearScale, BarController, BarElement, ChartTooltip);
 
 export function TmcVolumeDynamicsChart({ rows }: { rows: TmcVolumeDynamicsRow[] }) {
-  const gradId = useId().replace(/:/g, "");
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<ChartJS<"bar"> | null>(null);
 
-  const chartData = useMemo<ChartRow[]>(
-    () => rows.map((row) => ({ ...row, label: row.name })),
-    [rows],
-  );
+  const xMax = useMemo(() => {
+    let max = 0;
+    for (const row of rows) {
+      max = Math.max(max, row.plannedQty);
+    }
+    return ceilToNiceAxisMax(max);
+  }, [rows]);
 
-  const xTickAngle = chartData.length > 6 ? -42 : 0;
-  const xTickAnchor = chartData.length > 6 ? ("end" as const) : ("middle" as const);
-  const materialXTick = useMemo(
-    () => createTmcMaterialXAxisTick({ angle: xTickAngle, textAnchor: xTickAnchor }),
-    [xTickAngle, xTickAnchor],
-  );
+  const axisStep = useMemo(() => niceAxisStep(xMax), [xMax]);
 
-  const xAxisHeight = useMemo(() => {
-    const maxLines = chartData.reduce(
-      (max, row) => Math.max(max, tmcMaterialAxisLineCount(row.name)),
-      1,
-    );
-    const angled = chartData.length > 6;
-    if (angled) return maxLines > 1 ? 88 : 72;
-    return maxLines > 1 ? 56 : 40;
-  }, [chartData]);
+  const chartHeight = useMemo(() => {
+    return Math.min(720, Math.max(320, rows.length * ROW_HEIGHT_PX + 48));
+  }, [rows.length]);
 
-  if (chartData.length === 0) {
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || rows.length === 0) return;
+
+    chartRef.current?.destroy();
+    const labelPlugin = createTmcVolumeStackedBarLabelPlugin(rows);
+
+    chartRef.current = new ChartJS(canvas, {
+      type: "bar",
+      data: {
+        labels: rows.map((r) => r.name),
+        datasets: [
+          {
+            label: "Закуплено",
+            data: rows.map((r) => purchasedBarQty(r)),
+            backgroundColor: COLORS.purchased,
+            borderColor: COLORS.purchased,
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            maxBarThickness: 18,
+            stack: "volume",
+          },
+          {
+            label: "Осталось докупить",
+            data: rows.map((r) => r.remainingQty),
+            backgroundColor: COLORS.remaining,
+            borderColor: COLORS.remaining,
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            maxBarThickness: 18,
+            stack: "volume",
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 4, right: LABEL_RIGHT_PAD, left: 0, bottom: 4 } },
+        interaction: { mode: "nearest", axis: "y", intersect: true },
+        datasets: {
+          bar: {
+            categoryPercentage: 0.94,
+            barPercentage: 0.92,
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            enabled: true,
+            backgroundColor: "rgba(15,23,42,0.94)",
+            borderColor: "rgba(148,163,184,0.35)",
+            borderWidth: 1,
+            titleColor: "#f8fafc",
+            bodyColor: "#e2e8f0",
+            padding: 10,
+            callbacks: {
+              title: (items) => {
+                const i = items[0]?.dataIndex;
+                if (typeof i !== "number" || i < 0) return "";
+                return rows[i]?.name ?? "";
+              },
+              label: (item) => {
+                const i = item.dataIndex;
+                const row = typeof i === "number" ? rows[i] : undefined;
+                if (!row) return "";
+                if (item.datasetIndex === 0) {
+                  return `Закуплено: ${fmtQtyWithUnit(row.purchasedQty, row.unit)}`;
+                }
+                return `Осталось докупить: ${fmtQtyWithUnit(row.remainingQty, row.unit)}`;
+              },
+              afterBody: (items) => {
+                const i = items[0]?.dataIndex;
+                const row = typeof i === "number" ? rows[i] : undefined;
+                if (!row) return [];
+                return [`Плановый объём: ${fmtQtyWithUnit(row.plannedQty, row.unit)}`];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            min: 0,
+            max: xMax,
+            stacked: true,
+            grid: { color: "rgba(148,163,184,0.12)" },
+            border: { display: false },
+            ticks: {
+              color: "#94a3b8",
+              font: { size: 10 },
+              stepSize: axisStep,
+              callback(tickValue) {
+                const n = Number(tickValue);
+                return Number.isFinite(n) ? fmtQty(n) : "";
+              },
+            },
+            title: {
+              display: true,
+              text: "Объём",
+              color: "#94a3b8",
+              font: { size: 11 },
+            },
+          },
+          y: {
+            stacked: true,
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: "#cbd5e1",
+              font: { size: 11, lineHeight: 1.2 },
+              autoSkip: false,
+              callback(tickValue) {
+                const label =
+                  typeof tickValue === "string"
+                    ? tickValue
+                    : String(this.getLabelForValue(tickValue));
+                return formatTmcMaterialAxisTickLabel(label);
+              },
+            },
+          },
+        },
+      },
+      plugins: [labelPlugin],
+    });
+
+    return () => {
+      chartRef.current?.destroy();
+      chartRef.current = null;
+    };
+  }, [axisStep, rows, xMax]);
+
+  if (rows.length === 0) {
     return (
       <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
-        Нет данных для построения динамики объёмов
+        Нет данных для построения графика закупок
       </div>
     );
   }
 
   return (
     <div className="w-full">
-      <div className="h-[320px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 28, right: 10, left: 2, bottom: 8 }}>
-            <defs>
-              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLORS.green} stopOpacity={0.28} />
-                <stop offset="100%" stopColor={COLORS.green} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="rgba(148,163,184,0.12)" strokeDasharray="4 4" />
-            <XAxis
-              dataKey="label"
-              interval={0}
-              height={xAxisHeight}
-              tickLine={false}
-              axisLine={{ stroke: "rgba(148,163,184,0.25)" }}
-              tick={materialXTick}
-            />
-            <YAxis
-              domain={[0, 150]}
-              ticks={[...Y_TICKS]}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
-              tickFormatter={(v) => `${v}%`}
-            />
-            <Tooltip cursor={{ fill: "rgba(148,163,184,0.06)" }} content={<TmcVolumeDynamicsTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="fact"
-              fill={`url(#${gradId})`}
-              stroke="none"
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="plan"
-              stroke="rgba(148,163,184,0.55)"
-              strokeWidth={1.5}
-              strokeDasharray="6 5"
-              dot={{
-                r: 3,
-                fill: COLORS.plan,
-                stroke: "#ffffff",
-                strokeWidth: 1.5,
-              }}
-              name="plan"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="fact"
-              stroke={COLORS.green}
-              strokeWidth={3}
-              dot={<VolumeFactDot />}
-              activeDot={{
-                r: 7,
-                stroke: "#ffffff",
-                strokeWidth: 2,
-              }}
-              name="fact"
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-            <TmcVolumePointLabels chartData={chartData} />
-          </ComposedChart>
-        </ResponsiveContainer>
+      <div className="min-h-[320px] w-full overflow-y-auto" style={{ height: chartHeight }}>
+        <div className="relative h-full min-h-[320px] w-full">
+          <canvas ref={canvasRef} />
+        </div>
       </div>
 
       <div className="mt-3 border-t border-slate-700/40 pt-3">
         <AnalyticsLegendList>
-          <AnalyticsLegendItem
-            markerColor="rgba(148,163,184,0.7)"
-            label="План объёма (100%)"
-          />
-          <AnalyticsLegendItem markerColor={COLORS.green} label="Факт объёма (%)" />
+          <AnalyticsLegendItem markerColor={COLORS.purchased} label="Закуплено" />
+          <AnalyticsLegendItem markerColor={COLORS.remaining} label="Осталось докупить" />
         </AnalyticsLegendList>
       </div>
     </div>

@@ -811,31 +811,19 @@ export function computeTmcMaterialCostDynamics(
   return rows;
 }
 
-export type TmcVolumeCompletionTone = "critical" | "warning" | "complete" | "over";
-
 export type TmcVolumeDynamicsRow = {
   name: string;
   shortLabel: string;
   unit: string;
-  volumePlan: number;
-  volumeFact: number;
-  /** Для графика: плановая линия = 100%. */
-  plan: number;
-  /** Для графика: % выполнения объёма. */
-  fact: number;
-  completionPct: number;
-  deviationPct: number;
-  tone: TmcVolumeCompletionTone;
+  /** Плановый объём закупки (Σ volumePlan по наименованию). */
+  plannedQty: number;
+  /** Закупленный объём (Σ volumeFact по наименованию). */
+  purchasedQty: number;
+  /** Остаток к закупке: max(plannedQty − purchasedQty, 0). */
+  remainingQty: number;
 };
 
-function tmcVolumeCompletionTone(completionPct: number): TmcVolumeCompletionTone {
-  if (completionPct < 80) return "critical";
-  if (completionPct < 100) return "warning";
-  if (completionPct <= 110) return "complete";
-  return "over";
-}
-
-/** Динамика объёмов закупок ТМЦ (% выполнения) для line chart. */
+/** Закуплено / осталось докупить по объёмам ТМЦ для stacked bar chart. */
 export function computeTmcVolumeDynamics(
   items: TMCItem[],
   limit = TMC_MATERIAL_PLAN_FACT_TOP_N,
@@ -845,26 +833,20 @@ export function computeTmcVolumeDynamics(
   return [...buckets.entries()]
     .filter(([, v]) => v.volumePlan > 0)
     .map(([name, v]) => {
-      const volumePlan = v.volumePlan;
-      const volumeFact = v.volumeFact;
-      const completionPct =
-        volumePlan > 0 ? Math.round((volumeFact / volumePlan) * 1000) / 10 : 0;
-      const deviationPct = Math.round((completionPct - 100) * 10) / 10;
+      const plannedQty = v.volumePlan;
+      const purchasedQty = v.volumeFact;
+      const remainingQty = Math.max(plannedQty - purchasedQty, 0);
 
       return {
         name,
         shortLabel: truncateTmcMaterialLabel(name),
         unit: formatTmcAggregatedUnits(v.units),
-        volumePlan,
-        volumeFact,
-        plan: 100,
-        fact: completionPct,
-        completionPct,
-        deviationPct,
-        tone: tmcVolumeCompletionTone(completionPct),
+        plannedQty,
+        purchasedQty,
+        remainingQty,
       };
     })
-    .sort((a, b) => b.volumePlan - a.volumePlan)
+    .sort((a, b) => b.plannedQty - a.plannedQty)
     .slice(0, limit);
 }
 
