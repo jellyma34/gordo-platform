@@ -24,7 +24,8 @@ import {
 } from "@/lib/gprUtils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { bulkImportTmcToDb, listTmcFromDb } from "@/lib/constructionApi";
-import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { API_URL } from "@/lib/apiClient";
+import { getGprStorageMode, isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import {
   getGprProjectId,
   loadPersistedTmcItems,
@@ -256,6 +257,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   );
   const lastSavedTmcJsonRef = useRef<string | null>(null);
   const [tmcPersistReady, setTmcPersistReady] = useState(!tmcLocalMode);
+  const [tmcDbLoaded, setTmcDbLoaded] = useState(tmcLocalMode);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
   const [query, setQuery] = useState("");
@@ -287,12 +289,15 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
     }
     if (!hydrated || !token) return;
     let cancelled = false;
+    setTmcDbLoaded(false);
     (async () => {
       try {
         const rows = await listTmcFromDb(token);
         if (!cancelled) setItems(rows);
       } catch (e) {
         console.error(e);
+      } finally {
+        if (!cancelled) setTmcDbLoaded(true);
       }
     })();
     return () => {
@@ -462,6 +467,10 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
+      if (!tmcLocalMode && !tmcDbLoaded) {
+        window.alert("Дождитесь загрузки данных из БД перед импортом.");
+        return;
+      }
       try {
         const { rows, headers } = await parseTmcCsvFile(file);
         const normalized = normalizeTmcCsvRows(rows, headers);
@@ -504,9 +513,26 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
           void postTmcImportToApi(projectId, merged);
           console.log("[TMC debug] persisted to localStorage:", merged.length);
         } else if (token) {
+          console.log("[TMC IMPORT] Storage mode:", getGprStorageMode());
+          console.log(
+            "[TMC IMPORT] isGprLocalStorageMode():",
+            isGprLocalStorageMode() ? "local" : "postgres",
+          );
+          console.log("[TMC IMPORT] API URL:", API_URL);
+          console.log("[TMC IMPORT] process.env.NEXT_PUBLIC_API_URL:", process.env.NEXT_PUBLIC_API_URL);
+          console.log(
+            "[TMC IMPORT] window.location.origin:",
+            typeof window !== "undefined" ? window.location.origin : "(unavailable)",
+          );
+          console.log("[TMC IMPORT] Items count:", merged.length);
+          console.log("[TMC IMPORT] First item:", merged[0] ?? null);
           const saved = await bulkImportTmcToDb(token, merged);
-          setItems(saved);
-          console.log("[TMC debug] persisted to DB:", saved.length, "records");
+          console.log("[TMC IMPORT] POST completed");
+          console.log("[TMC IMPORT] Response records:", saved.length);
+          const rows = await listTmcFromDb(token);
+          console.log("[TMC IMPORT] DB records after import:", rows.length);
+          setItems(rows);
+          console.log("[TMC debug] persisted to DB:", rows.length, "records");
         } else {
           window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
         }
@@ -516,7 +542,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
       }
     },
-    [token, items, activeProjectPart, projectId],
+    [token, items, activeProjectPart, projectId, tmcDbLoaded],
   );
 
   const resetToSeed = useCallback(() => {
