@@ -122,6 +122,7 @@ import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
 import {
   aggregateRootCodesForPart,
   DEFAULT_AGGREGATE_ROOT_CODES_PROJECT,
+  filterGprPresentationStageCardRoots,
   findGprCsvRootTask,
   resolveStageCardRootTasks,
 } from "@/lib/gprAggregateRoots";
@@ -2186,6 +2187,23 @@ export function GPRAnalytics({
     [tasksForActivePart, aggregateRootCodes],
   );
 
+  /** Карточки корневых этапов: в презентации «Жилой дом» без 2.04 (данные этапа в расчётах сохраняются). */
+  const stageCardRoots = useMemo(
+    () =>
+      filterGprPresentationStageCardRoots(orderedStageRoots, {
+        presentationMode: presentationAnalyticsSkin,
+        activePartScope,
+      }),
+    [orderedStageRoots, presentationAnalyticsSkin, activePartScope],
+  );
+
+  const stageCardsGridColumnClass = useMemo(() => {
+    if (isProjectWide) return "xl:grid-cols-4";
+    const slotCount = stageCardRoots.length + 1;
+    if (slotCount === 2) return "xl:grid-cols-2";
+    return "xl:grid-cols-3";
+  }, [isProjectWide, stageCardRoots.length]);
+
   /** Реестр ТМЦ из БД; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
     if (isProjectWide) {
@@ -3285,11 +3303,9 @@ export function GPRAnalytics({
         items-stretch гарантирует одинаковую высоту карточек внутри строки.
       */}
       <div
-        className={`grid grid-cols-1 items-stretch gap-5 ${
-          isProjectWide ? "xl:grid-cols-4" : "xl:grid-cols-3"
-        }`}
+        className={`grid grid-cols-1 items-stretch gap-5 ${stageCardsGridColumnClass}`}
       >
-        {orderedStageRoots.map((task) => {
+        {stageCardRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
           const statusBreakdown = computeGprStageStatusBreakdown(
             flatTasks,

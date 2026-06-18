@@ -2,9 +2,38 @@ import {
   gprWbsLevelFromCode,
   normalizeGprCodeFinal,
   parseDateSafe,
+  PROJECT_PART_KEY_TO_ID,
+  type ConstructionObjectScope,
   type GPRTask,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
+
+/** Корневой этап «Подготовка территории», скрываемый из карточек презентации «Жилой дом». */
+export const GPR_RESIDENTIAL_PRESENTATION_HIDDEN_STAGE_ROOT = "2.04";
+
+export function isGprResidentialPrepTerritoryStageRoot(task: GPRTask): boolean {
+  const code = normalizeGprCodeFinal(task.code);
+  return (
+    code === GPR_RESIDENTIAL_PRESENTATION_HIDDEN_STAGE_ROOT ||
+    task.name.trim() === "Подготовка территории строительства"
+  );
+}
+
+/**
+ * Список корневых этапов для карточек KPI в презентации.
+ * На вкладке «Жилой дом» исключает 2.04; в редактировании и на «Проект»/«Автостоянка» — без изменений.
+ */
+export function filterGprPresentationStageCardRoots(
+  roots: GPRTask[],
+  options: {
+    presentationMode: boolean;
+    activePartScope: ConstructionObjectScope;
+  },
+): GPRTask[] {
+  if (!options.presentationMode) return roots;
+  if (options.activePartScope !== PROJECT_PART_KEY_TO_ID.residential) return roots;
+  return roots.filter((t) => !isGprResidentialPrepTerritoryStageRoot(t));
+}
 
 /** Корневые этапы по умолчанию (модель mock / Primavera). */
 export const DEFAULT_AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
