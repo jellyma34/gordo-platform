@@ -459,6 +459,36 @@ function deviationZoneColor(d: number): string {
   return COLORS.red;
 }
 
+type ContractDeviationZone = "green" | "gray" | "yellow" | "red";
+
+function contractDeviationZone(d: number): ContractDeviationZone {
+  if (d === 0) return "gray";
+  if (d < 0) return "green";
+  if (d <= 14) return "yellow";
+  return "red";
+}
+
+function countContractDeviationZones(
+  items: ContractDeviationPoint[],
+): Record<ContractDeviationZone, number> {
+  const counts: Record<ContractDeviationZone, number> = {
+    green: 0,
+    gray: 0,
+    yellow: 0,
+    red: 0,
+  };
+  for (const item of items) {
+    counts[contractDeviationZone(item.deviation)] += 1;
+  }
+  return counts;
+}
+
+function formatMaxLeadDaysRu(maxLead: number | null): string {
+  if (maxLead == null) return "—";
+  if (maxLead === 0) return `0 ${daysWordRu(0)}`;
+  return formatDaysSignedRu(-maxLead);
+}
+
 function daysWordRu(n: number): string {
   const abs = Math.abs(Math.round(n));
   const lastTwo = abs % 100;
@@ -887,6 +917,12 @@ export function TendersPresentation({
   const contractDeviationKpi = useMemo(() => {
     const total = tenders.length;
     const unconcluded = tenders.filter((t) => !parseIsoDate(t.factContractDate)).length;
+    const emptyStatusCounts: Record<ContractDeviationZone, number> = {
+      green: 0,
+      gray: 0,
+      yellow: 0,
+      red: 0,
+    };
     if (contractDeviationItems.length === 0) {
       return {
         avg: null as number | null,
@@ -896,6 +932,7 @@ export function TendersPresentation({
         considered: 0,
         total,
         unconcluded,
+        statusCounts: emptyStatusCounts,
       };
     }
     const devs = contractDeviationItems.map((d) => d.deviation);
@@ -910,6 +947,7 @@ export function TendersPresentation({
       considered: devs.length,
       total,
       unconcluded,
+      statusCounts: countContractDeviationZones(contractDeviationItems),
     };
   }, [tenders, contractDeviationItems]);
 
@@ -1034,7 +1072,7 @@ export function TendersPresentation({
           rows: [
             ["Среднее отклонение", formatDaysSignedRu(contractDeviationKpi.avg)],
             ["Максимальное отставание", formatDaysSignedRu(contractDeviationKpi.maxLag)],
-            ["Максимальное опережение", formatDaysSignedRu(contractDeviationKpi.maxAhead)],
+            ["Максимальное опережение", formatMaxLeadDaysRu(contractDeviationKpi.maxLead)],
             ["Опережение (< 0)", String(contractDeviationKpi.statusCounts.green)],
             ["В срок (0)", String(contractDeviationKpi.statusCounts.gray)],
             ["Отставание (1–14)", String(contractDeviationKpi.statusCounts.yellow)],

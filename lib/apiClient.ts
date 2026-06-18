@@ -43,15 +43,21 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
 }
 
 function resolvePublicApiUrl(): string {
+  console.log("resolvePublicApiUrl", {
+    env: process.env.NEXT_PUBLIC_API_URL,
+    nodeEnv: process.env.NODE_ENV,
+  });
   const fromEnv = normalizeApiBaseUrl(
     (process.env.NEXT_PUBLIC_API_URL || "").trim() || "",
   );
   if (fromEnv) {
+    console.log("resolvePublicApiUrl result", fromEnv);
     return fromEnv;
   }
   if (process.env.NODE_ENV === "development") {
     const local =
       normalizeApiBaseUrl(LOCAL_DEV_API_DEFAULT) || LOCAL_DEV_API_DEFAULT.replace(/\/+$/, "");
+    console.log("resolvePublicApiUrl result", local);
     return local;
   }
   const fallback =
@@ -63,6 +69,7 @@ function resolvePublicApiUrl(): string {
         "Set NEXT_PUBLIC_API_URL in Railway / .env for the correct API.",
     );
   }
+  console.log("resolvePublicApiUrl result", fallback);
   return fallback;
 }
 
@@ -71,6 +78,7 @@ function resolvePublicApiUrl(): string {
  * в production без env — {@link NEXT_PUBLIC_API_URL_FALLBACK}.
  */
 export const API_URL = resolvePublicApiUrl();
+console.log("[gordo] API_URL computed:", API_URL);
 
 function warnIfDevApiInProduction(): void {
   if (process.env.NODE_ENV !== "production" || typeof window === "undefined") return;

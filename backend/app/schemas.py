@@ -1,7 +1,8 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer, field_validator, model_validator
 
 
 class CreateUserRequest(BaseModel):
@@ -238,10 +239,37 @@ class TenderBase(BaseModel):
     fact_start: str | None = None
     plan_contract_date: str
     fact_contract_date: str | None = None
-    cost: int | None = None
+    cost: Decimal | None = None
     contractor: str | None = None
     status: str | None = None
     comment: str | None = None
+
+    @field_validator("cost", mode="before")
+    @classmethod
+    def parse_tender_cost(cls, value: object) -> Decimal | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, bool):
+            raise TypeError("cost must be a number")
+        if isinstance(value, int):
+            return Decimal(value)
+        if isinstance(value, float):
+            return Decimal(str(value))
+        if isinstance(value, str):
+            normalized = value.strip().replace(" ", "").replace(",", ".")
+            return Decimal(normalized) if normalized else None
+        raise TypeError("cost must be a number")
+
+    @field_serializer("cost", when_used="json")
+    @classmethod
+    def serialize_tender_cost(cls, value: Decimal | None) -> float | int | None:
+        if value is None:
+            return None
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
 
 
 class TenderUpdate(TenderBase):

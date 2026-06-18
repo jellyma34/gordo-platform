@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -121,7 +122,7 @@ class Tender(Base):
     fact_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
     plan_contract_date: Mapped[str] = mapped_column(String(10), nullable=False)
     fact_contract_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     contractor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # planned|in_progress|completed|delayed
     comment: Mapped[str | None] = mapped_column(String(1024), nullable=True)

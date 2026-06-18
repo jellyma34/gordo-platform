@@ -174,6 +174,29 @@ def ensure_entity_history_entity_type_column() -> None:
         )
 
 
+def ensure_tender_cost_numeric_column() -> None:
+    """Без Alembic: tenders.cost INTEGER → NUMERIC(20,4) для дробной стоимости."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("tenders"):
+            return
+        col = next((c for c in insp.get_columns("tenders") if c["name"] == "cost"), None)
+        if col is None:
+            return
+        col_type = str(col["type"]).upper()
+        if "NUMERIC" in col_type or "DECIMAL" in col_type:
+            return
+    except Exception:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE tenders ALTER COLUMN cost TYPE NUMERIC(20, 4) "
+                "USING cost::numeric(20, 4)"
+            )
+        )
+
+
 def ensure_entity_history_entity_id_fk_dropped() -> None:
     """Если таблица была создана со FK на gpr_tasks — убрать его, чтобы history стала универсальной."""
     try:
