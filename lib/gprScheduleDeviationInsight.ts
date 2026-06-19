@@ -31,6 +31,64 @@ export type GprScheduleDeviationInsight = {
   reasonLines: string[];
 };
 
+function russianDaysWordAbs(n: number): string {
+  const a = Math.abs(Math.round(n));
+  const mod10 = a % 10;
+  const mod100 = a % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "дней";
+  if (mod10 === 1) return "день";
+  if (mod10 >= 2 && mod10 <= 4) return "дня";
+  return "дней";
+}
+
+function formatSignedManagementDays(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  if (rounded === 0) return "0 дней";
+  const sign = rounded > 0 ? "+" : "−";
+  const abs = Math.abs(rounded);
+  const num = Number.isInteger(abs) ? String(Math.round(abs)) : abs.toFixed(1).replace(".", ",");
+  return `${sign}${num} ${russianDaysWordAbs(abs)}`;
+}
+
+function conclusionMetricColor(value: number | null): string {
+  if (value === null || value === 0) return "#94a3b8";
+  if (value > 0) return "#ef4444";
+  return "#22c55e";
+}
+
+export function formatGprStageDurationDays(days: number | null): string {
+  if (days == null) return "—";
+  return `${days} дн.`;
+}
+
+export function formatGprStageDeviationDisplay(durationDeviation: number | null): string {
+  if (durationDeviation == null) return "—";
+  const rounded = Math.round(durationDeviation * 10) / 10;
+  if (rounded === 0) return "0 дн.";
+  const sign = rounded > 0 ? "+" : "−";
+  const abs = Math.abs(rounded);
+  const num = Number.isInteger(abs) ? String(Math.round(abs)) : abs.toFixed(1).replace(".", ",");
+  return `${sign}${num} дн.`;
+}
+
+export type GprStageDurationMetric = {
+  label: string;
+  value: string;
+  color: string;
+};
+
+/** Числовой показатель перерасхода/экономии для правой колонки карточки этапа. */
+export function resolveGprStageDurationMetric(
+  durationDeviation: number | null,
+): GprStageDurationMetric | null {
+  if (durationDeviation == null || durationDeviation === 0) return null;
+  return {
+    label: durationDeviation > 0 ? "Перерасход" : "Экономия",
+    value: formatGprStageDeviationDisplay(durationDeviation),
+    color: conclusionMetricColor(durationDeviation),
+  };
+}
+
 const EXECUTION_BADGE: Record<GprTaskExecutionPhase, GprScheduleDeviationBadge> = {
   completed: {
     icon: "✓",

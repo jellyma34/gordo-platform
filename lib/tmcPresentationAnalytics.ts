@@ -3460,6 +3460,51 @@ export function computeTmcRemainingPercent(plannedQty: number, remainingQty: num
   return Math.round((remainingQty / plannedQty) * 1000) / 10;
 }
 
+function tmcSupplyFactDateIso(item: TMCItem): string | null {
+  const supply = item.supplyFactDate?.trim();
+  if (supply) return supply;
+  return item.contractFactDate?.trim() || null;
+}
+
+/**
+ * Взвешенный дефицит материалов проекта на дату (по объёмам, как в блоке риска дефицита ТМЦ).
+ * Вес позиции — volumePlan; закупленный объём учитывается, если дата поставки/договора ≤ asOf.
+ */
+export function computeWeightedMaterialDeficitPercentAtDate(
+  items: TMCItem[],
+  asOfIso: string,
+  todayIso: string,
+): number {
+  let volumePlanTotal = 0;
+  let volumePurchasedTotal = 0;
+
+  for (const item of items) {
+    const plan = item.volumePlan;
+    if (!Number.isFinite(plan) || plan <= 0) continue;
+    volumePlanTotal += plan;
+
+    const factDate = tmcSupplyFactDateIso(item);
+    if (factDate) {
+      if (factDate <= asOfIso) volumePurchasedTotal += item.volumeFact;
+    } else if (asOfIso >= todayIso && item.volumeFact > 0) {
+      volumePurchasedTotal += item.volumeFact;
+    }
+  }
+
+  if (volumePlanTotal <= 0) return 0;
+  const remainingQty = Math.max(volumePlanTotal - volumePurchasedTotal, 0);
+  return computeTmcRemainingPercent(volumePlanTotal, remainingQty);
+}
+
+/** Обеспеченность ТМЦ проекта: 100 − weighted_material_deficit_percent. */
+export function computeTmcSupplyPercentAtDate(
+  items: TMCItem[],
+  asOfIso: string,
+  todayIso: string,
+): number {
+  const deficit = computeWeightedMaterialDeficitPercentAtDate(items, asOfIso, todayIso);
+  return Math.round((100 - deficit) * 10) / 10;
+}
 
 function lookupGprWorkGroupTitle(groupCode: string): string {
   const normalized = normalizeGprCodeFinal(groupCode);

@@ -30,11 +30,13 @@ import {
   TmcRequestPlanFactChart,
 } from "@/components/tmc/TmcRequestPlanFactChart";
 import { TmcVolumeDynamicsChart } from "@/components/tmc/TmcVolumeDynamicsChart";
+import { TmcGprImpactChart } from "@/components/tmc/TmcGprImpactChart";
 import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import { useTmcKpiDonutSegments } from "@/components/tmc/useTmcKpiDonutSegments";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { formatCurrencyCompact } from "@/lib/chartFormatters";
 import { gprMockData } from "@/lib/gprMockData";
+import { computeTmcGprImpactAnalysis } from "@/lib/tmcGprImpact";
 import { filterGprTasksByObjectScope, partIdToProjectPartKey, type ConstructionObjectScope, type GPRTask } from "@/lib/gprUtils";
 import {
   alignTmcMonthlySeriesToTimeline,
@@ -554,6 +556,11 @@ function TmcKpiIconBadge({
   );
 }
 
+function fmtQtyWithUnitForPdf(n: number, unit: string): string {
+  const formatted = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(n);
+  return unit && unit !== "—" ? `${formatted} ${unit}` : formatted;
+}
+
 export function TmcPresentation({
   activePartScope,
 }: {
@@ -858,6 +865,11 @@ export function TmcPresentation({
     [enriched, scopedGprTasks, today],
   );
 
+  const tmcGprImpactRows = useMemo(
+    () => computeTmcGprImpactAnalysis(scopedGprTasks, enriched, activePartScope, today),
+    [scopedGprTasks, enriched, activePartScope, today],
+  );
+
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     const diag = diagnoseTmcVolumeDynamicsExclusions(enriched, {
@@ -1125,6 +1137,58 @@ export function TmcPresentation({
       },
     });
   }, [volumeDynamics, pdfReportPeriodLabel]);
+
+  const gprProcurementLagMeta = useMemo(() => {
+    return encodePdfJson({
+      description:
+        "Материалы с дефицитом ТМЦ и связанные этапы ГПР; impactScore по дефициту и суммарному отставанию.",
+      source: "ГПР + ТМЦ",
+      period: pdfReportPeriodLabel,
+      table: {
+        headers: [
+          "ТМЦ",
+          "Дефицит",
+          "Связанных этапов",
+          "Отстающих этапов",
+          "Влияние",
+          "impactScore",
+          "Этап",
+          "План",
+          "Факт",
+          "Отклонение",
+        ],
+        rows: tmcGprImpactRows.flatMap((row) =>
+          row.stages.length > 0
+            ? row.stages.map((stage, index) => [
+                index === 0 ? row.materialName : "",
+                index === 0 ? `${row.remainingPercent}%` : "",
+                index === 0 ? String(row.linkedStageCount) : "",
+                index === 0 ? String(row.laggingStageCount) : "",
+                index === 0 ? row.impactLabel : "",
+                index === 0 ? String(row.impactScore) : "",
+                stage.stageLabel,
+                stage.planPct == null ? "—" : `${stage.planPct}%`,
+                stage.factPct == null ? "—" : `${stage.factPct}%`,
+                stage.deviationPct == null ? "—" : `${stage.deviationPct}%`,
+              ])
+            : [
+                [
+                  row.materialName,
+                  `${row.remainingPercent}%`,
+                  String(row.linkedStageCount),
+                  String(row.laggingStageCount),
+                  row.impactLabel,
+                  String(row.impactScore),
+                  "—",
+                  "—",
+                  "—",
+                  "—",
+                ],
+              ],
+        ),
+      },
+    });
+  }, [tmcGprImpactRows, pdfReportPeriodLabel]);
 
   return (
     <section
@@ -1646,6 +1710,28 @@ export function TmcPresentation({
             rows={volumeDynamics.rows}
             allProcured={volumeDynamics.allProcured}
           />
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
+        data-pdf-chart-block
+        data-pdf-section-title="Влияние дефицита ТМЦ на выполнение ГПР"
+        {...{ [PDF_CHART_META_ATTR]: gprProcurementLagMeta }}
+        style={{
+          background:
+            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
+        }}
+      >
+        <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
+          Влияние дефицита ТМЦ на выполнение ГПР
+        </h3>
+        <p className="mt-2 max-w-3xl text-xs leading-relaxed text-slate-400">
+          Материалы с незакрытой потребностью и связанные этапы ГПР. Сортировка по impactScore —
+          наверху материалы, которые с наибольшей вероятностью тормозят выполнение работ.
+        </p>
+        <div className="mt-4">
+          <TmcGprImpactChart rows={tmcGprImpactRows} />
         </div>
       </div>
     </section>

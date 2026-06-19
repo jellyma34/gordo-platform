@@ -22,6 +22,7 @@ import {
   type Tender,
 } from "./tenderData";
 import { filterTmcByProjectPart, type TMCItem } from "./tmcData";
+import { computeWeightedMaterialDeficitPercentAtDate } from "./tmcPresentationAnalytics";
 
 /** Ключ агрегированного этапа (совпадает с логикой дашборда ГПР). */
 export type GprStageGroupKey = "prep" | "build" | "network" | "improve";
@@ -394,6 +395,340 @@ export function buildGprTmcDependencyChartSeriesProjectWide(
       "parking",
     ),
   ];
+}
+
+export const GPR_TMC_DYNAMICS_GAP_THRESHOLD_PP = 30;
+export const GPR_TMC_DYNAMICS_SEGMENT_DROP_PP = 2;
+
+export type GprTmcDynamicsInsight = "tmc_deficit_likely" | "cause_not_tmc_likely" | "none";
+
+export type GprTmcSupplyTimelinePoint = {
+  monthKey: string;
+  /** Подпись оси X: «Ноя'25». */
+  axisMonthLabel: string;
+  /** Календарный период для tooltip: «Ноябрь 2025». */
+  calendarPeriodLabel: string;
+  monthIndex: number;
+  projectMonthCode: string;
+  /** @deprecated Используйте axisMonthLabel. */
+  monthLabel: string;
+  monthMs: number;
+  gprFactPercent: number | null;
+  tmcSupplyPercent: number | null;
+  weightedDeficitPercent: number | null;
+  differencePp: number | null;
+};
+
+export type GprTmcSupplyTimelineSegment = {
+  fromMonthKey: string;
+  toMonthKey: string;
+  fromMonthIndex: number;
+  toMonthIndex: number;
+  insight: GprTmcDynamicsInsight;
+  insightLabel: string;
+};
+
+export type GprTmcSupplyTimelineModel = {
+  /** Минимальная дата из задач ГПР (planStart / factStart). */
+  projectStartIso: string;
+  /** Максимальная дата из задач ГПР (planEnd / factEnd). */
+  projectEndIso: string;
+  /** Первый месяц на графике (календарный). */
+  chartMonthFromLabel: string;
+  /** Последний месяц на графике (календарный). */
+  chartMonthToLabel: string;
+  todayIso: string;
+  todayMs: number;
+  points: GprTmcSupplyTimelinePoint[];
+  segments: GprTmcSupplyTimelineSegment[];
+};
+
+export function resolveGprTmcDynamicsSegmentInsight(
+  prev: { gprFactPercent: number; tmcSupplyPercent: number },
+  cur: { gprFactPercent: number; tmcSupplyPercent: number },
+  dropThresholdPp: number = GPR_TMC_DYNAMICS_SEGMENT_DROP_PP,
+): { insight: GprTmcDynamicsInsight; insightLabel: string } {
+  const tmcDelta = Math.round((cur.tmcSupplyPercent - prev.tmcSupplyPercent) * 10) / 10;
+  const gprDelta = Math.round((cur.gprFactPercent - prev.gprFactPercent) * 10) / 10;
+
+  if (tmcDelta < -dropThresholdPp && tmcDelta < gprDelta - 0.5) {
+    return {
+      insight: "tmc_deficit_likely",
+      insightLabel: "Вероятное влияние дефицита ТМЦ",
+    };
+  }
+
+  if (
+    gprDelta < -dropThresholdPp &&
+    cur.tmcSupplyPercent >= cur.gprFactPercent &&
+    tmcDelta >= gprDelta
+  ) {
+    return {
+      insight: "cause_not_tmc_likely",
+      insightLabel: "Причина вероятно не связана с ТМЦ",
+    };
+  }
+
+  return { insight: "none", insightLabel: "" };
+}
+
+function tmcItemsForForecastPart(items: TMCItem[], part: ForecastPart): TMCItem[] {
+  if (part === "project") {
+    return items.filter((i) => i.projectPart === "residential" || i.projectPart === "parking");
+  }
+  return filterTmcByProjectPart(items, part);
+}
+
+function partTimelineBoundsGprTmcSupply(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  part: ForecastPart,
+  todayIso: string,
+): { startIso: string; endIso: string } | null {
+  const scopedTasks = tasksForForecastPart(tasks, part);
+  const scopedTmc = tmcItemsForForecastPart(tmcItems, part);
+  let minS: string | null = null;
+  let maxE: string | null = null;
+
+  const consider = (iso: string | null | undefined) => {
+    const s = iso?.trim();
+    if (!s) return;
+    if (!minS || s < minS) minS = s;
+    if (!maxE || s > maxE) maxE = s;
+  };
+
+  for (const t of scopedTasks) {
+    consider(t.planStart);
+    consider(t.planEnd);
+    consider(t.factStart);
+    consider(t.factEnd);
+  }
+  for (const item of scopedTmc) {
+    consider(item.supplyPlanDate);
+    consider(item.supplyFactDate);
+    consider(item.contractPlanDate);
+    consider(item.contractFactDate);
+  }
+
+  if (!minS || !maxE) {
+    const roots = partPlanBounds(scopedTasks, part);
+    if (!roots) return null;
+    minS = roots.startIso;
+    maxE = roots.endIso;
+  }
+
+  if (todayIso > maxE) maxE = todayIso;
+  return { startIso: minS, endIso: maxE };
+}
+
+function formatGprTimelineMonthShortLabel(monthMs: number, spanYears: number): string {
+  const d = new Date(monthMs);
+  const short = TIMELINE_MONTH_SHORT_RU[d.getMonth()] ?? "";
+  if (spanYears <= 1) return short;
+  return `${short} ${String(d.getFullYear()).slice(-2)}`;
+}
+
+const TIMELINE_MONTH_FULL_RU = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+] as const;
+
+/** Минимальная дата старта проекта по задачам ГПР. */
+export function resolveGprProjectStartIso(tasks: GPRTask[], part: ForecastPart): string | null {
+  const scopedTasks = tasksForForecastPart(tasks, part);
+  let minStart: string | null = null;
+  for (const task of scopedTasks) {
+    for (const iso of [task.planStart, task.factStart]) {
+      const value = iso?.trim();
+      if (!value) continue;
+      if (!minStart || value < minStart) minStart = value;
+    }
+  }
+  return minStart;
+}
+
+/** Максимальная дата окончания проекта по задачам ГПР. */
+export function resolveGprProjectEndIso(tasks: GPRTask[], part: ForecastPart): string | null {
+  const scopedTasks = tasksForForecastPart(tasks, part);
+  let maxEnd: string | null = null;
+  for (const task of scopedTasks) {
+    for (const iso of [task.planEnd, task.factEnd]) {
+      const value = iso?.trim();
+      if (!value) continue;
+      if (!maxEnd || value > maxEnd) maxEnd = value;
+    }
+  }
+  return maxEnd;
+}
+
+/** Индекс месяца проекта: 1 = месяц, содержащий дату старта ГПР. */
+export function computeGprProjectMonthIndex(projectStartIso: string, monthMs: number): number {
+  const start = new Date(`${projectStartIso.slice(0, 7)}-01T12:00:00`);
+  const current = new Date(monthMs);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(current.getTime())) return 1;
+  const diff =
+    (current.getFullYear() - start.getFullYear()) * 12 + (current.getMonth() - start.getMonth());
+  return Math.max(1, diff + 1);
+}
+
+export function formatGprProjectMonthCode(monthIndex: number): string {
+  return `М${monthIndex}`;
+}
+
+/** Подпись оси X: «М7» при длинной шкале, иначе «7 месяц». */
+export function formatGprProjectMonthAxisLabel(monthIndex: number, pointCount: number): string {
+  if (pointCount > 12) return formatGprProjectMonthCode(monthIndex);
+  const mod10 = monthIndex % 10;
+  const mod100 = monthIndex % 100;
+  const noun =
+    mod10 === 1 && mod100 !== 11
+      ? "месяц"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "месяца"
+        : "месяцев";
+  return `${monthIndex} ${noun}`;
+}
+
+export function formatGprTimelineCalendarPeriod(monthMs: number): string {
+  const d = new Date(monthMs);
+  const monthName = TIMELINE_MONTH_FULL_RU[d.getMonth()] ?? "";
+  return `${monthName} ${d.getFullYear()}`.trim();
+}
+
+/** Подпись оси X: «Ноя'25». */
+export function formatGprTimelineMonthAxisLabel(monthMs: number): string {
+  const d = new Date(monthMs);
+  const short = TIMELINE_MONTH_SHORT_RU[d.getMonth()] ?? "";
+  const year = String(d.getFullYear()).slice(-2);
+  return `${short}'${year}`;
+}
+
+/** Помесячная динамика факта ГПР и обеспеченности ТМЦ проекта. */
+export function buildGprTmcSupplyTimelineModel(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+  activeProjectPart: ForecastPart,
+): GprTmcSupplyTimelineModel | null {
+  const scopedTasks = tasksForForecastPart(tasks, activeProjectPart);
+  const projectStartIso = resolveGprProjectStartIso(tasks, activeProjectPart);
+  const projectEndIso = resolveGprProjectEndIso(tasks, activeProjectPart);
+  if (!projectStartIso || !projectEndIso) return null;
+
+  const scopedTmc = tmcItemsForForecastPart(tmcItems, activeProjectPart);
+  const todayMs = dateToMs(todayIso);
+  const startYear = new Date(dateToMs(projectStartIso)).getFullYear();
+  const endYear = new Date(dateToMs(projectEndIso)).getFullYear();
+  const spanYears = endYear - startYear + 1;
+  const monthMsList = eachMonthStartMs(projectStartIso, projectEndIso);
+  if (monthMsList.length === 0) return null;
+
+  const points: GprTmcSupplyTimelinePoint[] = [];
+  for (const monthMs of monthMsList) {
+    const axisMonthLabel = formatGprTimelineMonthAxisLabel(monthMs);
+    const calendarPeriodLabel = formatGprTimelineCalendarPeriod(monthMs);
+    const monthIndex = computeGprProjectMonthIndex(projectStartIso, monthMs);
+
+    if (monthMs > todayMs) {
+      points.push({
+        monthKey: msToIso(monthMs).slice(0, 7),
+        axisMonthLabel,
+        calendarPeriodLabel,
+        monthIndex,
+        projectMonthCode: formatGprProjectMonthCode(monthIndex),
+        monthLabel: formatGprTimelineMonthShortLabel(monthMs, spanYears),
+        monthMs,
+        gprFactPercent: null,
+        tmcSupplyPercent: null,
+        weightedDeficitPercent: null,
+        differencePp: null,
+      });
+      continue;
+    }
+
+    const monthEndIso = endOfMonthIso(monthMs);
+    const asOfIso = monthEndIso > todayIso ? todayIso : monthEndIso;
+    const monthKey = asOfIso.slice(0, 7);
+    const gprFact = weightedFactGprAllTasksAtDate(scopedTasks, asOfIso, todayIso);
+    const weightedDeficit = computeWeightedMaterialDeficitPercentAtDate(
+      scopedTmc,
+      asOfIso,
+      todayIso,
+    );
+    const tmcSupply = Math.round((100 - weightedDeficit) * 10) / 10;
+    const differencePp =
+      gprFact != null ? Math.round((gprFact - tmcSupply) * 10) / 10 : null;
+
+    points.push({
+      monthKey,
+      axisMonthLabel,
+      calendarPeriodLabel,
+      monthIndex,
+      projectMonthCode: formatGprProjectMonthCode(monthIndex),
+      monthLabel: formatGprTimelineMonthShortLabel(monthMs, spanYears),
+      monthMs,
+      gprFactPercent: gprFact,
+      tmcSupplyPercent: tmcSupply,
+      weightedDeficitPercent: weightedDeficit,
+      differencePp,
+    });
+  }
+
+  const dataPoints = points.filter((p) => p.gprFactPercent != null);
+  if (dataPoints.length === 0) return null;
+
+  const segments: GprTmcSupplyTimelineSegment[] = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+    if (prev.gprFactPercent == null || cur.gprFactPercent == null) continue;
+    if (prev.tmcSupplyPercent == null || cur.tmcSupplyPercent == null) continue;
+    const { insight, insightLabel } = resolveGprTmcDynamicsSegmentInsight(
+      { gprFactPercent: prev.gprFactPercent, tmcSupplyPercent: prev.tmcSupplyPercent },
+      { gprFactPercent: cur.gprFactPercent, tmcSupplyPercent: cur.tmcSupplyPercent },
+    );
+    if (insight === "none") continue;
+    segments.push({
+      fromMonthKey: prev.monthKey,
+      toMonthKey: cur.monthKey,
+      fromMonthIndex: prev.monthIndex,
+      toMonthIndex: cur.monthIndex,
+      insight,
+      insightLabel,
+    });
+  }
+
+  const firstData = dataPoints[0]!;
+  const lastData = dataPoints[dataPoints.length - 1]!;
+
+  return {
+    projectStartIso,
+    projectEndIso,
+    chartMonthFromLabel: firstData.calendarPeriodLabel,
+    chartMonthToLabel: lastData.calendarPeriodLabel,
+    todayIso,
+    todayMs,
+    points,
+    segments,
+  };
+}
+
+export function buildGprTmcSupplyTimelineModelProjectWide(
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  todayIso: string,
+): GprTmcSupplyTimelineModel | null {
+  return buildGprTmcSupplyTimelineModel(tasks, tmcItems, todayIso, "project");
 }
 
 export type GprTenderDependencyPoint = {

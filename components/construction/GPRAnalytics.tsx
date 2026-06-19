@@ -13,12 +13,15 @@ import {
   filterGprTasksByObjectScope,
   filterZhDomPlanFactTasksTo205Branch,
   flattenTasks,
+  formatGprManagementScheduleDeviationDays,
   formatGprScheduleDeviationDisplayDays,
+  computeGprTaskScheduleDeviations,
   getActualProgressPercent,
   getPlannedProgressPercent,
   getProjectStats,
   getStatusByDeviation,
   getStatusByGprProgressDelta,
+  getStatusByManagementScheduleDeviation,
   gprTaskScheduleDeviationDisplayDays,
   gprWbsLevelFromCode,
   matchesGprCodeBranch,
@@ -126,7 +129,11 @@ import {
   findGprCsvRootTask,
   resolveStageCardRootTasks,
 } from "@/lib/gprAggregateRoots";
-import { buildGprScheduleDeviationInsight } from "@/lib/gprScheduleDeviationInsight";
+import {
+  buildGprScheduleDeviationInsight,
+  formatGprStageDeviationDisplay,
+  formatGprStageDurationDays,
+} from "@/lib/gprScheduleDeviationInsight";
 import {
   CartesianGrid,
   Cell,
@@ -696,29 +703,31 @@ function stageDeviationStatusColor(status: Traffic | "green" | "yellow" | "red" 
   return COLORS.gray;
 }
 
+function formatManagementDeviationInline(value: number | null): string {
+  return formatGprManagementScheduleDeviationDays(value);
+}
+
 function stageDeviationRowTooltip(
-  deviation: number | null,
+  startDeviation: number | null,
+  finishDeviation: number | null,
+  durationDeviation: number | null,
   factDuration: number | null,
   planDuration: number | null,
   clipped: boolean,
 ): string {
   const lines: string[] = [];
-  if (deviation !== null) {
-    const abs = Math.abs(Math.round(deviation));
-    const sign = deviation > 0 ? "+" : deviation < 0 ? "−" : "";
-    lines.push(`Отклонение: ${sign}${abs} ${russianDaysWord(abs)}`);
-  } else {
-    lines.push("Отклонение: нет данных");
-  }
+  lines.push(`Старт: ${formatManagementDeviationInline(startDeviation)}`);
+  lines.push(`Финиш: ${formatManagementDeviationInline(finishDeviation)}`);
+  lines.push(`Длительность: ${formatManagementDeviationInline(durationDeviation)}`);
   if (factDuration != null) {
-    lines.push(`Факт: ${factDuration} ${russianDaysWord(factDuration)}`);
+    lines.push(`Факт (длит.): ${factDuration} ${russianDaysWord(factDuration)}`);
   } else {
-    lines.push("Факт: —");
+    lines.push("Факт (длит.): —");
   }
   if (planDuration != null) {
-    lines.push(`План: ${planDuration} ${russianDaysWord(planDuration)}`);
+    lines.push(`План (длит.): ${planDuration} ${russianDaysWord(planDuration)}`);
   } else {
-    lines.push("План: —");
+    lines.push("План (длит.): —");
   }
   if (clipped) {
     lines.push("Значение выходит за пределы отображаемой шкалы.");
@@ -810,12 +819,22 @@ function StageDeviationTaskHoverCard({
   );
 }
 
+/** Сетка карточки этапа: компактная левая колонка, график по центру, метрики справа. */
+const STAGE_DEVIATION_CARD_GRID = "md:grid-cols-[260px_minmax(0,1fr)_180px]";
+/** Строки: title · status · plan · fact */
+const STAGE_DEVIATION_CARD_ROWS = "md:grid-rows-[auto_auto_auto_auto]";
+
+/** Подпись поля в карточке этапа. */
+const STAGE_DEVIATION_FIELD_LABEL = "text-[11px] leading-[18px] text-slate-500";
+const STAGE_DEVIATION_FIELD_VALUE = "text-[11px] leading-[18px] tabular-nums text-slate-300";
+
 function StageDeviationScaleRow({
   task,
   asOf,
   tmcItems,
-  deviation,
-  endDelay,
+  durationDeviation,
+  startDeviation,
+  finishDeviation,
   factDuration,
   planDuration,
   scaleMax,
@@ -823,8 +842,9 @@ function StageDeviationScaleRow({
   task: GPRTask;
   asOf: Date;
   tmcItems: TMCItem[];
-  deviation: number | null;
-  endDelay: number | null;
+  durationDeviation: number | null;
+  startDeviation: number | null;
+  finishDeviation: number | null;
   factDuration: number | null;
   planDuration: number | null;
   scaleMax: number;
@@ -840,24 +860,28 @@ function StageDeviationScaleRow({
   useEffect(() => {
     setPortalMounted(true);
   }, []);
-  const status: Traffic = endDelay === null ? "gray" : (getStatusByDeviation(endDelay) as Traffic);
+  const status: Traffic =
+    durationDeviation === null
+      ? "gray"
+      : (getStatusByManagementScheduleDeviation(durationDeviation) as Traffic);
   const color = stageDeviationStatusColor(status);
-  const raw = deviation ?? 0;
-  const clipped = deviation !== null && Math.abs(raw) > scaleMax;
+  const raw = durationDeviation ?? 0;
+  const clipped = durationDeviation !== null && Math.abs(raw) > scaleMax;
   const normalized =
-    deviation === null ? 0 : raw > scaleMax ? scaleMax : raw < -scaleMax ? -scaleMax : raw;
+    durationDeviation === null ? 0 : raw > scaleMax ? scaleMax : raw < -scaleMax ? -scaleMax : raw;
   const percent = scaleMax > 0 ? normalized / scaleMax : 0;
   const dotLeftPct = 50 + percent * 50;
   const minLeft = Math.min(50, dotLeftPct);
   const barWidth = Math.abs(dotLeftPct - 50);
-  const deviationLabel =
-    deviation === null
-      ? "—"
-      : `${formatGprScheduleDeviationDisplayDays(deviation)}${clipped ? " →" : ""}`;
+  const deviationDisplay = formatGprStageDeviationDisplay(durationDeviation);
 
   return (
-    <div className="grid grid-cols-12 items-start gap-3 rounded-xl border border-slate-700/60 bg-slate-900/20 p-3 transition-colors hover:border-slate-600/70 hover:bg-slate-900/30">
-      <div className="col-span-12 min-w-0 md:col-span-4">
+    <div
+      className={`grid grid-cols-1 gap-3 rounded-xl border border-slate-700/60 bg-slate-900/20 p-3 transition-colors hover:border-slate-600/70 hover:bg-slate-900/30 md:col-span-full md:grid-cols-subgrid md:items-start md:gap-x-3 md:gap-y-1 md:py-3 md:pl-3 md:pr-3 ${STAGE_DEVIATION_CARD_ROWS}`}
+      aria-label={`${taskName}: отклонение по срокам`}
+    >
+      {/* row 1 · col 1 — название */}
+      <div className="min-w-0 md:col-start-1 md:row-start-1">
         <span
           className="block cursor-help break-words text-sm font-semibold leading-snug text-slate-100 underline decoration-slate-600/80 decoration-dotted underline-offset-[3px] hover:text-sky-100"
           onMouseEnter={(e) => setHoverPointer({ x: e.clientX, y: e.clientY })}
@@ -871,22 +895,6 @@ function StageDeviationScaleRow({
         >
           {taskName}
         </span>
-        <div className="mt-2 space-y-1.5">
-          <span className={insight.badge.className}>
-            <span aria-hidden>{insight.badge.icon}</span>
-            {insight.badge.label}
-          </span>
-          <div className="space-y-0.5 text-[11px] leading-snug text-slate-400">
-            <div>
-              <span className="text-slate-500">План: </span>
-              <span className="tabular-nums text-slate-300">{insight.planRangeInline}</span>
-            </div>
-            <div>
-              <span className="text-slate-500">Факт: </span>
-              <span className="tabular-nums text-slate-300">{insight.factRangeInline}</span>
-            </div>
-          </div>
-        </div>
         {portalMounted && hoverPointer ? (
           <StageDeviationTaskHoverCard
             task={task}
@@ -896,14 +904,57 @@ function StageDeviationScaleRow({
           />
         ) : null}
       </div>
+
+      {/* row 2 · col 1 — статус */}
+      <div className="md:col-start-1 md:row-start-2">
+        <span className={insight.badge.className}>
+          <span aria-hidden>{insight.badge.icon}</span>
+          {insight.badge.label}
+        </span>
+      </div>
+
+      {/* row 3 · col 1 — план (даты) */}
+      <div className="md:col-start-1 md:row-start-3">
+        <div className={STAGE_DEVIATION_FIELD_LABEL}>План:</div>
+        <div className={STAGE_DEVIATION_FIELD_VALUE}>{insight.planRangeInline}</div>
+      </div>
+
+      {/* row 3 · col 3 — плановая длительность */}
+      <div className="text-right md:col-start-3 md:row-start-3">
+        <div className={STAGE_DEVIATION_FIELD_LABEL}>Плановая длительность:</div>
+        <div className={STAGE_DEVIATION_FIELD_VALUE}>{formatGprStageDurationDays(planDuration)}</div>
+      </div>
+
+      {/* row 4 · col 1 — факт (даты) */}
+      <div className="md:col-start-1 md:row-start-4">
+        <div className={STAGE_DEVIATION_FIELD_LABEL}>Факт:</div>
+        <div className={STAGE_DEVIATION_FIELD_VALUE}>{insight.factRangeInline}</div>
+      </div>
+
+      {/* row 4 · col 3 — фактическая длительность */}
+      <div className="text-right md:col-start-3 md:row-start-4">
+        <div className={STAGE_DEVIATION_FIELD_LABEL}>Фактическая длительность:</div>
+        <div className={`${STAGE_DEVIATION_FIELD_VALUE} text-slate-200`}>
+          {formatGprStageDurationDays(factDuration)}
+        </div>
+      </div>
+
+      {/* col 2 · rows 1–4 — шкала отклонения */}
       <div
-        className="col-span-12 md:col-span-5"
-        title={stageDeviationRowTooltip(deviation, factDuration, planDuration, clipped)}
+        className="min-w-0 w-full self-center md:col-start-2 md:row-span-4 md:row-start-1 md:px-2"
+        title={stageDeviationRowTooltip(
+          startDeviation,
+          finishDeviation,
+          durationDeviation,
+          factDuration,
+          planDuration,
+          clipped,
+        )}
       >
         <div className="relative h-10 w-full max-w-full overflow-visible px-2 sm:px-4">
           <div className="absolute left-0 right-0 top-[calc(50%+6px)] -translate-y-1/2 border-t border-white/10" />
           <div className="absolute left-1/2 top-[calc(50%+6px)] h-4 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded bg-white/30" />
-          {deviation !== null ? (
+          {durationDeviation !== null ? (
             <>
               <div
                 className="absolute top-[calc(50%+6px)] h-px -translate-y-1/2"
@@ -926,22 +977,6 @@ function StageDeviationScaleRow({
                   aria-hidden
                 />
               </div>
-              {/*
-                Подпись отклонения позиционируется относительно
-                контейнера шкалы (а не маркера), чтобы оставаться
-                строго внутри области шкалы. Горизонтально:
-                  • при значениях вблизи краёв шкалы (≈ ±20 / ≤8% / ≥92%)
-                    подпись прижимается к соответствующей границе шкалы
-                    (`left: 0` / `right: 0`) — текст уходит «внутрь»,
-                    а маркер остаётся на своей позиции;
-                  • в остальных случаях подпись центрируется над маркером
-                    (`left: dotLeftPct%` + `translateX(-50%)`).
-                Вертикально: `bottom-6` даёт фиксированный отступ 4 px
-                между низом подписи и верхом точки, при этом подпись
-                полностью находится внутри h-10-контейнера шкалы и не
-                пересекает строки с названием работы (они в другой
-                grid-колонке).
-              */}
               <span
                 className="absolute bottom-6 whitespace-nowrap text-xs font-bold tabular-nums leading-none"
                 style={{
@@ -953,7 +988,8 @@ function StageDeviationScaleRow({
                       : { left: `${dotLeftPct}%`, transform: "translateX(-50%)" }),
                 }}
               >
-                {deviationLabel}
+                {deviationDisplay}
+                {clipped ? " →" : ""}
               </span>
             </>
           ) : (
@@ -961,16 +997,6 @@ function StageDeviationScaleRow({
               —
             </span>
           )}
-        </div>
-      </div>
-      <div className="col-span-12 space-y-0.5 text-right text-xs leading-snug md:col-span-3">
-        <div className="tabular-nums text-slate-200">
-          <span className="text-slate-500">Факт: </span>
-          {factDuration != null ? `${factDuration} дн.` : "—"}
-        </div>
-        <div className="tabular-nums text-slate-400">
-          <span className="text-slate-500">План: </span>
-          {planDuration != null ? `${planDuration} дн.` : "—"}
         </div>
       </div>
     </div>
@@ -3823,25 +3849,31 @@ export function GPRAnalytics({
           const devRows = flatTasks
             .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
             .map((t) => {
-              const endDelay = planFactEndDeviationDays(t.planEnd, t.factEnd, gprReportAsOf);
-              const deviation = gprTaskScheduleDeviationDisplayDays(t, gprReportAsOf);
-              const planDuration = daysInclusive(t.planStart, t.planEnd);
-              const factDuration = t.factStart && t.factEnd ? daysInclusive(t.factStart, t.factEnd) : null;
+              const schedule = computeGprTaskScheduleDeviations(t, gprReportAsOf);
               const group = inferGroup(t);
-              return { task: t, deviation, endDelay, planDuration, factDuration, group };
+              return {
+                task: t,
+                deviation: schedule.durationDeviation,
+                startDeviation: schedule.startDeviation,
+                finishDeviation: schedule.finishDeviation,
+                durationDeviation: schedule.durationDeviation,
+                planDuration: schedule.planDuration,
+                factDuration: schedule.actualDuration,
+                group,
+              };
             });
 
           const groupCards = allowedGroupKeys
             .map((g) => {
               const rows = devRows.filter((r) => r.group === g);
-              const withDev = rows.filter((r) => r.deviation !== null) as Array<
-                (typeof rows)[number] & { deviation: number }
+              const withDev = rows.filter((r) => r.durationDeviation !== null) as Array<
+                (typeof rows)[number] & { durationDeviation: number }
               >;
               const avg = withDev.length
-                ? withDev.reduce((sum, r) => sum + r.deviation, 0) / withDev.length
+                ? withDev.reduce((sum, r) => sum + r.durationDeviation, 0) / withDev.length
                 : 0;
               const critical = withDev.filter(
-                (r) => r.endDelay !== null && getStatusByDeviation(r.endDelay) === "red",
+                (r) => getStatusByManagementScheduleDeviation(r.durationDeviation) === "red",
               ).length;
               const label = gprStageDisplayTitle(tasksForActivePart, g);
               return {
@@ -3868,18 +3900,18 @@ export function GPRAnalytics({
                   {groupCards.map((g) => {
                     const activeCard = activeGroup === g.key;
                     const stageCardTone: "green" | "red" | "gray" =
-                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg < 0 ? "red" : "green";
+                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
                     const avgColor =
                       g.withDevCount === 0 || g.avg === 0
                         ? "#e2e8f0"
-                        : g.avg < 0
+                        : g.avg > 0
                           ? COLORS.red
                           : COLORS.green;
                     const avgText =
                       g.withDevCount === 0
                         ? "—"
-                        : formatGprScheduleDeviationDisplayDays(g.avg, { decimals: true });
-                    const iconIsLate = g.withDevCount > 0 && g.avg < 0;
+                        : formatGprManagementScheduleDeviationDays(g.avg, { decimals: true });
+                    const iconIsLate = g.withDevCount > 0 && g.avg > 0;
                     const iconShellClass = iconIsLate
                       ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
                       : "text-[#22c55e] bg-[rgba(34,197,94,0.12)] shadow-[0_0_20px_rgba(34,197,94,0.25)]";
@@ -3910,7 +3942,7 @@ export function GPRAnalytics({
                           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-0">
                             <div className="min-w-0 flex-1">
                               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                                Среднее отклонение
+                                Среднее отклонение длительности
                               </div>
                               <div
                                 className="value mt-1 text-2xl font-bold leading-tight tabular-nums"
@@ -3971,15 +4003,18 @@ export function GPRAnalytics({
                       </div>
                     </div>
 
-                    <div className="relative z-10 mt-3 space-y-3">
+                    <div
+                      className={`relative z-10 mt-3 space-y-3 md:grid md:gap-x-3 md:gap-y-3 md:space-y-0 ${STAGE_DEVIATION_CARD_GRID}`}
+                    >
                       {active.rows.map((r, i) => (
                         <StageDeviationScaleRow
                           key={`dev-line-${active.key}-${r.task.id}-${i}`}
                           task={r.task}
                           asOf={gprReportAsOf}
                           tmcItems={tmcItemsForPart}
-                          deviation={r.deviation}
-                          endDelay={r.endDelay}
+                          durationDeviation={r.durationDeviation}
+                          startDeviation={r.startDeviation}
+                          finishDeviation={r.finishDeviation}
                           factDuration={r.factDuration}
                           planDuration={r.planDuration}
                           scaleMax={scaleMax}

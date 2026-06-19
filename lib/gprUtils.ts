@@ -273,6 +273,107 @@ export function gprTaskScheduleDeviationDisplayDays(
   return gprScheduleDeviationDisplayDays(task.planEnd, task.factEnd, asOf);
 }
 
+export type GprTaskScheduleDeviations = {
+  /** factStart − planStart (+ = поздний старт). */
+  startDeviation: number | null;
+  /** factFinish − planFinish (+ = позднее завершение). */
+  finishDeviation: number | null;
+  /** actualDuration − plannedDuration (+ = дольше плана). */
+  durationDeviation: number | null;
+  planDuration: number | null;
+  actualDuration: number | null;
+};
+
+/**
+ * Отклонение старта (календарные дни): factStart − planStart.
+ * Если фактического старта нет и плановый старт уже прошёл — today − planStart.
+ */
+export function planFactStartDeviationDays(
+  planStart: string | null | undefined,
+  factStart: string | null | undefined,
+  asOf: Date = new Date(),
+): number | null {
+  const ps = parseDate(planStart ?? undefined);
+  if (!ps) return null;
+  const fs = parseDate(factStart ?? undefined);
+  const planDay = startOfLocalDay(ps);
+  if (fs) {
+    return Math.round((startOfLocalDay(fs) - planDay) / MS_PER_DAY);
+  }
+  const today = startOfLocalDay(asOf);
+  if (today <= planDay) return null;
+  return Math.round((today - planDay) / MS_PER_DAY);
+}
+
+/** Сводные отклонения этапа ГПР для блока «Отклонения по этапам» (+ = отставание). */
+export function computeGprTaskScheduleDeviations(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): GprTaskScheduleDeviations {
+  const planDurRaw = durationDays(task.planStart, task.planEnd);
+  const planDuration = Number.isFinite(planDurRaw) ? planDurRaw : null;
+
+  const startDeviation = task.planStart?.trim()
+    ? planFactStartDeviationDays(task.planStart, task.factStart, asOf)
+    : null;
+  const finishDeviation = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+
+  let actualDuration: number | null = null;
+  let durationDeviation: number | null = null;
+  if (task.factStart?.trim() && task.factEnd?.trim()) {
+    const actualRaw = durationDays(task.factStart, task.factEnd);
+    if (Number.isFinite(actualRaw)) {
+      actualDuration = actualRaw;
+      if (planDuration !== null) {
+        durationDeviation = actualRaw - planDuration;
+      }
+    }
+  }
+
+  return {
+    startDeviation,
+    finishDeviation,
+    durationDeviation,
+    planDuration,
+    actualDuration,
+  };
+}
+
+/** Форматирование отклонения: + = отставание, − = опережение (управленческая интерпретация). */
+export function formatGprManagementScheduleDeviationDays(
+  d: number | null,
+  opts?: { decimals?: boolean },
+): string {
+  if (d === null) return "—";
+  const rounded =
+    opts?.decimals === true ? Math.round(d * 10) / 10 : Math.round(d);
+  if (rounded === 0) return "0 дн.";
+  const sign = rounded > 0 ? "+" : "";
+  const body =
+    opts?.decimals === true && !Number.isInteger(rounded)
+      ? rounded.toFixed(1).replace(/\.0$/, "")
+      : String(rounded);
+  return `${sign}${body} дн.`;
+}
+
+/** Светофор по управленческому отклонению в днях (+ = отставание). */
+export function getStatusByManagementScheduleDeviation(
+  deviation: number,
+): "green" | "yellow" | "red" {
+  return getStatusByDeviation(deviation);
+}
+
+/** Цвет отклонения длительности (+ = красный/оранжевый, − = зелёный). */
+export function gprManagementScheduleDeviationColor(deviation: number | null): string {
+  if (deviation === null) return "#64748b";
+  if (deviation === 0) return "#94a3b8";
+  if (deviation < 0) return "#22c55e";
+  const st = getStatusByManagementScheduleDeviation(deviation);
+  if (st === "red") return "#ef4444";
+  if (st === "yellow") return "#f97316";
+  return "#22c55e";
+}
+
 /** Форматирование отклонения по сроку (отриц. — отставание, положит. — опережение). */
 export function formatGprScheduleDeviationDisplayDays(
   d: number | null,
