@@ -1,9 +1,13 @@
 import {
+  compareGprCodesByNumericPath,
+  getCalendarFactProgressPercent,
   getPlannedProgressPercent,
   gprTaskFactCompletionPercent,
+  matchesGprCodeBranch,
   normalizeGprCodeFinal,
-  durationDays,
+  partIdToProjectPartKey,
   type GPRTask,
+  type ProjectPartKey,
 } from "@/lib/gprUtils";
 
 export type GprStageCompletionSource = "leaf_rollup" | "descendant_rollup" | "root_field";
@@ -22,18 +26,76 @@ export type GprStageCompletionInsight = {
   tooltipText: string;
 };
 
-function roundProgress(n: number): number {
-  return Math.round(n * 10) / 10;
+/** Нет фактических данных для KPI «Факт выполнения» (как в карточке этапа). */
+export function isGprStageFactCompletionNoData(
+  insight: Pick<
+    GprStageCompletionInsight,
+    "factPercent" | "workInProgress" | "workCompleted" | "workWithFactDates"
+  >,
+): boolean {
+  const progressClamped = Math.max(0, Math.min(100, Math.round(insight.factPercent * 10) / 10));
+  return (
+    progressClamped === 0 &&
+    insight.workInProgress === 0 &&
+    insight.workCompleted === 0 &&
+    insight.workWithFactDates === 0
+  );
 }
 
-function rollupWeight(task: GPRTask): number {
-  const vol = task.plannedWorkVolume;
-  if (typeof vol === "number" && Number.isFinite(vol) && vol > 0) return vol;
-  const rub = task.contractValue;
-  if (typeof rub === "number" && Number.isFinite(rub) && rub > 0) return rub;
-  const planD = durationDays(task.planStart, task.planEnd);
-  if (planD !== null && planD > 0) return planD;
-  return 0;
+/** Формат числа «Факт выполнения» (левая часть «20,4% из …» в KPI-карточке). */
+export function formatGprStageFactPercentValue(factPercent: number): string {
+  const progressClamped = Math.max(0, Math.min(100, Math.round(factPercent * 10) / 10));
+  if (Math.abs(progressClamped - Math.round(progressClamped)) < 1e-6) {
+    return `${Math.round(progressClamped)}%`;
+  }
+  return `${progressClamped.toFixed(1)}%`;
+}
+
+/** Подпись «Факт выполнения» для KPI и диаграммы «Динамика выполнения ГПР». */
+export function formatGprStageKpiFactDisplay(insight: GprStageCompletionInsight): string {
+  if (isGprStageFactCompletionNoData(insight)) return "—";
+  return formatGprStageFactPercentValue(insight.factPercent);
+}
+
+export type GprStageCompletionDiagnosticTask = {
+  code: string;
+  name: string;
+  planEnd: string | null;
+};
+
+export type GprStageCompletionDiagnostic = {
+  rootCode: string;
+  source: GprStageCompletionSource;
+  totalTasks: number;
+  completedTasks: number;
+  plannedCompletedTasks: number;
+  factPercent: number;
+  planPercent: number | null;
+  plannedCompletedTaskList: GprStageCompletionDiagnosticTask[];
+};
+
+export type GprStageKpiTaskDiagnosticRow = {
+  code: string;
+  name: string;
+  isLeaf: boolean;
+  partId: number;
+  projectPartKey: ProjectPartKey;
+};
+
+export type GprStage205KpiDiagnostic = {
+  rootCode: string;
+  source: GprStageCompletionSource;
+  totalTasks: number;
+  completedTasks: number;
+  allRowsUnder205: number;
+  leafRowsUnder205: number;
+  rowsUsedInKpi: number;
+  kpiTaskRows: GprStageKpiTaskDiagnosticRow[];
+  rowsUsedInKpiCodes: string[];
+};
+
+function roundProgress(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 function tasksUnderRootCode(tasks: GPRTask[], rootCode: string): GPRTask[] {
@@ -53,53 +115,47 @@ function isLeafAmong(task: GPRTask, group: GPRTask[]): boolean {
   });
 }
 
+export function isGprTaskFactCompleted(task: GPRTask): boolean {
+  return Boolean(task.factEnd?.trim()) || gprTaskFactCompletionPercent(task) >= 100;
+}
+
+export function isGprTaskPlanCompleteByDate(task: GPRTask, asOf: Date): boolean {
+  const plan = getPlannedProgressPercent(task, asOf);
+  return plan !== null && plan >= 100;
+}
+
+/** План % по набору работ: среднее календарных planPercent по всем работам. */
+export function computeGprTasksPlanCompletionPercent(items: GPRTask[], asOf: Date): number | null {
+  if (items.length === 0) return null;
+  let sum = 0;
+  for (const t of items) {
+    sum += getPlannedProgressPercent(t, asOf) ?? 0;
+  }
+  return roundProgress(sum / items.length);
+}
+
+/** Факт % по набору работ: среднее календарных factPercent по всем работам. */
+export function computeGprTasksFactCompletionPercent(items: GPRTask[], asOf: Date = new Date()): number | null {
+  if (items.length === 0) return null;
+  let sum = 0;
+  for (const t of items) {
+    sum += getCalendarFactProgressPercent(t, asOf);
+  }
+  return roundProgress(sum / items.length);
+}
+
+/** Отклонение готовности: факт − план (п.п.), календарный метод по средним работ. */
+export function computeGprTasksCompletionDeviation(items: GPRTask[], asOf: Date): number | null {
+  const fact = computeGprTasksFactCompletionPercent(items, asOf);
+  const plan = computeGprTasksPlanCompletionPercent(items, asOf);
+  if (fact === null || plan === null) return null;
+  return roundProgress(fact - plan);
+}
+
 function classifyWorkPhase(task: GPRTask): "completed" | "in_progress" | "not_started" {
-  const c = gprTaskFactCompletionPercent(task);
-  if (task.factEnd?.trim() || c >= 100) return "completed";
-  if (task.factStart?.trim() || c > 0) return "in_progress";
+  if (isGprTaskFactCompleted(task)) return "completed";
+  if (task.factStart?.trim() || gprTaskFactCompletionPercent(task) > 0) return "in_progress";
   return "not_started";
-}
-
-function weightedFactPercent(items: GPRTask[]): number | null {
-  if (items.length === 0) return null;
-  let raws = items.map((t) => rollupWeight(t));
-  const allZero = raws.every((w) => !Number.isFinite(w) || w <= 0);
-  if (allZero) {
-    raws = items.map(() => 1);
-  } else {
-    raws = raws.map((w) => (Number.isFinite(w) && w > 0 ? w : 1));
-  }
-  const sumRaw = raws.reduce((a, b) => a + b, 0);
-  if (sumRaw <= 0) return null;
-  const weighted = items.reduce(
-    (acc, t, i) => acc + ((raws[i] ?? 0) / sumRaw) * gprTaskFactCompletionPercent(t),
-    0,
-  );
-  return roundProgress(weighted);
-}
-
-function weightedPlanPercent(items: GPRTask[], asOf: Date): number | null {
-  if (items.length === 0) return null;
-  let raws = items.map((t) => rollupWeight(t));
-  const allZero = raws.every((w) => !Number.isFinite(w) || w <= 0);
-  if (allZero) {
-    raws = items.map(() => 1);
-  } else {
-    raws = raws.map((w) => (Number.isFinite(w) && w > 0 ? w : 1));
-  }
-  const sumRaw = raws.reduce((a, b) => a + b, 0);
-  if (sumRaw <= 0) return null;
-  let weighted = 0;
-  let usedWeight = 0;
-  for (let i = 0; i < items.length; i += 1) {
-    const plan = getPlannedProgressPercent(items[i]!, asOf);
-    if (plan === null) continue;
-    const w = (raws[i] ?? 0) / sumRaw;
-    weighted += w * plan;
-    usedWeight += w;
-  }
-  if (usedWeight <= 0) return null;
-  return roundProgress(weighted / usedWeight);
 }
 
 function countWorkStats(items: GPRTask[]): {
@@ -131,16 +187,18 @@ function buildTooltip(
 ): string {
   const lines: string[] = ["Расчёт:"];
   if (insight.source === "root_field") {
-    lines.push(`% выполнения корневой работы ${rootCode} (дочерние работы в данных отсутствуют).`);
+    lines.push(`Календарный метод по корневой работе ${rootCode} (дочерние работы в данных отсутствуют).`);
   } else if (insight.source === "leaf_rollup") {
-    lines.push(
-      "Взвешенное выполнение листьев WBS этапа (объём → стоимость → длительность плана; при отсутствии — равномерно).",
-    );
+    lines.push("Факт и план — среднее календарных % по листьям WBS этапа.");
   } else {
-    lines.push(
-      "Взвешенное выполнение дочерних работ этапа (объём → стоимость → длительность плана).",
-    );
+    lines.push("Факт и план — среднее календарных % по дочерним работам этапа.");
   }
+  lines.push(
+    "План работы: (дата отчёта − planStart) / (planEnd − planStart), ограничение 0..100%.",
+  );
+  lines.push(
+    "Факт работы: (дата отчёта − factStart) / (planEnd − planStart); при factEnd — 100%; без factStart — 0%.",
+  );
   if (insight.workTotal > 0) {
     lines.push(
       `Выполнено: ${insight.workCompleted} из ${insight.workTotal} работ` +
@@ -151,12 +209,13 @@ function buildTooltip(
   const planPart =
     insight.planPercent === null ? "План: —" : `План: ${insight.planPercent}%`;
   lines.push(`Факт: ${insight.factPercent}% · ${planPart}`);
+  lines.push("Отклонение = факт − план.");
   lines.push("Источник данных: импорт ГПР (отчёт Primavera / CSV)");
   return lines.join("\n");
 }
 
 /**
- * Факт выполнения этапа ГПР: rollup по дочерним/листовым работам, иначе поле completion корня.
+ * Факт выполнения этапа ГПР: среднее календарных % по дочерним/листовым работам, иначе по корню.
  * Единая модель для карточек этапов, «Выполнение ГПР» и графиков «Факт ГПР».
  */
 export function computeGprStageCompletionInsight(
@@ -167,30 +226,23 @@ export function computeGprStageCompletionInsight(
   const descendants = tasksUnderRootCode(allTasks, rootTask.code);
   const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
 
-  let factPercent: number;
   let source: GprStageCompletionSource;
   let statsSet: GPRTask[];
 
   if (leaves.length > 0) {
-    factPercent = weightedFactPercent(leaves) ?? gprTaskFactCompletionPercent(rootTask);
     source = "leaf_rollup";
     statsSet = leaves;
   } else if (descendants.length > 0) {
-    factPercent = weightedFactPercent(descendants) ?? gprTaskFactCompletionPercent(rootTask);
     source = "descendant_rollup";
     statsSet = descendants;
   } else {
-    factPercent = gprTaskFactCompletionPercent(rootTask);
     source = "root_field";
     statsSet = [rootTask];
   }
 
-  const planPercent =
-    source === "leaf_rollup"
-      ? weightedPlanPercent(leaves, asOf)
-      : source === "descendant_rollup"
-        ? weightedPlanPercent(descendants, asOf)
-        : getPlannedProgressPercent(rootTask, asOf);
+  const factPercent =
+    computeGprTasksFactCompletionPercent(statsSet, asOf) ?? getCalendarFactProgressPercent(rootTask, asOf);
+  const planPercent = computeGprTasksPlanCompletionPercent(statsSet, asOf);
   const stats = countWorkStats(statsSet);
   const partial = {
     factPercent,
@@ -211,6 +263,106 @@ export function getGprStageWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GP
   if (leaves.length > 0) return leaves;
   if (descendants.length > 0) return descendants;
   return [rootTask];
+}
+
+/** Диагностика расчёта готовности этапа: счётчики и список задач с наступившим плановым окончанием. */
+export function buildGprStageCompletionDiagnostic(
+  allTasks: GPRTask[],
+  rootTask: GPRTask,
+  asOf: Date = new Date(),
+): GprStageCompletionDiagnostic {
+  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const completedItems = workItems.filter(isGprTaskFactCompleted);
+  const plannedCompleteItems = workItems.filter((t) => isGprTaskPlanCompleteByDate(t, asOf));
+
+  const descendants = tasksUnderRootCode(allTasks, rootTask.code);
+  const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+  let source: GprStageCompletionSource;
+  if (leaves.length > 0) source = "leaf_rollup";
+  else if (descendants.length > 0) source = "descendant_rollup";
+  else source = "root_field";
+
+  const plannedCompletedTaskList = plannedCompleteItems
+    .map((t) => ({
+      code: normalizeGprCodeFinal(t.code) || t.code,
+      name: String(t.name ?? "").trim() || "—",
+      planEnd: t.planEnd?.trim() || null,
+    }))
+    .sort((a, b) => compareGprCodesByNumericPath(a.code, b.code));
+
+  return {
+    rootCode: normalizeGprCodeFinal(rootTask.code) || rootTask.code,
+    source,
+    totalTasks: workItems.length,
+    completedTasks: completedItems.length,
+    plannedCompletedTasks: plannedCompleteItems.length,
+    factPercent: computeGprTasksFactCompletionPercent(workItems, asOf) ?? 0,
+    planPercent: computeGprTasksPlanCompletionPercent(workItems, asOf),
+    plannedCompletedTaskList,
+  };
+}
+
+/**
+ * Диагностика KPI этапа 2.05: все строки ветки, листья, набор для rollup и детализация по задачам.
+ */
+export function buildGprStage205KpiDiagnostic(
+  allTasks: GPRTask[],
+  rootTask: GPRTask,
+): GprStage205KpiDiagnostic {
+  const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
+  const allRows = allTasks.filter((t) => matchesGprCodeBranch(t.code, rootCode));
+  const leafRows = allRows.filter((t) => isLeafAmong(t, allRows));
+  const rowsUsedInKpi = getGprStageWorkItems(allTasks, rootTask);
+  const completedItems = rowsUsedInKpi.filter(isGprTaskFactCompleted);
+
+  const descendants = tasksUnderRootCode(allTasks, rootTask.code);
+  const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+  let source: GprStageCompletionSource;
+  if (leaves.length > 0) source = "leaf_rollup";
+  else if (descendants.length > 0) source = "descendant_rollup";
+  else source = "root_field";
+
+  const kpiTaskRows = rowsUsedInKpi
+    .map((t) => ({
+      code: normalizeGprCodeFinal(t.code) || t.code,
+      name: String(t.name ?? "").trim() || "—",
+      isLeaf: isLeafAmong(t, allRows),
+      partId: t.partId,
+      projectPartKey: t.projectPartKey ?? partIdToProjectPartKey(t.partId),
+    }))
+    .sort((a, b) => compareGprCodesByNumericPath(a.code, b.code));
+
+  return {
+    rootCode,
+    source,
+    totalTasks: rowsUsedInKpi.length,
+    completedTasks: completedItems.length,
+    allRowsUnder205: allRows.length,
+    leafRowsUnder205: leafRows.length,
+    rowsUsedInKpi: rowsUsedInKpi.length,
+    kpiTaskRows,
+    rowsUsedInKpiCodes: kpiTaskRows.map((r) => r.code),
+  };
+}
+
+/** Форматированный вывод диагностики KPI этапа 2.05 в консоль браузера. */
+export function logGprStage205KpiDiagnosticToConsole(d: GprStage205KpiDiagnostic): void {
+  console.info(
+    [
+      "[2.05 KPI]",
+      `totalTasks: ${d.totalTasks}`,
+      `completedTasks: ${d.completedTasks}`,
+      `allRowsUnder205: ${d.allRowsUnder205}`,
+      `leafRowsUnder205: ${d.leafRowsUnder205}`,
+      `rowsUsedInKpi: ${d.rowsUsedInKpi}`,
+      `source: ${d.source}`,
+      `rowsUsedInKpiCodes: ${d.rowsUsedInKpiCodes.join(", ") || "—"}`,
+    ].join("\n"),
+  );
+  console.info("[2.05 KPI] tasks in KPI calculation (code, name, isLeaf, partId, projectPartKey):", d.kpiTaskRows);
+  if (d.kpiTaskRows.length > 0) {
+    console.table(d.kpiTaskRows);
+  }
 }
 
 /** Краткий API: факт % этапа (rollup или корень). */

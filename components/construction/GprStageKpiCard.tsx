@@ -92,6 +92,38 @@ function GprKpiSplitCountRow({
   );
 }
 
+/** Подпись «N из M (X%)» — процент всегда из числителя и знаменателя. */
+export function formatGprCompletedShareDisplay(numerator: number, denominator: number): string {
+  if (denominator <= 0) return "—";
+  const pct = Math.round((numerator / denominator) * 1000) / 10;
+  return `${numerator} из ${denominator} (${pct1(pct)})`;
+}
+
+function GprKpiCompletedShareRow({
+  label,
+  numerator,
+  denominator,
+  compact,
+  noDivider,
+}: {
+  label: string;
+  numerator: number;
+  denominator: number;
+  compact?: boolean;
+  noDivider?: boolean;
+}) {
+  const value = formatGprCompletedShareDisplay(numerator, denominator);
+  return (
+    <div className="space-y-1.5">
+      {noDivider ? null : <GprKpiDivider />}
+      <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
+        <div className="mt-2 text-2xl font-extrabold tabular-nums tracking-tight text-white">{value}</div>
+      </div>
+    </div>
+  );
+}
+
 function GprKpiSplitPercentRow({
   label,
   factValue,
@@ -318,7 +350,7 @@ export type GprStageKpiCardProps = {
    * Источник сегментов donut:
    * - workItem — классификация по этапам (по умолчанию);
    * - trafficKpi — четыре KPI-категории: в срок / с риском / просрочено / с опозданием;
-   * - businessKpi — бизнес-статусы: завершено / в процессе / с опозданием / просрочено.
+   * - businessKpi — бизнес-статусы: завершено / в процессе / с опозданием / просрочено / не начато.
    */
   donutStatusVariant?: GprStageKpiDonutStatusVariant;
   factLabel: string;
@@ -334,7 +366,12 @@ export type GprStageKpiCardProps = {
   onTimeCount: number;
   atRiskCount: number;
   overdueCount: number;
+  /** @deprecated Отображение строится из completedShareNumerator / completedShareDenominator. */
   completedSharePct: number;
+  /** Числитель доли выполненных работ (совпадает с расчётом процента). */
+  completedShareNumerator: number;
+  /** Знаменатель доли выполненных работ (совпадает с расчётом процента). */
+  completedShareDenominator: number;
   donutOnTimeCount: number;
   donutRiskCount: number;
   donutOverdueCount: number;
@@ -345,6 +382,7 @@ export type GprStageKpiCardProps = {
   businessInProgressCount?: number;
   businessLateCount?: number;
   businessOverdueCount?: number;
+  businessNotStartedCount?: number;
   problematicSharePct: number;
 };
 
@@ -368,6 +406,8 @@ export function GprStageKpiCard({
   atRiskCount,
   overdueCount,
   completedSharePct,
+  completedShareNumerator,
+  completedShareDenominator,
   donutOnTimeCount,
   donutRiskCount,
   donutOverdueCount,
@@ -377,10 +417,16 @@ export function GprStageKpiCard({
   businessInProgressCount = 0,
   businessLateCount = 0,
   businessOverdueCount = 0,
+  businessNotStartedCount = 0,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
   const wideProjectMetrics = metricsVariant === "projectWide";
+  const completedShareLabel = "Доля выполненных работ";
+  const completedShareDisplay = formatGprCompletedShareDisplay(
+    completedShareNumerator,
+    completedShareDenominator,
+  );
 
   const donutSegments: KpiDonutSegment[] =
     donutStatusVariant === "businessKpi"
@@ -389,6 +435,7 @@ export function GprStageKpiCard({
           { label: "В процессе", value: businessInProgressCount, color: COLORS.cyan },
           { label: "С опозданием", value: businessLateCount, color: COLORS.orange },
           { label: "Просрочено", value: businessOverdueCount, color: COLORS.red },
+          { label: "Не начато", value: businessNotStartedCount, color: COLORS.gray },
         ]
       : donutStatusVariant === "trafficKpi"
       ? [
@@ -418,7 +465,8 @@ export function GprStageKpiCard({
       ? businessCompletedCount +
         businessInProgressCount +
         businessLateCount +
-        businessOverdueCount
+        businessOverdueCount +
+        businessNotStartedCount
       : donutStatusVariant === "trafficKpi"
       ? donutOnTimeCount + donutRiskCount + donutOverdueCount + donutCompletedLateCount
       : donutOnTimeCount +
@@ -434,13 +482,15 @@ export function GprStageKpiCard({
         businessCompletedCount +
         businessInProgressCount +
         businessLateCount +
-        businessOverdueCount;
+        businessOverdueCount +
+        businessNotStartedCount;
       console.log("[GprStageKpiCard:businessKpi]", {
         title,
         "Завершено": businessCompletedCount,
         "В процессе": businessInProgressCount,
         "С опозданием": businessLateCount,
         "Просрочено": businessOverdueCount,
+        "Не начато": businessNotStartedCount,
         Итого: sum,
         totalStages,
         sumEqualsTotalStages: sum === totalStages,
@@ -474,6 +524,7 @@ export function GprStageKpiCard({
     businessInProgressCount,
     businessLateCount,
     businessOverdueCount,
+    businessNotStartedCount,
   ]);
 
   const fullMetricRows: {
@@ -503,7 +554,7 @@ export function GprStageKpiCard({
       value: String(donutCompletedLateCount),
       valueClassName: donutCompletedLateCount > 0 ? "text-orange-400" : undefined,
     },
-    { label: "Доля выполненных этапов, %", value: pct1(completedSharePct) },
+    { label: completedShareLabel, value: completedShareDisplay },
   ];
 
   return (
@@ -581,7 +632,7 @@ export function GprStageKpiCard({
                   noDivider
                 />
               </div>
-              {/* Колонка 2: «Отклонение готовности, %» и «Доля выполненных этапов, %». */}
+              {/* Колонка 2: «Отклонение готовности, %» и «Доля выполненных работ». */}
               <div className="space-y-4 lg:space-y-5">
                 <GprKpiMetricRow
                   label={deviationLabel}
@@ -590,9 +641,10 @@ export function GprStageKpiCard({
                   compact
                   noDivider
                 />
-                <GprKpiMetricRow
-                  label="Доля выполненных этапов, %"
-                  value={pct1(completedSharePct)}
+                <GprKpiCompletedShareRow
+                  label={completedShareLabel}
+                  numerator={completedShareNumerator}
+                  denominator={completedShareDenominator}
                   compact
                   noDivider
                 />
@@ -634,9 +686,10 @@ export function GprStageKpiCard({
                 valueClassName={deviationValueColorClass(deviationDeltaPp)}
                 compact
               />
-              <GprKpiMetricRow
-                label="Доля выполненных этапов, %"
-                value={pct1(completedSharePct)}
+              <GprKpiCompletedShareRow
+                label={completedShareLabel}
+                numerator={completedShareNumerator}
+                denominator={completedShareDenominator}
                 compact
               />
             </>

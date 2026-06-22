@@ -412,6 +412,31 @@ export function getPlannedProgressPercent(task: GPRTask, asOf: Date = new Date()
   return roundProgress((100 * (dA - d0)) / totalMs);
 }
 
+/**
+ * Фактический % по календарному методу: (asOf − factStart) / (planEnd − planStart), ограничение 0..100%.
+ * При заполненном factEnd — 100%; без factStart — 0%.
+ */
+export function getCalendarFactProgressPercent(task: GPRTask, asOf: Date = new Date()): number {
+  if (task.factEnd?.trim()) return 100;
+  if (!task.factStart?.trim()) return 0;
+
+  const ps = toDate(task.planStart ?? undefined);
+  const pe = toDate(task.planEnd ?? undefined);
+  const fs = toDate(task.factStart);
+  if (!ps || !pe || !fs) return 0;
+
+  const d0 = startOfLocalDay(ps);
+  const d1 = startOfLocalDay(pe);
+  const dF = startOfLocalDay(fs);
+  const dA = startOfLocalDay(asOf);
+
+  const totalMs = d1 - d0;
+  if (totalMs <= 0) return dA >= dF ? 100 : 0;
+
+  const raw = (100 * (dA - dF)) / totalMs;
+  return roundProgress(Math.min(100, Math.max(0, raw)));
+}
+
 /** Фактический % выполнения (поле completion задачи ГПР). */
 export function gprTaskFactCompletionPercent(task: GPRTask): number {
   const raw = Number(task.completion);
@@ -427,6 +452,20 @@ export function gprTaskFactCompletionChartPercent(task: GPRTask): number {
 /** @alias gprTaskFactCompletionPercent — единый источник «Факт выполнения ГПР (%)». */
 export function getActualProgressPercent(task: GPRTask): number {
   return gprTaskFactCompletionPercent(task);
+}
+
+/**
+ * Работа «Не начато» для donut KPI этапов ГПР:
+ * нет factStart, нет factEnd, completion = 0 или пусто.
+ */
+export function isGprWorkItemNotStarted(task: GPRTask): boolean {
+  if (task.factStart?.trim()) return false;
+  if (task.factEnd?.trim()) return false;
+  const raw = task.completion;
+  if (raw === null || raw === undefined) return true;
+  if (typeof raw === "string" && raw.trim() === "") return true;
+  const n = Number(raw);
+  return !Number.isFinite(n) || n === 0;
 }
 
 /**

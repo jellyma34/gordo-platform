@@ -12,7 +12,10 @@ import {
 } from "@/lib/gprUtils";
 import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
-import { computeGprStageCompletionInsight } from "@/lib/gprStageCompletion";
+import {
+  computeGprStageCompletionInsight,
+  formatGprStageKpiFactDisplay,
+} from "@/lib/gprStageCompletion";
 
 export {
   buildAggregatedProjectWideStagesSummary,
@@ -232,6 +235,8 @@ export type PlanFactWorkTypeChartModel = {
   factRanges: Array<[number, number] | null>;
   planColors: string[];
   factColors: string[];
+  /** Подпись «Факт выполнения» у полосы факта (как в KPI-карточке). */
+  factCompletionLabels: string[];
   rowDetails: PlanFactWorkTypeRowDetail[];
   originMonth: Date;
   xMin: number;
@@ -269,6 +274,104 @@ export function planFactBarFactColorByProgressDelta(
   if (traffic === "red") return FACT_RED;
   if (traffic === "yellow") return FACT_YELLOW;
   return FACT_GREEN;
+}
+
+/** Максимальная ширина левой колонки подписей (px). */
+export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX = 280;
+
+/** Минимальная ширина левой колонки подписей (px). */
+export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX = 140;
+
+/** Высота одной строки диаграммы (совпадает с шагом категорий Chart.js и HTML-колонки). */
+export const PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX = 22;
+
+/** Верхний отступ области строк (совпадает с layout.padding.top Chart.js). */
+export const PLAN_FACT_GPR_CHART_TOP_PADDING_PX = 20;
+
+/** Нижний отступ области строк (совпадает с layout.padding.bottom Chart.js). */
+export const PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX = 8;
+
+/** Блок легенды под диаграммой (вне canvas). */
+export const PLAN_FACT_GPR_CHART_LEGEND_BLOCK_PX = 40;
+
+export function computePlanFactGprChartLayout(rowCount: number): {
+  rowCount: number;
+  chartBodyHeightPx: number;
+  scrollContentHeightPx: number;
+} {
+  const n = Math.max(1, rowCount);
+  const chartBodyHeightPx =
+    PLAN_FACT_GPR_CHART_TOP_PADDING_PX +
+    n * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX +
+    PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX;
+  return {
+    rowCount: n,
+    chartBodyHeightPx,
+    scrollContentHeightPx: chartBodyHeightPx + PLAN_FACT_GPR_CHART_LEGEND_BLOCK_PX,
+  };
+}
+
+/** @deprecated Используйте HTML-колонку подписей; оставлено для совместимости. */
+export function formatPlanFactGprChartYAxisTickLabel(label: string, maxChars = 42): string {
+  const text = String(label ?? "").trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(1, maxChars - 1))}…`;
+}
+
+export type PlanFactChartModelAudit = {
+  labelCount: number;
+  rowDetailCount: number;
+  planBarCount: number;
+  factBarCount: number;
+  planRenderableCount: number;
+  factRenderableCount: number;
+  arraysAligned: boolean;
+  firstMismatchIndex: number | null;
+};
+
+/** Диагностика согласованности строк диаграммы «Динамика выполнения ГПР». */
+export function auditPlanFactChartModel(model: PlanFactWorkTypeChartModel): PlanFactChartModelAudit {
+  const labelCount = model.labels.length;
+  const rowDetailCount = model.rowDetails.length;
+  const planBarCount = model.planRanges.length;
+  const factBarCount = model.factRanges.length;
+  const lengths = [
+    labelCount,
+    rowDetailCount,
+    planBarCount,
+    factBarCount,
+    model.planColors.length,
+    model.factColors.length,
+    model.factCompletionLabels.length,
+  ];
+  let firstMismatchIndex: number | null = null;
+  const maxLen = Math.max(...lengths);
+  const minLen = Math.min(...lengths);
+  if (maxLen !== minLen) {
+    firstMismatchIndex = minLen;
+  }
+  const planRenderableCount = model.planRanges.filter((r) => r != null).length;
+  const factRenderableCount = model.factRanges.filter((r) => r != null).length;
+  return {
+    labelCount,
+    rowDetailCount,
+    planBarCount,
+    factBarCount,
+    planRenderableCount,
+    factRenderableCount,
+    arraysAligned: maxLen === minLen && firstMismatchIndex === null,
+    firstMismatchIndex,
+  };
+}
+
+function assertPlanFactChartModelArraysAligned(model: PlanFactWorkTypeChartModel): void {
+  const audit = auditPlanFactChartModel(model);
+  if (!audit.arraysAligned) {
+    throw new Error(
+      `[planFactWorkTypeTimeline] рассинхрон массивов строк: labels=${audit.labelCount}, ` +
+        `firstMismatchIndex=${audit.firstMismatchIndex}`,
+    );
+  }
 }
 
 /** Режим детализации bar-chart «План vs Факт» по уровням WBS. */
@@ -494,10 +597,15 @@ function buildGprPlanFactBarChartModel(
   const factRanges: Array<[number, number] | null> = [];
   const planColors: string[] = [];
   const factColors: string[] = [];
+  const factCompletionLabels: string[] = [];
   const rowDetails: PlanFactWorkTypeRowDetail[] = [];
+  const asOf = today;
 
   for (const e of entries) {
     labels.push(e.label);
+    factCompletionLabels.push(
+      formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(tasks, e.task, asOf)),
+    );
     rowDetails.push({
       planStart: e.ps ?? "",
       planEnd: e.pe ?? "",
@@ -549,18 +657,21 @@ function buildGprPlanFactBarChartModel(
   if (todayF != null && todayF > xMax) xMax = todayF;
   xMax = Math.max(xMax + 0.25, 0.5);
 
-  return {
+  const model: PlanFactWorkTypeChartModel = {
     labels,
     planRanges,
     factRanges,
     planColors,
     factColors,
+    factCompletionLabels,
     rowDetails,
     originMonth,
     xMin: 0,
     xMax,
     todayX: todayF,
   };
+  assertPlanFactChartModelArraysAligned(model);
+  return model;
 }
 
 /**
@@ -614,6 +725,7 @@ export function buildPlanFactWorkTypeChartModel(
   const factRanges: Array<[number, number] | null> = [];
   const planColors: string[] = [];
   const factColors: string[] = [];
+  const factCompletionLabels: string[] = [];
   const rowDetails: PlanFactWorkTypeRowDetail[] = [];
 
   for (const r of rows) {
@@ -625,6 +737,7 @@ export function buildPlanFactWorkTypeChartModel(
     if (pe < ps) continue;
     planRanges.push([ps, pe]);
     labels.push(r.label);
+    factCompletionLabels.push("—");
     planColors.push(PLAN_BAR);
     const groupDef = groups?.find((g) => g.key === r.key);
     const groupWorks = groupDef
@@ -667,16 +780,19 @@ export function buildPlanFactWorkTypeChartModel(
   if (todayF != null && todayF > xMax) xMax = todayF;
   xMax = Math.max(xMax + 0.25, 0.5);
 
-  return {
+  const legacyModel: PlanFactWorkTypeChartModel = {
     labels,
     planRanges,
     factRanges,
     planColors,
     factColors,
+    factCompletionLabels,
     rowDetails,
     originMonth,
     xMin: 0,
     xMax,
     todayX: todayF,
   };
+  assertPlanFactChartModelArraysAligned(legacyModel);
+  return legacyModel;
 }

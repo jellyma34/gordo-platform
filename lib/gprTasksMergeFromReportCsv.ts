@@ -132,6 +132,32 @@ function taskIdentityKey(task: GPRTask): string {
   const ot = slugForObjectType(task.objectType ?? "");
   return `${task.partId}::${normalizeGprCodeFinal(task.code)}::${scope}::${ot}`;
 }
+
+/**
+ * Строка CSV относится к вкладке импорта (Жилой дом / Автостоянка).
+ * Полный отчёт содержит обе секции с одинаковыми шифрами 2.05.* — без фильтра
+ * последняя секция затирает фактические даты предыдущей при forcedPartId.
+ */
+function csvRowMatchesForcedPart(row: GprReportCsvRow, forcedPartId: 1 | 2): boolean {
+  const code = normalizeGprCodeFinal(row.code);
+  if (forcedPartId === 2 && (code.startsWith("2.06") || code.startsWith("2.07"))) {
+    return true;
+  }
+  const fromObject = inferGprPartIdFromObjectLabel(row.objectType ?? "");
+  if (fromObject != null) return fromObject === forcedPartId;
+  return inferGprPartIdFromCode(row.code) === forcedPartId;
+}
+
+/** При дубликате шифра в одной секции — строка с более полными датами/прогрессом. */
+function gprTaskDataRichness(task: GPRTask): number {
+  let score = 0;
+  if (task.factStart?.trim()) score += 4;
+  if (task.factEnd?.trim()) score += 8;
+  if ((task.completion ?? 0) > 0) score += 2;
+  if (task.planStart?.trim()) score += 1;
+  if (task.planEnd?.trim()) score += 1;
+  return score;
+}
 export type GprCsvMergeStats = {
   /** Строк в файле после `split(/\\r?\\n/)` (включая пустые) */
   csvPapaRowCount: number;
@@ -156,19 +182,27 @@ export function mergeGprTasksFromReportCsv(
   options?: { forcedPartId?: number },
 ): { tasks: GPRTask[]; stats: GprCsvMergeStats } {
   const { rows: parsedRows, csvPapaRowCount } = parseGprReportCsvWithStats(csvText);
-  const parsedRowCount = parsedRows.length;
   const forcedPartId = options?.forcedPartId === 1 || options?.forcedPartId === 2 ? options.forcedPartId : null;
+  const rowsForImport =
+    forcedPartId != null
+      ? parsedRows.filter((row) => csvRowMatchesForcedPart(row, forcedPartId))
+      : parsedRows;
+  const parsedRowCount = rowsForImport.length;
 
-  const csvTasksRaw = parsedRows.map((row) =>
+  const csvTasksRaw = rowsForImport.map((row) =>
     gprCsvRowToTask(row, {
       forcedPartId: forcedPartId ?? undefined,
     }),
   );
 
-  // В одном файле — по одному ключу «часть + шифр + объект», последняя строка побеждает.
+  // В одном файле — по одному ключу «часть + шифр + объект»; при равном ключе — более полная строка.
   const csvByKey = new Map<string, GPRTask>();
   for (const t of csvTasksRaw) {
-    csvByKey.set(taskIdentityKey(t), t);
+    const key = taskIdentityKey(t);
+    const prev = csvByKey.get(key);
+    if (!prev || gprTaskDataRichness(t) >= gprTaskDataRichness(prev)) {
+      csvByKey.set(key, t);
+    }
   }
   const csvTasks = [...csvByKey.values()];
 

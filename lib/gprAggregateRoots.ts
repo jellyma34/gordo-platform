@@ -35,6 +35,25 @@ export function filterGprPresentationStageCardRoots(
   return roots.filter((t) => !isGprResidentialPrepTerritoryStageRoot(t));
 }
 
+/** Группа этапа 2.04 в блоке «Отклонения по этапам» (prep → «Подготовка территории строительства»). */
+export const GPR_RESIDENTIAL_PRESENTATION_HIDDEN_DEVIATION_GROUP = "prep" as const;
+
+/**
+ * Ключи групп для блока «Отклонения по этапам» в презентации.
+ * На вкладке «Жилой дом» исключает prep (2.04); edit / «Проект» / «Автостоянка» — без изменений.
+ */
+export function filterGprPresentationStageDeviationGroupKeys<K extends string>(
+  groupKeys: readonly K[],
+  options: {
+    presentationMode: boolean;
+    activePartScope: ConstructionObjectScope;
+  },
+): K[] {
+  if (!options.presentationMode) return [...groupKeys];
+  if (options.activePartScope !== PROJECT_PART_KEY_TO_ID.residential) return [...groupKeys];
+  return groupKeys.filter((k) => k !== GPR_RESIDENTIAL_PRESENTATION_HIDDEN_DEVIATION_GROUP);
+}
+
 /** Корневые этапы по умолчанию (модель mock / Primavera). */
 export const DEFAULT_AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
   residential: ["2.04", "2.05"],
