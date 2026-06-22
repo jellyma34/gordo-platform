@@ -79,6 +79,33 @@ export function tmcOverdueDays(item: TMCItem, today: Date = new Date()): number 
   return 0;
 }
 
+/** Просрочка по плановой дате поставки: дата отчёта − supplyPlanDate (дни). */
+export function tmcSupplyPlanOverdueDays(item: TMCItem, today: Date = new Date()): number {
+  const supplyPlan = item.supplyPlanDate?.trim();
+  if (!supplyPlan) return 0;
+  const p = parseIsoMs(supplyPlan);
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0).getTime();
+  if (p === null || p >= todayStart) return 0;
+  return Math.round((todayStart - p) / DAY_MS);
+}
+
+/** Средняя просрочка (дни) по просроченным позициям остатка (deliveryOverdue). */
+export function computeTmcAverageOverdueDays(
+  items: TmcEnrichedItem[],
+  tenders: Tender[],
+  today: Date = new Date(),
+): number {
+  const overdueItems = items.filter(
+    (item) => classifyTmcPipelineStatus(item, tenders, today) === "deliveryOverdue",
+  );
+  if (overdueItems.length === 0) return 0;
+  const totalDays = overdueItems.reduce(
+    (sum, item) => sum + tmcSupplyPlanOverdueDays(item, today),
+    0,
+  );
+  return Math.round(totalDays / overdueItems.length);
+}
+
 export function tmcTrafficOf(item: TMCItem, today: Date = new Date()): TmcTraffic {
   const factRef = tmcFactReferenceDate(item);
   if (!factRef) {
@@ -529,8 +556,8 @@ export type TmcProcurementKpi = {
   inProgressAmongRemainingCount: number;
   /** В срок среди остатка (закуплено, без просрочки, поставка не завершена). */
   onTimeAmongRemainingCount: number;
-  /** overdueAmongRemaining / remainingItemCount, %. */
-  overdueAmongRemainingPct: number;
+  /** Средняя просрочка по supplyPlanDate среди deliveryOverdue (дни). */
+  averageOverdueDays: number;
   /** Доля planCost с planDate ≤ today, %. */
   plannedExecutionPct: number;
   /** Σ factCost / Σ planCost, не выше 100%. */
@@ -593,13 +620,7 @@ export function computeTmcProcurementKpi(
     notPurchasedAmongRemainingCount: pipelineDist.notPurchasedAmongRemaining,
     inProgressAmongRemainingCount: pipelineDist.inProgressAmongRemaining,
     onTimeAmongRemainingCount: pipelineDist.counts.orderPlaced,
-    overdueAmongRemainingPct:
-      pipelineDist.remainingItemCount > 0
-        ? Math.round(
-            (pipelineDist.deliveryOverdueAmongRemaining / pipelineDist.remainingItemCount) *
-              1000,
-          ) / 10
-        : 0,
+    averageOverdueDays: computeTmcAverageOverdueDays(items, tenders, today),
     plannedExecutionPct,
     actualExecutionPct,
   };
@@ -4071,6 +4092,19 @@ export function computeTmcPurchasedDeliveryDonutCounts(
     cancelled: counts.cancelled,
     donutSum,
   };
+}
+
+/** Средняя просрочка поставки (дни) — только deliveredLate (donut «Поставлено»). */
+export function computeTmcAverageDeliveryLateDays(items: TmcEnrichedItem[]): number {
+  const lateItems = items.filter(
+    (item) => classifyTmcPurchasedDeliveryBucket(item) === "deliveredLate",
+  );
+  if (lateItems.length === 0) return 0;
+  const totalDays = lateItems.reduce((sum, item) => {
+    const days = tmcSupplyDeliveryDeviationDays(item);
+    return sum + (days !== null && days > 0 ? days : 0);
+  }, 0);
+  return Math.round(totalDays / lateItems.length);
 }
 
 export type TmcOverdueBreakdownKind = "supply" | "contract" | "payment" | "other";

@@ -45,6 +45,7 @@ import {
   buildTmcMonthlyProcurementSeries,
   buildTmcMonthlyRequestSeries,
   computeTmcProcurementKpi,
+  computeTmcAverageDeliveryLateDays,
   computeTmcProcurementFinancialResult,
   computeTmcMaterialPlanFact,
   computeTmcArmaturePlanFactDiagnostics,
@@ -705,6 +706,10 @@ export function TmcPresentation({
     () => computeTmcProcurementKpi(enriched, today, scopedTenders),
     [enriched, today, scopedTenders],
   );
+  const averageDeliveryLateDays = useMemo(
+    () => computeTmcAverageDeliveryLateDays(enriched),
+    [enriched],
+  );
   const monthlySeries = useMemo(
     () => buildTmcMonthlyProcurementSeries(enriched, today, procurementValueMode),
     [enriched, today, procurementValueMode],
@@ -980,16 +985,16 @@ export function TmcPresentation({
     () => [
       `Поставлено: ${kpi.deliveryCount} из ${kpi.totalItemCount}`,
       `Фактическая стоимость поставок: ${rubKpiAmount(kpi.receiptsFactRub)} ₽`,
-      `Закуплено ТМЦ: ${kpi.purchasedItemCount} из ${kpi.totalItemCount}`,
+      `Средняя просрочка поставки: ${averageDeliveryLateDays} дн.`,
       `Освоение бюджета: ${pct1(receiptCostExecutionPct)}`,
       `В работе: ${kpi.overdueAmongRemainingCount} из ${kpi.remainingItemCount}`,
       `Не закуплено: ${kpi.notPurchasedAmongRemainingCount} из ${kpi.remainingItemCount}`,
-      `Доля просрочки: ${pct1(kpi.overdueAmongRemainingPct)}`,
+      `Средняя просрочка: ${kpi.averageOverdueDays} дн.`,
       `Экономия: ${rubKpiAmount(financialResult.economyRub)} ₽`,
       `Перерасход: ${rubKpiAmount(financialResult.overrunRub)} ₽`,
       `Отклонение от закупленного: ${pctSigned1(financialResult.deviationPct)}`,
     ],
-    [kpi, receiptCostExecutionPct, financialResult],
+    [kpi, receiptCostExecutionPct, financialResult, averageDeliveryLateDays],
   );
 
   const pdfSummaryRows = useMemo(
@@ -1233,11 +1238,12 @@ export function TmcPresentation({
               planRub={kpi.planRub}
               accentColor={COLORS.blue}
             />
-            <TmcKpiCountBlock
-              label="ЗАКУПЛЕНО ТМЦ"
-              primaryCount={kpi.purchasedItemCount}
-              totalCount={kpi.totalItemCount}
+            <TmcKpiMetricBlock
+              label="СРЕДНЯЯ ПРОСРОЧКА ПОСТАВКИ"
+              value={`${averageDeliveryLateDays} дн.`}
+              tier="primary"
               accentColor={COLORS.blue}
+              sectionPt="pt-5"
             />
             <TmcKpiCountBlock
               label="ЗАКУПЛЕНО ПО ДОГОВОРУ"
@@ -1330,8 +1336,8 @@ export function TmcPresentation({
               accentColor={COLORS.red}
             />
             <TmcKpiMetricBlock
-              label="ДОЛЯ ПРОСРОЧКИ"
-              value={pct1(kpi.overdueAmongRemainingPct)}
+              label="СРЕДНЯЯ ПРОСРОЧКА"
+              value={`${kpi.averageOverdueDays} дн.`}
               tier="primary"
               accentColor={COLORS.blue}
               sectionPt="pt-5"
@@ -1605,9 +1611,6 @@ export function TmcPresentation({
             <TmcRequestPlanFactChart chartData={requestChartData} mode={requestChartMode} />
           )}
         </div>
-        <p className="mt-2 text-xs text-slate-400">
-          Учитываются позиции с заполненной датой договора (contractFactDate) на дату отчёта.
-        </p>
         <div className="mt-3 border-t border-slate-700/40 pt-3">
           <TmcRequestDynamicsChartLegend />
         </div>
