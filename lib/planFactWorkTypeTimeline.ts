@@ -16,6 +16,7 @@ import {
   computeGprStageCompletionInsight,
   formatGprStageFactPercentValue,
   formatGprStageKpiFactDisplay,
+  isGprStageFactCompletionNoData,
 } from "@/lib/gprStageCompletion";
 
 export {
@@ -255,6 +256,19 @@ const FACT_NO_PLAN_PERCENT = "rgba(148, 163, 184, 0.5)";
 const FACT_GREEN = "#22c55e";
 const FACT_YELLOW = "#f59e0b";
 const FACT_RED = "#ef4444";
+
+/** Визуализация: фактическая полоса не выходит за пределы плановой на шкале X. */
+function clampFactMonthFloatRangeToPlan(
+  planStart: number,
+  planEnd: number,
+  factStart: number,
+  factEnd: number,
+): [number, number] | null {
+  const s = Math.max(planStart, factStart);
+  const e = Math.min(planEnd, factEnd);
+  if (e < s) return null;
+  return [s, e];
+}
 
 /**
  * Цвет фактической полосы в блоке «Динамика выполнения ГПР» — единый источник статуса с KPI-карточкой:
@@ -664,8 +678,28 @@ type PlanFactChartBuildEntry = {
   pe: string | null;
   fs: string | null;
   fe: string | null;
+  /** Пустая строка — явно без подписи (этажи монолита без факта). */
   factLabelOverride?: string;
 };
+
+/** Подпись % на диаграмме: только при наличии факта. */
+function resolvePlanFactChartRowFactLabel(
+  e: PlanFactChartBuildEntry,
+  branchPoolTasks: GPRTask[],
+  asOf: Date,
+): string {
+  if (e.factLabelOverride !== undefined) {
+    return e.factLabelOverride;
+  }
+  const hasFactDates = Boolean(e.fs?.trim() || e.fe?.trim());
+  const insight = computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf);
+  if (!hasFactDates && (isGprStageFactCompletionNoData(insight) || insight.factPercent <= 0)) {
+    return "";
+  }
+  const label = formatGprStageKpiFactDisplay(insight);
+  if (!label || label === "—" || label === "0%") return "";
+  return label;
+}
 
 function findMonolithChartTask(branchPoolTasks: GPRTask[]): GPRTask | null {
   return branchPoolTasks.find((t) => isGprMonolithChartStageCode(t.code)) ?? null;
@@ -740,7 +774,10 @@ function expandMonolithFloorsForChart(
       pe: seg.end,
       fs: fact.fs,
       fe: fact.fe,
-      factLabelOverride: formatGprStageFactPercentValue(fact.floorPercent),
+      factLabelOverride:
+        fact.fs && fact.fe && fact.floorPercent > 0
+          ? formatGprStageFactPercentValue(fact.floorPercent)
+          : "",
     };
   });
 
@@ -810,6 +847,23 @@ function buildGprPlanFactBarChartModel(
     const hasDates = Boolean(psm != null && pem != null && pem >= psm);
     const label = formatGprPlanFactBarLabel(task.code, task.name);
     entries.push({ task, label, hasDates, ps, pe, fs, fe });
+
+    if (
+      typeof process !== "undefined" &&
+      process.env.NODE_ENV !== "production" &&
+      barLevel === "simplified" &&
+      normalizeGprCodeFinal(task.code) === "2.05"
+    ) {
+      const insight = computeGprStageCompletionInsight(branchPoolTasks, task, today);
+      console.info("[PlanFactGprDynamicsChart] row 2.05 simplified data audit", {
+        label,
+        planStart: ps,
+        planEnd: pe,
+        factStart: fs,
+        factEnd: fe,
+        factPercent: formatGprStageKpiFactDisplay(insight),
+      });
+    }
   }
 
   entries = expandMonolithFloorsForChart(entries, branchPoolTasks, todayIso, barLevel);
@@ -851,10 +905,7 @@ function buildGprPlanFactBarChartModel(
 
   for (const e of entries) {
     labels.push(e.label);
-    factCompletionLabels.push(
-      e.factLabelOverride ??
-        formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf)),
-    );
+    factCompletionLabels.push(resolvePlanFactChartRowFactLabel(e, branchPoolTasks, asOf));
     rowDetails.push({
       planStart: e.ps ?? "",
       planEnd: e.pe ?? "",
@@ -876,8 +927,14 @@ function buildGprPlanFactBarChartModel(
           const ffS = monthFloatFromIso(factStartIso, originMonth);
           const ffE = e.fe ? monthFloatFromIso(e.fe, originMonth) : null;
           if (ffS != null && ffE != null && ffE >= ffS) {
-            factRanges.push([ffS, ffE]);
-            factColors.push(planFactBarFactColorByProgressDelta(e.task, branchPoolTasks, todayIso));
+            const clamped = clampFactMonthFloatRangeToPlan(pfS, pfE, ffS, ffE);
+            if (clamped) {
+              factRanges.push(clamped);
+              factColors.push(planFactBarFactColorByProgressDelta(e.task, branchPoolTasks, todayIso));
+            } else {
+              factRanges.push(null);
+              factColors.push(FACT_WEAK);
+            }
           } else {
             factRanges.push(null);
             factColors.push(FACT_WEAK);
@@ -990,7 +1047,7 @@ export function buildPlanFactWorkTypeChartModel(
     if (pe < ps) continue;
     planRanges.push([ps, pe]);
     labels.push(r.label);
-    factCompletionLabels.push("—");
+    factCompletionLabels.push("");
     planColors.push(PLAN_BAR);
     const groupDef = groups?.find((g) => g.key === r.key);
     const groupWorks = groupDef
@@ -1009,10 +1066,16 @@ export function buildPlanFactWorkTypeChartModel(
       const fs = monthFloatFromIso(b.factStart, originMonth);
       const fe = monthFloatFromIso(factEndDisplay, originMonth);
       if (fs != null && fe != null && fe >= fs) {
-        factRanges.push([fs, fe]);
-        factColors.push(
-          overviewFactBarColor(b.planStart, b.planEnd, b.factStart, factEndDisplay),
-        );
+        const clamped = clampFactMonthFloatRangeToPlan(ps, pe, fs, fe);
+        if (clamped) {
+          factRanges.push(clamped);
+          factColors.push(
+            overviewFactBarColor(b.planStart, b.planEnd, b.factStart, factEndDisplay),
+          );
+        } else {
+          factRanges.push(null);
+          factColors.push(FACT_WEAK);
+        }
       } else {
         factRanges.push(null);
         factColors.push(FACT_WEAK);

@@ -55,7 +55,7 @@ export const planFactMonthTodayLinePlugin: Plugin<"bar"> = {
   },
 };
 
-/** Подпись % факта — по центру фактической полосы, без пересечения с «Сегодня». */
+/** Подпись % факта — у конца фактической полосы; без факта подпись не рисуется. */
 export const planFactFactPercentLabelPlugin: Plugin<"bar"> = {
   id: "planFactFactPercentLabels",
   afterDatasetsDraw(chart: ChartJS<"bar">) {
@@ -74,64 +74,51 @@ export const planFactFactPercentLabelPlugin: Plugin<"bar"> = {
 
     const { ctx, chartArea } = chart;
     const factMeta = chart.getDatasetMeta(1);
-    const planMeta = chart.getDatasetMeta(0);
 
     ctx.save();
     ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
     ctx.textBaseline = "middle";
 
     for (let i = 0; i < opts.labels.length; i++) {
-      const text = opts.labels[i];
-      if (!text) continue;
+      const text = opts.labels[i]?.trim() ?? "";
+      const factRange = opts.factRanges[i];
+      if (!text || text === "—" || text === "0%" || !factRange) continue;
 
       const factEl = factMeta.data[i] as BarElement | undefined;
-      const planEl = planMeta.data[i] as BarElement | undefined;
-      let xPos: number;
-      let yPos: number;
-      const hasFactBar = Boolean(factEl && opts.factRanges[i] && Number.isFinite(factEl.y));
+      if (!factEl || !Number.isFinite(factEl.y)) continue;
 
-      if (hasFactBar && factEl) {
-        const span = barSpan(factEl);
-        xPos = span.center;
-        yPos = factEl.y;
-      } else if (planEl && Number.isFinite(planEl.y)) {
-        const span = barSpan(planEl);
-        xPos = span.center;
-        yPos = planEl.y;
-      } else {
-        continue;
-      }
+      const span = barSpan(factEl);
+      const barWidth = span.right - span.left;
+      if (barWidth < 4) continue;
+
+      let xPos = span.right - 6;
+      let yPos = factEl.y;
+      ctx.textAlign = "right";
 
       if (todayPixel != null && Number.isFinite(todayPixel)) {
         if (Math.abs(xPos - todayPixel) < TODAY_OVERLAP_GAP_PX) {
-          const refEl = hasFactBar && factEl ? factEl : planEl;
-          if (refEl) {
-            const span = barSpan(refEl);
-            const width = span.right - span.left;
-            if (width > TODAY_OVERLAP_GAP_PX * 2.5) {
-              xPos =
-                todayPixel <= span.center
-                  ? span.left + width * 0.38
-                  : span.right - width * 0.38;
-            } else {
-              xPos =
-                todayPixel <= span.center
-                  ? todayPixel + TODAY_OVERLAP_GAP_PX
-                  : todayPixel - TODAY_OVERLAP_GAP_PX;
-            }
+          if (barWidth > TODAY_OVERLAP_GAP_PX * 2.5) {
+            xPos =
+              todayPixel <= span.center
+                ? span.left + barWidth * 0.38
+                : span.right - barWidth * 0.38;
+          } else {
+            xPos =
+              todayPixel <= span.center
+                ? todayPixel + TODAY_OVERLAP_GAP_PX
+                : todayPixel - TODAY_OVERLAP_GAP_PX;
           }
+          ctx.textAlign = "center";
         }
       }
 
       xPos = Math.max(chartArea.left + 6, Math.min(chartArea.right - 6, xPos));
 
-      const isDash = text === "—";
-      ctx.textAlign = "center";
       ctx.lineJoin = "round";
       ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
       ctx.lineWidth = 3;
       ctx.strokeText(text, xPos, yPos);
-      ctx.fillStyle = isDash ? "rgba(148, 163, 184, 0.85)" : "rgba(248, 250, 252, 0.95)";
+      ctx.fillStyle = "rgba(248, 250, 252, 0.95)";
       ctx.fillText(text, xPos, yPos);
     }
     ctx.restore();

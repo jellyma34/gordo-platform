@@ -271,6 +271,9 @@ export function PlanFactGprDynamicsChartPanel({
   const chartHostRef = useRef<HTMLDivElement>(null);
   const rowCount = model.labels.length;
   const chartLayout = useMemo(() => computePlanFactGprChartLayout(rowCount), [rowCount]);
+  const chartRemountKey = useMemo(() => model.labels.join("\u0001"), [model.labels]);
+  /** Grouped bars: план и факт в одной строке — как в «Детально» / «Все этапы» (в т.ч. одна строка 2.05). */
+  const barGrouped = true;
 
   const audit = useMemo(() => auditPlanFactChartModel(model), [model]);
 
@@ -288,6 +291,7 @@ export function PlanFactGprDynamicsChartPanel({
             borderRadius: 4,
             borderSkipped: false,
             maxBarThickness: 16,
+            grouped: barGrouped,
             order: 1,
           },
           {
@@ -299,11 +303,12 @@ export function PlanFactGprDynamicsChartPanel({
             borderRadius: 4,
             borderSkipped: false,
             maxBarThickness: 12,
+            grouped: barGrouped,
             order: 2,
           },
         ],
       }) as const,
-    [model],
+    [model, barGrouped],
   );
 
   const datasetRenderAuditPlugin = useMemo(
@@ -396,6 +401,7 @@ export function PlanFactGprDynamicsChartPanel({
           bar: {
             categoryPercentage: 0.82,
             barPercentage: 0.9,
+            grouped: barGrouped,
           },
         },
         plugins: {
@@ -475,7 +481,7 @@ export function PlanFactGprDynamicsChartPanel({
           },
         },
       }) as const,
-    [model],
+    [model, barGrouped],
   );
 
   const gridTemplateColumns = `minmax(${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX}px, min(38%, ${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX}px)) minmax(0, 1fr)`;
@@ -521,6 +527,7 @@ export function PlanFactGprDynamicsChartPanel({
           style={{ height: chartLayout.chartBodyHeightPx }}
         >
           <Chart
+            key={chartRemountKey}
             type="bar"
             plugins={[
               rowDividerChartPlugin,
