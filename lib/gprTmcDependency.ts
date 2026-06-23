@@ -129,7 +129,7 @@ function groupKeyForWorkTask(task: GPRTask, branchRoots: readonly string[]): Gpr
  * (уровень «Детализированно» plan-fact; без листьев level 3+).
  */
 function listLevel2GprWorksForTmcChart(tasks: GPRTask[], part: ProjectPartKey): GPRTask[] {
-  const branchRoots = aggregateRootCodesForPart(part, tasks);
+  const branchRoots = tmcChartBranchRootsForPart(part, tasks);
   const partitions = new Map<string, GPRTask[]>();
 
   for (const t of tasks) {
@@ -160,9 +160,15 @@ function listLevel2GprWorksForTmcChart(tasks: GPRTask[], part: ProjectPartKey): 
 }
 
 /** Fallback: корневые работы WBS level 1 (упрощённый режим plan-fact). */
-function listLevel1GprWorksForTmcChart(tasks: GPRTask[]): GPRTask[] {
+function listLevel1GprWorksForTmcChart(tasks: GPRTask[], part: ProjectPartKey): GPRTask[] {
+  const branchRoots = tmcChartBranchRootsForPart(part, tasks);
+  const rootSet = new Set(branchRoots.map((r) => normalizeGprCodeFinal(r)));
   return tasks
-    .filter((t) => gprWbsLevelFromCode(normalizeGprCodeFinal(t.code), t.level) === 1)
+    .filter((t) => {
+      const c = normalizeGprCodeFinal(t.code);
+      if (gprWbsLevelFromCode(c, t.level) !== 1) return false;
+      return rootSet.has(c);
+    })
     .sort((a, b) => {
       const cmp = compareGprCodesByNumericPath(a.code, b.code);
       if (cmp !== 0) return cmp;
@@ -270,6 +276,18 @@ export function tmcImpactStatusLabel(impact: TmcImpactStatus): string {
   return "В срок";
 }
 
+/**
+ * Корневые ветки WBS для графика «ГПР — ТМЦ».
+ * Жилой дом: только 2.05 (строительный цикл здания), без 2.04 (подготовка территории).
+ */
+export function tmcChartBranchRootsForPart(
+  partKey: ProjectPartKey,
+  tasks: GPRTask[],
+): readonly string[] {
+  if (partKey === "residential") return ["2.05"];
+  return aggregateRootCodesForPart(partKey, tasks);
+}
+
 export function buildGprTmcDependencySeries(
   tasks: GPRTask[],
   tmcItems: TMCItem[],
@@ -327,16 +345,19 @@ export function buildGprTmcDependencyChartSeries(
   todayIso: string,
   activeProjectPart: ProjectPartKey,
 ): GprTmcDependencyPoint[] {
-  const branchRoots = aggregateRootCodesForPart(activeProjectPart, tasks);
+  const branchRoots = tmcChartBranchRootsForPart(activeProjectPart, tasks);
   let workTasks = listLevel2GprWorksForTmcChart(tasks, activeProjectPart);
   if (workTasks.length === 0) {
-    workTasks = listLevel1GprWorksForTmcChart(tasks);
+    workTasks = listLevel1GprWorksForTmcChart(tasks, activeProjectPart);
   }
   if (workTasks.length === 0) {
-    return buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart).map((row) => ({
-      ...row,
-      stageShort: GROUP_KEY_TO_ROOT_CODE[row.groupKey],
-    }));
+    const allowedRoots = new Set(branchRoots.map((r) => normalizeGprCodeFinal(r)));
+    return buildGprTmcDependencySeries(tasks, tmcItems, todayIso, activeProjectPart)
+      .filter((row) => allowedRoots.has(normalizeGprCodeFinal(GROUP_KEY_TO_ROOT_CODE[row.groupKey])))
+      .map((row) => ({
+        ...row,
+        stageShort: GROUP_KEY_TO_ROOT_CODE[row.groupKey],
+      }));
   }
 
   const tmcForChart = filterTmcByProjectPart(tmcItems, activeProjectPart);
@@ -373,6 +394,113 @@ export function buildGprTmcDependencyChartSeries(
       zone,
     };
   });
+}
+
+/** Порог зон риска на scatter «% выполнения» (ТМЦ и ГПР). */
+export const GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT = 80;
+
+export type GprTmcCompletionScatterQuadrant =
+  | "normal"
+  | "lag_not_tmc"
+  | "tmc_risk"
+  | "tmc_confirmed";
+
+export type GprTmcCompletionQuadrantStyle = {
+  solid: string;
+  fill: string;
+  border: string;
+  label: string;
+};
+
+/** Единая управленческая палитра матрицы «% выполнения» (заливка, граница, точки, легенда). */
+export const GPR_TMC_COMPLETION_QUADRANT_STYLES: Record<
+  GprTmcCompletionScatterQuadrant,
+  GprTmcCompletionQuadrantStyle
+> = {
+  normal: {
+    solid: "#22c55e",
+    fill: "rgba(34, 197, 94, 0.12)",
+    border: "rgba(34, 197, 94, 0.18)",
+    label: "Норма",
+  },
+  tmc_risk: {
+    solid: "#f97316",
+    fill: "rgba(249, 115, 22, 0.12)",
+    border: "rgba(249, 115, 22, 0.18)",
+    label: "Риск дефицита ТМЦ",
+  },
+  lag_not_tmc: {
+    solid: "#facc15",
+    fill: "rgba(250, 204, 21, 0.12)",
+    border: "rgba(250, 204, 21, 0.18)",
+    label: "Отставание не связано с ТМЦ",
+  },
+  tmc_confirmed: {
+    solid: "#ef4444",
+    fill: "rgba(239, 68, 68, 0.12)",
+    border: "rgba(239, 68, 68, 0.18)",
+    label: "Критическая зона",
+  },
+};
+
+export const GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER: GprTmcCompletionScatterQuadrant[] = [
+  "normal",
+  "tmc_risk",
+  "lag_not_tmc",
+  "tmc_confirmed",
+];
+
+export type GprTmcCompletionScatterPoint = {
+  stageShort: string;
+  stageTitle: string;
+  gprPercent: number;
+  tmcPercent: number;
+  color: string;
+  quadrant: GprTmcCompletionScatterQuadrant;
+};
+
+export function resolveGprTmcCompletionScatterPointMeta(
+  tmcPercent: number,
+  gprPercent: number,
+  threshold = GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT,
+): { color: string; quadrant: GprTmcCompletionScatterQuadrant } {
+  const tmcOk = tmcPercent >= threshold;
+  const gprOk = gprPercent >= threshold;
+  if (tmcOk && gprOk) {
+    return { color: GPR_TMC_COMPLETION_QUADRANT_STYLES.normal.solid, quadrant: "normal" };
+  }
+  if (tmcOk && !gprOk) {
+    return {
+      color: GPR_TMC_COMPLETION_QUADRANT_STYLES.lag_not_tmc.solid,
+      quadrant: "lag_not_tmc",
+    };
+  }
+  if (!tmcOk && gprOk) {
+    return { color: GPR_TMC_COMPLETION_QUADRANT_STYLES.tmc_risk.solid, quadrant: "tmc_risk" };
+  }
+  return {
+    color: GPR_TMC_COMPLETION_QUADRANT_STYLES.tmc_confirmed.solid,
+    quadrant: "tmc_confirmed",
+  };
+}
+
+/** Точки scatter «% выполнения» — только этапы с фактом ГПР и обеспеченностью ТМЦ. */
+export function buildGprTmcCompletionScatterPoints(
+  series: GprTmcDependencyPoint[],
+): GprTmcCompletionScatterPoint[] {
+  const out: GprTmcCompletionScatterPoint[] = [];
+  for (const row of series) {
+    if (row.factGpr == null || row.tmcSupply == null) continue;
+    const meta = resolveGprTmcCompletionScatterPointMeta(row.tmcSupply, row.factGpr);
+    out.push({
+      stageShort: row.stageShort,
+      stageTitle: row.stageTitle,
+      gprPercent: row.factGpr,
+      tmcPercent: row.tmcSupply,
+      ...meta,
+    });
+  }
+  return out;
 }
 
 /** Агрегат «Проект»: работы жилой части и автостоянки подряд. */
