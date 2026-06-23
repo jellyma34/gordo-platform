@@ -2223,10 +2223,10 @@ export function GPRAnalytics({
     useState<PlanFactKvartalyGranularity>("overview");
   /**
    * Режим bar-chart при источнике «таблица задач» для ЖД / проекта.
-   * По умолчанию — упрощённое представление (2.04 / 2.05); при ручной смене
+   * По умолчанию — «Детально» (2.05.01–2.05.99); при ручной смене
    * пользователем сохранение выбора оставлено на уровне React-состояния, как и было.
    */
-  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("simplified");
+  const [planFactTasksBarLevel, setPlanFactTasksBarLevel] = useState<PlanFactTasksBarLevel>("detailed");
   const [tenderRevision, setTenderRevision] = useState(0);
 
   const reloadDependencies = useCallback(async () => {
@@ -2285,7 +2285,7 @@ export function GPRAnalytics({
   }, [activePartScope]);
 
   useEffect(() => {
-    setPlanFactTasksBarLevel("simplified");
+    setPlanFactTasksBarLevel("detailed");
   }, [activePartScope]);
 
   const residentialKvartalyForChart = useMemo(() => {

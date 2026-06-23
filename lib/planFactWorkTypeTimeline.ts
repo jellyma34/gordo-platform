@@ -14,6 +14,7 @@ import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
 import {
   computeGprStageCompletionInsight,
+  formatGprStageFactPercentValue,
   formatGprStageKpiFactDisplay,
 } from "@/lib/gprStageCompletion";
 
@@ -514,6 +515,25 @@ function taskMatchesPlanFactBranch(task: GPRTask, roots: readonly string[]): boo
   return roots.some((r) => matchesGprCodeBranch(task.code, r));
 }
 
+/**
+ * Этапы «Прочие / Прочее …» — только фильтр отображения диаграммы «Динамика выполнения ГПР».
+ * KPI, агрегаты и исходные задачи не затрагиваются.
+ */
+export function isGprPlanFactChartExcludedMiscStageName(name: string | null | undefined): boolean {
+  const text = String(name ?? "").trim();
+  if (!text) return false;
+  return text.includes("Прочие") || text.includes("Прочее");
+}
+
+/** Режимы «Детально» и «Все этапы»: убрать строки с «Прочие» / «Прочее» в названии. */
+function filterGprPlanFactChartMiscDisplayTasks(
+  tasks: GPRTask[],
+  barLevel: PlanFactTasksBarLevel,
+): GPRTask[] {
+  if (barLevel === "simplified") return tasks;
+  return tasks.filter((t) => !isGprPlanFactChartExcludedMiscStageName(t.name));
+}
+
 function filterGprTasksForPlanFactBarLevel(
   tasks: GPRTask[],
   barLevel: PlanFactTasksBarLevel,
@@ -551,6 +571,193 @@ function filterGprTasksForPlanFactBarLevel(
   return out;
 }
 
+/** Шифр этапа «Монолитные конструкции» — визуальное разбиение только в «Все этапы». */
+export const GPR_MONOLITH_CHART_STAGE_CODE = "2.05.04.2";
+const GPR_MONOLITH_FLOOR_COUNT = 9;
+const MS_PER_DAY_PLAN_FACT = 86400000;
+
+export function isGprMonolithChartStageCode(code: string | null | undefined): boolean {
+  return normalizeGprCodeFinal(code ?? "") === GPR_MONOLITH_CHART_STAGE_CODE;
+}
+
+function isoFromLocalDayMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Последовательные плановые интервалы: сумма = исходный период, последний заканчивается в planEnd. */
+export function splitSequentialPlanIsoSegments(
+  planStart: string,
+  planEnd: string,
+  parts: number,
+): Array<{ start: string; end: string }> {
+  const psm = isoDayMs(planStart);
+  const pem = isoDayMs(planEnd);
+  if (psm == null || pem == null || pem < psm || parts < 1) return [];
+  const totalDays = Math.round((pem - psm) / MS_PER_DAY_PLAN_FACT) + 1;
+  const baseDays = Math.floor(totalDays / parts);
+  const extraDays = totalDays % parts;
+  const segments: Array<{ start: string; end: string }> = [];
+  let cursor = psm;
+  for (let i = 0; i < parts; i += 1) {
+    const days = baseDays + (i < extraDays ? 1 : 0);
+    const endMs = i === parts - 1 ? pem : cursor + (days - 1) * MS_PER_DAY_PLAN_FACT;
+    segments.push({ start: isoFromLocalDayMs(cursor), end: isoFromLocalDayMs(endMs) });
+    cursor = endMs + MS_PER_DAY_PLAN_FACT;
+  }
+  return segments;
+}
+
+/** Дата прогресса факта по доле выполнения от планового периода (только диаграмма). */
+export function monolithFactProgressMsFromPlanPercent(
+  planStartMs: number,
+  planEndMs: number,
+  factPercent: number,
+): number | null {
+  if (factPercent <= 0) return null;
+  if (factPercent >= 100) return planEndMs;
+  const span = planEndMs - planStartMs;
+  return planStartMs + Math.round((span * factPercent) / 100);
+}
+
+export type MonolithFloorFactSlice = {
+  fs: string | null;
+  fe: string | null;
+  floorPercent: number;
+};
+
+/** Факт одного этажа: 100% / частично / 0% по дате прогресса на шкале плана. */
+export function computeMonolithFloorFactSlice(
+  segStartIso: string,
+  segEndIso: string,
+  progressMs: number | null,
+): MonolithFloorFactSlice {
+  const segStart = isoDayMs(segStartIso);
+  const segEnd = isoDayMs(segEndIso);
+  if (segStart == null || segEnd == null || progressMs == null) {
+    return { fs: null, fe: null, floorPercent: 0 };
+  }
+  if (progressMs >= segEnd) {
+    return { fs: segStartIso, fe: segEndIso, floorPercent: 100 };
+  }
+  if (progressMs < segStart) {
+    return { fs: null, fe: null, floorPercent: 0 };
+  }
+  const segDurationMs = segEnd - segStart + MS_PER_DAY_PLAN_FACT;
+  const doneMs = progressMs - segStart + MS_PER_DAY_PLAN_FACT;
+  const floorPercent = Math.min(100, Math.max(0, (doneMs / segDurationMs) * 100));
+  return {
+    fs: segStartIso,
+    fe: isoFromLocalDayMs(progressMs),
+    floorPercent: Math.round(floorPercent * 10) / 10,
+  };
+}
+
+type PlanFactChartBuildEntry = {
+  task: GPRTask;
+  label: string;
+  hasDates: boolean;
+  ps: string | null;
+  pe: string | null;
+  fs: string | null;
+  fe: string | null;
+  factLabelOverride?: string;
+};
+
+function findMonolithChartTask(branchPoolTasks: GPRTask[]): GPRTask | null {
+  return branchPoolTasks.find((t) => isGprMonolithChartStageCode(t.code)) ?? null;
+}
+
+/**
+ * «Все этапы»: 2.05.04.2 → 9 строк с последовательным планом и распределённым фактом.
+ * В «Детально» (уровень X.XX.XX) разбиение не применяется.
+ * KPI / финансы / агрегаты не меняются.
+ */
+function expandMonolithFloorsForChart(
+  entries: PlanFactChartBuildEntry[],
+  branchPoolTasks: GPRTask[],
+  todayIso: string,
+  barLevel: PlanFactTasksBarLevel,
+): PlanFactChartBuildEntry[] {
+  if (barLevel !== "full") return entries;
+
+  const monolith = findMonolithChartTask(branchPoolTasks);
+  if (!monolith) return entries;
+
+  const schedule = resolvePlanFactBarRowSchedule(monolith, branchPoolTasks, todayIso, "full");
+  const ps = schedule?.planStart ?? null;
+  const pe = schedule?.planEnd ?? null;
+  const psm = isoDayMs(ps);
+  const pem = isoDayMs(pe);
+  const hasDates = Boolean(psm != null && pem != null && pem >= psm);
+  if (!hasDates || !ps || !pe) return entries;
+
+  const insight = computeGprStageCompletionInsight(branchPoolTasks, monolith, new Date(`${todayIso.trim()}T12:00:00`));
+  const factPercent = Math.max(0, Math.min(100, insight.factPercent));
+  const progressMs = monolithFactProgressMsFromPlanPercent(psm!, pem!, factPercent);
+  const segments = splitSequentialPlanIsoSegments(ps, pe, GPR_MONOLITH_FLOOR_COUNT);
+  if (segments.length !== GPR_MONOLITH_FLOOR_COUNT) return entries;
+
+  const totalDurationDays = Math.round((pem! - psm!) / MS_PER_DAY_PLAN_FACT) + 1;
+  const floorDurationDays = totalDurationDays / GPR_MONOLITH_FLOOR_COUNT;
+  const totalCost = Number(monolith.contractValue) || 0;
+  const floorCost = totalCost > 0 ? totalCost / GPR_MONOLITH_FLOOR_COUNT : 0;
+
+  const floorFacts = segments.map((seg) => computeMonolithFloorFactSlice(seg.start, seg.end, progressMs));
+
+  if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+    console.info("[PlanFactGprDynamicsChart] monolith floor split", {
+      code: GPR_MONOLITH_CHART_STAGE_CODE,
+      barLevel,
+      planStart: ps,
+      planEnd: pe,
+      totalDurationDays,
+      floorDurationDays,
+      totalCost: totalCost || null,
+      floorCost: floorCost || null,
+      factPercent,
+      progressDate: progressMs != null ? isoFromLocalDayMs(progressMs) : null,
+      floors: floorFacts.map((f, i) => ({
+        floor: i + 1,
+        plan: segments[i],
+        floorPercent: f.floorPercent,
+        factStart: f.fs,
+        factEnd: f.fe,
+      })),
+    });
+  }
+
+  const floorEntries: PlanFactChartBuildEntry[] = segments.map((seg, index) => {
+    const fact = floorFacts[index]!;
+    return {
+      task: monolith,
+      label: `${GPR_MONOLITH_CHART_STAGE_CODE} — Монолитные конструкции — ${index + 1} этаж`,
+      hasDates: true,
+      ps: seg.start,
+      pe: seg.end,
+      fs: fact.fs,
+      fe: fact.fe,
+      factLabelOverride: formatGprStageFactPercentValue(fact.floorPercent),
+    };
+  });
+
+  const monolithIdx = entries.findIndex((e) => isGprMonolithChartStageCode(e.task.code));
+  if (monolithIdx >= 0) {
+    return [
+      ...entries.slice(0, monolithIdx),
+      ...floorEntries,
+      ...entries.slice(monolithIdx + 1),
+    ];
+  }
+
+  const anchorIdx = entries.findIndex((e) => normalizeGprCodeFinal(e.task.code) === "2.05.04");
+  const insertAt = anchorIdx >= 0 ? anchorIdx + 1 : entries.length;
+  return [...entries.slice(0, insertAt), ...floorEntries, ...entries.slice(insertAt)];
+}
+
 function buildGprPlanFactBarChartModel(
   tasks: GPRTask[],
   todayIso: string,
@@ -558,28 +765,38 @@ function buildGprPlanFactBarChartModel(
   partKey: PlanFactWorkTypePartKey,
   branchPoolTasks: GPRTask[],
 ): PlanFactWorkTypeChartModel | null {
-  const list = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
+  const rawList = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
     const cmp = compareGprCodesByNumericPath(a.code, b.code);
     if (cmp !== 0) return cmp;
     return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
   });
+  const list = filterGprPlanFactChartMiscDisplayTasks(rawList, barLevel);
+
+  if (
+    typeof process !== "undefined" &&
+    process.env.NODE_ENV !== "production" &&
+    barLevel !== "simplified" &&
+    rawList.length !== list.length
+  ) {
+    const excluded = rawList
+      .filter((t) => isGprPlanFactChartExcludedMiscStageName(t.name))
+      .map((t) => formatGprPlanFactBarLabel(t.code, t.name));
+    console.info("[PlanFactGprDynamicsChart] misc stage filter", {
+      barLevel,
+      before: rawList.length,
+      after: list.length,
+      excluded,
+    });
+  }
 
   if (list.length === 0) return null;
 
   const today = new Date(`${todayIso.trim()}T12:00:00`);
   if (Number.isNaN(today.getTime())) return null;
 
-  type Entry = {
-    task: GPRTask;
-    label: string;
-    hasDates: boolean;
-    ps: string | null;
-    pe: string | null;
-    fs: string | null;
-    fe: string | null;
-  };
+  type Entry = PlanFactChartBuildEntry;
 
-  const entries: Entry[] = [];
+  let entries: Entry[] = [];
   const allDates: string[] = [];
 
   for (const task of list) {
@@ -593,10 +810,15 @@ function buildGprPlanFactBarChartModel(
     const hasDates = Boolean(psm != null && pem != null && pem >= psm);
     const label = formatGprPlanFactBarLabel(task.code, task.name);
     entries.push({ task, label, hasDates, ps, pe, fs, fe });
-    if (hasDates && ps && pe) {
-      allDates.push(ps, pe);
-      if (fs) allDates.push(fs);
-      if (fe) allDates.push(fe);
+  }
+
+  entries = expandMonolithFloorsForChart(entries, branchPoolTasks, todayIso, barLevel);
+
+  for (const e of entries) {
+    if (e.hasDates && e.ps && e.pe) {
+      allDates.push(e.ps, e.pe);
+      if (e.fs) allDates.push(e.fs);
+      if (e.fe) allDates.push(e.fe);
     }
   }
 
@@ -630,7 +852,8 @@ function buildGprPlanFactBarChartModel(
   for (const e of entries) {
     labels.push(e.label);
     factCompletionLabels.push(
-      formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf)),
+      e.factLabelOverride ??
+        formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf)),
     );
     rowDetails.push({
       planStart: e.ps ?? "",
