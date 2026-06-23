@@ -197,7 +197,9 @@ export function aggregatePlanFactBranchSchedule(
   if (psm == null || pem == null || pem < psm) return null;
   const factStart = minIsoDate(branchTasks.map((t) => t.factStart));
   const factEnd = resolvePlanFactGroupChartFactEnd(branchTasks, todayIso);
-  return { planStart, planEnd, factStart, factEnd };
+  const resolvedFactStart =
+    factStart ?? (factEnd && planStart ? planStart : null);
+  return { planStart, planEnd, factStart: resolvedFactStart, factEnd };
 }
 
 function resolvePlanFactBarRowSchedule(
@@ -290,6 +292,29 @@ export const PLAN_FACT_GPR_CHART_TOP_PADDING_PX = 20;
 
 /** Нижний отступ области строк (совпадает с layout.padding.bottom Chart.js). */
 export const PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX = 8;
+
+/** Горизонтальные разделители строк «Динамика выполнения ГПР». */
+export const PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR = "rgba(255, 255, 255, 0.1)";
+
+/**
+ * Доли (0–1) по высоте области строк для горизонтальных разделителей.
+ * Одна строка — верх и низ полосы; несколько — линии между строками.
+ */
+export function planFactGprRowDividerFractions(rowCount: number): number[] {
+  const n = Math.max(1, Math.floor(rowCount));
+  if (n === 1) return [0, 1];
+  return Array.from({ length: n - 1 }, (_, index) => (index + 1) / n);
+}
+
+/** Y-позиции (px от верха тела диаграммы) линий-разделителей строк. */
+export function planFactGprRowDividerTops(rowCount: number): number[] {
+  const n = Math.max(1, Math.floor(rowCount));
+  const rowAreaTop = PLAN_FACT_GPR_CHART_TOP_PADDING_PX;
+  const rowAreaHeight = n * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
+  return planFactGprRowDividerFractions(n).map(
+    (fraction) => rowAreaTop + fraction * rowAreaHeight,
+  );
+}
 
 /** Блок легенды под диаграммой (вне canvas). */
 export const PLAN_FACT_GPR_CHART_LEGEND_BLOCK_PX = 40;
@@ -531,6 +556,7 @@ function buildGprPlanFactBarChartModel(
   todayIso: string,
   barLevel: PlanFactTasksBarLevel,
   partKey: PlanFactWorkTypePartKey,
+  branchPoolTasks: GPRTask[],
 ): PlanFactWorkTypeChartModel | null {
   const list = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
     const cmp = compareGprCodesByNumericPath(a.code, b.code);
@@ -557,7 +583,7 @@ function buildGprPlanFactBarChartModel(
   const allDates: string[] = [];
 
   for (const task of list) {
-    const schedule = resolvePlanFactBarRowSchedule(task, tasks, todayIso, barLevel);
+    const schedule = resolvePlanFactBarRowSchedule(task, branchPoolTasks, todayIso, barLevel);
     const ps = schedule?.planStart ?? null;
     const pe = schedule?.planEnd ?? null;
     const fs = schedule?.factStart ?? null;
@@ -604,12 +630,12 @@ function buildGprPlanFactBarChartModel(
   for (const e of entries) {
     labels.push(e.label);
     factCompletionLabels.push(
-      formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(tasks, e.task, asOf)),
+      formatGprStageKpiFactDisplay(computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf)),
     );
     rowDetails.push({
       planStart: e.ps ?? "",
       planEnd: e.pe ?? "",
-      factStart: e.fs,
+      factStart: e.fs ?? (e.fe ? e.ps : null),
       factEnd: e.fe,
       hasDates: e.hasDates,
     });
@@ -622,12 +648,13 @@ function buildGprPlanFactBarChartModel(
       if (pfS != null && pfE != null && pfE >= pfS) {
         planRanges.push([pfS, pfE]);
         planColors.push(PLAN_BAR);
-        if (e.fs) {
-          const ffS = monthFloatFromIso(e.fs, originMonth);
+        const factStartIso = e.fs ?? (e.fe ? e.ps : null);
+        if (factStartIso) {
+          const ffS = monthFloatFromIso(factStartIso, originMonth);
           const ffE = e.fe ? monthFloatFromIso(e.fe, originMonth) : null;
           if (ffS != null && ffE != null && ffE >= ffS) {
             factRanges.push([ffS, ffE]);
-            factColors.push(planFactBarFactColorByProgressDelta(e.task, tasks, todayIso));
+            factColors.push(planFactBarFactColorByProgressDelta(e.task, branchPoolTasks, todayIso));
           } else {
             factRanges.push(null);
             factColors.push(FACT_WEAK);
@@ -683,11 +710,14 @@ export function buildPlanFactWorkTypeChartModel(
   partKey: PlanFactWorkTypePartKey,
   todayIso: string,
   barLevel: PlanFactTasksBarLevel = "detailed",
+  branchPoolTasks?: GPRTask[],
 ): PlanFactWorkTypeChartModel | null {
   if (!Array.isArray(tasks) || tasks.length === 0) return null;
 
+  const branchPool = branchPoolTasks?.length ? branchPoolTasks : tasks;
+
   if (partKey === "residential" || partKey === "project" || partKey === "parking") {
-    return buildGprPlanFactBarChartModel(tasks, todayIso, barLevel, partKey);
+    return buildGprPlanFactBarChartModel(tasks, todayIso, barLevel, partKey, branchPool);
   }
 
   const rows = buildPlanFactWorkTypeRows(tasks, partKey).filter((r) => r.bounds != null);

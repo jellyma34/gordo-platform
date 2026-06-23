@@ -1,7 +1,14 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, type Plugin, type RefObject } from "react";
-import type { BarElement, Chart as ChartJS } from "chart.js";
+import {
+  BarController,
+  BarElement,
+  CategoryScale,
+  Chart as ChartJS,
+  LinearScale,
+  Tooltip as ChartTooltip,
+} from "chart.js";
 import { Chart } from "@/components/charting/reactChartjsChart";
 import {
   AnalyticsLegendItem,
@@ -14,10 +21,33 @@ import {
   PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX,
+  PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
   PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX,
   PLAN_FACT_GPR_CHART_TOP_PADDING_PX,
+  planFactGprRowDividerFractions,
+  planFactGprRowDividerTops,
   type PlanFactWorkTypeChartModel,
 } from "@/lib/planFactWorkTypeTimeline";
+import {
+  planFactFactPercentLabelPlugin,
+  planFactMonthTodayLinePlugin,
+} from "@/components/construction/planFactGprDynamicsChartPlugins";
+
+let planFactGprChartPluginsRegistered = false;
+function ensurePlanFactGprChartPluginsRegistered(): void {
+  if (planFactGprChartPluginsRegistered) return;
+  ChartJS.register(
+    BarController,
+    CategoryScale,
+    LinearScale,
+    BarElement,
+    ChartTooltip,
+    planFactMonthTodayLinePlugin,
+    planFactFactPercentLabelPlugin,
+  );
+  planFactGprChartPluginsRegistered = true;
+}
+ensurePlanFactGprChartPluginsRegistered();
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
 
@@ -88,6 +118,120 @@ function logPlanFactGprLayoutMetrics(payload: {
   }
 }
 
+function createDatasetRenderAuditPlugin(model: PlanFactWorkTypeChartModel): Plugin<"bar"> {
+  return {
+    id: "planFactGprDatasetRenderAudit",
+    afterDatasetsDraw(chart: ChartJS<"bar">) {
+      const planMeta = chart.getDatasetMeta(0);
+      const factMeta = chart.getDatasetMeta(1);
+      const xScale = chart.scales.x;
+      if (!xScale) return;
+
+      model.labels.forEach((label, index) => {
+        const planRange = model.planRanges[index] ?? null;
+        const factRange = model.factRanges[index] ?? null;
+        const planEl = planMeta.data[index] as BarElement | undefined;
+        const factEl = factMeta.data[index] as BarElement | undefined;
+
+        const rangeWidth = (range: [number, number] | null) =>
+          range ? Math.abs(range[1] - range[0]) : 0;
+
+        const pixelWidth = (el: BarElement | undefined) => {
+          if (!el || !Number.isFinite(el.x) || !Number.isFinite(el.base)) return 0;
+          return Math.abs(el.x - el.base);
+        };
+
+        const planBarWidthPx = pixelWidth(planEl);
+        const factBarWidthPx = pixelWidth(factEl);
+        const planBarWidth = rangeWidth(planRange);
+        const factBarWidth = rangeWidth(factRange);
+        const detail = model.rowDetails[index];
+
+        const payload = {
+          label,
+          planStart: detail?.planStart ?? null,
+          planEnd: detail?.planEnd ?? null,
+          factStart: detail?.factStart ?? null,
+          factEnd: detail?.factEnd ?? null,
+          factPercent: model.factCompletionLabels[index] ?? null,
+          planRange,
+          factRange,
+          planBarWidth,
+          factBarWidth,
+          planBarWidthPx,
+          factBarWidthPx,
+          factColor: model.factColors[index] ?? null,
+          planColor: model.planColors[index] ?? null,
+          planDatasetOrder: chart.data.datasets[0]?.order,
+          factDatasetOrder: chart.data.datasets[1]?.order,
+          factHiddenByPlan:
+            factBarWidthPx > 0 &&
+            planBarWidthPx > 0 &&
+            (chart.data.datasets[0]?.order ?? 0) > (chart.data.datasets[1]?.order ?? 0),
+          factBarZeroWidth: factBarWidthPx < 0.5,
+        };
+
+        if (label.includes("2.05")) {
+          console.log("[PlanFactGprDynamicsChart] row 2.05 render audit", payload);
+        }
+        console.log("[PlanFactGprDynamicsChart] row render audit", payload);
+      });
+
+      console.log("[PlanFactGprDynamicsChart] chart datasets", {
+        labels: chart.data.labels,
+        planDataset: chart.data.datasets[0],
+        factDataset: chart.data.datasets[1],
+        xMin: model.xMin,
+        xMax: model.xMax,
+        todayX: model.todayX,
+      });
+    },
+  };
+}
+
+function PlanFactGprRowDividers({ rowCount }: { rowCount: number }) {
+  const tops = useMemo(() => planFactGprRowDividerTops(rowCount), [rowCount]);
+  if (rowCount < 1 || tops.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+      {tops.map((top, index) => (
+        <div
+          key={index}
+          className="absolute left-0 right-0"
+          style={{
+            top,
+            height: 1,
+            backgroundColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Разделители в chartArea — те же Y, что и {@link planFactGprRowDividerTops}, в координатах canvas. */
+function createRowDividerChartPlugin(rowCount: number): Plugin<"bar"> {
+  const fractions = planFactGprRowDividerFractions(rowCount);
+  return {
+    id: "planFactGprRowDividerChart",
+    beforeDatasetsDraw(chart: ChartJS<"bar">) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea || fractions.length === 0) return;
+      ctx.save();
+      ctx.strokeStyle = PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR;
+      ctx.lineWidth = 1;
+      for (const fraction of fractions) {
+        const y = Math.round(chartArea.top + fraction * chartArea.height) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, y);
+        ctx.lineTo(chartArea.right, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    },
+  };
+}
+
 function createLayoutAuditPlugin(refs: {
   wrapperRef: RefObject<HTMLDivElement | null>;
   labelsRef: RefObject<HTMLDivElement | null>;
@@ -130,6 +274,85 @@ export function PlanFactGprDynamicsChartPanel({
 
   const audit = useMemo(() => auditPlanFactChartModel(model), [model]);
 
+  const chartData = useMemo(
+    () =>
+      ({
+        labels: model.labels,
+        datasets: [
+          {
+            label: "План",
+            data: model.planRanges,
+            backgroundColor: model.planColors,
+            borderColor: model.planColors,
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            maxBarThickness: 16,
+            order: 1,
+          },
+          {
+            label: "Факт",
+            data: model.factRanges,
+            backgroundColor: model.factColors,
+            borderColor: model.factColors,
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            maxBarThickness: 12,
+            order: 2,
+          },
+        ],
+      }) as const,
+    [model],
+  );
+
+  const datasetRenderAuditPlugin = useMemo(
+    () => createDatasetRenderAuditPlugin(model),
+    [model],
+  );
+
+  useLayoutEffect(() => {
+    console.log("[PlanFactGprDynamicsChart] model before Chart.js", {
+      labels: model.labels,
+      planRanges: model.planRanges,
+      factRanges: model.factRanges,
+      planColors: model.planColors,
+      factColors: model.factColors,
+      factCompletionLabels: model.factCompletionLabels,
+      rowDetails: model.rowDetails,
+      originMonth: model.originMonth,
+      xMin: model.xMin,
+      xMax: model.xMax,
+      todayX: model.todayX,
+    });
+
+    model.labels.forEach((label, index) => {
+      const planRange = model.planRanges[index] ?? null;
+      const factRange = model.factRanges[index] ?? null;
+      const planBarWidth = planRange ? Math.abs(planRange[1] - planRange[0]) : 0;
+      const factBarWidth = factRange ? Math.abs(factRange[1] - factRange[0]) : 0;
+      const detail = model.rowDetails[index];
+      const payload = {
+        label,
+        planStart: detail?.planStart ?? null,
+        planEnd: detail?.planEnd ?? null,
+        factStart: detail?.factStart ?? null,
+        factEnd: detail?.factEnd ?? null,
+        factPercent: model.factCompletionLabels[index] ?? null,
+        planRange,
+        factRange,
+        planBarWidth,
+        factBarWidth,
+        factColor: model.factColors[index] ?? null,
+      };
+      if (label.includes("2.05")) {
+        console.log("[PlanFactGprDynamicsChart] row 2.05 model", payload);
+      }
+    });
+
+    console.log("[PlanFactGprDynamicsChart] chart dataset payload", chartData);
+  }, [model, chartData]);
+
   useLayoutEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     console.info("[PlanFactGprDynamicsChart] data audit", audit);
@@ -143,6 +366,11 @@ export function PlanFactGprDynamicsChartPanel({
         chartHostRef,
       }),
     [],
+  );
+
+  const rowDividerChartPlugin = useMemo(
+    () => createRowDividerChartPlugin(rowCount),
+    [rowCount],
   );
 
   const planLegend = model.planColors[0] ?? "#94a3b8";
@@ -164,6 +392,12 @@ export function PlanFactGprDynamicsChartPanel({
           },
         },
         interaction: { mode: "nearest", axis: "y", intersect: true },
+        datasets: {
+          bar: {
+            categoryPercentage: 0.82,
+            barPercentage: 0.9,
+          },
+        },
         plugins: {
           legend: { display: false },
           planFactMonthToday: { x: model.todayX },
@@ -212,6 +446,7 @@ export function PlanFactGprDynamicsChartPanel({
             type: "linear",
             min: model.xMin,
             max: model.xMax,
+            offset: false,
             grid: { color: "rgba(148,163,184,0.12)" },
             border: { display: false },
             ticks: {
@@ -252,15 +487,16 @@ export function PlanFactGprDynamicsChartPanel({
     >
       <div
         ref={wrapperRef}
-        className="grid w-full min-w-0"
+        className="relative grid w-full min-w-0"
         style={{
           height: chartLayout.chartBodyHeightPx,
           gridTemplateColumns,
         }}
       >
+        <PlanFactGprRowDividers rowCount={rowCount} />
         <div
           ref={labelsRef}
-          className="overflow-hidden border-r border-slate-600/35"
+          className="relative z-[1] overflow-hidden border-r border-slate-600/35"
           style={{
             height: chartLayout.chartBodyHeightPx,
             paddingTop: PLAN_FACT_GPR_CHART_TOP_PADDING_PX,
@@ -281,39 +517,19 @@ export function PlanFactGprDynamicsChartPanel({
 
         <div
           ref={chartHostRef}
-          className="relative min-w-0 overflow-hidden"
+          className="relative z-[1] min-w-0 overflow-hidden"
           style={{ height: chartLayout.chartBodyHeightPx }}
         >
           <Chart
             type="bar"
-            plugins={[layoutAuditPlugin]}
-            data={
-              {
-                labels: model.labels,
-                datasets: [
-                  {
-                    label: "План",
-                    data: model.planRanges,
-                    backgroundColor: model.planColors,
-                    borderColor: model.planColors,
-                    borderWidth: 0,
-                    borderRadius: 4,
-                    maxBarThickness: 18,
-                    order: 1,
-                  },
-                  {
-                    label: "Факт",
-                    data: model.factRanges,
-                    backgroundColor: model.factColors,
-                    borderColor: model.factColors,
-                    borderWidth: 0,
-                    borderRadius: 4,
-                    maxBarThickness: 18,
-                    order: 0,
-                  },
-                ],
-              } as const
-            }
+            plugins={[
+              rowDividerChartPlugin,
+              planFactMonthTodayLinePlugin,
+              layoutAuditPlugin,
+              planFactFactPercentLabelPlugin,
+              datasetRenderAuditPlugin,
+            ]}
+            data={chartData}
             options={{
               ...chartOptions,
               // Фиксируем высоту canvas = числу строк; ширину даёт responsive + grid 1fr.

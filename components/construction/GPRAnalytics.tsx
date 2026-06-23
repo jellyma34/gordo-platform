@@ -237,107 +237,6 @@ const ganttTodayLinePlugin: Plugin<"bar"> = {
   },
 };
 
-type PlanFactMonthTodayLineOpts = { x: number | null };
-
-/** Вертикаль «Сегодня» на шкале в месяцах (плавающие bar по видам работ). */
-const planFactMonthTodayLinePlugin: Plugin<"bar"> = {
-  id: "planFactMonthToday",
-  beforeDatasetsDraw(chart) {
-    const opts = (chart.options.plugins as { planFactMonthToday?: PlanFactMonthTodayLineOpts } | undefined)
-      ?.planFactMonthToday;
-    if (!opts || opts.x == null || !Number.isFinite(opts.x) || !chart.scales.x) return;
-
-    const xScale = chart.scales.x;
-    const x = xScale.getPixelForValue(opts.x);
-    const { ctx, chartArea } = chart;
-    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
-
-    const label = "Сегодня";
-    const xi = Math.round(x) + 0.5;
-    ctx.save();
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(163, 179, 199, 0.52)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 5]);
-    ctx.moveTo(xi, chartArea.top);
-    ctx.lineTo(xi, chartArea.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    const textY = chartArea.top - 3;
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
-    ctx.lineWidth = 3;
-    ctx.strokeText(label, x, textY);
-    ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
-    ctx.fillText(label, x, textY);
-    ctx.restore();
-  },
-};
-
-type PlanFactFactPercentLabelOpts = {
-  labels: string[];
-  factRanges: Array<[number, number] | null>;
-};
-
-/** Подпись «Факт выполнения» у конца фактической полосы (диаграмма «Динамика выполнения ГПР»). */
-const planFactFactPercentLabelPlugin: Plugin<"bar"> = {
-  id: "planFactFactPercentLabels",
-  afterDatasetsDraw(chart) {
-    const opts = (
-      chart.options.plugins as { planFactFactPercentLabels?: PlanFactFactPercentLabelOpts } | undefined
-    )?.planFactFactPercentLabels;
-    if (!opts?.labels?.length) return;
-
-    const { ctx, chartArea } = chart;
-    const factMeta = chart.getDatasetMeta(1);
-    const planMeta = chart.getDatasetMeta(0);
-
-    ctx.save();
-    ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
-    ctx.textBaseline = "middle";
-
-    for (let i = 0; i < opts.labels.length; i++) {
-      const text = opts.labels[i];
-      if (!text) continue;
-
-      const factEl = factMeta.data[i] as BarElement | undefined;
-      const planEl = planMeta.data[i] as BarElement | undefined;
-      let xPos: number;
-      let yPos: number;
-
-      if (factEl && opts.factRanges[i] && Number.isFinite(factEl.x)) {
-        xPos = factEl.x + 6;
-        yPos = factEl.y;
-      } else if (planEl && Number.isFinite(planEl.x)) {
-        xPos = planEl.x + 6;
-        yPos = planEl.y;
-      } else {
-        continue;
-      }
-
-      const isDash = text === "—";
-      ctx.textAlign = "left";
-      const maxX = chartArea.right - 2;
-      if (xPos > maxX - 28) {
-        ctx.textAlign = "right";
-        xPos = Math.min(xPos, maxX);
-      }
-
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
-      ctx.lineWidth = 3;
-      ctx.strokeText(text, xPos, yPos);
-      ctx.fillStyle = isDash ? "rgba(148, 163, 184, 0.85)" : "rgba(248, 250, 252, 0.95)";
-      ctx.fillText(text, xPos, yPos);
-    }
-    ctx.restore();
-  },
-};
-
 ChartJS.register(
   BarController,
   CategoryScale,
@@ -348,8 +247,6 @@ ChartJS.register(
   ChartTooltip,
   ChartLegend,
   ganttTodayLinePlugin,
-  planFactMonthTodayLinePlugin,
-  planFactFactPercentLabelPlugin,
 );
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
@@ -2499,6 +2396,7 @@ export function GPRAnalytics({
       workTypePart,
       gprReportYmd,
       planFactTasksBarLevel,
+      planFactFlatTasks,
     );
   }, [
     effectivePlanFactDataSource,
@@ -2507,6 +2405,7 @@ export function GPRAnalytics({
     activeProjectPart,
     gprReportYmd,
     planFactTasksBarLevel,
+    planFactFlatTasks,
   ]);
 
   const showPlanFactTasksBarLevel = effectivePlanFactDataSource === "tasks";
@@ -3617,12 +3516,11 @@ export function GPRAnalytics({
           ) : null}
 
           <div
-            className={`mt-4 w-full min-w-0 ${
-              effectivePlanFactDataSource === "kvartaly"
-                ? "overflow-hidden"
-                : planFactWorkTypeChartModel != null
-                  ? "max-h-[min(85vh,1200px)] overflow-x-hidden overflow-y-auto"
-                  : "h-[240px] overflow-hidden sm:h-[300px] md:h-[320px]"
+            className={`mt-4 w-full min-w-0${
+              effectivePlanFactDataSource === "tasks" &&
+              (planFactWorkTypeChartModel == null || planFactWorkTypeChartModel.labels.length === 0)
+                ? " min-h-[240px] sm:min-h-[300px] md:min-h-[320px]"
+                : ""
             }`}
           >
             {effectivePlanFactDataSource === "kvartaly" ? (
@@ -3637,15 +3535,12 @@ export function GPRAnalytics({
               ) : (
                 <div
                   key={`kvartaly-gantt-${planFactKvartalyGranularity}-${String(activePartScope)}-${[...(kvartalyActiveModel.ganttRows ?? [])].map((r) => r.id).sort().join(":")}`}
-                  className="w-full min-w-0 max-h-[min(85vh,1200px)] overflow-y-auto overflow-x-hidden"
+                  className="w-full min-w-0"
                   style={{
                     minHeight: planFactKvartalyGranularity === "overview" ? 220 : 280,
-                    height: Math.min(
-                      1200,
-                      Math.max(
-                        planFactKvartalyGranularity === "overview" ? 220 : 280,
-                        kvartalyActiveModel.ganttRows.length * 24 + 140,
-                      ),
+                    height: Math.max(
+                      planFactKvartalyGranularity === "overview" ? 220 : 280,
+                      kvartalyActiveModel.ganttRows.length * 24 + 140,
                     ),
                   }}
                 >
@@ -3653,7 +3548,7 @@ export function GPRAnalytics({
                 </div>
               )
             ) : planFactWorkTypeChartModel == null || planFactWorkTypeChartModel.labels.length === 0 ? (
-              <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+              <div className="flex h-full min-h-[240px] items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400 sm:min-h-[300px] md:min-h-[320px]">
                 {planFactFilter.filterType === "all"
                   ? "Нет задач с шифром 2.05 (жилой дом) или 2.06 / 2.07 (стоянка) для диаграммы, либо данные не загружены."
                   : "В выбранном периоде нет задач (учтены и строки без плановых дат)."}
