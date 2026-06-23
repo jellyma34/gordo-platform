@@ -1,15 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, type Plugin, type RefObject } from "react";
-import {
-  BarController,
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  LinearScale,
-  Tooltip as ChartTooltip,
-} from "chart.js";
-import { Chart } from "@/components/charting/reactChartjsChart";
+import { useLayoutEffect, useMemo } from "react";
 import {
   AnalyticsLegendItem,
   AnalyticsLegendList,
@@ -17,37 +8,17 @@ import {
 import {
   auditPlanFactChartModel,
   computePlanFactGprChartLayout,
-  formatPlanFactGridMonthLabel,
-  PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX,
+  planFactGprBarSpanPct,
+  planFactGprXAxisMonthTicks,
+  planFactGprXPositionPct,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX,
   PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
   PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX,
-  PLAN_FACT_GPR_CHART_TOP_PADDING_PX,
-  planFactGprRowDividerFractions,
-  planFactGprRowDividerTops,
+  PLAN_FACT_GPR_CHART_ROWS_PER_STAGE,
+  PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX,
   type PlanFactWorkTypeChartModel,
 } from "@/lib/planFactWorkTypeTimeline";
-import {
-  planFactFactPercentLabelPlugin,
-  planFactMonthTodayLinePlugin,
-} from "@/components/construction/planFactGprDynamicsChartPlugins";
-
-let planFactGprChartPluginsRegistered = false;
-function ensurePlanFactGprChartPluginsRegistered(): void {
-  if (planFactGprChartPluginsRegistered) return;
-  ChartJS.register(
-    BarController,
-    CategoryScale,
-    LinearScale,
-    BarElement,
-    ChartTooltip,
-    planFactMonthTodayLinePlugin,
-    planFactFactPercentLabelPlugin,
-  );
-  planFactGprChartPluginsRegistered = true;
-}
-ensurePlanFactGprChartPluginsRegistered();
 
 const DATE_FMT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" });
 
@@ -86,179 +57,233 @@ function pickGanttFactLegendColor(
   return best;
 }
 
-function logPlanFactGprLayoutMetrics(payload: {
-  containerWidth: number;
-  labelsWidth: number;
-  chartWidth: number;
-  canvasWidth: number;
-  chartAreaLeft: number;
-  chartAreaRight: number;
-  chartAreaWidth: number;
-  chartAreaHeight: number;
-  wrapperWidth: number;
-  canvasClientWidth: number;
-}) {
-  console.log("[PlanFactGprDynamicsChart] layout", {
-    containerWidth: payload.containerWidth,
-    labelsWidth: payload.labelsWidth,
-    chartWidth: payload.chartWidth,
-    canvasWidth: payload.canvasWidth,
-    chartAreaWidth: payload.chartAreaWidth,
-    chartAreaLeft: payload.chartAreaLeft,
-    chartAreaRight: payload.chartAreaRight,
-    chartAreaHeight: payload.chartAreaHeight,
-    wrapperWidth: payload.wrapperWidth,
-    canvasClientWidth: payload.canvasClientWidth,
-  });
-  if (payload.chartAreaWidth < 300) {
-    console.warn(
-      "[PlanFactGprDynamicsChart] chartArea.width < 300px — полосы плана/факта могут быть невидимы",
-      payload,
-    );
+function buildStageTooltip(model: PlanFactWorkTypeChartModel, index: number): string {
+  const label = model.labels[index] ?? "";
+  const d = model.rowDetails[index];
+  if (!d) return label;
+  if (d.hasDates === false) {
+    return `${label}\nПлан: нет данных\nФакт: нет данных`;
   }
+  const factPct = model.factCompletionLabels[index] ?? "—";
+  const planLine = `План: ${fmtDate(d.planStart)} — ${fmtDate(d.planEnd)}`;
+  if (d.factStart && d.factEnd) {
+    return `${label}\n${planLine}\nФакт: ${fmtDate(d.factStart)} — ${fmtDate(d.factEnd)}\nВыполнение: ${factPct}`;
+  }
+  return `${label}\n${planLine}\nФакт: нет данных • Выполнение: ${factPct}`;
 }
 
-function createDatasetRenderAuditPlugin(model: PlanFactWorkTypeChartModel): Plugin<"bar"> {
-  return {
-    id: "planFactGprDatasetRenderAudit",
-    afterDatasetsDraw(chart: ChartJS<"bar">) {
-      const planMeta = chart.getDatasetMeta(0);
-      const factMeta = chart.getDatasetMeta(1);
-      const xScale = chart.scales.x;
-      if (!xScale) return;
-
-      model.labels.forEach((label, index) => {
-        const planRange = model.planRanges[index] ?? null;
-        const factRange = model.factRanges[index] ?? null;
-        const planEl = planMeta.data[index] as BarElement | undefined;
-        const factEl = factMeta.data[index] as BarElement | undefined;
-
-        const rangeWidth = (range: [number, number] | null) =>
-          range ? Math.abs(range[1] - range[0]) : 0;
-
-        const pixelWidth = (el: BarElement | undefined) => {
-          if (!el || !Number.isFinite(el.x) || !Number.isFinite(el.base)) return 0;
-          return Math.abs(el.x - el.base);
-        };
-
-        const planBarWidthPx = pixelWidth(planEl);
-        const factBarWidthPx = pixelWidth(factEl);
-        const planBarWidth = rangeWidth(planRange);
-        const factBarWidth = rangeWidth(factRange);
-        const detail = model.rowDetails[index];
-
-        const payload = {
-          label,
-          planStart: detail?.planStart ?? null,
-          planEnd: detail?.planEnd ?? null,
-          factStart: detail?.factStart ?? null,
-          factEnd: detail?.factEnd ?? null,
-          factPercent: model.factCompletionLabels[index] ?? null,
-          planRange,
-          factRange,
-          planBarWidth,
-          factBarWidth,
-          planBarWidthPx,
-          factBarWidthPx,
-          factColor: model.factColors[index] ?? null,
-          planColor: model.planColors[index] ?? null,
-          planDatasetOrder: chart.data.datasets[0]?.order,
-          factDatasetOrder: chart.data.datasets[1]?.order,
-          factHiddenByPlan:
-            factBarWidthPx > 0 &&
-            planBarWidthPx > 0 &&
-            (chart.data.datasets[0]?.order ?? 0) > (chart.data.datasets[1]?.order ?? 0),
-          factBarZeroWidth: factBarWidthPx < 0.5,
-        };
-
-        if (label.includes("2.05")) {
-          console.log("[PlanFactGprDynamicsChart] row 2.05 render audit", payload);
-        }
-        console.log("[PlanFactGprDynamicsChart] row render audit", payload);
-      });
-
-      console.log("[PlanFactGprDynamicsChart] chart datasets", {
-        labels: chart.data.labels,
-        planDataset: chart.data.datasets[0],
-        factDataset: chart.data.datasets[1],
-        xMin: model.xMin,
-        xMax: model.xMax,
-        todayX: model.todayX,
-      });
-    },
-  };
+function parseFactPercent(label: string): number | null {
+  const text = label.trim();
+  if (!text || text === "—") return null;
+  const value = Number.parseFloat(text.replace("%", "").replace(",", "."));
+  return Number.isFinite(value) ? value : null;
 }
 
-function PlanFactGprRowDividers({ rowCount }: { rowCount: number }) {
-  const tops = useMemo(() => planFactGprRowDividerTops(rowCount), [rowCount]);
-  if (rowCount < 1 || tops.length === 0) return null;
+function buildPlanFactGprGridTemplateColumns(): string {
+  return `minmax(${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX}px, min(38%, ${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX}px)) minmax(0, 1fr)`;
+}
+
+function PlanFactGprXAxis({
+  model,
+  todayLeftPct,
+}: {
+  model: PlanFactWorkTypeChartModel;
+  todayLeftPct: number | null;
+}) {
+  const ticks = useMemo(
+    () => planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax),
+    [model.originMonth, model.xMin, model.xMax],
+  );
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-      {tops.map((top, index) => (
-        <div
-          key={index}
-          className="absolute left-0 right-0"
+    <div
+      className="relative h-full w-full min-w-0"
+      style={{ height: PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX }}
+    >
+      {ticks.map((tick) => (
+        <span
+          key={tick.value}
+          className="absolute bottom-1 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-slate-400"
           style={{
-            top,
-            height: 1,
-            backgroundColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
+            left: `${planFactGprXPositionPct(tick.value, model.xMin, model.xMax)}%`,
           }}
-        />
+        >
+          {tick.label}
+        </span>
       ))}
+      {todayLeftPct != null ? (
+        <span
+          className="absolute top-0.5 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold leading-none text-slate-200"
+          style={{ left: `${todayLeftPct}%` }}
+        >
+          Сегодня
+        </span>
+      ) : null}
     </div>
   );
 }
 
-/** Разделители в chartArea — те же Y, что и {@link planFactGprRowDividerTops}, в координатах canvas. */
-function createRowDividerChartPlugin(rowCount: number): Plugin<"bar"> {
-  const fractions = planFactGprRowDividerFractions(rowCount);
-  return {
-    id: "planFactGprRowDividerChart",
-    beforeDatasetsDraw(chart: ChartJS<"bar">) {
-      const { ctx, chartArea } = chart;
-      if (!chartArea || fractions.length === 0) return;
-      ctx.save();
-      ctx.strokeStyle = PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR;
-      ctx.lineWidth = 1;
-      for (const fraction of fractions) {
-        const y = Math.round(chartArea.top + fraction * chartArea.height) + 0.5;
-        ctx.beginPath();
-        ctx.moveTo(chartArea.left, y);
-        ctx.lineTo(chartArea.right, y);
-        ctx.stroke();
-      }
-      ctx.restore();
-    },
-  };
+function PlanFactGprChartGridOverlay({
+  model,
+  todayLeftPct,
+}: {
+  model: PlanFactWorkTypeChartModel;
+  todayLeftPct: number | null;
+}) {
+  const ticks = useMemo(
+    () => planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax),
+    [model.originMonth, model.xMin, model.xMax],
+  );
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+      {ticks.map((tick) => (
+        <div
+          key={tick.value}
+          className="absolute bottom-0 top-0 w-px"
+          style={{
+            left: `${planFactGprXPositionPct(tick.value, model.xMin, model.xMax)}%`,
+            backgroundColor: "rgba(148,163,184,0.12)",
+          }}
+        />
+      ))}
+      {todayLeftPct != null ? (
+        <div
+          className="absolute bottom-0 top-0 w-0 border-l-[1.5px] border-dashed"
+          style={{
+            left: `${todayLeftPct}%`,
+            borderColor: "rgba(163, 179, 199, 0.52)",
+          }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
-function createLayoutAuditPlugin(refs: {
-  wrapperRef: RefObject<HTMLDivElement | null>;
-  labelsRef: RefObject<HTMLDivElement | null>;
-  chartHostRef: RefObject<HTMLDivElement | null>;
-}): Plugin<"bar"> {
-  return {
-    id: "planFactGprLayoutAudit",
-    afterDraw(chart: ChartJS<"bar">) {
-      const wrapper = refs.wrapperRef.current;
-      const labelsEl = refs.labelsRef.current;
-      const chartHost = refs.chartHostRef.current;
-      const canvas = chart.canvas;
-      const { chartArea } = chart;
-      logPlanFactGprLayoutMetrics({
-        containerWidth: wrapper?.clientWidth ?? 0,
-        labelsWidth: labelsEl?.clientWidth ?? 0,
-        chartWidth: chartHost?.clientWidth ?? 0,
-        canvasWidth: canvas.width,
-        canvasClientWidth: canvas.clientWidth,
-        wrapperWidth: wrapper?.clientWidth ?? 0,
-        chartAreaLeft: chartArea.left,
-        chartAreaRight: chartArea.right,
-        chartAreaWidth: chartArea.width,
-        chartAreaHeight: chartArea.height,
-      });
-    },
-  };
+function PlanFactGprSingleBar({
+  span,
+  color,
+  percentLabel,
+  todayLeftPct,
+}: {
+  span: { leftPct: number; widthPct: number } | null;
+  color: string;
+  percentLabel?: string | null;
+  todayLeftPct: number | null;
+}) {
+  const showPercent = Boolean(percentLabel?.trim());
+  let percentLeftPct = span ? span.leftPct + span.widthPct : 0;
+  let percentAlign: "right" | "center" = "right";
+
+  if (showPercent && span && todayLeftPct != null) {
+    const factRightPct = span.leftPct + span.widthPct;
+    const factCenterPct = span.leftPct + span.widthPct / 2;
+    const overlapThresholdPct = 3;
+    if (Math.abs(factRightPct - todayLeftPct) < overlapThresholdPct) {
+      if (span.widthPct > overlapThresholdPct * 2.5) {
+        percentLeftPct =
+          todayLeftPct <= factCenterPct
+            ? span.leftPct + span.widthPct * 0.38
+            : span.leftPct + span.widthPct * 0.62;
+      } else {
+        percentLeftPct =
+          todayLeftPct <= factCenterPct
+            ? todayLeftPct + overlapThresholdPct
+            : todayLeftPct - overlapThresholdPct;
+      }
+      percentAlign = "center";
+    }
+  }
+
+  return (
+    <div className="relative z-[1] flex h-full w-full min-w-0 items-center px-1">
+      <div className="relative h-3 w-full min-w-0">
+        {span ? (
+          <div
+            className="absolute inset-y-0 rounded"
+            style={{
+              left: `${span.leftPct}%`,
+              width: `${span.widthPct}%`,
+              backgroundColor: color,
+            }}
+          />
+        ) : null}
+        {showPercent && span ? (
+          <span
+            className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] font-semibold leading-none text-slate-50"
+            style={{
+              left: `${percentLeftPct}%`,
+              transform:
+                percentAlign === "center"
+                  ? "translate(-50%, -50%)"
+                  : "translate(calc(-100% - 6px), -50%)",
+            }}
+          >
+            {percentLabel}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PlanFactGprStageGroup({
+  index,
+  label,
+  model,
+  todayLeftPct,
+  gridTemplateColumns,
+}: {
+  index: number;
+  label: string;
+  model: PlanFactWorkTypeChartModel;
+  todayLeftPct: number | null;
+  gridTemplateColumns: string;
+}) {
+  const planRange = model.planRanges[index] ?? null;
+  const factRange = model.factRanges[index] ?? null;
+  const planSpan = planFactGprBarSpanPct(planRange, model.xMin, model.xMax);
+  const factSpan = planFactGprBarSpanPct(factRange, model.xMin, model.xMax);
+  const planColor = model.planColors[index] ?? "rgba(148, 163, 184, 0.5)";
+  const factColor = model.factColors[index] ?? GANTT_FACT_LEGEND_GRAY;
+  const factPctRaw = model.factCompletionLabels[index]?.trim() ?? "";
+  const factPercent = parseFactPercent(factPctRaw);
+  const showFact = factPercent != null && factPercent > 0;
+  const displayedFactSpan = showFact ? factSpan : null;
+  const factPercentLabel = showFact ? factPctRaw : null;
+
+  const groupHeight = PLAN_FACT_GPR_CHART_ROWS_PER_STAGE * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
+  const tooltip = buildStageTooltip(model, index);
+
+  return (
+    <div
+      className="relative z-[1] grid border-b border-slate-600/35"
+      style={{
+        gridTemplateColumns,
+        gridTemplateRows: `repeat(${PLAN_FACT_GPR_CHART_ROWS_PER_STAGE}, ${PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX}px)`,
+        height: groupHeight,
+        borderBottomColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
+      }}
+      title={tooltip}
+    >
+      <div
+        className="flex items-center overflow-hidden border-r border-slate-600/35 pr-2 text-[11px] leading-snug text-slate-300"
+        style={{ gridRow: `1 / span ${PLAN_FACT_GPR_CHART_ROWS_PER_STAGE}` }}
+        title={label}
+      >
+        <span className="line-clamp-2 w-full break-words">{label}</span>
+      </div>
+
+      <PlanFactGprSingleBar span={planSpan} color={planColor} todayLeftPct={todayLeftPct} />
+
+      <PlanFactGprSingleBar
+        span={displayedFactSpan}
+        color={factColor}
+        percentLabel={factPercentLabel}
+        todayLeftPct={todayLeftPct}
+      />
+    </div>
+  );
 }
 
 export function PlanFactGprDynamicsChartPanel({
@@ -266,225 +291,23 @@ export function PlanFactGprDynamicsChartPanel({
 }: {
   model: PlanFactWorkTypeChartModel;
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const labelsRef = useRef<HTMLDivElement>(null);
-  const chartHostRef = useRef<HTMLDivElement>(null);
-  const rowCount = model.labels.length;
-  const chartLayout = useMemo(() => computePlanFactGprChartLayout(rowCount), [rowCount]);
-  const chartRemountKey = useMemo(() => model.labels.join("\u0001"), [model.labels]);
-  /** Grouped bars: план и факт в одной строке — как в «Детально» / «Все этапы» (в т.ч. одна строка 2.05). */
-  const barGrouped = true;
-
+  const stageCount = model.labels.length;
+  const chartLayout = useMemo(() => computePlanFactGprChartLayout(stageCount), [stageCount]);
   const audit = useMemo(() => auditPlanFactChartModel(model), [model]);
+  const gridTemplateColumns = useMemo(() => buildPlanFactGprGridTemplateColumns(), []);
 
-  const chartData = useMemo(
-    () =>
-      ({
-        labels: model.labels,
-        datasets: [
-          {
-            label: "План",
-            data: model.planRanges,
-            backgroundColor: model.planColors,
-            borderColor: model.planColors,
-            borderWidth: 0,
-            borderRadius: 4,
-            borderSkipped: false,
-            maxBarThickness: 16,
-            grouped: barGrouped,
-            order: 1,
-          },
-          {
-            label: "Факт",
-            data: model.factRanges,
-            backgroundColor: model.factColors,
-            borderColor: model.factColors,
-            borderWidth: 0,
-            borderRadius: 4,
-            borderSkipped: false,
-            maxBarThickness: 12,
-            grouped: barGrouped,
-            order: 2,
-          },
-        ],
-      }) as const,
-    [model, barGrouped],
-  );
-
-  const datasetRenderAuditPlugin = useMemo(
-    () => createDatasetRenderAuditPlugin(model),
-    [model],
-  );
-
-  useLayoutEffect(() => {
-    console.log("[PlanFactGprDynamicsChart] model before Chart.js", {
-      labels: model.labels,
-      planRanges: model.planRanges,
-      factRanges: model.factRanges,
-      planColors: model.planColors,
-      factColors: model.factColors,
-      factCompletionLabels: model.factCompletionLabels,
-      rowDetails: model.rowDetails,
-      originMonth: model.originMonth,
-      xMin: model.xMin,
-      xMax: model.xMax,
-      todayX: model.todayX,
-    });
-
-    model.labels.forEach((label, index) => {
-      const planRange = model.planRanges[index] ?? null;
-      const factRange = model.factRanges[index] ?? null;
-      const planBarWidth = planRange ? Math.abs(planRange[1] - planRange[0]) : 0;
-      const factBarWidth = factRange ? Math.abs(factRange[1] - factRange[0]) : 0;
-      const detail = model.rowDetails[index];
-      const payload = {
-        label,
-        planStart: detail?.planStart ?? null,
-        planEnd: detail?.planEnd ?? null,
-        factStart: detail?.factStart ?? null,
-        factEnd: detail?.factEnd ?? null,
-        factPercent: model.factCompletionLabels[index] ?? null,
-        planRange,
-        factRange,
-        planBarWidth,
-        factBarWidth,
-        factColor: model.factColors[index] ?? null,
-      };
-      if (label.includes("2.05")) {
-        console.log("[PlanFactGprDynamicsChart] row 2.05 model", payload);
-      }
-    });
-
-    console.log("[PlanFactGprDynamicsChart] chart dataset payload", chartData);
-  }, [model, chartData]);
+  const todayLeftPct =
+    model.todayX != null && Number.isFinite(model.todayX)
+      ? planFactGprXPositionPct(model.todayX, model.xMin, model.xMax)
+      : null;
 
   useLayoutEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     console.info("[PlanFactGprDynamicsChart] data audit", audit);
   }, [audit]);
 
-  const layoutAuditPlugin = useMemo(
-    () =>
-      createLayoutAuditPlugin({
-        wrapperRef,
-        labelsRef,
-        chartHostRef,
-      }),
-    [],
-  );
-
-  const rowDividerChartPlugin = useMemo(
-    () => createRowDividerChartPlugin(rowCount),
-    [rowCount],
-  );
-
   const planLegend = model.planColors[0] ?? "#94a3b8";
   const factLegend = pickGanttFactLegendColor(model.factColors, model.factRanges);
-
-  const chartOptions = useMemo(
-    () =>
-      ({
-        indexAxis: "y" as const,
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        layout: {
-          padding: {
-            top: PLAN_FACT_GPR_CHART_TOP_PADDING_PX,
-            right: 48,
-            left: 4,
-            bottom: PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX,
-          },
-        },
-        interaction: { mode: "nearest", axis: "y", intersect: true },
-        datasets: {
-          bar: {
-            categoryPercentage: 0.82,
-            barPercentage: 0.9,
-            grouped: barGrouped,
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          planFactMonthToday: { x: model.todayX },
-          planFactFactPercentLabels: {
-            labels: model.factCompletionLabels,
-            factRanges: model.factRanges,
-          },
-          tooltip: {
-            enabled: true,
-            backgroundColor: "rgba(15,23,42,0.94)",
-            borderColor: "rgba(148,163,184,0.35)",
-            borderWidth: 1,
-            titleColor: "#f8fafc",
-            bodyColor: "#e2e8f0",
-            padding: 10,
-            callbacks: {
-              title: (items: { dataIndex?: number }[]) => {
-                const i = items[0]?.dataIndex;
-                if (typeof i !== "number" || i < 0) return "";
-                return model.labels[i] ?? "";
-              },
-              label: (ctx: { datasetIndex?: number; dataIndex?: number }) => {
-                const i = ctx.dataIndex ?? 0;
-                const d = model.rowDetails[i];
-                if (!d) return "";
-                if (d.hasDates === false) {
-                  return ctx.datasetIndex === 0 ? "План: нет данных" : "Факт: нет данных";
-                }
-                if (ctx.datasetIndex === 0) {
-                  return `План: ${fmtDate(d.planStart)} — ${fmtDate(d.planEnd)}`;
-                }
-                const factPct = model.factCompletionLabels[i] ?? "—";
-                if (d.factStart && d.factEnd) {
-                  return [
-                    `Факт: ${fmtDate(d.factStart)} — ${fmtDate(d.factEnd)}`,
-                    `Выполнение: ${factPct}`,
-                  ];
-                }
-                return `Факт: нет данных • Выполнение: ${factPct}`;
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            type: "linear",
-            min: model.xMin,
-            max: model.xMax,
-            offset: false,
-            grid: { color: "rgba(148,163,184,0.12)" },
-            border: { display: false },
-            ticks: {
-              color: "#94a3b8",
-              stepSize: 1,
-              maxRotation: 0,
-              font: { size: 10 },
-              callback: (v: string | number) => {
-                const t = Number(v);
-                if (!Number.isFinite(t)) return "";
-                const d = new Date(
-                  model.originMonth.getFullYear(),
-                  model.originMonth.getMonth() + Math.floor(t + 0.0001),
-                  1,
-                );
-                return formatPlanFactGridMonthLabel(d);
-              },
-            },
-            title: { display: false },
-          },
-          y: {
-            type: "category",
-            labels: model.labels,
-            display: false,
-            offset: false,
-          },
-        },
-      }) as const,
-    [model, barGrouped],
-  );
-
-  const gridTemplateColumns = `minmax(${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX}px, min(38%, ${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX}px)) minmax(0, 1fr)`;
 
   return (
     <div
@@ -492,62 +315,58 @@ export function PlanFactGprDynamicsChartPanel({
       style={{ height: chartLayout.scrollContentHeightPx }}
     >
       <div
-        ref={wrapperRef}
-        className="relative grid w-full min-w-0"
+        className="grid w-full min-w-0"
         style={{
-          height: chartLayout.chartBodyHeightPx,
           gridTemplateColumns,
+          height: chartLayout.chartBodyHeightPx,
         }}
       >
-        <PlanFactGprRowDividers rowCount={rowCount} />
         <div
-          ref={labelsRef}
-          className="relative z-[1] overflow-hidden border-r border-slate-600/35"
+          className="border-b border-r border-slate-600/35"
           style={{
-            height: chartLayout.chartBodyHeightPx,
-            paddingTop: PLAN_FACT_GPR_CHART_TOP_PADDING_PX,
-            paddingBottom: PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX,
+            height: PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX,
+            borderBottomColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
+          }}
+        />
+
+        <div
+          className="relative min-w-0 border-b border-slate-600/35"
+          style={{
+            height: PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX,
+            borderBottomColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
           }}
         >
-          {model.labels.map((label, index) => (
-            <div
-              key={`${index}::${label}`}
-              className="flex items-center overflow-hidden pr-2 text-[11px] leading-snug text-slate-300"
-              style={{ height: PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX }}
-              title={label}
-            >
-              <span className="block w-full truncate">{label}</span>
-            </div>
-          ))}
+          <PlanFactGprXAxis model={model} todayLeftPct={todayLeftPct} />
         </div>
 
         <div
-          ref={chartHostRef}
-          className="relative z-[1] min-w-0 overflow-hidden"
-          style={{ height: chartLayout.chartBodyHeightPx }}
+          className="relative col-span-2 min-w-0"
+          style={{
+            gridColumn: "1 / -1",
+            height: chartLayout.visualRowCount * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX,
+          }}
         >
-          <Chart
-            key={chartRemountKey}
-            type="bar"
-            plugins={[
-              rowDividerChartPlugin,
-              planFactMonthTodayLinePlugin,
-              layoutAuditPlugin,
-              planFactFactPercentLabelPlugin,
-              datasetRenderAuditPlugin,
-            ]}
-            data={chartData}
-            options={{
-              ...chartOptions,
-              // Фиксируем высоту canvas = числу строк; ширину даёт responsive + grid 1fr.
-              maintainAspectRatio: false,
-            } as any}
-            style={{
-              display: "block",
-              width: "100%",
-              height: chartLayout.chartBodyHeightPx,
-            }}
-          />
+          <div
+            className="pointer-events-none absolute inset-0 grid"
+            style={{ gridTemplateColumns }}
+            aria-hidden
+          >
+            <div />
+            <div className="relative min-w-0">
+              <PlanFactGprChartGridOverlay model={model} todayLeftPct={todayLeftPct} />
+            </div>
+          </div>
+
+          {model.labels.map((label, index) => (
+            <PlanFactGprStageGroup
+              key={`${index}::${label}`}
+              index={index}
+              label={label}
+              model={model}
+              todayLeftPct={todayLeftPct}
+              gridTemplateColumns={gridTemplateColumns}
+            />
+          ))}
         </div>
       </div>
 

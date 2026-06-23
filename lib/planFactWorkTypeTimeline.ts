@@ -299,13 +299,19 @@ export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX = 280;
 /** Минимальная ширина левой колонки подписей (px). */
 export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX = 140;
 
-/** Высота одной строки диаграммы (совпадает с шагом категорий Chart.js и HTML-колонки). */
+/** Высота одной строки полосы (План или Факт). */
 export const PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX = 22;
 
-/** Верхний отступ области строк (совпадает с layout.padding.top Chart.js). */
+/** Число строк полос на один этап (План + Факт). */
+export const PLAN_FACT_GPR_CHART_ROWS_PER_STAGE = 2;
+
+/** Высота шкалы месяцев над строками этапов. */
+export const PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX = 28;
+
+/** @deprecated Chart.js padding — оставлено для selftest divider helpers. */
 export const PLAN_FACT_GPR_CHART_TOP_PADDING_PX = 20;
 
-/** Нижний отступ области строк (совпадает с layout.padding.bottom Chart.js). */
+/** @deprecated Chart.js padding — оставлено для selftest divider helpers. */
 export const PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX = 8;
 
 /** Горизонтальные разделители строк «Динамика выполнения ГПР». */
@@ -334,21 +340,61 @@ export function planFactGprRowDividerTops(rowCount: number): number[] {
 /** Блок легенды под диаграммой (вне canvas). */
 export const PLAN_FACT_GPR_CHART_LEGEND_BLOCK_PX = 40;
 
-export function computePlanFactGprChartLayout(rowCount: number): {
-  rowCount: number;
+export function computePlanFactGprChartLayout(stageCount: number): {
+  stageCount: number;
+  visualRowCount: number;
   chartBodyHeightPx: number;
   scrollContentHeightPx: number;
 } {
-  const n = Math.max(1, rowCount);
+  const stages = Math.max(1, stageCount);
+  const visualRowCount = stages * PLAN_FACT_GPR_CHART_ROWS_PER_STAGE;
   const chartBodyHeightPx =
-    PLAN_FACT_GPR_CHART_TOP_PADDING_PX +
-    n * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX +
-    PLAN_FACT_GPR_CHART_BOTTOM_PADDING_PX;
+    PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX + visualRowCount * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
   return {
-    rowCount: n,
+    stageCount: stages,
+    visualRowCount,
     chartBodyHeightPx,
     scrollContentHeightPx: chartBodyHeightPx + PLAN_FACT_GPR_CHART_LEGEND_BLOCK_PX,
   };
+}
+
+/** Позиция на шкале X в процентах (0–100) внутри области полос. */
+export function planFactGprXPositionPct(value: number, xMin: number, xMax: number): number {
+  const span = xMax - xMin;
+  if (!Number.isFinite(span) || span <= 0) return 0;
+  const v = Number(value);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, ((v - xMin) / span) * 100));
+}
+
+export function planFactGprBarSpanPct(
+  range: [number, number] | null,
+  xMin: number,
+  xMax: number,
+): { leftPct: number; widthPct: number } | null {
+  if (!range) return null;
+  const leftPct = planFactGprXPositionPct(range[0], xMin, xMax);
+  const rightPct = planFactGprXPositionPct(range[1], xMin, xMax);
+  const widthPct = rightPct - leftPct;
+  if (widthPct <= 0) return null;
+  return { leftPct, widthPct };
+}
+
+/** Метки месяцев для горизонтальной шкалы диаграммы. */
+export function planFactGprXAxisMonthTicks(
+  originMonth: Date,
+  xMin: number,
+  xMax: number,
+): Array<{ value: number; label: string }> {
+  const ticks: Array<{ value: number; label: string }> = [];
+  const start = Math.max(0, Math.ceil(xMin - 0.0001));
+  const end = Math.floor(xMax + 0.0001);
+  for (let m = start; m <= end; m++) {
+    const d = new Date(originMonth.getFullYear(), originMonth.getMonth() + m, 1);
+    if (Number.isNaN(d.getTime())) continue;
+    ticks.push({ value: m, label: formatPlanFactGridMonthLabel(d) });
+  }
+  return ticks;
 }
 
 /** @deprecated Используйте HTML-колонку подписей; оставлено для совместимости. */
