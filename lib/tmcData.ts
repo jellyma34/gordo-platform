@@ -10,8 +10,8 @@ export function parseTmcSupplyStatus(raw: unknown): TmcSupplyStatus {
     .toLowerCase()
     .replace(/\s+/g, " ");
   if (!s) return "план";
-  if (s.includes("поставлен") || s === "delivered") return "поставлено";
   if (s.includes("частич") || s === "partial") return "частично";
+  if (s.includes("поставлен") || s === "delivered") return "поставлено";
   if (s === "plan" || s.includes("план")) return "план";
   return "план";
 }
@@ -70,8 +70,22 @@ export type TMCItem = {
 export function syncTmcFinancials(item: TMCItem): TMCItem {
   const mulPlan = item.volumePlan * item.pricePlan;
   const mulFact = item.volumeFact * item.priceFact;
-  let totalPlan = mulPlan > 0 ? mulPlan : item.totalPlan > 0 ? item.totalPlan : item.planCost > 0 ? item.planCost : 0;
-  let totalFact = mulFact > 0 ? mulFact : item.totalFact > 0 ? item.totalFact : item.factCost != null ? item.factCost : 0;
+  let totalPlan =
+    item.planCost > 0
+      ? item.planCost
+      : mulPlan > 0
+        ? mulPlan
+        : item.totalPlan > 0
+          ? item.totalPlan
+          : 0;
+  let totalFact =
+    item.factCost != null && item.factCost > 0
+      ? item.factCost
+      : mulFact > 0
+        ? mulFact
+        : item.totalFact > 0
+          ? item.totalFact
+          : 0;
   const factCost = totalFact > 0 ? totalFact : null;
   return {
     ...item,

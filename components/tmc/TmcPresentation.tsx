@@ -47,6 +47,7 @@ import {
   computeTmcProcurementKpi,
   computeTmcAverageDeliveryLateDays,
   computeTmcProcurementFinancialResult,
+  logTmcProcurementEconomyVolumeAdjusted,
   computeTmcMaterialPlanFact,
   computeTmcArmaturePlanFactDiagnostics,
   computeTmcMaterialCostDynamics,
@@ -70,6 +71,9 @@ import {
   fillTmcMonthlyProcurementTimeline,
   classifyTmcPipelineStatus,
   tmcItemFactCostRub,
+  isTmcDeliveredSupplyStatus,
+  tmcItemCsvFactCostRub,
+  tmcItemCsvPlanCostRub,
 } from "@/lib/tmcPresentationAnalytics";
 
 const tmcLocalMode = isGprLocalStorageMode();
@@ -901,8 +905,8 @@ export function TmcPresentation({
   }, [enriched, scopedGprTasks, today, volumeDynamics.rows.length]);
 
   const receiptCostExecutionPct =
-    kpi.planRub > 0
-      ? Math.round((kpi.receiptsFactRub / kpi.planRub) * 1000) / 10
+    kpi.receiptsPlanRub > 0
+      ? Math.round((kpi.receiptsFactRub / kpi.receiptsPlanRub) * 1000) / 10
       : 0;
 
   const overdueFactCostRub = useMemo(
@@ -914,8 +918,8 @@ export function TmcPresentation({
   );
 
   const receiptDeviation = useMemo(
-    () => computeTmcReceiptDeviationDisplay(kpi.planRub, kpi.receiptsFactRub),
-    [kpi.planRub, kpi.receiptsFactRub],
+    () => computeTmcReceiptDeviationDisplay(kpi.receiptsPlanRub, kpi.receiptsFactRub),
+    [kpi.receiptsPlanRub, kpi.receiptsFactRub],
   );
 
   const financialResult = useMemo(
@@ -929,6 +933,21 @@ export function TmcPresentation({
     () => computeTmcOverdueReasonBreakdown(enriched, scopedTenders, today),
     [enriched, scopedTenders, today],
   );
+
+  useEffect(() => {
+    const deliveredItems = enriched.filter(isTmcDeliveredSupplyStatus);
+    const factDeliveryCost = deliveredItems.reduce((s, i) => s + tmcItemCsvFactCostRub(i), 0);
+    const plannedDeliveryCost = deliveredItems.reduce((s, i) => s + tmcItemCsvPlanCostRub(i), 0);
+    console.log({
+      factDeliveryCost,
+      plannedDeliveryCost,
+      rowsIncluded: deliveredItems.length,
+    });
+  }, [enriched]);
+
+  useEffect(() => {
+    logTmcProcurementEconomyVolumeAdjusted(enriched);
+  }, [enriched]);
 
   useEffect(() => {
     logTmcPipelineStatusDiagnostic(enriched, scopedTenders, today);
@@ -1235,7 +1254,7 @@ export function TmcPresentation({
             <TmcKpiSplitMoneyBlock
               label="ФАКТИЧЕСКАЯ СТОИМОСТЬ ПОСТАВОК"
               factRub={kpi.receiptsFactRub}
-              planRub={kpi.planRub}
+              planRub={kpi.receiptsPlanRub}
               accentColor={COLORS.blue}
             />
             <TmcKpiMetricBlock
@@ -1387,9 +1406,15 @@ export function TmcPresentation({
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
             <TmcKpiSplitMoneyBlock
-              label="ЭКОНОМИЯ"
-              factRub={financialResult.economyRub}
+              label="ПОТРАЧЕНО"
+              factRub={financialResult.purchasedFactRub}
               planRub={financialResult.purchasedPlanRub}
+              accentColor={COLORS.blue}
+              showRubSuffix
+            />
+            <TmcKpiAmountBlock
+              label="ЭКОНОМИЯ"
+              amountRub={financialResult.economyRub}
               accentColor={COLORS.green}
               showRubSuffix
             />

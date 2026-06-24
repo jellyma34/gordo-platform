@@ -131,6 +131,76 @@ export function tmcItemFactCostRub(item: TMCItem): number {
   return item.factCost ?? 0;
 }
 
+/** Стоимость (руб.) → План из CSV / импорта (колонка «Стоимость», без пересчёта объём×цена). */
+export function tmcItemCsvPlanCostRub(item: TMCItem): number {
+  return item.planCost > 0 ? item.planCost : 0;
+}
+
+/** Стоимость (руб.) → Факт из CSV / импорта (колонка «Стоимость», без пересчёта объём×цена). */
+export function tmcItemCsvFactCostRub(item: TMCItem): number {
+  return item.factCost ?? 0;
+}
+
+/** Позиции со статусом CSV «поставлено» / «поставлено частично». */
+export function isTmcDeliveredSupplyStatus(item: TMCItem): boolean {
+  return item.status === "поставлено" || item.status === "частично";
+}
+
+/** Номер договора заполнен (не пустой / «0» / «-»). */
+export function hasTmcContractRef(item: TMCItem): boolean {
+  const contract = item.contract?.trim();
+  return Boolean(contract && contract !== "0" && contract !== "-");
+}
+
+/** Дата заключения договора по факту. */
+export function hasTmcContractFactDate(item: TMCItem): boolean {
+  return Boolean(item.contractFactDate?.trim());
+}
+
+/** Есть договор: реквизиты или дата заключения по факту. */
+export function hasTmcContractEvidence(item: TMCItem): boolean {
+  return hasTmcContractRef(item) || hasTmcContractFactDate(item);
+}
+
+/**
+ * Закупленная позиция для KPI «Отклонение от закупленного»:
+ * договор (номер или дата) или фактическая поставка (статус CSV «поставлено» / «частично»).
+ */
+export function isTmcPurchasedForDeviation(item: TMCItem): boolean {
+  return hasTmcContractEvidence(item) || isTmcDeliveredSupplyStatus(item);
+}
+
+/** Плановая цена за единицу из CSV (колонка «Цена → План»). */
+export function tmcItemCsvPlanPriceRub(item: TMCItem): number {
+  if (item.pricePlan > 0) return item.pricePlan;
+  if (item.volumePlan > 0 && item.planCost > 0) return item.planCost / item.volumePlan;
+  return 0;
+}
+
+/** Фактически закупленный объём: «Объём → Факт»; при 0 — оценка из факта / плановой цены. */
+export function tmcItemPurchasedVolume(item: TMCItem): number {
+  if (item.volumeFact > 0) return item.volumeFact;
+  const factCost = tmcItemCsvFactCostRub(item);
+  const pricePlan = tmcItemCsvPlanPriceRub(item);
+  if (factCost > 0 && pricePlan > 0) return factCost / pricePlan;
+  return 0;
+}
+
+/**
+ * Плановая стоимость фактически закупленного объёма =
+ * плановая цена за ед. × фактически закупленный объём.
+ */
+export function tmcItemVolumeAdjustedPlanCostRub(item: TMCItem): number {
+  const pricePlan = tmcItemCsvPlanPriceRub(item);
+  const volume = tmcItemPurchasedVolume(item);
+  return pricePlan > 0 && volume > 0 ? pricePlan * volume : 0;
+}
+
+/** Позиция с зафиксированной фактической стоимостью закупки. */
+export function hasTmcPurchaseFact(item: TMCItem): boolean {
+  return tmcItemFactCostRub(item) > 0;
+}
+
 /** Позиция с фактической поставкой: есть costFact и признак поступления (дата или объём). */
 export function isTmcDeliveryFact(item: TMCItem): boolean {
   const cost = tmcItemFactCostRub(item);
@@ -526,8 +596,10 @@ export type TmcProcurementKpi = {
   /** Σ factCost по всем позициям (факт закупок). */
   factRub: number;
   procurementFactRub: number;
-  /** Σ factCost по позициям с фактической поставкой (факт поступлений). */
+  /** Σ factCost по позициям «поставлено» / «частично» (факт поступлений). */
   receiptsFactRub: number;
+  /** Σ planCost по тем же позициям «поставлено» / «частично». */
+  receiptsPlanRub: number;
   /** Количество позиций с фактической поставкой. */
   deliveryCount: number;
   /** Все позиции текущего среза. */
@@ -571,8 +643,9 @@ export function computeTmcProcurementKpi(
 ): TmcProcurementKpi {
   const planRub = items.reduce((s, i) => s + i.planCost, 0);
   const procurementFactRub = items.reduce((s, i) => s + tmcItemFactCostRub(i), 0);
-  const deliveryItems = items.filter(isTmcDeliveryFact);
-  const receiptsFactRub = deliveryItems.reduce((s, i) => s + tmcItemFactCostRub(i), 0);
+  const deliveredSupplyItems = items.filter(isTmcDeliveredSupplyStatus);
+  const receiptsFactRub = deliveredSupplyItems.reduce((s, i) => s + tmcItemCsvFactCostRub(i), 0);
+  const receiptsPlanRub = deliveredSupplyItems.reduce((s, i) => s + tmcItemCsvPlanCostRub(i), 0);
   const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
   const deliveryCount = pipelineDist.deliveredCount;
   const totalItemCount = items.length;
@@ -603,6 +676,7 @@ export function computeTmcProcurementKpi(
     factRub: procurementFactRub,
     procurementFactRub,
     receiptsFactRub,
+    receiptsPlanRub,
     deliveryCount,
     totalItemCount,
     purchasedItemCount,
@@ -627,30 +701,37 @@ export function computeTmcProcurementKpi(
 }
 
 export type TmcProcurementFinancialResult = {
-  /** Σ max(planCost − factCost, 0) по позициям с фактом закупки. */
+  /** Σ max(планДляФакта − факт, 0) по закупленным позициям. */
   economyRub: number;
-  /** Σ max(factCost − planCost, 0) по позициям с фактом закупки. */
+  /** Σ max(факт − планДляФакта, 0) по закупленным позициям. */
   overrunRub: number;
   /** Экономия − перерасход. */
   balanceRub: number;
-  /** Σ planCost по позициям с factCost > 0. */
+  /** Σ (плановая цена × фактический объём) — знаменатель «из …» и отклонения, %. */
   purchasedPlanRub: number;
   /** economyRub / purchasedPlanRub × 100, %. */
   economySharePct: number;
-  /** Σ factCost по позициям с factCost > 0. */
+  /** Σ фактической договорной стоимости (CSV) по закупленным позициям. */
   purchasedFactRub: number;
-  /** Факт − план по закупленным позициям, ₽. */
+  /** Факт − планДляФакта по закупленным позициям, ₽. */
   deviationRub: number;
   /** deviationRub / purchasedPlanRub × 100, %. */
   deviationPct: number;
 };
 
-/** Позиция с зафиксированной фактической стоимостью закупки. */
-export function hasTmcPurchaseFact(item: TMCItem): boolean {
-  return tmcItemFactCostRub(item) > 0;
-}
+export type TmcProcurementEconomyVolumeRow = {
+  itemCode: string;
+  name: string;
+  volumePlan: number;
+  volumeFact: number;
+  pricePlan: number;
+  adjustedPlannedCost: number;
+  contractFactCost: number;
+  economyRub: number;
+  overrunRub: number;
+};
 
-/** Финансовый результат закупок: экономия и перерасход только по позициям с фактом. */
+/** Финансовый результат закупок: экономия/перерасход по фактически закупленному объёму. */
 export function computeTmcProcurementFinancialResult(
   items: TmcEnrichedItem[],
 ): TmcProcurementFinancialResult {
@@ -659,12 +740,13 @@ export function computeTmcProcurementFinancialResult(
   let purchasedPlanRub = 0;
 
   for (const item of items) {
-    if (!hasTmcPurchaseFact(item)) continue;
-    const plan = item.planCost;
-    const fact = tmcItemFactCostRub(item);
-    purchasedPlanRub += plan;
-    economyRub += Math.max(plan - fact, 0);
-    overrunRub += Math.max(fact - plan, 0);
+    if (!isTmcPurchasedForDeviation(item)) continue;
+    const adjustedPlan = tmcItemVolumeAdjustedPlanCostRub(item);
+    const fact = tmcItemCsvFactCostRub(item);
+    if (adjustedPlan <= 0 && fact <= 0) continue;
+    purchasedPlanRub += adjustedPlan;
+    economyRub += Math.max(adjustedPlan - fact, 0);
+    overrunRub += Math.max(fact - adjustedPlan, 0);
   }
 
   const economySharePct =
@@ -684,6 +766,71 @@ export function computeTmcProcurementFinancialResult(
     deviationRub,
     deviationPct,
   };
+}
+
+/** Диагностика KPI «Отклонение от закупленного» — методика по фактическому объёму. */
+export function logTmcProcurementEconomyVolumeAdjusted(items: TmcEnrichedItem[]): void {
+  if (typeof console === "undefined") return;
+
+  const rows: TmcProcurementEconomyVolumeRow[] = [];
+  let adjustedPlannedCost = 0;
+  let actualPurchasedCost = 0;
+  let economyAmount = 0;
+  let overspendAmount = 0;
+
+  for (const item of items) {
+    if (!isTmcPurchasedForDeviation(item)) continue;
+    const adjustedPlan = tmcItemVolumeAdjustedPlanCostRub(item);
+    const fact = tmcItemCsvFactCostRub(item);
+    if (adjustedPlan <= 0 && fact <= 0) continue;
+
+    const rowEconomy = Math.max(adjustedPlan - fact, 0);
+    const rowOverrun = Math.max(fact - adjustedPlan, 0);
+    adjustedPlannedCost += adjustedPlan;
+    actualPurchasedCost += fact;
+    economyAmount += rowEconomy;
+    overspendAmount += rowOverrun;
+
+    rows.push({
+      itemCode: item.itemCode,
+      name: item.name,
+      volumePlan: item.volumePlan,
+      volumeFact: tmcItemPurchasedVolume(item),
+      pricePlan: tmcItemCsvPlanPriceRub(item),
+      adjustedPlannedCost: adjustedPlan,
+      contractFactCost: fact,
+      economyRub: rowEconomy,
+      overrunRub: rowOverrun,
+    });
+  }
+
+  const deviationPercent =
+    adjustedPlannedCost > 0
+      ? Math.round(((actualPurchasedCost - adjustedPlannedCost) / adjustedPlannedCost) * 1000) / 10
+      : 0;
+
+  console.group("PROCUREMENT ECONOMY VOLUME ADJUSTED");
+  console.table(
+    rows.map((r) => ({
+      код: r.itemCode,
+      наименование: r.name,
+      "плановый объём": r.volumePlan,
+      "фактический объём": r.volumeFact,
+      "плановая цена": Math.round(r.pricePlan * 100) / 100,
+      "план для факт. объёма": Math.round(r.adjustedPlannedCost),
+      "факт договора": Math.round(r.contractFactCost),
+      экономия: Math.round(r.economyRub),
+      перерасход: Math.round(r.overrunRub),
+    })),
+  );
+  console.log({
+    adjustedPlannedCost,
+    actualPurchasedCost,
+    economyAmount,
+    overspendAmount,
+    deviationPercent,
+  });
+  console.groupEnd();
 }
 
 export type TmcStatusBucket = {
@@ -4311,23 +4458,23 @@ export type TmcPurchasedBudgetDonutCounts = {
   donutSum: number;
 };
 
-/** Отклонение факт − план по стоимости позиции, %. null — нет факта закупки. */
+/** Отклонение факт − план по стоимости фактического объёма, %. null — нет факта закупки. */
 export function tmcItemBudgetDeviationPct(item: TMCItem): number | null {
   if (!hasTmcPurchaseFact(item)) return null;
-  const plan = item.planCost;
+  const plan = tmcItemVolumeAdjustedPlanCostRub(item);
   const fact = tmcItemFactCostRub(item);
   if (plan <= 0) return fact > 0 ? 100 : 0;
   return Math.round(((fact - plan) / plan) * 1000) / 10;
 }
 
 /**
- * Donut «Отклонение от закупленного»: классификация закупленной позиции (isTmcPurchasedPosition).
+ * Donut «Отклонение от закупленного»: классификация закупленной позиции (договор или поставка).
  * Приоритет: нет факта → в пределах ±3% → экономия → перерасход.
  */
 export function classifyTmcPurchasedBudgetBucket(
   item: TmcEnrichedItem,
 ): TmcPurchasedBudgetBucket | null {
-  if (!isTmcPurchasedPosition(item)) return null;
+  if (!isTmcPurchasedForDeviation(item)) return null;
 
   if (!hasTmcPurchaseFact(item)) return "noFact";
 
