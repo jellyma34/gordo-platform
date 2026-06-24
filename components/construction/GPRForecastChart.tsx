@@ -17,7 +17,6 @@ import {
 } from "@/lib/gprTmcDependency";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
-const PLAN_LINE = "#e2e8f0";
 const FACT_LINE = "#22c55e";
 
 const monthTickFmt = new Intl.DateTimeFormat("ru-RU", { month: "short", year: "numeric" });
@@ -49,22 +48,6 @@ function forecastAreaFillRgba(model: GprTimeForecastModel): string {
   if (lag <= 0) return "rgba(34, 197, 94, 0.08)";
   if (lag <= 12) return "rgba(245, 158, 11, 0.08)";
   return "rgba(239, 68, 68, 0.12)";
-}
-
-/** Визуализация: обрезать плановую кривую на первой точке 100% (расчёты модели не меняются). */
-function trimPlanSeriesForChartDisplay(
-  planSeries: { x: number; y: number }[],
-): { points: { x: number; y: number }[]; planCompleteMs: number | null } {
-  const points: { x: number; y: number }[] = [];
-  let planCompleteMs: number | null = null;
-  for (const p of planSeries) {
-    points.push({ x: p.x, y: p.y });
-    if (p.y >= 100) {
-      planCompleteMs = p.x;
-      break;
-    }
-  }
-  return { points, planCompleteMs };
 }
 
 // Стиль бейджа даты прогноза фиксированный (тёмный фон + оранжевая рамка),
@@ -223,24 +206,6 @@ export function GPRForecastChart({
     const lag = model.planFactLagPp;
     const lineColor = colorFromPlanFactLag(lag);
     const areaFill = forecastAreaFillRgba(model);
-    const { points: planChartPoints } = trimPlanSeriesForChartDisplay(model.planSeries);
-
-    const planDs = {
-      label: "План ГПР",
-      data: planChartPoints,
-      borderColor: PLAN_LINE,
-      backgroundColor: "transparent",
-      tension: 0.38,
-      pointRadius: 3,
-      pointHoverRadius: 5,
-      pointBackgroundColor: PLAN_LINE,
-      pointBorderColor: "rgba(15,23,42,0.6)",
-      pointBorderWidth: 1,
-      borderWidth: 2,
-      fill: false,
-      order: 0,
-      parsing: { xAxisKey: "x", yAxisKey: "y" },
-    };
 
     const factDs = {
       label: "Факт ГПР",
@@ -255,7 +220,7 @@ export function GPRForecastChart({
       pointBorderWidth: 1,
       borderWidth: 2.5,
       fill: false,
-      order: 1,
+      order: 0,
       parsing: { xAxisKey: "x", yAxisKey: "y" },
     };
 
@@ -275,13 +240,13 @@ export function GPRForecastChart({
             pointBorderWidth: 2,
             borderWidth: 3,
             fill: "origin" as const,
-            order: 2,
+            order: 1,
             parsing: { xAxisKey: "x", yAxisKey: "y" },
           }
         : null;
 
     return {
-      datasets: forecastDs ? [planDs, factDs, forecastDs] : [planDs, factDs],
+      datasets: forecastDs ? [factDs, forecastDs] : [factDs],
     };
   }, [model]);
 
@@ -348,9 +313,6 @@ export function GPRForecastChart({
               gprFactGlow: true,
               gprForecastFactNow: model.factNow ?? undefined,
               gprForecastPlanLagPp: model.planFactLagPp ?? undefined,
-              gprForecastToday: {
-                todayMs: model.todayMs,
-              },
               legend: {
                 position: "bottom",
                 labels: {
@@ -383,17 +345,17 @@ export function GPRForecastChart({
                   afterBody: (items) => {
                     const item = items[0];
                     if (!item) return [];
-                    const ds = item.datasetIndex;
+                    const dsLabel = item.dataset.label;
                     const di = item.dataIndex;
                     const m = model as GprTimeForecastModel;
                     const fcLen = m.forecastSeries.length;
 
-                    if (ds === 2 && di === 0) {
+                    if (dsLabel === "Прогноз ГПР" && di === 0) {
                       const lag = m.planFactLagPp;
                       const lagLine =
                         lag == null
                           ? "—"
-                          : `${lag > 0 ? "+" : ""}${lag.toFixed(1).replace(/\.0$/, "")} п.п.`;
+                          : `${lag > 0 ? "+" : ""}${lag.toFixed(1).replace(/\.0$/, "")}%`;
                       return [
                         "",
                         "Сегодня:",
@@ -404,7 +366,7 @@ export function GPRForecastChart({
                         `  тендеры: ${m.tenderPct == null ? "—" : `${m.tenderPct}%`}`,
                       ];
                     }
-                    if (ds === 2 && fcLen > 0 && di === fcLen - 1) {
+                    if (dsLabel === "Прогноз ГПР" && fcLen > 0 && di === fcLen - 1) {
                       return [
                         "",
                         "Прогноз (до конца проекта):",
@@ -414,8 +376,11 @@ export function GPRForecastChart({
                         `  примечание: ${m.forecastReason}`,
                       ];
                     }
-                    if (ds === 2 && di > 0 && di < fcLen - 1) {
-                      return ["", "Точка прогноза по тем же датам, что и план (смещение от текущего отставания)."];
+                    if (dsLabel === "Прогноз ГПР" && di > 0 && di < fcLen - 1) {
+                      return [
+                        "",
+                        "Точка прогноза по тем же датам, что и план (смещение от текущего отставания).",
+                      ];
                     }
                     return [];
                   },
@@ -482,15 +447,15 @@ export function GPRForecastChart({
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 border-t border-slate-700/40 pt-3 text-[11px] text-slate-400">
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#22c55e]" aria-hidden />
-            по плану или опережение
+            По плану или с опережением
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" aria-hidden />
-            умеренное отставание готовности (до 12 п.п.)
+            Отставание до 12%
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[#ef4444]" aria-hidden />
-            сильное отставание готовности (свыше 12 п.п.)
+            Отставание более 12%
           </span>
         </div>
       ) : null}

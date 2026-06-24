@@ -320,13 +320,13 @@ export function computeGprTaskScheduleDeviations(
 
   let actualDuration: number | null = null;
   let durationDeviation: number | null = null;
-  if (task.factStart?.trim() && task.factEnd?.trim()) {
+  const hasPlanWindow = Boolean(task.planStart?.trim() && task.planEnd?.trim());
+  const hasFactWindow = Boolean(task.factStart?.trim() && task.factEnd?.trim());
+  if (hasPlanWindow && hasFactWindow) {
     const actualRaw = durationDays(task.factStart, task.factEnd);
-    if (Number.isFinite(actualRaw)) {
+    if (Number.isFinite(actualRaw) && planDuration !== null) {
       actualDuration = actualRaw;
-      if (planDuration !== null) {
-        durationDeviation = actualRaw - planDuration;
-      }
+      durationDeviation = actualRaw - planDuration;
     }
   }
 
@@ -336,6 +336,78 @@ export function computeGprTaskScheduleDeviations(
     durationDeviation,
     planDuration,
     actualDuration,
+  };
+}
+
+/** Завершённая работа для среднего отклонения длительности (все плановые и фактические даты). */
+export function isGprTaskEligibleForCompletedDurationDeviation(task: GPRTask): boolean {
+  return Boolean(
+    task.planStart?.trim() &&
+      task.planEnd?.trim() &&
+      task.factStart?.trim() &&
+      task.factEnd?.trim(),
+  );
+}
+
+export type GprStageDurationDeviationLogRow = {
+  stage: string;
+  plannedDays: number;
+  actualDays: number;
+  deviationDays: number;
+};
+
+export type GprStageGroupAverageDurationDeviation = {
+  averageDeviation: number | null;
+  completedStages: number;
+  totalDeviation: number;
+  rows: GprStageDurationDeviationLogRow[];
+};
+
+/**
+ * Среднее арифметическое отклонения длительности завершённых работ:
+ * (фактическая длительность − плановая длительность) по каждой работе.
+ */
+export function computeGprStageGroupAverageDurationDeviation(
+  tasks: GPRTask[],
+  logContext?: string,
+  options?: { log?: boolean },
+): GprStageGroupAverageDurationDeviation {
+  const rows: GprStageDurationDeviationLogRow[] = [];
+  let totalDeviation = 0;
+
+  for (const task of tasks) {
+    if (!isGprTaskEligibleForCompletedDurationDeviation(task)) continue;
+    const schedule = computeGprTaskScheduleDeviations(task);
+    if (
+      schedule.durationDeviation === null ||
+      schedule.planDuration === null ||
+      schedule.actualDuration === null
+    ) {
+      continue;
+    }
+    rows.push({
+      stage: task.name.trim() || task.code,
+      plannedDays: schedule.planDuration,
+      actualDays: schedule.actualDuration,
+      deviationDays: schedule.durationDeviation,
+    });
+    totalDeviation += schedule.durationDeviation;
+  }
+
+  const completedStages = rows.length;
+  const averageDeviation = completedStages > 0 ? totalDeviation / completedStages : null;
+
+  if (options?.log && typeof console !== "undefined") {
+    const label = logContext?.trim() || "Отклонения по этапам";
+    console.table(rows);
+    console.log("Average deviation", totalDeviation, completedStages, averageDeviation, label);
+  }
+
+  return {
+    averageDeviation,
+    completedStages,
+    totalDeviation,
+    rows,
   };
 }
 

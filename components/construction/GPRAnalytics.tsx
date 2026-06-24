@@ -16,6 +16,7 @@ import {
   formatGprManagementScheduleDeviationDays,
   formatGprScheduleDeviationDisplayDays,
   computeGprTaskScheduleDeviations,
+  computeGprStageGroupAverageDurationDeviation,
   getActualProgressPercent,
   isGprWorkItemNotStarted,
   getPlannedProgressPercent,
@@ -111,6 +112,7 @@ import {
   buildPlanFactWorkTypeChartModel,
   formatPlanEndMonthYearOnly,
   formatPlanFactGridMonthLabel,
+  listMonolithChartFloorProgress,
   type PlanFactTasksBarLevel,
 } from "@/lib/planFactWorkTypeTimeline";
 import { ganttFactColorForScheduleToday } from "@/lib/gprScheduleDelayToday";
@@ -120,6 +122,7 @@ import { formatDate, resolveGprReportAsOf, toLocalYmd } from "@/lib/gprReportDat
 import {
   buildGprStageCompletionDiagnostic,
   buildGprStage205KpiDiagnostic,
+  buildGprKpiChartCompletionGapDiagnostic,
   computeGprStageFactCompletionPercent,
   computeGprStageCompletionInsight,
   computeGprTasksCompletionDeviation,
@@ -127,7 +130,9 @@ import {
   computeGprTasksPlanCompletionPercent,
   formatGprStageKpiFactDisplay,
   getGprStageWorkItems,
-  logGprStage205KpiDiagnosticToConsole,
+  isGprTaskFactCompleted,
+  logGprKpiChartCompletionGapToConsole,
+  logGprStage205KpiToConsole,
   type GprStageCompletionDiagnostic,
 } from "@/lib/gprStageCompletion";
 import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
@@ -858,6 +863,13 @@ function StageDeviationTaskHoverCard({
 const STAGE_DEVIATION_CARD_GRID = "md:grid-cols-[260px_minmax(0,1fr)_180px]";
 /** Строки: title · status · plan · fact */
 const STAGE_DEVIATION_CARD_ROWS = "md:grid-rows-[auto_auto_auto_auto]";
+
+/** Сетка карточек групп «Отклонения по этапам»: 1 этап — на всю ширину; иначе responsive grid. */
+function stageDeviationGroupCardsGridClass(cardCount: number): string {
+  if (cardCount <= 1) return "grid w-full grid-cols-1 gap-4";
+  if (cardCount === 2) return "grid w-full grid-cols-1 gap-4 sm:grid-cols-2";
+  return "grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3";
+}
 
 /** Подпись поля в карточке этапа. */
 const STAGE_DEVIATION_FIELD_LABEL = "text-[11px] leading-[18px] text-slate-500";
@@ -1649,6 +1661,134 @@ function inferGroup(task: GPRTask): GroupKey {
   return "build";
 }
 
+function collectGprWorkItemsForRoots(
+  taskList: GPRTask[],
+  rootCodes: readonly string[],
+): GPRTask[] {
+  const items: GPRTask[] = [];
+  for (const code of rootCodes) {
+    const root = findGprCsvRootTask(taskList, code);
+    if (!root) continue;
+    items.push(...getGprStageWorkItems(taskList, root));
+  }
+  return items;
+}
+
+type ProjectWideStageBreakdownRow = {
+  root: string;
+  name: string;
+  part: ProjectPartKey;
+  total: number;
+  completed: number;
+  factPercent: number;
+  planPercent: number | null;
+};
+
+/** KPI «Проект»: сумма breakdown по частям (ЖД + автостоянка), без фильтра активной вкладки. */
+function sumProjectWideStageBreakdown(
+  fullTaskList: GPRTask[],
+  asOf: Date,
+): {
+  workCompleted: number;
+  workTotal: number;
+  trafficGreen: number;
+  trafficYellow: number;
+  trafficRed: number;
+  donutOnTime: number;
+  donutRisk: number;
+  donutOverdue: number;
+  donutCompletedLate: number;
+  donutNotStarted: number;
+  businessCompleted: number;
+  businessInProgress: number;
+  businessLate: number;
+  businessOverdue: number;
+  businessNotStarted: number;
+  completedSharePct: number;
+  stageRows: ProjectWideStageBreakdownRow[];
+} {
+  const partScopes: { scope: ConstructionObjectScope; partKey: ProjectPartKey }[] = [
+    { scope: PROJECT_PART_KEY_TO_ID.residential, partKey: "residential" },
+    { scope: PROJECT_PART_KEY_TO_ID.parking, partKey: "parking" },
+  ];
+
+  let workCompleted = 0;
+  let workTotal = 0;
+  let trafficGreen = 0;
+  let trafficYellow = 0;
+  let trafficRed = 0;
+  let donutOnTime = 0;
+  let donutRisk = 0;
+  let donutOverdue = 0;
+  let donutCompletedLate = 0;
+  let donutNotStarted = 0;
+  let businessCompleted = 0;
+  let businessInProgress = 0;
+  let businessLate = 0;
+  let businessOverdue = 0;
+  let businessNotStarted = 0;
+  const stageRows: ProjectWideStageBreakdownRow[] = [];
+
+  for (const { scope, partKey } of partScopes) {
+    const scopedTasks = filterGprTasksByObjectScope(fullTaskList, scope);
+    if (scopedTasks.length === 0) continue;
+    const flat = flattenTasks(scopedTasks);
+    const rootCodes = aggregateRootCodesForPart(partKey, flat);
+    const roots = resolveStageCardRootTasks(flat, rootCodes);
+    for (const root of roots) {
+      const insight = computeGprStageCompletionInsight(flat, root, asOf);
+      const bd = computeGprStageStatusBreakdown(flat, root, asOf, insight);
+      workCompleted += bd.completedStages;
+      workTotal += bd.totalStages;
+      trafficGreen += bd.onTimeCount;
+      trafficYellow += bd.atRiskCount;
+      trafficRed += bd.overdueCount;
+      donutOnTime += bd.donutOnTimeCount;
+      donutRisk += bd.donutRiskCount;
+      donutOverdue += bd.donutOverdueCount;
+      donutCompletedLate += bd.donutCompletedLateCount;
+      donutNotStarted += bd.donutNotStartedCount;
+      businessCompleted += bd.businessCompletedCount;
+      businessInProgress += bd.businessInProgressCount;
+      businessLate += bd.businessLateCount;
+      businessOverdue += bd.businessOverdueCount;
+      businessNotStarted += bd.businessNotStartedCount;
+      stageRows.push({
+        root: normalizeGprCodeFinal(root.code) || root.code,
+        name: root.name,
+        part: partKey,
+        total: bd.totalStages,
+        completed: bd.completedStages,
+        factPercent: insight.factPercent,
+        planPercent: insight.planPercent,
+      });
+    }
+  }
+
+  const completedSharePct =
+    workTotal > 0 ? Math.round((workCompleted / workTotal) * 1000) / 10 : 0;
+
+  return {
+    workCompleted,
+    workTotal,
+    trafficGreen,
+    trafficYellow,
+    trafficRed,
+    donutOnTime,
+    donutRisk,
+    donutOverdue,
+    donutCompletedLate,
+    donutNotStarted,
+    businessCompleted,
+    businessInProgress,
+    businessLate,
+    businessOverdue,
+    businessNotStarted,
+    completedSharePct,
+    stageRows,
+  };
+}
+
 /**
  * Общий % по части: среднее календарных % факта по работам корневых этапов.
  * totalDeviation: факт − план по тому же набору работ.
@@ -1691,6 +1831,43 @@ function computePartAggregateCore(
   const taskList = Array.isArray(tasks) ? tasks : [];
   const codes = Array.isArray(rootCodes) ? rootCodes : [];
   const asOfSafe = asOf instanceof Date && !Number.isNaN(asOf.getTime()) ? asOf : new Date();
+
+  if (partKey === "project") {
+    const residentialTasks = filterGprTasksByObjectScope(
+      taskList,
+      PROJECT_PART_KEY_TO_ID.residential,
+    );
+    const parkingTasks = filterGprTasksByObjectScope(taskList, PROJECT_PART_KEY_TO_ID.parking);
+    const residentialRoots = aggregateRootCodesForPart("residential", residentialTasks);
+    const parkingRoots = aggregateRootCodesForPart("parking", parkingTasks);
+
+    const residentialResult = computePartAggregateCore(
+      residentialTasks,
+      residentialRoots,
+      "residential",
+      asOfSafe,
+    );
+    const parkingResult = computePartAggregateCore(
+      parkingTasks,
+      parkingRoots,
+      "parking",
+      asOfSafe,
+    );
+
+    const pooledTasks = [
+      ...collectGprWorkItemsForRoots(residentialTasks, residentialRoots),
+      ...collectGprWorkItemsForRoots(parkingTasks, parkingRoots),
+    ];
+    if (pooledTasks.length === 0) {
+      return { totalPercent: null, totalDeviation: null, stages: [] };
+    }
+
+    return {
+      totalPercent: computeGprTasksFactCompletionPercent(pooledTasks, asOfSafe),
+      totalDeviation: computeGprTasksCompletionDeviation(pooledTasks, asOfSafe),
+      stages: [...residentialResult.stages, ...parkingResult.stages],
+    };
+  }
 
   type Row = {
     t: GPRTask;
@@ -1805,8 +1982,8 @@ function trafficStatusForTask(task: GPRTask, asOf: Date): {
 
 type GprDonutStatusKey = "on_time" | "risk" | "overdue" | "completed_late" | "not_started";
 
-function isGprWorkItemCompleted(task: GPRTask): boolean {
-  return Boolean(task.factEnd?.trim()) || getActualProgressPercent(task) >= 100;
+function isGprWorkItemCompleted(task: GPRTask, asOf: Date): boolean {
+  return isGprTaskFactCompleted(task, asOf);
 }
 
 /** Статус этапа для donut KPI-карточки (отдельно от светофора в средних метриках). */
@@ -1816,7 +1993,7 @@ function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusK
   const planDays = daysInclusive(task.planStart, task.planEnd);
   if (planDays === null) return "not_started";
 
-  if (isGprWorkItemCompleted(task)) {
+  if (isGprWorkItemCompleted(task, asOf)) {
     const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
     if (endDelay === null) return "not_started";
     if (endDelay > 0) return "completed_late";
@@ -1845,7 +2022,7 @@ type GprBusinessStatusKey = "completed" | "in_progress" | "late" | "overdue" | "
 function gprStageWorkItemBusinessStatus(task: GPRTask, asOf: Date): GprBusinessStatusKey {
   if (isGprWorkItemNotStarted(task)) return "not_started";
 
-  const completed = isGprWorkItemCompleted(task);
+  const completed = isGprWorkItemCompleted(task, asOf);
   const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
   if (completed && endDelay !== null && endDelay > 0) return "late";
   if (!completed && endDelay !== null && endDelay > 0) return "overdue";
@@ -1911,6 +2088,41 @@ function computeGprStageStatusBreakdown(
     problematicSharePct:
       withStatus > 0 ? Math.round((problematic / withStatus) * 1000) / 10 : 0,
   };
+}
+
+/** Временная диагностика источника данных KPI карточки «Проект». */
+function logGprProjectAggregationDebugToConsole(input: {
+  residentialCount: number;
+  parkingCount: number;
+  projectCount: number;
+  projectStages: {
+    root: string;
+    name: string;
+    part: string;
+    total: number;
+    completed: number;
+    factPercent: number;
+    planPercent: number | null;
+  }[];
+  activeTab: string;
+  cardWorkTotal: number;
+  cardWorkCompleted: number;
+  datasource: string;
+}) {
+  console.group("PROJECT AGGREGATION");
+  console.log("Residential stages", input.residentialCount);
+  console.log("Parking stages", input.parkingCount);
+  console.log("Project stages", input.projectCount);
+  console.log("Active tab", input.activeTab);
+  console.log("Datasource", input.datasource);
+  console.log("Card Выполнение", `${input.cardWorkCompleted} / ${input.cardWorkTotal}`);
+  console.table(input.projectStages);
+  if (input.projectCount < input.residentialCount) {
+    console.warn(
+      "[PROJECT AGGREGATION] projectCount < residentialCount — карточка «Проект» может использовать scope части, а не всего проекта.",
+    );
+  }
+  console.groupEnd();
 }
 
 function kpiCard({
@@ -2125,6 +2337,31 @@ export function GPRAnalytics({
       ),
     [tasksForActivePart, aggregateRootCodes, aggregatePartKey, gprReportAsOf],
   );
+
+  /** Сводная карточка «Проект»: все части (ЖД + автостоянка), корни 2.04–2.07. */
+  const tasksForProjectAggregate = useMemo(
+    () => filterGprTasksByObjectScope(fullTaskList, "project"),
+    [fullTaskList],
+  );
+  const projectProgressAggregate = useMemo(
+    () =>
+      computePartAggregate(
+        tasksForProjectAggregate,
+        AGGREGATE_ROOT_CODES_PROJECT,
+        "project",
+        gprReportAsOf,
+      ),
+    [tasksForProjectAggregate, gprReportAsOf],
+  );
+  const projectOrderedStageRoots = useMemo(
+    () => resolveStageCardRootTasks(tasksForProjectAggregate, AGGREGATE_ROOT_CODES_PROJECT),
+    [tasksForProjectAggregate],
+  );
+  const projectFlatTasks = useMemo(
+    () => flattenTasks(tasksForProjectAggregate),
+    [tasksForProjectAggregate],
+  );
+
   const orderedStageRoots = useMemo(
     () => resolveStageCardRootTasks(tasksForActivePart, aggregateRootCodes),
     [tasksForActivePart, aggregateRootCodes],
@@ -2140,13 +2377,6 @@ export function GPRAnalytics({
     [orderedStageRoots, presentationAnalyticsSkin, activePartScope],
   );
 
-  const stageCardsGridColumnClass = useMemo(() => {
-    if (isProjectWide) return "xl:grid-cols-4";
-    const slotCount = stageCardRoots.length + 1;
-    if (slotCount === 2) return "xl:grid-cols-2";
-    return "xl:grid-cols-3";
-  }, [isProjectWide, stageCardRoots.length]);
-
   /** Реестр ТМЦ из БД; фильтрация по части проекта для графика. */
   const tmcItemsForPart = useMemo(() => {
     if (isProjectWide) {
@@ -2159,6 +2389,67 @@ export function GPRAnalytics({
     [tasksForActivePart, gprReportAsOf],
   );
   const flatTasks = flattenTasks(tasksForActivePart);
+
+  const stageDeviationGroupCards = useMemo(() => {
+    const allowedGroupKeys = filterGprPresentationStageDeviationGroupKeys(
+      isProjectWide
+        ? gprStageGroupKeysProjectWide()
+        : gprStageGroupKeysForProjectPart(activeProjectPart),
+      {
+        presentationMode: presentationAnalyticsSkin,
+        activePartScope,
+      },
+    );
+
+    const devRows = flatTasks
+      .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
+      .map((t) => {
+        const schedule = computeGprTaskScheduleDeviations(t, gprReportAsOf);
+        const group = inferGroup(t);
+        return {
+          task: t,
+          deviation: schedule.durationDeviation,
+          startDeviation: schedule.startDeviation,
+          finishDeviation: schedule.finishDeviation,
+          durationDeviation: schedule.durationDeviation,
+          planDuration: schedule.planDuration,
+          factDuration: schedule.actualDuration,
+          group,
+        };
+      });
+
+    return allowedGroupKeys
+      .map((g) => {
+        const rows = devRows.filter((r) => r.group === g);
+        const groupTasks = rows.map((r) => r.task);
+        const label = gprStageDisplayTitle(tasksForActivePart, g);
+        const durationStats = computeGprStageGroupAverageDurationDeviation(groupTasks, label, {
+          log: process.env.NODE_ENV !== "production",
+        });
+        const completedRows = durationStats.rows;
+        const avg = durationStats.averageDeviation;
+        const critical = completedRows.filter(
+          (r) => getStatusByManagementScheduleDeviation(r.deviationDays) === "red",
+        ).length;
+        return {
+          key: g,
+          label,
+          rows,
+          avg,
+          critical,
+          withDevCount: durationStats.completedStages,
+        };
+      })
+      .filter((card) => card.rows.length > 0);
+  }, [
+    flatTasks,
+    gprReportAsOf,
+    tasksForActivePart,
+    isProjectWide,
+    activeProjectPart,
+    presentationAnalyticsSkin,
+    activePartScope,
+  ]);
 
   /** Всего этапов ГПР объекта «Жилой дом» (сумма workTotal по корневым этапам 2.04 / 2.05). */
   const residentialZhDomGprStageTotal = useMemo(() => {
@@ -2546,12 +2837,27 @@ export function GPRAnalytics({
     console.info(`[GPR scope debug]\n${lines.join("\n")}`, d);
   }, [parkingGprDebug]);
 
+  const planFactChartLabelsUnder205 = useMemo(() => {
+    if (!planFactWorkTypeChartModel) return [];
+    return planFactWorkTypeChartModel.labels.filter((label) =>
+      matchesGprCodeBranch(label.split(" — ")[0]?.trim() ?? label, "2.05"),
+    );
+  }, [planFactWorkTypeChartModel]);
+
   const stage205KpiDiagnostic = useMemo(() => {
     if (!SHOW_GPR_SCOPE_DEBUG || presentationAnalyticsSkin) return null;
     const root205 = findGprCsvRootTask(flatTasks, "2.05");
     if (!root205) return null;
-    return buildGprStage205KpiDiagnostic(flatTasks, root205);
-  }, [flatTasks, presentationAnalyticsSkin]);
+    return buildGprStage205KpiDiagnostic(flatTasks, root205, gprReportAsOf);
+  }, [flatTasks, gprReportAsOf, presentationAnalyticsSkin]);
+
+  const kpiChartCompletionGapDiagnostic = useMemo(() => {
+    if (process.env.NODE_ENV === "production") return null;
+    if (activePartScope !== PROJECT_PART_KEY_TO_ID.residential) return null;
+    const root205 = findGprCsvRootTask(flatTasks, "2.05");
+    if (!root205) return null;
+    return buildGprKpiChartCompletionGapDiagnostic(flatTasks, root205, gprReportAsOf);
+  }, [flatTasks, gprReportAsOf, activePartScope]);
 
   const stage205Diagnostic = useMemo(() => {
     if (!SHOW_GPR_SCOPE_DEBUG || presentationAnalyticsSkin) return null;
@@ -2561,15 +2867,92 @@ export function GPRAnalytics({
   }, [flatTasks, gprReportAsOf, presentationAnalyticsSkin]);
 
   useEffect(() => {
-    if (!stage205KpiDiagnostic) return;
-    logGprStage205KpiDiagnosticToConsole(stage205KpiDiagnostic);
-  }, [stage205KpiDiagnostic]);
+    if (process.env.NODE_ENV === "production") return;
+    if (presentationAnalyticsSkin) return;
+    if (activePartScope !== PROJECT_PART_KEY_TO_ID.residential) return;
+    const root205 = findGprCsvRootTask(flatTasks, "2.05");
+    if (!root205) return;
+    logGprStage205KpiToConsole(
+      flatTasks,
+      root205,
+      gprReportAsOf,
+      planFactChartLabelsUnder205,
+    );
+  }, [
+    flatTasks,
+    gprReportAsOf,
+    presentationAnalyticsSkin,
+    activePartScope,
+    planFactChartLabelsUnder205,
+    planFactTasksBarLevel,
+  ]);
+
+  useEffect(() => {
+    if (!kpiChartCompletionGapDiagnostic) return;
+    const monolith = listMonolithChartFloorProgress(planFactFlatTasks, gprReportYmd);
+    const chartOnlyRows =
+      monolith?.floors.filter((f) => f.floorPercent >= 100) ?? undefined;
+    logGprKpiChartCompletionGapToConsole(kpiChartCompletionGapDiagnostic, chartOnlyRows);
+    if (monolith) {
+      console.info("[KPI vs CHART] monolith parent rollup", {
+        parentCode: monolith.parentCode,
+        parentFactPercent: monolith.parentFactPercent,
+        floorsAt100: chartOnlyRows?.length ?? 0,
+        note:
+          "Строки «N этаж» на диаграмме — синтетическое разбиение одной работы 2.05.04.2; KPI считает листья WBS.",
+      });
+    }
+  }, [kpiChartCompletionGapDiagnostic, planFactFlatTasks, gprReportYmd]);
 
   const {
-    totalPercent: aggTotalPercent,
-    totalDeviation: aggTotalDeviation,
-    stages: aggregateStages,
-  } = partProgressAggregate;
+    totalPercent: projectAggTotalPercent,
+    totalDeviation: projectAggTotalDeviation,
+    stages: projectAggregateStages,
+  } = projectProgressAggregate;
+
+  const projectAggregationStageCounts = useMemo(() => {
+    const breakdown = sumProjectWideStageBreakdown(fullTaskList, gprReportAsOf);
+    const residentialCount = breakdown.stageRows
+      .filter((r) => r.part === "residential")
+      .reduce((sum, r) => sum + r.total, 0);
+    const parkingCount = breakdown.stageRows
+      .filter((r) => r.part === "parking")
+      .reduce((sum, r) => sum + r.total, 0);
+    const projectCount = breakdown.workTotal;
+
+    return {
+      residentialCount,
+      parkingCount,
+      projectCount,
+      projectStages: breakdown.stageRows.map((r) => ({
+        root: r.root,
+        name: r.name,
+        part: r.part,
+        total: r.total,
+        completed: r.completed,
+        factPercent: r.factPercent,
+        planPercent: r.planPercent,
+      })),
+    };
+  }, [fullTaskList, gprReportAsOf]);
+
+  const projectAggregateProblemSignals = useMemo(
+    () => computeTmcProblemSignals(tasksForProjectAggregate, allTmc, gprReportYmd),
+    [tasksForProjectAggregate, allTmc, gprReportYmd],
+  );
+
+  const projectTrafficForAggregateCard = useMemo(() => {
+    const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
+    for (const t of tasksForProjectAggregate) {
+      counts[trafficStatusForTask(t, gprReportAsOf).status] += 1;
+    }
+    return counts;
+  }, [tasksForProjectAggregate, gprReportAsOf]);
+
+  const projectAggregateCardStatus = useMemo(
+    () => aggregateProgressStatusFromDistribution(projectTrafficForAggregateCard),
+    [projectTrafficForAggregateCard],
+  );
 
   const aggregateProblemSignals = useMemo(
     () => computeTmcProblemSignals(tasksForActivePart, tmcItemsForPart, gprReportYmd),
@@ -2845,31 +3228,26 @@ export function GPRAnalytics({
   }, [statusDistributionPopoverOpen]);
 
   const scheduleLagForAggregate =
-    aggTotalDeviation !== null && aggTotalDeviation > 0;
+    projectAggTotalDeviation !== null && projectAggTotalDeviation > 0;
   const aggregatePopoverExplanation = useMemo(
     () =>
       buildAggregateProgressPopoverExplanation(
-        aggregatePartKey,
-        aggregateStages,
+        "project",
+        projectAggregateStages,
         {
-          notPurchased: aggregateProblemSignals.notPurchased,
-          overdueDelivery: aggregateProblemSignals.overdueDelivery,
+          notPurchased: projectAggregateProblemSignals.notPurchased,
+          overdueDelivery: projectAggregateProblemSignals.overdueDelivery,
         },
         scheduleLagForAggregate,
       ),
     [
-      aggregatePartKey,
-      aggregateStages,
-      aggregateProblemSignals.notPurchased,
-      aggregateProblemSignals.overdueDelivery,
+      projectAggregateStages,
+      projectAggregateProblemSignals.notPurchased,
+      projectAggregateProblemSignals.overdueDelivery,
       scheduleLagForAggregate,
     ],
   );
-  const aggregateProgressStatus = useMemo(
-    () => aggregateProgressStatusFromDistribution(traffic.counts),
-    [traffic.counts],
-  );
-  const statusAgg: Traffic = aggregateProgressStatus.status;
+  const statusAgg: Traffic = projectAggregateCardStatus.status;
   const accentAgg =
     statusAgg === "green"
       ? COLORS.green
@@ -2880,21 +3258,21 @@ export function GPRAnalytics({
           : COLORS.gray;
   /** Одно число для подписи и ширины полосы (без двойного округления). */
   const aggregateTotalProgressUi = useMemo(() => {
-    if (aggTotalPercent === null || !Number.isFinite(Number(aggTotalPercent))) {
+    if (projectAggTotalPercent === null || !Number.isFinite(Number(projectAggTotalPercent))) {
       return { display: "—" as const, widthPct: 0 };
     }
-    const clamped = Math.max(0, Math.min(100, Number(aggTotalPercent)));
+    const clamped = Math.max(0, Math.min(100, Number(projectAggTotalPercent)));
     const progress = Math.round(clamped * 10) / 10;
     const isInt = Math.abs(progress - Math.round(progress)) < 1e-6;
     const display = isInt ? `${Math.round(progress)}%` : `${progress.toFixed(1)}%`;
     return { display, widthPct: progress };
-  }, [aggTotalPercent]);
+  }, [projectAggTotalPercent]);
 
   /** «64% / 28%» — округлённые % выполнения по корневым этапам (как в карточках слева). */
   const aggregateStagesKpiLine = useMemo(() => {
-    if (!aggregateStages.length) return "—";
-    return aggregateStages.map((s) => `${Math.round(s.completion)}%`).join(" / ");
-  }, [aggregateStages]);
+    if (!projectAggregateStages.length) return "—";
+    return projectAggregateStages.map((s) => `${Math.round(s.completion)}%`).join(" / ");
+  }, [projectAggregateStages]);
 
   const handleAggregateCardClick = () => {
     if (aggregatePopoverOpen) {
@@ -2939,11 +3317,11 @@ export function GPRAnalytics({
   };
 
   const aggregateLagDaysRounded =
-    aggTotalDeviation !== null && aggTotalDeviation > 0
-      ? Math.round(aggTotalDeviation)
+    projectAggTotalDeviation !== null && projectAggTotalDeviation > 0
+      ? Math.round(projectAggTotalDeviation)
       : null;
   const aggregateDeviationUi =
-    aggTotalDeviation === null ? null : getStatusByGprProgressDelta(aggTotalDeviation);
+    projectAggTotalDeviation === null ? null : getStatusByGprProgressDelta(projectAggTotalDeviation);
   const aggregateProblemsList = [
     aggregateProblemSignals.notPurchased ? "Не закуплен материал (из ТМЦ)" : null,
     aggregateLagDaysRounded !== null
@@ -2957,7 +3335,7 @@ export function GPRAnalytics({
 
   const aggregateProgressCardMain = (
     <GprTopKpiCardLayout
-      title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
+      title="Проект"
       leftLabel="Выполнение ГПР"
       leftValue={aggregateTotalProgressUi.display}
       leftMeta=""
@@ -2965,10 +3343,10 @@ export function GPRAnalytics({
       rightValue={aggregateStagesKpiLine}
       bottomLabel="Отклонение готовности, %"
       bottomValue={
-        aggTotalDeviation === null
+        projectAggTotalDeviation === null
           ? "—"
-          : `${aggTotalDeviation > 0 ? "+" : aggTotalDeviation < 0 ? "−" : ""}${Math.abs(
-              Math.round(aggTotalDeviation * 10) / 10,
+          : `${projectAggTotalDeviation > 0 ? "+" : projectAggTotalDeviation < 0 ? "−" : ""}${Math.abs(
+              Math.round(projectAggTotalDeviation * 10) / 10,
             )}%`
       }
       bottomValueColorClassName={
@@ -2987,71 +3365,81 @@ export function GPRAnalytics({
   );
 
   /**
-   * Аггрегированное распределение статусов и счётчиков выполнения по всем корневым этапам
-   * активной части (для жилого дома — 2.04 + 2.05). Используется тот же самый бэкенд расчёта,
-   * что и в карточках 2.04 / 2.05; формулы НЕ менялись — только агрегируем по корням.
+   * Агрегированное распределение статусов и счётчиков выполнения по всему проекту:
+   * жилой дом (2.04/2.05) + автостоянка (2.06/2.07 или fallback).
    */
   const aggregateStageBreakdown = useMemo(() => {
-    let workCompleted = 0;
-    let workTotal = 0;
-    let trafficGreen = 0;
-    let trafficYellow = 0;
-    let trafficRed = 0;
-    let donutOnTime = 0;
-    let donutRisk = 0;
-    let donutOverdue = 0;
-    let donutCompletedLate = 0;
-    let donutNotStarted = 0;
-    for (const root of orderedStageRoots) {
-      const insight = computeGprStageCompletionInsight(flatTasks, root, gprReportAsOf);
-      const bd = computeGprStageStatusBreakdown(flatTasks, root, gprReportAsOf, insight);
-      workCompleted += bd.completedStages;
-      workTotal += bd.totalStages;
-      trafficGreen += bd.onTimeCount;
-      trafficYellow += bd.atRiskCount;
-      trafficRed += bd.overdueCount;
-      donutOnTime += bd.donutOnTimeCount;
-      donutRisk += bd.donutRiskCount;
-      donutOverdue += bd.donutOverdueCount;
-      donutCompletedLate += bd.donutCompletedLateCount;
-      donutNotStarted += bd.donutNotStartedCount;
-    }
-    const completedSharePct =
-      workTotal > 0 ? Math.round((workCompleted / workTotal) * 1000) / 10 : 0;
+    const breakdown = sumProjectWideStageBreakdown(fullTaskList, gprReportAsOf);
     return {
-      workCompleted,
-      workTotal,
-      trafficGreen,
-      trafficYellow,
-      trafficRed,
-      donutOnTime,
-      donutRisk,
-      donutOverdue,
-      donutCompletedLate,
-      donutNotStarted,
-      completedSharePct,
+      workCompleted: breakdown.workCompleted,
+      workTotal: breakdown.workTotal,
+      trafficGreen: breakdown.trafficGreen,
+      trafficYellow: breakdown.trafficYellow,
+      trafficRed: breakdown.trafficRed,
+      donutOnTime: breakdown.donutOnTime,
+      donutRisk: breakdown.donutRisk,
+      donutOverdue: breakdown.donutOverdue,
+      donutCompletedLate: breakdown.donutCompletedLate,
+      donutNotStarted: breakdown.donutNotStarted,
+      businessCompleted: breakdown.businessCompleted,
+      businessInProgress: breakdown.businessInProgress,
+      businessLate: breakdown.businessLate,
+      businessOverdue: breakdown.businessOverdue,
+      businessNotStarted: breakdown.businessNotStarted,
+      completedSharePct: breakdown.completedSharePct,
     };
-  }, [orderedStageRoots, flatTasks, gprReportAsOf]);
+  }, [fullTaskList, gprReportAsOf]);
 
-  /**
-   * Плановая агрегированная готовность на дату отчёта: среднее календарных planPercent
-   * по всем работам корневых этапов.
-   */
   const aggregatePlannedPercent = useMemo<number | null>(() => {
-    const pooled = orderedStageRoots.flatMap((root) => getGprStageWorkItems(flatTasks, root));
+    const residentialTasks = filterGprTasksByObjectScope(
+      fullTaskList,
+      PROJECT_PART_KEY_TO_ID.residential,
+    );
+    const parkingTasks = filterGprTasksByObjectScope(fullTaskList, PROJECT_PART_KEY_TO_ID.parking);
+    const pooled = [
+      ...collectGprWorkItemsForRoots(
+        residentialTasks,
+        aggregateRootCodesForPart("residential", residentialTasks),
+      ),
+      ...collectGprWorkItemsForRoots(
+        parkingTasks,
+        aggregateRootCodesForPart("parking", parkingTasks),
+      ),
+    ];
     return computeGprTasksPlanCompletionPercent(pooled, gprReportAsOf);
-  }, [orderedStageRoots, flatTasks, gprReportAsOf]);
+  }, [fullTaskList, gprReportAsOf]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+
+    logGprProjectAggregationDebugToConsole({
+      residentialCount: projectAggregationStageCounts.residentialCount,
+      parkingCount: projectAggregationStageCounts.parkingCount,
+      projectCount: projectAggregationStageCounts.projectCount,
+      projectStages: projectAggregationStageCounts.projectStages,
+      activeTab: activePartLabel,
+      cardWorkTotal: aggregateStageBreakdown.workTotal,
+      cardWorkCompleted: aggregateStageBreakdown.workCompleted,
+      datasource:
+        "sumProjectWideStageBreakdown(fullTaskList): residential(2.04/2.05) + parking(2.06/2.07)",
+    });
+  }, [
+    projectAggregationStageCounts,
+    activePartLabel,
+    aggregateStageBreakdown.workTotal,
+    aggregateStageBreakdown.workCompleted,
+  ]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     if (aggregatePlannedPercent !== null) return;
-    if (!aggregateStages.length) return;
-    const sources = aggregateStages.map((stage) => {
-      const root = orderedStageRoots.find(
+    if (!projectAggregateStages.length) return;
+    const sources = projectAggregateStages.map((stage) => {
+      const root = projectOrderedStageRoots.find(
         (r) => normalizeGprCodeFinal(r.code) === normalizeGprCodeFinal(stage.code),
       );
       const planPct = root
-        ? computeGprStageCompletionInsight(flatTasks, root, gprReportAsOf).planPercent
+        ? computeGprStageCompletionInsight(projectFlatTasks, root, gprReportAsOf).planPercent
         : null;
       return {
         code: stage.code,
@@ -3061,24 +3449,24 @@ export function GPRAnalytics({
       };
     });
     console.warn(
-      "[GPR aggregate] planPercent отсутствует — не удалось агрегировать план для карточки «Жилой дом».",
+      "[GPR aggregate] planPercent отсутствует — не удалось агрегировать план для карточки «Проект».",
       {
         factSource: "aggregateTotalProgressUi.display ← computePartAggregate.totalPercent (среднее календарных % факта)",
         planSource: "среднее календарных planPercent по работам этапов",
-        aggTotalPercent,
-        aggTotalDeviation,
+        projectAggTotalPercent,
+        projectAggTotalDeviation,
         gprReportAsOf,
         stages: sources,
       },
     );
   }, [
     aggregatePlannedPercent,
-    aggregateStages,
-    orderedStageRoots,
-    flatTasks,
+    projectAggregateStages,
+    projectOrderedStageRoots,
+    projectFlatTasks,
     gprReportAsOf,
-    aggTotalPercent,
-    aggTotalDeviation,
+    projectAggTotalPercent,
+    projectAggTotalDeviation,
   ]);
 
   const aggregatePlanClamped =
@@ -3092,16 +3480,13 @@ export function GPRAnalytics({
         ? `${Math.round(aggregatePlanClamped)}%`
         : `${aggregatePlanClamped.toFixed(1)}%`;
   /**
-   * Агрегированное отклонение готовности по жилому дому (или активной части): факт − план,
-   * посчитанные в одной модели — той же, что используют карточки 2.04 и 2.05.
-   * Не подставлять сюда partProgressAggregate.totalDeviation: тот показатель — взвешенная
-   * calculateDeviation(rootTask, asOf) по корням, и для текущих данных он даёт 0,
-   * что противоречит фактически наблюдаемой разнице фактической и плановой готовности.
+   * Агрегированное отклонение готовности по всему проекту: факт − план,
+   * посчитанные в одной модели по work items корней 2.04–2.07.
    */
   const aggregateDeviationDeltaPp =
-    aggTotalPercent === null || aggregatePlannedPercent === null
+    projectAggTotalPercent === null || aggregatePlannedPercent === null
       ? null
-      : Math.round((aggTotalPercent - aggregatePlannedPercent) * 10) / 10;
+      : Math.round((projectAggTotalPercent - aggregatePlannedPercent) * 10) / 10;
   const aggregateDeviationDisplay =
     aggregateDeviationDeltaPp === null
       ? "—"
@@ -3173,20 +3558,13 @@ export function GPRAnalytics({
     );
   }
 
-  // Итоговая агрегатная карточка части/проекта.
-  // Размещение и внутренняя разметка отличаются по вкладкам:
-  //   • «Жилой дом» / «Автостоянка» — в той же строке, что и этапы (2 этапа + агрегат = 3 колонки),
-  //                                    metricsVariant="compact" — KPI идут вертикально, как в этапной карточке.
-  //   • «Проект»                    — отдельной строкой ВЫШЕ ряда этапов (сводка перед детализацией);
-  //                                    карточка занимает всю ширину контейнера,
-  //                                    metricsVariant="projectWide" — KPI разложены в 3 колонки:
-  //                                    (Факт + Выполнение) | (Отклонение + Доля) | (Donut + легенда).
+  // Итоговая агрегатная карточка «Проект» — всегда весь объект (ЖД + автостоянка, 2.04–2.07).
   const partAggregateCard = (
     <GprStageKpiCard
       key="part-aggregate"
-      title={PART_SHORT_TITLE_OR_PROJECT[aggregatePartKey] ?? (isProjectWide ? "Проект" : "Часть проекта")}
-      status={statusAgg}
-      metricsVariant={isProjectWide ? "projectWide" : "compact"}
+      title="Проект"
+      status={projectAggregateCardStatus.status}
+      metricsVariant="compact"
       donutStatusVariant="trafficKpi"
       factLabel="Факт выполнения"
       factValue={aggregateTotalProgressUi.display}
@@ -3209,6 +3587,11 @@ export function GPRAnalytics({
       donutOverdueCount={aggregateStageBreakdown.donutOverdue}
       donutCompletedLateCount={aggregateStageBreakdown.donutCompletedLate}
       donutNotStartedCount={aggregateStageBreakdown.donutNotStarted}
+      businessCompletedCount={aggregateStageBreakdown.businessCompleted}
+      businessInProgressCount={aggregateStageBreakdown.businessInProgress}
+      businessLateCount={aggregateStageBreakdown.businessLate}
+      businessOverdueCount={aggregateStageBreakdown.businessOverdue}
+      businessNotStartedCount={aggregateStageBreakdown.businessNotStarted}
       problematicSharePct={0}
     />
   );
@@ -3224,30 +3607,16 @@ export function GPRAnalytics({
       }}
     >
       {/*
-        На вкладке «Проект» итоговая агрегированная карточка стоит ПЕРВОЙ в секции,
-        ВЫШЕ ряда из четырёх карточек этапов 2.04–2.07. Это делает её главным KPI-блоком
-        раздела (сводка перед детализацией). Карточка занимает всю ширину контейнера;
-        её layout (3 колонки: KPI выполнения | KPI отклонений | диаграмма статусов)
-        задаётся через metricsVariant="projectWide" (см. partAggregateCard выше).
-
-        На вкладках «Жилой дом» / «Автостоянка» агрегатная карточка размещается
-        внутри ряда этапов (см. ниже) — там она логически парная к двум этапам части,
-        поэтому порядок «сводка сверху» к ним не применяется.
+        Единая сетка KPI: карточки этапов + карточка «Проект».
+        На вкладке «Проект» — «Проект» первым; на вкладках частей — этапы слева, «Проект» справа.
+        Tablet/mobile — 1 колонка; desktop (≥1280px) — 2 колонки, равная высота.
       */}
-      <div className="min-w-0 space-y-4" {...{ [PDF_KPI_CAPTURE_ATTR]: "" }}>
-      {isProjectWide ? (
-        <div className="min-w-0">{partAggregateCard}</div>
-      ) : null}
+      <div className="min-w-0" {...{ [PDF_KPI_CAPTURE_ATTR]: "" }}>
+      <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-5 xl:grid-cols-2 xl:gap-6">
+        {isProjectWide ? (
+          <div className="min-w-0 h-full">{partAggregateCard}</div>
+        ) : null}
 
-      {/*
-        Сетка карточек этапов ГПР:
-        • «Проект»                    — 4 равные колонки на desktop (по числу этапов 2.04/2.05/2.06/2.07);
-        • «Жилой дом» / «Автостоянка» — 3 колонки (2 этапа + агрегатная карточка части).
-        items-stretch гарантирует одинаковую высоту карточек внутри строки.
-      */}
-      <div
-        className={`grid grid-cols-1 items-stretch gap-5 ${stageCardsGridColumnClass}`}
-      >
         {stageCardRoots.map((task) => {
           const stageInsight = computeGprStageCompletionInsight(flatTasks, task, gprReportAsOf);
           const statusBreakdown = computeGprStageStatusBreakdown(
@@ -3331,8 +3700,8 @@ export function GPRAnalytics({
               ? Math.round((completedShareNumerator / completedShareDenominator) * 1000) / 10
               : 0;
           return (
+            <div key={task.globalTaskId ?? task.id} className="min-w-0 h-full">
             <GprStageKpiCard
-              key={task.globalTaskId ?? task.id}
               title={task.name}
               code={stageCodeNorm}
               status={status}
@@ -3366,16 +3735,13 @@ export function GPRAnalytics({
               businessNotStartedCount={statusBreakdown.businessNotStartedCount}
               problematicSharePct={statusBreakdown.problematicSharePct}
             />
+            </div>
           );
         })}
 
-        {/*
-          В «Жилой дом» / «Автостоянка» агрегатная карточка части идёт в той же строке,
-          что и этапы — это сохраняет текущую логику интерфейса (3 равные колонки).
-          В «Проекте» этапы занимают всю строку (4 колонки), а сводная карточка
-          «Проект» выносится отдельным блоком ВЫШЕ ряда этапов (см. выше по дереву).
-        */}
-        {!isProjectWide ? partAggregateCard : null}
+        {!isProjectWide ? (
+          <div className="min-w-0 h-full">{partAggregateCard}</div>
+        ) : null}
       </div>
 
       {stage205Diagnostic ? (
@@ -3634,57 +4000,7 @@ export function GPRAnalytics({
       >
         <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
         {(() => {
-          const allowedGroupKeys = filterGprPresentationStageDeviationGroupKeys(
-            isProjectWide
-              ? gprStageGroupKeysProjectWide()
-              : gprStageGroupKeysForProjectPart(activeProjectPart),
-            {
-              presentationMode: presentationAnalyticsSkin,
-              activePartScope,
-            },
-          );
-
-          const devRows = flatTasks
-            .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
-            .map((t) => {
-              const schedule = computeGprTaskScheduleDeviations(t, gprReportAsOf);
-              const group = inferGroup(t);
-              return {
-                task: t,
-                deviation: schedule.durationDeviation,
-                startDeviation: schedule.startDeviation,
-                finishDeviation: schedule.finishDeviation,
-                durationDeviation: schedule.durationDeviation,
-                planDuration: schedule.planDuration,
-                factDuration: schedule.actualDuration,
-                group,
-              };
-            });
-
-          const groupCards = allowedGroupKeys
-            .map((g) => {
-              const rows = devRows.filter((r) => r.group === g);
-              const withDev = rows.filter((r) => r.durationDeviation !== null) as Array<
-                (typeof rows)[number] & { durationDeviation: number }
-              >;
-              const avg = withDev.length
-                ? withDev.reduce((sum, r) => sum + r.durationDeviation, 0) / withDev.length
-                : 0;
-              const critical = withDev.filter(
-                (r) => getStatusByManagementScheduleDeviation(r.durationDeviation) === "red",
-              ).length;
-              const label = gprStageDisplayTitle(tasksForActivePart, g);
-              return {
-                key: g,
-                label,
-                rows,
-                avg,
-                critical,
-                withDevCount: withDev.length,
-              };
-            })
-            .filter((card) => card.rows.length > 0);
-
+          const groupCards = stageDeviationGroupCards;
           const active = activeGroup ? groupCards.find((g) => g.key === activeGroup) ?? null : null;
 
           const toggleGroup = (group: GroupKey) => {
@@ -3694,22 +4010,26 @@ export function GPRAnalytics({
           return (
             <div className="mt-4 space-y-4">
               {groupCards.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className={stageDeviationGroupCardsGridClass(groupCards.length)}>
                   {groupCards.map((g) => {
                     const activeCard = activeGroup === g.key;
                     const stageCardTone: "green" | "red" | "gray" =
-                      g.withDevCount === 0 || g.avg === 0 ? "gray" : g.avg > 0 ? "red" : "green";
+                      g.withDevCount === 0 || g.avg == null || g.avg === 0
+                        ? "gray"
+                        : g.avg > 0
+                          ? "red"
+                          : "green";
                     const avgColor =
-                      g.withDevCount === 0 || g.avg === 0
+                      g.withDevCount === 0 || g.avg == null || g.avg === 0
                         ? "#e2e8f0"
                         : g.avg > 0
                           ? COLORS.red
                           : COLORS.green;
                     const avgText =
-                      g.withDevCount === 0
+                      g.withDevCount === 0 || g.avg == null
                         ? "—"
                         : formatGprManagementScheduleDeviationDays(g.avg, { decimals: true });
-                    const iconIsLate = g.withDevCount > 0 && g.avg > 0;
+                    const iconIsLate = g.withDevCount > 0 && g.avg != null && g.avg > 0;
                     const iconShellClass = iconIsLate
                       ? "text-[#ef4444] bg-[rgba(239,68,68,0.12)] shadow-[0_0_20px_rgba(239,68,68,0.25)]"
                       : "text-[#22c55e] bg-[rgba(34,197,94,0.12)] shadow-[0_0_20px_rgba(34,197,94,0.25)]";
@@ -3720,7 +4040,7 @@ export function GPRAnalytics({
                         onClick={() => toggleGroup(g.key)}
                         aria-pressed={activeCard}
                         data-stage-deviation-card={stageCardTone}
-                        className={`relative w-full rounded-2xl pt-4 pb-5 pl-[72px] pr-5 text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] ${
+                        className={`relative w-full max-w-none rounded-2xl pt-4 pb-5 pl-[72px] pr-5 text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] ${
                           activeCard ? "scale-[1.02]" : ""
                         }`}
                       >
@@ -3730,15 +4050,15 @@ export function GPRAnalytics({
                         >
                           <StageDeviationStageIcon groupKey={g.key} />
                         </span>
-                        <div className="relative min-w-0">
+                        <div className="relative min-w-0 w-full">
                           <div
                             className="stage-title text-sm font-semibold leading-snug text-slate-100"
                             title={g.label}
                           >
                             {g.label}
                           </div>
-                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-0">
-                            <div className="min-w-0 flex-1">
+                          <div className="mt-4 grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-x-8 sm:divide-x sm:divide-white/10">
+                            <div className="min-w-0 sm:pr-8">
                               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                                 Среднее отклонение длительности
                               </div>
@@ -3749,12 +4069,7 @@ export function GPRAnalytics({
                                 {avgText}
                               </div>
                             </div>
-                            <div
-                              className="hidden w-px shrink-0 bg-white/10 sm:mx-5 sm:block sm:self-stretch"
-                              aria-hidden
-                            />
-                            <div className="h-px w-full bg-white/10 sm:hidden" aria-hidden />
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 border-t border-white/10 pt-3 sm:border-t-0 sm:pt-0 sm:pl-8">
                               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                                 Критические отклонения
                               </div>

@@ -450,6 +450,66 @@ export const GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER: GprTmcCompletionScatterQu
   "tmc_confirmed",
 ];
 
+export const GPR_TMC_COMPLETION_QUADRANT_EMOJI: Record<GprTmcCompletionScatterQuadrant, string> = {
+  normal: "🟢",
+  tmc_risk: "🟠",
+  lag_not_tmc: "🟡",
+  tmc_confirmed: "🔴",
+};
+
+export function gprTmcCompletionQuadrantDisplayLabel(
+  quadrant: GprTmcCompletionScatterQuadrant,
+): string {
+  return `${GPR_TMC_COMPLETION_QUADRANT_EMOJI[quadrant]} ${GPR_TMC_COMPLETION_QUADRANT_STYLES[quadrant].label}`;
+}
+
+export function countGprTmcCompletionPointsByQuadrant(
+  points: GprTmcCompletionScatterPoint[],
+): Record<GprTmcCompletionScatterQuadrant, number> {
+  const counts: Record<GprTmcCompletionScatterQuadrant, number> = {
+    normal: 0,
+    tmc_risk: 0,
+    lag_not_tmc: 0,
+    tmc_confirmed: 0,
+  };
+  for (const point of points) counts[point.quadrant] += 1;
+  return counts;
+}
+
+function gprTmcCompletionPluralStage(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} этап`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} этапа`;
+  return `${n} этапов`;
+}
+
+/** Краткий аналитический вывод по точкам scatter «% выполнения». */
+export function buildGprTmcCompletionInsightSummary(
+  points: GprTmcCompletionScatterPoint[],
+): string {
+  const counts = countGprTmcCompletionPointsByQuadrant(points);
+  const parts: string[] = [];
+
+  if (counts.tmc_confirmed > 0) {
+    parts.push(`${gprTmcCompletionPluralStage(counts.tmc_confirmed)} в критической зоне`);
+  }
+  if (counts.tmc_risk > 0) {
+    parts.push(`${gprTmcCompletionPluralStage(counts.tmc_risk)} с риском дефицита ТМЦ`);
+  }
+  if (counts.lag_not_tmc > 0) {
+    parts.push(
+      `${gprTmcCompletionPluralStage(counts.lag_not_tmc)} с отставанием, не связанным с обеспеченностью`,
+    );
+  }
+
+  if (parts.length === 0) {
+    return "Проблемных этапов не выявлено — все этапы в зоне нормы.";
+  }
+
+  return `Выявлено: ${parts.join(", ")}.`;
+}
+
 export type GprTmcCompletionScatterPoint = {
   stageShort: string;
   stageTitle: string;
@@ -501,6 +561,78 @@ export function buildGprTmcCompletionScatterPoints(
     });
   }
   return out;
+}
+
+export type GprTmcWorkTmcSupplyLine = {
+  name: string;
+  supplyPercent: number;
+};
+
+/** Прямые дочерние работы WBS этапа (`parent.N`, без внуков). */
+export function listGprDirectChildWorkCodes(tasks: GPRTask[], workCode: string): string[] {
+  const parent = normalizeGprCodeFinal(workCode);
+  if (!parent) return [];
+
+  const directChildren = new Set<string>();
+  for (const task of tasks) {
+    const code = normalizeGprCodeFinal(task.code);
+    if (code === parent) continue;
+    if (!code.startsWith(`${parent}.`)) continue;
+    const suffix = code.slice(parent.length + 1);
+    const directSegment = suffix.split(".")[0];
+    if (!directSegment) continue;
+    directChildren.add(`${parent}.${directSegment}`);
+  }
+
+  return [...directChildren].sort((a, b) => compareGprCodesByNumericPath(a, b));
+}
+
+/** Позиции ТМЦ этапа с фактической обеспеченностью по каждой строке реестра. */
+export function listTmcSupplyLinesForWorkCode(
+  items: TMCItem[],
+  workCode: string,
+): GprTmcWorkTmcSupplyLine[] {
+  const wc = normalizeGprCodeFinal(workCode);
+  if (!wc) return [];
+
+  const lines: GprTmcWorkTmcSupplyLine[] = [];
+  for (const item of items) {
+    if (!tmcItemBelongsToWorkCode(item, wc)) continue;
+    if (item.planCost <= 0) continue;
+    const name = item.name?.trim();
+    if (!name) continue;
+    const fact = item.factCost ?? 0;
+    const supplyPercent = Math.round(Math.min(100, (fact / item.planCost) * 100));
+    lines.push({ name, supplyPercent });
+  }
+
+  lines.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  return lines;
+}
+
+export type GprTmcCompletionScatterTooltipDetail = {
+  stageShort: string;
+  statusLabel: string;
+  tmcPercent: number;
+  gprPercent: number;
+  childWorkCodes: string[];
+  tmcLines: GprTmcWorkTmcSupplyLine[];
+};
+
+export function buildGprTmcCompletionScatterTooltipDetail(
+  workCode: string,
+  tasks: GPRTask[],
+  tmcItems: TMCItem[],
+  point: Pick<GprTmcCompletionScatterPoint, "stageShort" | "tmcPercent" | "gprPercent" | "quadrant">,
+): GprTmcCompletionScatterTooltipDetail {
+  return {
+    stageShort: point.stageShort,
+    statusLabel: GPR_TMC_COMPLETION_QUADRANT_STYLES[point.quadrant].label,
+    tmcPercent: point.tmcPercent,
+    gprPercent: point.gprPercent,
+    childWorkCodes: listGprDirectChildWorkCodes(tasks, workCode),
+    tmcLines: listTmcSupplyLinesForWorkCode(tmcItems, workCode),
+  };
 }
 
 /** Агрегат «Проект»: работы жилой части и автостоянки подряд. */
@@ -1005,6 +1137,85 @@ export function buildGprTenderDependencySeriesProjectWide(
       "parking",
     ),
   ];
+}
+
+/** Подписи квадрантов scatter «% выполнения» для графика ГПР — тендеры. */
+export const GPR_TENDER_COMPLETION_QUADRANT_LABELS: Record<GprTmcCompletionScatterQuadrant, string> = {
+  normal: "Норма",
+  tmc_risk: "Риск по тендерам",
+  lag_not_tmc: "Отставание не связано с тендерами",
+  tmc_confirmed: "Критическая зона",
+};
+
+export function gprTenderCompletionQuadrantDisplayLabel(
+  quadrant: GprTmcCompletionScatterQuadrant,
+): string {
+  return `${GPR_TMC_COMPLETION_QUADRANT_EMOJI[quadrant]} ${GPR_TENDER_COMPLETION_QUADRANT_LABELS[quadrant]}`;
+}
+
+export type GprTenderCompletionScatterPoint = {
+  stageShort: string;
+  stageTitle: string;
+  gprPercent: number;
+  tenderPercent: number;
+  tenderCompleted: number;
+  tenderTotal: number;
+  color: string;
+  quadrant: GprTmcCompletionScatterQuadrant;
+};
+
+/** Точки scatter «% выполнения» — этапы с фактом ГПР и долей завершённых тендеров. */
+export function buildGprTenderCompletionScatterPoints(
+  series: GprTenderDependencyPoint[],
+): GprTenderCompletionScatterPoint[] {
+  const out: GprTenderCompletionScatterPoint[] = [];
+  for (const row of series) {
+    if (row.factGpr == null || row.tenderReadiness == null) continue;
+    const meta = resolveGprTmcCompletionScatterPointMeta(row.tenderReadiness, row.factGpr);
+    out.push({
+      stageShort: row.stageShort,
+      stageTitle: row.stageTitle,
+      gprPercent: row.factGpr,
+      tenderPercent: row.tenderReadiness,
+      tenderCompleted: row.tenderStats.completed,
+      tenderTotal: row.tenderStats.total,
+      ...meta,
+    });
+  }
+  return out;
+}
+
+export type GprTenderCompletionScatterTooltipDetail = {
+  stageShort: string;
+  stageTitle: string;
+  statusLabel: string;
+  tenderCompleted: number;
+  tenderTotal: number;
+  tenderPercent: number;
+  gprPercent: number;
+};
+
+export function buildGprTenderCompletionScatterTooltipDetail(
+  point: Pick<
+    GprTenderCompletionScatterPoint,
+    | "stageShort"
+    | "stageTitle"
+    | "tenderCompleted"
+    | "tenderTotal"
+    | "tenderPercent"
+    | "gprPercent"
+    | "quadrant"
+  >,
+): GprTenderCompletionScatterTooltipDetail {
+  return {
+    stageShort: point.stageShort,
+    stageTitle: point.stageTitle,
+    statusLabel: GPR_TENDER_COMPLETION_QUADRANT_LABELS[point.quadrant],
+    tenderCompleted: point.tenderCompleted,
+    tenderTotal: point.tenderTotal,
+    tenderPercent: point.tenderPercent,
+    gprPercent: point.gprPercent,
+  };
 }
 
 /**

@@ -1,6 +1,5 @@
 import {
   compareGprCodesByNumericPath,
-  getStatusByGprProgressDelta,
   gprPlanFactCompositeKey,
   gprPlanFactScopeFromTask,
   gprWbsLevelFromCode,
@@ -11,7 +10,7 @@ import {
   type ProjectPartKey,
 } from "@/lib/gprUtils";
 import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
-import { aggregateWorksToProjectPlanFactBounds, overviewFactBarColor } from "@/lib/gprProjectOverview";
+import { aggregateWorksToProjectPlanFactBounds } from "@/lib/gprProjectOverview";
 import {
   computeGprStageCompletionInsight,
   formatGprStageFactPercentValue,
@@ -252,10 +251,8 @@ const PLAN_BAR = "rgba(148, 163, 184, 0.5)";
 const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
 const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
 const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
-const FACT_NO_PLAN_PERCENT = "rgba(148, 163, 184, 0.5)";
 const FACT_GREEN = "#22c55e";
 const FACT_YELLOW = "#f59e0b";
-const FACT_RED = "#ef4444";
 
 /** Визуализация: фактическая полоса не выходит за пределы плановой на шкале X. */
 function clampFactMonthFloatRangeToPlan(
@@ -271,12 +268,18 @@ function clampFactMonthFloatRangeToPlan(
 }
 
 /**
- * Цвет фактической полосы в блоке «Динамика выполнения ГПР» — единый источник статуса с KPI-карточкой:
- * отклонение готовности (факт − план %) на отчётную дату через {@link getStatusByGprProgressDelta}.
- *
- * Зелёный — факт ≥ плана (≥ 0 п.п.); жёлтый — умеренное отставание (от −15 до 0 п.п.);
- * красный — критическое отставание (&lt; −15 п.п.). Серый — нет планового %.
+ * Цвет фактической полосы по % выполнения (просрочка не влияет):
+ * 100% — зелёный; 0 &lt; x &lt; 100 — жёлтый; 0 — серый.
  */
+export function planFactBarFactColorByProgressPercent(
+  progressPercent: number | null | undefined,
+): string {
+  if (progressPercent == null || progressPercent <= 0) return FACT_WEAK;
+  if (progressPercent >= 100) return FACT_GREEN;
+  return FACT_YELLOW;
+}
+
+/** @deprecated Используйте {@link planFactBarFactColorByProgressPercent}. */
 export function planFactBarFactColorByProgressDelta(
   rowTask: GPRTask,
   allTasks: GPRTask[],
@@ -285,12 +288,55 @@ export function planFactBarFactColorByProgressDelta(
   const parsed = new Date(`${asOfIso.trim()}T12:00:00`);
   const asOf = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   const insight = computeGprStageCompletionInsight(allTasks, rowTask, asOf);
-  if (insight.planPercent === null) return FACT_NO_PLAN_PERCENT;
-  const deltaPp = Math.round((insight.factPercent - insight.planPercent) * 10) / 10;
-  const traffic = getStatusByGprProgressDelta(deltaPp);
-  if (traffic === "red") return FACT_RED;
-  if (traffic === "yellow") return FACT_YELLOW;
-  return FACT_GREEN;
+  return planFactBarFactColorByProgressPercent(insight.factPercent);
+}
+
+function parsePlanFactChartPercentLabel(label: string): number | null {
+  const text = label.trim();
+  if (!text || text === "—") return null;
+  const value = Number.parseFloat(text.replace("%", "").replace(",", "."));
+  return Number.isFinite(value) ? value : null;
+}
+
+function resolvePlanFactChartRowFactColor(
+  e: PlanFactChartBuildEntry,
+  branchPoolTasks: GPRTask[],
+  asOf: Date,
+): string {
+  const displayedLabel =
+    e.factLabelOverride !== undefined
+      ? e.factLabelOverride
+      : resolvePlanFactChartRowFactLabel(e, branchPoolTasks, asOf);
+  let progressPercent = parsePlanFactChartPercentLabel(displayedLabel);
+  if (progressPercent === null && (e.fs?.trim() || e.fe?.trim())) {
+    const insight = computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf);
+    progressPercent = insight.factPercent;
+  }
+  return planFactBarFactColorByProgressPercent(progressPercent);
+}
+
+/** Временная диагностика окраски строк с progress = 100%. */
+export function logPlanFactChartColorDiagnostic(model: PlanFactWorkTypeChartModel): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+  const rows = model.labels
+    .map((label, index) => {
+      const progressRaw = model.factCompletionLabels[index] ?? "";
+      const progress = parsePlanFactChartPercentLabel(progressRaw);
+      const detail = model.rowDetails[index];
+      return {
+        code: label.split(" — ")[0] ?? label,
+        name: label,
+        progress,
+        progressLabel: progressRaw,
+        plannedFinish: detail?.planEnd ?? "",
+        actualFinish: detail?.factEnd ?? "",
+        color: model.factColors[index] ?? "",
+      };
+    })
+    .filter((row) => row.progress === 100);
+  console.group("PlanFact GPR row colors (progress 100%)");
+  console.table(rows);
+  console.groupEnd();
 }
 
 /** Максимальная ширина левой колонки подписей (px). */
@@ -841,6 +887,52 @@ function expandMonolithFloorsForChart(
   return [...entries.slice(0, insertAt), ...floorEntries, ...entries.slice(insertAt)];
 }
 
+/**
+ * Диагностика: синтетические строки «этажей» монолита на диаграмме (не отдельные KPI work items).
+ */
+export function listMonolithChartFloorProgress(
+  branchPoolTasks: GPRTask[],
+  todayIso: string,
+): {
+  parentCode: string;
+  parentFactPercent: number;
+  floors: { label: string; floorPercent: number }[];
+} | null {
+  const monolith = branchPoolTasks.find((t) => isGprMonolithChartStageCode(t.code)) ?? null;
+  if (!monolith) return null;
+
+  const schedule = resolvePlanFactBarRowSchedule(monolith, branchPoolTasks, todayIso, "full");
+  const ps = schedule?.planStart ?? null;
+  const pe = schedule?.planEnd ?? null;
+  const psm = isoDayMs(ps);
+  const pem = isoDayMs(pe);
+  if (psm == null || pem == null || pem < psm || !ps || !pe) return null;
+
+  const insight = computeGprStageCompletionInsight(
+    branchPoolTasks,
+    monolith,
+    new Date(`${todayIso.trim()}T12:00:00`),
+  );
+  const factPercent = Math.max(0, Math.min(100, insight.factPercent));
+  const progressMs = monolithFactProgressMsFromPlanPercent(psm, pem, factPercent);
+  const segments = splitSequentialPlanIsoSegments(ps, pe, GPR_MONOLITH_FLOOR_COUNT);
+  if (segments.length !== GPR_MONOLITH_FLOOR_COUNT) return null;
+
+  const floors = segments.map((seg, index) => {
+    const fact = computeMonolithFloorFactSlice(seg.start, seg.end, progressMs);
+    return {
+      label: `${GPR_MONOLITH_CHART_STAGE_CODE} — Монолитные конструкции — ${index + 1} этаж`,
+      floorPercent: fact.floorPercent,
+    };
+  });
+
+  return {
+    parentCode: GPR_MONOLITH_CHART_STAGE_CODE,
+    parentFactPercent: factPercent,
+    floors,
+  };
+}
+
 function buildGprPlanFactBarChartModel(
   tasks: GPRTask[],
   todayIso: string,
@@ -952,6 +1044,7 @@ function buildGprPlanFactBarChartModel(
   for (const e of entries) {
     labels.push(e.label);
     factCompletionLabels.push(resolvePlanFactChartRowFactLabel(e, branchPoolTasks, asOf));
+    const factColor = resolvePlanFactChartRowFactColor(e, branchPoolTasks, asOf);
     rowDetails.push({
       planStart: e.ps ?? "",
       planEnd: e.pe ?? "",
@@ -976,7 +1069,7 @@ function buildGprPlanFactBarChartModel(
             const clamped = clampFactMonthFloatRangeToPlan(pfS, pfE, ffS, ffE);
             if (clamped) {
               factRanges.push(clamped);
-              factColors.push(planFactBarFactColorByProgressDelta(e.task, branchPoolTasks, todayIso));
+              factColors.push(factColor);
             } else {
               factRanges.push(null);
               factColors.push(FACT_WEAK);
@@ -1115,9 +1208,7 @@ export function buildPlanFactWorkTypeChartModel(
         const clamped = clampFactMonthFloatRangeToPlan(ps, pe, fs, fe);
         if (clamped) {
           factRanges.push(clamped);
-          factColors.push(
-            overviewFactBarColor(b.planStart, b.planEnd, b.factStart, factEndDisplay),
-          );
+          factColors.push(FACT_YELLOW);
         } else {
           factRanges.push(null);
           factColors.push(FACT_WEAK);

@@ -5,7 +5,7 @@ import {
   PDF_SECTION_TITLE_ATTR,
 } from "@/lib/pdf/constructionPdfConstants";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import {
   Chart as ChartJS,
@@ -20,21 +20,24 @@ import {
   type Plugin,
   type ScriptableLineSegmentContext,
 } from "chart.js";
-import { type GPRTask, formatGprScheduleDeviationDisplayDays } from "@/lib/gprUtils";
+import { type GPRTask, PROJECT_PART_KEY_TO_ID, toDate } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
+import { filterTmcByProjectPart } from "@/lib/tmcData";
+import { toLocalYmd } from "@/lib/gprReportDate";
 import {
+  buildGprTmcCompletionScatterTooltipDetail,
   buildGprTmcCompletionScatterPoints,
   buildGprTmcDependencyChartSeries,
   buildGprTmcDependencyChartSeriesProjectWide,
   GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER,
   GPR_TMC_COMPLETION_QUADRANT_STYLES,
+  gprTmcCompletionQuadrantDisplayLabel,
   GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT,
   type ForecastPart,
+  type GprTmcCompletionScatterQuadrant,
+  type GprTmcCompletionScatterTooltipDetail,
 } from "@/lib/gprTmcDependency";
-import { GPR_PROGRESS_DELTA_CRITICAL_PP } from "@/lib/gprConstructionDeviationConstants";
-import { formatDate, toLocalYmd } from "@/lib/gprReportDate";
-import { toDate } from "@/lib/gprUtils";
-import { formatGprProgressDeltaPp } from "./gprDependencyKpiShared";
+import { gprTmcCompletionScatterExternalTooltip } from "@/lib/gprTmcCompletionScatterTooltip";
 import {
   AnalyticsLegendItem,
   AnalyticsLegendList,
@@ -43,8 +46,6 @@ import { Chart } from "@/components/charting/reactChartjsChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
-const PLAN_LINE = "#e2e8f0";
-const FACT_LINE = "#22c55e";
 const TMC_LINE = "#f97316";
 const GPR_STAGE_SLICE_LINE = "#e2e8f0";
 const STAGES_DEFICIT_FILL = "rgba(239, 68, 68, 0.35)";
@@ -53,16 +54,27 @@ const STAGES_DEFICIT_FILL = "rgba(239, 68, 68, 0.35)";
 const GPR_TMC_PERCENT_AXIS_MAX = 105;
 const GPR_TMC_PERCENT_DOMAIN_MAX = 100;
 
+/** Scatter «% выполнения»: запас шкалы 110%, подписи только до 100%. */
+const GPR_TMC_COMPLETION_CHART_AXIS_MAX = 110;
+const GPR_TMC_COMPLETION_AXIS_TICK_VALUES = [0, 20, 40, 60, 80, 100] as const;
+
 function formatGprTmcPercentAxisTick(value: string | number): string | number {
   const n = typeof value === "string" ? Number.parseFloat(value) : value;
   if (!Number.isFinite(n) || n > GPR_TMC_PERCENT_DOMAIN_MAX) return "";
   return `${n}%`;
 }
 
-type GprTmcChartViewMode = "trend" | "completion" | "stages";
+function formatGprTmcCompletionPercentAxisTick(value: string | number): string | number {
+  const n = typeof value === "string" ? Number.parseFloat(value) : value;
+  if (!Number.isFinite(n)) return "";
+  const rounded = Math.round(n);
+  if (!(GPR_TMC_COMPLETION_AXIS_TICK_VALUES as readonly number[]).includes(rounded)) return "";
+  return `${rounded}%`;
+}
+
+type GprTmcChartViewMode = "completion" | "stages";
 
 const CHART_VIEW_MODES: { id: GprTmcChartViewMode; label: string }[] = [
-  { id: "trend", label: "Тренд" },
   { id: "completion", label: "% выполнения" },
   { id: "stages", label: "Разрез по этапам" },
 ];
@@ -72,6 +84,7 @@ type CompletionChartPoint = {
   y: number;
   stageShort: string;
   stageTitle: string;
+  quadrant: GprTmcCompletionScatterQuadrant;
 };
 
 type GprTmcCompletionGuidesPluginOpts = {
@@ -91,6 +104,10 @@ type GprTmcCompletionMatrixPluginOpts = {
 const COMPLETION_ZONE_AXIS_ORIGIN_PCT = 0;
 /** Полупрозрачность заливки от осей до точки (0.08–0.15). */
 const COMPLETION_ZONE_FILL_ALPHA = 0.12;
+const COMPLETION_STAGE_LABEL_FONT = "600 11px system-ui, -apple-system, 'Segoe UI', sans-serif";
+const COMPLETION_STAGE_LABEL_GAP_PX = 7;
+const COMPLETION_STAGE_LABEL_HEIGHT_PX = 12;
+const COMPLETION_STAGE_LABEL_CHART_PAD_PX = 4;
 
 /** Прямоугольник от осей (0,0) до координат точки (ТМЦ, ГПР). */
 function completionPointZoneBounds(
@@ -110,9 +127,16 @@ function completionPointZoneBounds(
   };
 }
 
-const GUIDE_ALPHA_DEFAULT = 0.34;
-const GUIDE_ALPHA_MUTED = 0.1;
-const GUIDE_ALPHA_HOVER = 0.4;
+const GUIDE_ALPHA_DEFAULT = 0.58;
+const GUIDE_ALPHA_MUTED = 0.22;
+const GUIDE_ALPHA_HOVER = 0.82;
+const GUIDE_LINE_WIDTH = 1.75;
+const GUIDE_LINE_WIDTH_HOVER = 2;
+
+/** Пороговые линии 80% (режим «% выполнения» и «Разрез по этапам»). */
+const GPR_TMC_THRESHOLD_LINE_WIDTH = 1.75;
+const GPR_TMC_THRESHOLD_LINE_COLOR = "rgba(226, 232, 240, 0.78)";
+const GPR_TMC_THRESHOLD_LINE_DASH: [number, number] = [6, 4];
 
 function hexColorToRgba(hex: string, alpha: number): string {
   const normalized = hex.trim().replace("#", "");
@@ -143,6 +167,54 @@ function completionZoneToPixelRect(
   if (width <= 0 || height <= 0) return null;
 
   return { left, top, width, height };
+}
+
+function resolveCompletionStageLabelPosition(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  pointX: number,
+  pointY: number,
+  chartArea: { left: number; right: number; top: number; bottom: number },
+): { x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline } {
+  ctx.font = COMPLETION_STAGE_LABEL_FONT;
+  const width = ctx.measureText(text).width;
+  const height = COMPLETION_STAGE_LABEL_HEIGHT_PX;
+  const gap = COMPLETION_STAGE_LABEL_GAP_PX;
+  const pad = COMPLETION_STAGE_LABEL_CHART_PAD_PX;
+
+  let align: CanvasTextAlign = "left";
+  let baseline: CanvasTextBaseline = "bottom";
+  let x = pointX + gap;
+  let y = pointY - gap;
+
+  if (x + width > chartArea.right - pad) {
+    align = "right";
+    x = pointX - gap;
+  }
+  if (y - height < chartArea.top + pad) {
+    baseline = "top";
+    y = pointY + gap;
+  }
+
+  const boxLeft = align === "left" ? x : x - width;
+  const boxRight = align === "left" ? x + width : x;
+  const boxTop = baseline === "bottom" ? y - height : y;
+  const boxBottom = baseline === "bottom" ? y : y + height;
+
+  if (boxLeft < chartArea.left + pad) {
+    x += chartArea.left + pad - boxLeft;
+  }
+  if (boxRight > chartArea.right - pad) {
+    x -= boxRight - (chartArea.right - pad);
+  }
+  if (boxTop < chartArea.top + pad) {
+    y += chartArea.top + pad - boxTop;
+  }
+  if (boxBottom > chartArea.bottom - pad) {
+    y -= boxBottom - (chartArea.bottom - pad);
+  }
+
+  return { x, y, align, baseline };
 }
 
 /** Заливка прямоугольников от осей (0,0) до координат каждой точки. */
@@ -216,8 +288,8 @@ const gprTmcCompletionAxisGuidesPlugin: Plugin<"line"> = {
 
       ctx.save();
       ctx.strokeStyle = hexColorToRgba(color, alpha);
-      ctx.lineWidth = isHovered ? 1.25 : 1;
-      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = isHovered ? GUIDE_LINE_WIDTH_HOVER : GUIDE_LINE_WIDTH;
+      ctx.setLineDash([5, 4]);
 
       ctx.beginPath();
       ctx.moveTo(point.x, point.y);
@@ -235,6 +307,89 @@ const gprTmcCompletionAxisGuidesPlugin: Plugin<"line"> = {
   },
 };
 
+/** Пороговые линии 80% по осям ТМЦ и ГПР (режим «% выполнения»). */
+const gprTmcCompletionThresholdPlugin: Plugin<"line"> = {
+  id: "gprTmcCompletionThreshold",
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    const yScale = scales.y;
+    if (!xScale || !yScale) return;
+
+    const threshold = GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT;
+    const xLine = xScale.getPixelForValue(threshold);
+    const yLine = yScale.getPixelForValue(threshold);
+
+    ctx.save();
+    ctx.strokeStyle = GPR_TMC_THRESHOLD_LINE_COLOR;
+    ctx.lineWidth = GPR_TMC_THRESHOLD_LINE_WIDTH;
+    ctx.setLineDash(GPR_TMC_THRESHOLD_LINE_DASH);
+
+    ctx.beginPath();
+    ctx.moveTo(xLine, chartArea.top);
+    ctx.lineTo(xLine, chartArea.bottom);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, yLine);
+    ctx.lineTo(chartArea.right, yLine);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.restore();
+  },
+};
+
+type GprTmcCompletionStageLabelsPluginOpts = {
+  colors: string[];
+};
+
+/** Подписи кодов этапов (stageShort) рядом с точками. */
+const gprTmcCompletionStageLabelsPlugin: Plugin<"line"> = {
+  id: "gprTmcCompletionStageLabels",
+  afterDatasetsDraw(chart) {
+    const dataset = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset?.data?.length || !meta?.data?.length) return;
+
+    const pluginOpts = (
+      chart.options.plugins as
+        | { gprTmcCompletionStageLabels?: GprTmcCompletionStageLabelsPluginOpts }
+        | undefined
+    )?.gprTmcCompletionStageLabels;
+    const colors = pluginOpts?.colors ?? [];
+
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.font = COMPLETION_STAGE_LABEL_FONT;
+
+    meta.data.forEach((el, index) => {
+      const point = el as { x: number; y: number };
+      const raw = dataset.data[index] as CompletionChartPoint | undefined;
+      if (!raw?.stageShort || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+
+      const label = raw.stageShort.trim();
+      if (!label) return;
+
+      const color = colors[index] ?? "#e2e8f0";
+      const { x, y, align, baseline } = resolveCompletionStageLabelPosition(
+        ctx,
+        label,
+        point.x,
+        point.y,
+        chartArea,
+      );
+
+      ctx.fillStyle = hexColorToRgba(color, 0.92);
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+      ctx.fillText(label, x, y);
+    });
+
+    ctx.restore();
+  },
+};
+
 /** Горизонтальная линия порога обеспеченности (80%) для режима «Разрез по этапам». */
 const gprTmcStagesThresholdPlugin: Plugin<"line"> = {
   id: "gprTmcStagesThreshold",
@@ -247,9 +402,9 @@ const gprTmcStagesThresholdPlugin: Plugin<"line"> = {
     const yLine = yScale.getPixelForValue(threshold);
 
     ctx.save();
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = GPR_TMC_THRESHOLD_LINE_COLOR;
+    ctx.lineWidth = GPR_TMC_THRESHOLD_LINE_WIDTH;
+    ctx.setLineDash(GPR_TMC_THRESHOLD_LINE_DASH);
     ctx.beginPath();
     ctx.moveTo(chartArea.left, yLine);
     ctx.lineTo(chartArea.right, yLine);
@@ -293,17 +448,11 @@ export function GPRTmcDependencyChart({
   reportDateLabel?: string;
 }) {
   void analyticDepth;
+  void reportDateLabelProp;
 
-  const [viewMode, setViewMode] = useState<GprTmcChartViewMode>("trend");
+  const [viewMode, setViewMode] = useState<GprTmcChartViewMode>("completion");
   const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
   const todayIso = reportAsOfIsoProp ?? sessionYmd;
-  const reportDateLabel = useMemo(
-    () =>
-      reportDateLabelProp?.trim()
-        ? reportDateLabelProp.trim()
-        : formatDate(toDate(todayIso) ?? new Date()),
-    [reportDateLabelProp, todayIso],
-  );
 
   const chartSeries = useMemo(
     () =>
@@ -319,10 +468,6 @@ export function GPRTmcDependencyChart({
   );
 
   const labels = useMemo(() => chartSeries.map((s) => s.stageShort), [chartSeries]);
-  const planArr = useMemo(
-    () => chartSeries.map((s) => (s.planGpr == null ? null : s.planGpr)),
-    [chartSeries],
-  );
   const factArr = useMemo(
     () => chartSeries.map((s) => (s.factGpr == null ? null : s.factGpr)),
     [chartSeries],
@@ -332,82 +477,9 @@ export function GPRTmcDependencyChart({
     [chartSeries],
   );
 
-  const xTickRotation = labels.length > 8 ? 90 : labels.length > 4 ? 45 : 0;
   const stagesScrollable = labels.length > 10;
   const stagesXTickRotation = stagesScrollable ? 0 : labels.length > 4 ? 45 : 0;
   const stagesChartMinWidthPx = stagesScrollable ? Math.max(640, labels.length * 52) : undefined;
-
-  const trendChartData = useMemo(() => {
-    const segmentFill = (ctx: ScriptableLineSegmentContext) => {
-      const i = ctx.p0DataIndex;
-      const plan = planArr[i];
-      const fact = factArr[i];
-      if (plan == null || fact == null) {
-        return "rgba(148, 163, 184, 0.08)";
-      }
-      const deviation = Math.abs(fact - plan);
-      if (deviation <= GPR_PROGRESS_DELTA_CRITICAL_PP) {
-        return "rgba(34, 197, 94, 0.25)";
-      }
-      return "rgba(239, 68, 68, 0.25)";
-    };
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: "План ГПР",
-          data: planArr,
-          borderColor: PLAN_LINE,
-          backgroundColor: "transparent",
-          tension: 0.4,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: PLAN_LINE,
-          pointBorderColor: "rgba(15,23,42,0.6)",
-          pointBorderWidth: 1,
-          borderWidth: 2,
-          fill: false,
-          order: 0,
-        },
-        {
-          label: "Факт ГПР",
-          data: factArr,
-          borderColor: FACT_LINE,
-          tension: 0.4,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: FACT_LINE,
-          pointBorderColor: "rgba(15,23,42,0.5)",
-          pointBorderWidth: 1,
-          borderWidth: 3,
-          fill: {
-            target: "-1",
-          },
-          segment: {
-            backgroundColor: segmentFill,
-          },
-          order: 1,
-        },
-        {
-          label: "Обеспеченность ТМЦ",
-          data: tmcArr,
-          borderColor: TMC_LINE,
-          backgroundColor: "transparent",
-          tension: 0.4,
-          borderDash: [6, 4],
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: TMC_LINE,
-          pointBorderColor: "rgba(15,23,42,0.5)",
-          pointBorderWidth: 1,
-          borderWidth: 2,
-          fill: false,
-          order: 2,
-        },
-      ],
-    };
-  }, [labels, planArr, factArr, tmcArr]);
 
   const stagesChartData = useMemo(() => {
     const segmentDeficitFill = (ctx: ScriptableLineSegmentContext) => {
@@ -477,6 +549,7 @@ export function GPRTmcDependencyChart({
               y: p.gprPercent,
               stageShort: p.stageShort,
               stageTitle: p.stageTitle,
+              quadrant: p.quadrant,
             }),
           ),
           showLine: false,
@@ -510,99 +583,53 @@ export function GPRTmcDependencyChart({
     [completionPoints],
   );
 
-  const trendOptions: ChartOptions<"line"> = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        mode: "index",
-        intersect: false,
-      },
-      layout: {
-        padding: {
-          top: 12,
-          right: 10,
-          left: 4,
-          bottom: xTickRotation >= 45 ? 28 : 4,
-        },
-      },
-      scales: {
-        x: {
-          grid: { color: "rgba(148,163,184,0.08)" },
-          ticks: {
-            color: "#94a3b8",
-            font: { size: labels.length > 10 ? 10 : 11 },
-            maxRotation: xTickRotation,
-            minRotation: xTickRotation,
-            autoSkip: labels.length > 16,
-            maxTicksLimit: labels.length > 20 ? 24 : undefined,
-          },
-          border: { color: "rgba(148,163,184,0.2)" },
-        },
-        y: {
-          min: 0,
-          max: GPR_TMC_PERCENT_AXIS_MAX,
-          grace: 0,
-          grid: { color: "rgba(148,163,184,0.1)" },
-          ticks: {
-            color: "#94a3b8",
-            font: { size: 11 },
-            callback: formatGprTmcPercentAxisTick,
-            stepSize: 20,
-          },
-          border: { color: "rgba(148,163,184,0.2)" },
-        },
-      },
-      plugins: {
-        legend: {
-          position: "bottom",
-          labels: {
-            color: "#cbd5e1",
-            boxWidth: 10,
-            padding: 16,
-            font: { size: 12 },
-          },
-        },
-        tooltip: {
-          backgroundColor: "rgba(15, 23, 42, 0.96)",
-          titleColor: "#f1f5f9",
-          bodyColor: "#cbd5e1",
-          borderColor: "rgba(148,163,184,0.35)",
-          borderWidth: 1,
-          padding: 12,
-          displayColors: true,
-          callbacks: {
-            title: (items) => {
-              const i = items[0]?.dataIndex;
-              if (i === undefined) return "";
-              const row = chartSeries[i];
-              if (!row) return "";
-              return `${row.stageShort} — ${row.stageTitle}`;
-            },
-            label: (ctx) => {
-              const v = ctx.parsed.y;
-              const val = v == null || Number.isNaN(v) ? "—" : `${v}%`;
-              return ` ${ctx.dataset.label}: ${val}`;
-            },
-            afterBody: (items) => {
-              const i = items[0]?.dataIndex;
-              if (i === undefined) return "";
-              const lines: string[] = [];
-              const pp = chartSeries[i]?.progressDeltaPp;
-              const dd = chartSeries[i]?.deviationDays;
-              const dlab = reportDateLabel ? ` на ${reportDateLabel}` : "";
-              if (pp != null) {
-                lines.push(`Отклонение готовности${dlab}: ${formatGprProgressDeltaPp(pp)}`);
-              }
-              lines.push(`Отклонение по сроку${dlab}: ${formatGprScheduleDeviationDisplayDays(dd)}`);
-              return lines;
-            },
-          },
-        },
-      },
-    }),
-    [chartSeries, labels.length, reportDateLabel, xTickRotation],
+  const tasksForCompletionTooltip = useMemo(() => {
+    if (activeProjectPart === "project") return tasks;
+    const partId = PROJECT_PART_KEY_TO_ID[activeProjectPart];
+    return tasks.filter((t) => t.partId === partId);
+  }, [tasks, activeProjectPart]);
+
+  const tmcForCompletionTooltip = useMemo(() => {
+    if (activeProjectPart === "project") {
+      return tmcItems.filter(
+        (item) => item.projectPart === "residential" || item.projectPart === "parking",
+      );
+    }
+    return filterTmcByProjectPart(tmcItems, activeProjectPart);
+  }, [tmcItems, activeProjectPart]);
+
+  const completionTooltipDetails = useMemo(
+    (): GprTmcCompletionScatterTooltipDetail[] =>
+      completionPoints.map((point) =>
+        buildGprTmcCompletionScatterTooltipDetail(
+          point.stageShort,
+          tasksForCompletionTooltip,
+          tmcForCompletionTooltip,
+          point,
+        ),
+      ),
+    [completionPoints, tasksForCompletionTooltip, tmcForCompletionTooltip],
   );
+
+  const completionTooltipDetailsRef = useRef(completionTooltipDetails);
+  completionTooltipDetailsRef.current = completionTooltipDetails;
+
+  const completionExternalTooltip = useCallback(
+    (context: Parameters<typeof gprTmcCompletionScatterExternalTooltip>[0]) => {
+      gprTmcCompletionScatterExternalTooltip(
+        context,
+        (index) => completionTooltipDetailsRef.current[index],
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      const el = document.getElementById("gpr-tmc-completion-scatter-tooltip");
+      if (el) el.style.opacity = "0";
+    };
+  }, []);
 
   const completionOptions: ChartOptions<"line"> = useMemo(
     () => ({
@@ -614,21 +641,21 @@ export function GPRTmcDependencyChart({
         intersect: true,
       },
       layout: {
-        padding: { top: 24, right: 12, left: 8, bottom: 4 },
+        padding: { top: 48, right: 12, left: 8, bottom: 4 },
       },
       scales: {
         x: {
           type: "linear",
           position: "bottom",
           min: 0,
-          max: GPR_TMC_PERCENT_AXIS_MAX,
+          max: GPR_TMC_COMPLETION_CHART_AXIS_MAX,
           grace: 0,
           grid: { color: "rgba(148,163,184,0.1)" },
           ticks: {
             color: "#94a3b8",
             font: { size: 11 },
-            callback: formatGprTmcPercentAxisTick,
-            stepSize: 20,
+            callback: formatGprTmcCompletionPercentAxisTick,
+            values: [...GPR_TMC_COMPLETION_AXIS_TICK_VALUES],
           },
           border: { color: "rgba(148,163,184,0.2)" },
           title: {
@@ -643,15 +670,16 @@ export function GPRTmcDependencyChart({
           type: "linear",
           position: "left",
           min: 0,
-          max: GPR_TMC_PERCENT_AXIS_MAX,
+          max: GPR_TMC_COMPLETION_CHART_AXIS_MAX,
           grace: 0,
           beginAtZero: true,
           grid: { color: "rgba(148,163,184,0.1)" },
           ticks: {
             color: "#94a3b8",
             font: { size: 11 },
-            callback: formatGprTmcPercentAxisTick,
-            stepSize: 20,
+            callback: formatGprTmcCompletionPercentAxisTick,
+            values: [...GPR_TMC_COMPLETION_AXIS_TICK_VALUES],
+            padding: 6,
           },
           border: { color: "rgba(148,163,184,0.2)" },
           title: {
@@ -671,36 +699,16 @@ export function GPRTmcDependencyChart({
         gprTmcCompletionGuides: {
           colors: completionGuideColors,
         },
+        gprTmcCompletionStageLabels: {
+          colors: completionGuideColors,
+        },
         tooltip: {
-          backgroundColor: "rgba(15, 23, 42, 0.96)",
-          titleColor: "#f1f5f9",
-          bodyColor: "#cbd5e1",
-          borderColor: "rgba(148,163,184,0.35)",
-          borderWidth: 1,
-          padding: 12,
-          displayColors: false,
-          callbacks: {
-            title: () => "",
-            label: (ctx) => {
-              const raw = ctx.raw as CompletionChartPoint;
-              const gpr = ctx.parsed.y;
-              const tmc = ctx.parsed.x;
-              const gprLabel =
-                gpr == null || Number.isNaN(gpr) ? "—" : `${Math.round(gpr * 10) / 10}%`;
-              const tmcLabel =
-                tmc == null || Number.isNaN(tmc) ? "—" : `${Math.round(tmc * 10) / 10}%`;
-              return [
-                `Этап: ${raw.stageShort}`,
-                `Наименование: ${raw.stageTitle}`,
-                `Выполнение ГПР: ${gprLabel}`,
-                `Обеспеченность ТМЦ: ${tmcLabel}`,
-              ];
-            },
-          },
+          enabled: false,
+          external: completionExternalTooltip,
         },
       },
     }),
-    [completionPointZones, completionGuideColors],
+    [completionPointZones, completionGuideColors, completionExternalTooltip],
   );
 
   const stagesOptions: ChartOptions<"line"> = useMemo(
@@ -797,7 +805,7 @@ export function GPRTmcDependencyChart({
         </h3>
 
         <div
-          className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5"
+          className="ml-auto inline-flex shrink-0 rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5"
           role="tablist"
           aria-label="Режим отображения графика"
         >
@@ -817,9 +825,7 @@ export function GPRTmcDependencyChart({
       </div>
 
       <div className="mt-4 h-[260px] w-full min-w-0 sm:h-[300px] md:h-[340px]">
-        {viewMode === "trend" ? (
-          <Chart key="trend" type="line" data={trendChartData} options={trendOptions} />
-        ) : viewMode === "completion" ? (
+        {viewMode === "completion" ? (
           completionPoints.length > 0 ? (
             <Chart
               key="completion"
@@ -828,7 +834,9 @@ export function GPRTmcDependencyChart({
               options={completionOptions}
               plugins={[
                 gprTmcCompletionMatrixPlugin,
+                gprTmcCompletionThresholdPlugin,
                 gprTmcCompletionAxisGuidesPlugin,
+                gprTmcCompletionStageLabelsPlugin,
               ]}
             />
           ) : (
@@ -861,19 +869,30 @@ export function GPRTmcDependencyChart({
 
       {viewMode === "completion" && completionPoints.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-700/50 pt-3">
-          {GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER.map((quadrantKey) => {
-            const item = GPR_TMC_COMPLETION_QUADRANT_STYLES[quadrantKey];
-            return (
-              <div key={quadrantKey} className="flex items-center gap-2 text-xs text-slate-400">
-                <span
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.solid }}
-                  aria-hidden
-                />
-                <span>{item.label}</span>
-              </div>
-            );
-          })}
+          {GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER.map((quadrantKey) => (
+            <div key={quadrantKey} className="flex items-center gap-2 text-xs text-slate-400">
+              {gprTmcCompletionQuadrantDisplayLabel(quadrantKey)}
+            </div>
+          ))}
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <svg
+              width="16"
+              height={GPR_TMC_THRESHOLD_LINE_WIDTH + 2}
+              className="shrink-0"
+              aria-hidden
+            >
+              <line
+                x1="0"
+                y1={(GPR_TMC_THRESHOLD_LINE_WIDTH + 2) / 2}
+                x2="16"
+                y2={(GPR_TMC_THRESHOLD_LINE_WIDTH + 2) / 2}
+                stroke={GPR_TMC_THRESHOLD_LINE_COLOR}
+                strokeWidth={GPR_TMC_THRESHOLD_LINE_WIDTH}
+                strokeDasharray={`${GPR_TMC_THRESHOLD_LINE_DASH[0]} ${GPR_TMC_THRESHOLD_LINE_DASH[1]}`}
+              />
+            </svg>
+            <span>⚪ Порог 80%</span>
+          </div>
         </div>
       ) : null}
 

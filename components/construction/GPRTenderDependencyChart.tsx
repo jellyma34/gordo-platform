@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import {
   PDF_CHART_BLOCK_ATTR,
@@ -21,15 +21,25 @@ import {
 import { type GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
 import {
+  buildGprTenderCompletionScatterPoints,
+  buildGprTenderCompletionScatterTooltipDetail,
+  buildGprTenderDependencySeries,
+  buildGprTenderDependencySeriesProjectWide,
   buildGprTenderDependencyTimelineModel,
   formatGprTimelineMonthLabel,
+  GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER,
+  GPR_TMC_COMPLETION_QUADRANT_STYLES,
+  GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT,
+  gprTenderCompletionQuadrantDisplayLabel,
   type ForecastPart,
+  type GprTenderCompletionScatterTooltipDetail,
   type GprTenderDependencyTimelineModel,
 } from "@/lib/gprTmcDependency";
 import {
   computeGprTenderCoverage,
   GPR_TENDER_COVERAGE_RISK_THRESHOLD,
 } from "@/lib/gprTenderCoverage";
+import { gprTenderCompletionScatterExternalTooltip } from "@/lib/gprTenderCompletionScatterTooltip";
 import { toLocalYmd } from "@/lib/gprReportDate";
 import {
   formatInstallmentPlatformDateLabel,
@@ -42,7 +52,141 @@ type GprTenderReportDateLineOpts = {
   dateLabel: string;
 };
 
-/** Вертикаль отчётной даты под линиями графика; подпись DD.MM.YYYY над областью. */
+const GPR_TENDER_COMPLETION_CHART_AXIS_MAX = 110;
+const GPR_TENDER_COMPLETION_AXIS_TICK_VALUES = [0, 20, 40, 60, 80, 100] as const;
+const COMPLETION_ZONE_AXIS_ORIGIN_PCT = 0;
+const COMPLETION_ZONE_FILL_ALPHA = 0.12;
+const COMPLETION_STAGE_LABEL_FONT = "600 11px system-ui, -apple-system, 'Segoe UI', sans-serif";
+const COMPLETION_STAGE_LABEL_GAP_PX = 7;
+const COMPLETION_STAGE_LABEL_HEIGHT_PX = 12;
+const COMPLETION_STAGE_LABEL_CHART_PAD_PX = 4;
+const GUIDE_ALPHA_DEFAULT = 0.58;
+const GUIDE_ALPHA_MUTED = 0.22;
+const GUIDE_ALPHA_HOVER = 0.82;
+const GUIDE_LINE_WIDTH = 1.75;
+const GUIDE_LINE_WIDTH_HOVER = 2;
+const GPR_TENDER_THRESHOLD_LINE_WIDTH = 1.75;
+const GPR_TENDER_THRESHOLD_LINE_COLOR = "rgba(226, 232, 240, 0.78)";
+const GPR_TENDER_THRESHOLD_LINE_DASH: [number, number] = [6, 4];
+
+function formatGprTenderCompletionPercentAxisTick(value: string | number): string | number {
+  const n = typeof value === "string" ? Number.parseFloat(value) : value;
+  if (!Number.isFinite(n)) return "";
+  const rounded = Math.round(n);
+  if (!(GPR_TENDER_COMPLETION_AXIS_TICK_VALUES as readonly number[]).includes(rounded)) return "";
+  return `${rounded}%`;
+}
+
+function hexColorToRgba(hex: string, alpha: number): string {
+  const normalized = hex.trim().replace("#", "");
+  if (normalized.length !== 6) return `rgba(148, 163, 184, ${alpha})`;
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  if ([r, g, b].some((v) => Number.isNaN(v))) return `rgba(148, 163, 184, ${alpha})`;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function completionPointZoneBounds(
+  xPercent: number,
+  yPercent: number,
+): { x0: number; x1: number; y0: number; y1: number } | null {
+  if (!Number.isFinite(xPercent) || !Number.isFinite(yPercent)) return null;
+  if (xPercent <= COMPLETION_ZONE_AXIS_ORIGIN_PCT || yPercent <= COMPLETION_ZONE_AXIS_ORIGIN_PCT) {
+    return null;
+  }
+  return {
+    x0: COMPLETION_ZONE_AXIS_ORIGIN_PCT,
+    x1: xPercent,
+    y0: COMPLETION_ZONE_AXIS_ORIGIN_PCT,
+    y1: yPercent,
+  };
+}
+
+function completionZoneToPixelRect(
+  xScale: { getPixelForValue: (value: number) => number },
+  yScale: { getPixelForValue: (value: number) => number },
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+): { left: number; top: number; width: number; height: number } | null {
+  if (x0 >= x1 || y0 >= y1) return null;
+  const left = xScale.getPixelForValue(x0);
+  const right = xScale.getPixelForValue(x1);
+  const top = yScale.getPixelForValue(y1);
+  const bottom = yScale.getPixelForValue(y0);
+  const width = right - left;
+  const height = bottom - top;
+  if (width <= 0 || height <= 0) return null;
+  return { left, top, width, height };
+}
+
+function resolveCompletionStageLabelPosition(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  pointX: number,
+  pointY: number,
+  chartArea: { left: number; right: number; top: number; bottom: number },
+): { x: number; y: number; align: CanvasTextAlign; baseline: CanvasTextBaseline } {
+  ctx.font = COMPLETION_STAGE_LABEL_FONT;
+  const width = ctx.measureText(text).width;
+  const height = COMPLETION_STAGE_LABEL_HEIGHT_PX;
+  const gap = COMPLETION_STAGE_LABEL_GAP_PX;
+  const pad = COMPLETION_STAGE_LABEL_CHART_PAD_PX;
+
+  let align: CanvasTextAlign = "left";
+  let baseline: CanvasTextBaseline = "bottom";
+  let x = pointX + gap;
+  let y = pointY - gap;
+
+  if (x + width > chartArea.right - pad) {
+    align = "right";
+    x = pointX - gap;
+  }
+  if (y - height < chartArea.top + pad) {
+    baseline = "top";
+    y = pointY + gap;
+  }
+
+  const boxLeft = align === "left" ? x : x - width;
+  const boxRight = align === "left" ? x + width : x;
+  const boxTop = baseline === "bottom" ? y - height : y;
+  const boxBottom = baseline === "bottom" ? y : y + height;
+
+  if (boxLeft < chartArea.left + pad) x += chartArea.left + pad - boxLeft;
+  if (boxRight > chartArea.right - pad) x -= boxRight - (chartArea.right - pad);
+  if (boxTop < chartArea.top + pad) y += chartArea.top + pad - boxTop;
+  if (boxBottom > chartArea.bottom - pad) y -= boxBottom - (chartArea.bottom - pad);
+
+  return { x, y, align, baseline };
+}
+
+type CompletionPointZone = {
+  xPercent: number;
+  yPercent: number;
+  fill: string;
+};
+
+type GprTenderCompletionMatrixPluginOpts = {
+  pointZones: CompletionPointZone[];
+};
+
+type GprTenderCompletionGuidesPluginOpts = {
+  colors: string[];
+};
+
+type GprTenderCompletionStageLabelsPluginOpts = {
+  colors: string[];
+};
+
+type CompletionChartPoint = {
+  x: number;
+  y: number;
+  stageShort: string;
+  stageTitle: string;
+};
+
 const gprTenderReportDateLinePlugin: Plugin<"line"> = {
   id: "gprTenderReportDateLine",
   beforeDatasetsDraw(chart) {
@@ -77,6 +221,153 @@ const gprTenderReportDateLinePlugin: Plugin<"line"> = {
   },
 };
 
+const gprTenderCompletionMatrixPlugin: Plugin<"line"> = {
+  id: "gprTenderCompletionMatrix",
+  beforeDatasetsDraw(chart) {
+    const pluginOpts = (
+      chart.options.plugins as { gprTenderCompletionMatrix?: GprTenderCompletionMatrixPluginOpts } | undefined
+    )?.gprTenderCompletionMatrix;
+    const pointZones = pluginOpts?.pointZones ?? [];
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    if (pointZones.length === 0 || !xScale || !yScale) return;
+
+    const { ctx } = chart;
+    ctx.save();
+    for (const zone of pointZones) {
+      const bounds = completionPointZoneBounds(zone.xPercent, zone.yPercent);
+      if (!bounds) continue;
+      const rect = completionZoneToPixelRect(
+        xScale,
+        yScale,
+        bounds.x0,
+        bounds.x1,
+        bounds.y0,
+        bounds.y1,
+      );
+      if (!rect) continue;
+      ctx.fillStyle = zone.fill;
+      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+    }
+    ctx.restore();
+  },
+};
+
+const gprTenderCompletionAxisGuidesPlugin: Plugin<"line"> = {
+  id: "gprTenderCompletionAxisGuides",
+  beforeDatasetsDraw(chart) {
+    const dataset = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset?.data?.length || !meta?.data?.length) return;
+
+    const pluginOpts = (
+      chart.options.plugins as { gprTenderCompletionGuides?: GprTenderCompletionGuidesPluginOpts } | undefined
+    )?.gprTenderCompletionGuides;
+    const colors = pluginOpts?.colors ?? [];
+    const active = chart.getActiveElements();
+    const hoveredIndex =
+      active.length > 0 && active[0]?.datasetIndex === 0 ? active[0]?.index ?? null : null;
+    const anyHovered = hoveredIndex != null;
+    const { ctx, chartArea } = chart;
+
+    meta.data.forEach((el, index) => {
+      const point = el as { x: number; y: number };
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      const isHovered = hoveredIndex === index;
+      const alpha = isHovered
+        ? GUIDE_ALPHA_HOVER
+        : anyHovered
+          ? GUIDE_ALPHA_MUTED
+          : GUIDE_ALPHA_DEFAULT;
+      const color = colors[index] ?? "#94a3b8";
+
+      ctx.save();
+      ctx.strokeStyle = hexColorToRgba(color, alpha);
+      ctx.lineWidth = isHovered ? GUIDE_LINE_WIDTH_HOVER : GUIDE_LINE_WIDTH;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(point.x, chartArea.bottom);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(chartArea.left, point.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    });
+  },
+};
+
+const gprTenderCompletionThresholdPlugin: Plugin<"line"> = {
+  id: "gprTenderCompletionThreshold",
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    const yScale = scales.y;
+    if (!xScale || !yScale) return;
+
+    const threshold = GPR_TMC_COMPLETION_SCATTER_THRESHOLD_PCT;
+    const xLine = xScale.getPixelForValue(threshold);
+    const yLine = yScale.getPixelForValue(threshold);
+
+    ctx.save();
+    ctx.strokeStyle = GPR_TENDER_THRESHOLD_LINE_COLOR;
+    ctx.lineWidth = GPR_TENDER_THRESHOLD_LINE_WIDTH;
+    ctx.setLineDash(GPR_TENDER_THRESHOLD_LINE_DASH);
+    ctx.beginPath();
+    ctx.moveTo(xLine, chartArea.top);
+    ctx.lineTo(xLine, chartArea.bottom);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, yLine);
+    ctx.lineTo(chartArea.right, yLine);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  },
+};
+
+const gprTenderCompletionStageLabelsPlugin: Plugin<"line"> = {
+  id: "gprTenderCompletionStageLabels",
+  afterDatasetsDraw(chart) {
+    const dataset = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset?.data?.length || !meta?.data?.length) return;
+
+    const pluginOpts = (
+      chart.options.plugins as
+        | { gprTenderCompletionStageLabels?: GprTenderCompletionStageLabelsPluginOpts }
+        | undefined
+    )?.gprTenderCompletionStageLabels;
+    const colors = pluginOpts?.colors ?? [];
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.font = COMPLETION_STAGE_LABEL_FONT;
+
+    meta.data.forEach((el, index) => {
+      const point = el as { x: number; y: number };
+      const raw = dataset.data[index] as CompletionChartPoint | undefined;
+      if (!raw?.stageShort || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      const label = raw.stageShort.trim();
+      if (!label) return;
+      const color = colors[index] ?? "#e2e8f0";
+      const { x, y, align, baseline } = resolveCompletionStageLabelPosition(
+        ctx,
+        label,
+        point.x,
+        point.y,
+        chartArea,
+      );
+      ctx.fillStyle = hexColorToRgba(color, 0.92);
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+      ctx.fillText(label, x, y);
+    });
+    ctx.restore();
+  },
+};
+
 ChartJS.register(
   LinearScale,
   PointElement,
@@ -85,19 +376,28 @@ ChartJS.register(
   Tooltip,
   Legend,
   gprTenderReportDateLinePlugin,
+  gprTenderCompletionMatrixPlugin,
+  gprTenderCompletionAxisGuidesPlugin,
+  gprTenderCompletionThresholdPlugin,
+  gprTenderCompletionStageLabelsPlugin,
 );
 
 const PLAN_GPR_LINE = "#e2e8f0";
 const FACT_GPR_LINE = "#22c55e";
 const PLAN_TENDER_LINE = "#f59e0b";
 const FACT_TENDER_LINE = "#eab308";
-
 const THRESHOLD_PP = 15;
 
-/** Режим линий на графике (KPI не зависят от режима). */
+type GprTenderChartBlockMode = "completion" | "stages";
+
+const BLOCK_VIEW_MODES: { id: GprTenderChartBlockMode; label: string }[] = [
+  { id: "completion", label: "% выполнения" },
+  { id: "stages", label: "Разрез по этапам" },
+];
+
 export type GprTenderChartViewMode = "plan" | "fact" | "all";
 
-const CHART_VIEW_MODES: { id: GprTenderChartViewMode; label: string }[] = [
+const TIMELINE_VIEW_MODES: { id: GprTenderChartViewMode; label: string }[] = [
   { id: "plan", label: "План" },
   { id: "fact", label: "Факт" },
   { id: "all", label: "Все" },
@@ -122,13 +422,27 @@ export function GPRTenderDependencyChart({
   activeProjectPart: ForecastPart;
   analyticDepth?: "work" | "presentation";
   reportAsOfIso?: string;
-  /** Подпись отчётной даты (DD.MM); приём оставлен для обратной совместимости — после удаления подписи под графиком значение не отображается. */
   reportDateLabel?: string;
 }) {
   const sessionYmd = useMemo(() => toLocalYmd(new Date()), []);
   const todayIso = reportAsOfIsoProp ?? sessionYmd;
-
   const part: ForecastPart = activeProjectPart === "project" ? "project" : activeProjectPart;
+
+  const [blockMode, setBlockMode] = useState<GprTenderChartBlockMode>("completion");
+  const [timelineViewMode, setTimelineViewMode] = useState<GprTenderChartViewMode>("plan");
+
+  const tenderSeries = useMemo(
+    () =>
+      part === "project"
+        ? buildGprTenderDependencySeriesProjectWide(tasks, tenders, todayIso)
+        : buildGprTenderDependencySeries(tasks, tenders, todayIso, part),
+    [tasks, tenders, todayIso, part],
+  );
+
+  const completionPoints = useMemo(
+    () => buildGprTenderCompletionScatterPoints(tenderSeries),
+    [tenderSeries],
+  );
 
   const timeline = useMemo(
     (): GprTenderDependencyTimelineModel | null =>
@@ -141,17 +455,149 @@ export function GPRTenderDependencyChart({
     [tasks, tenders, part],
   );
 
-  /** По умолчанию «План» — две линии, удобнее для презентации руководству. */
-  const [viewMode, setViewMode] = useState<GprTenderChartViewMode>("plan");
+  const completionChartData = useMemo(
+    () => ({
+      datasets: [
+        {
+          label: "Этапы ГПР",
+          parsing: { xAxisKey: "x", yAxisKey: "y" },
+          data: completionPoints.map(
+            (p): CompletionChartPoint => ({
+              x: p.tenderPercent,
+              y: p.gprPercent,
+              stageShort: p.stageShort,
+              stageTitle: p.stageTitle,
+            }),
+          ),
+          showLine: false,
+          borderWidth: 0,
+          pointBackgroundColor: completionPoints.map((p) => p.color),
+          pointBorderColor: completionPoints.map(() => "rgba(15, 23, 42, 0.65)"),
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointBorderWidth: 1,
+        },
+      ],
+    }),
+    [completionPoints],
+  );
 
-  const chartData = useMemo(() => {
-    if (!timeline) {
-      return { datasets: [] };
-    }
+  const completionPointZones = useMemo(
+    (): CompletionPointZone[] =>
+      completionPoints.map((point) => ({
+        xPercent: point.tenderPercent,
+        yPercent: point.gprPercent,
+        fill: hexColorToRgba(
+          GPR_TMC_COMPLETION_QUADRANT_STYLES[point.quadrant].solid,
+          COMPLETION_ZONE_FILL_ALPHA,
+        ),
+      })),
+    [completionPoints],
+  );
+
+  const completionGuideColors = useMemo(
+    () => completionPoints.map((p) => p.color),
+    [completionPoints],
+  );
+
+  const completionTooltipDetails = useMemo(
+    (): GprTenderCompletionScatterTooltipDetail[] =>
+      completionPoints.map((point) => buildGprTenderCompletionScatterTooltipDetail(point)),
+    [completionPoints],
+  );
+
+  const completionTooltipDetailsRef = useRef(completionTooltipDetails);
+  completionTooltipDetailsRef.current = completionTooltipDetails;
+
+  const completionExternalTooltip = useCallback(
+    (context: Parameters<typeof gprTenderCompletionScatterExternalTooltip>[0]) => {
+      gprTenderCompletionScatterExternalTooltip(
+        context,
+        (index) => completionTooltipDetailsRef.current[index],
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      const el = document.getElementById("gpr-tender-completion-scatter-tooltip");
+      if (el) el.style.opacity = "0";
+    };
+  }, []);
+
+  const completionOptions: ChartOptions<"line"> = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "nearest", intersect: true },
+      layout: { padding: { top: 48, right: 12, left: 8, bottom: 4 } },
+      scales: {
+        x: {
+          type: "linear",
+          position: "bottom",
+          min: 0,
+          max: GPR_TENDER_COMPLETION_CHART_AXIS_MAX,
+          grace: 0,
+          grid: { color: "rgba(148,163,184,0.1)" },
+          ticks: {
+            color: "#94a3b8",
+            font: { size: 11 },
+            callback: formatGprTenderCompletionPercentAxisTick,
+            values: [...GPR_TENDER_COMPLETION_AXIS_TICK_VALUES],
+          },
+          border: { color: "rgba(148,163,184,0.2)" },
+          title: {
+            display: true,
+            text: "Завершение тендеров, %",
+            color: "#94a3b8",
+            font: { size: 11, weight: "500" },
+            padding: { top: 8 },
+          },
+        },
+        y: {
+          type: "linear",
+          position: "left",
+          min: 0,
+          max: GPR_TENDER_COMPLETION_CHART_AXIS_MAX,
+          grace: 0,
+          beginAtZero: true,
+          grid: { color: "rgba(148,163,184,0.1)" },
+          ticks: {
+            color: "#94a3b8",
+            font: { size: 11 },
+            callback: formatGprTenderCompletionPercentAxisTick,
+            values: [...GPR_TENDER_COMPLETION_AXIS_TICK_VALUES],
+            padding: 6,
+          },
+          border: { color: "rgba(148,163,184,0.2)" },
+          title: {
+            display: true,
+            text: "Выполнение ГПР, %",
+            color: "#94a3b8",
+            font: { size: 11, weight: "500" },
+            padding: { bottom: 4 },
+          },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        gprTenderCompletionMatrix: { pointZones: completionPointZones },
+        gprTenderCompletionGuides: { colors: completionGuideColors },
+        gprTenderCompletionStageLabels: { colors: completionGuideColors },
+        tooltip: { enabled: false, external: completionExternalTooltip },
+      },
+    }),
+    [completionPointZones, completionGuideColors, completionExternalTooltip],
+  );
+
+  const timelineChartData = useMemo(() => {
+    if (!timeline) return { datasets: [] };
 
     const planByX = new Map(timeline.planSeries.map((p) => [p.x, p.y]));
     const factByX = new Map(timeline.factSeries.map((p) => [p.x, p.y]));
-    const visibleKeys = new Set(SERIES_BY_VIEW_MODE[viewMode]);
+    const visibleKeys = new Set(SERIES_BY_VIEW_MODE[timelineViewMode]);
 
     const segmentFill = (ctx: ScriptableLineSegmentContext) => {
       const p0 = ctx.p0 as { parsed?: { x?: number } } | undefined;
@@ -159,37 +605,15 @@ export function GPRTenderDependencyChart({
       if (x == null) return "rgba(148, 163, 184, 0.08)";
       const plan = planByX.get(x);
       const fact = factByX.get(x);
-      if (plan == null || fact == null) {
-        return "rgba(148, 163, 184, 0.08)";
-      }
-      const deviation = Math.abs(fact - plan);
-      if (deviation <= THRESHOLD_PP) {
-        return "rgba(34, 197, 94, 0.25)";
-      }
-      return "rgba(239, 68, 68, 0.25)";
+      if (plan == null || fact == null) return "rgba(148, 163, 184, 0.08)";
+      return Math.abs(fact - plan) <= THRESHOLD_PP
+        ? "rgba(34, 197, 94, 0.25)"
+        : "rgba(239, 68, 68, 0.25)";
     };
 
-    const allDatasets: Array<{
-      seriesKey: ChartSeriesKey;
-      label: string;
-      data: { x: number; y: number }[];
-      borderColor: string;
-      backgroundColor: string;
-      tension: number;
-      pointRadius: number;
-      pointHoverRadius: number;
-      pointBackgroundColor: string;
-      pointBorderColor: string;
-      pointBorderWidth: number;
-      borderWidth: number;
-      fill: boolean | { target: string };
-      borderDash?: number[];
-      segment?: { backgroundColor: (ctx: ScriptableLineSegmentContext) => string };
-      order: number;
-      parsing: { xAxisKey: string; yAxisKey: string };
-    }> = [
+    const allDatasets = [
       {
-        seriesKey: "planGpr",
+        seriesKey: "planGpr" as const,
         label: "План ГПР",
         data: timeline.planSeries.map((p) => ({ x: p.x, y: p.y })),
         borderColor: PLAN_GPR_LINE,
@@ -206,7 +630,7 @@ export function GPRTenderDependencyChart({
         parsing: { xAxisKey: "x", yAxisKey: "y" },
       },
       {
-        seriesKey: "factGpr",
+        seriesKey: "factGpr" as const,
         label: "Факт ГПР",
         data: timeline.factSeries.map((p) => ({ x: p.x, y: p.y })),
         borderColor: FACT_GPR_LINE,
@@ -218,16 +642,13 @@ export function GPRTenderDependencyChart({
         pointBorderColor: "rgba(15,23,42,0.5)",
         pointBorderWidth: 1,
         borderWidth: 2.5,
-        fill:
-          viewMode === "all"
-            ? { target: "-1" }
-            : false,
-        segment: viewMode === "all" ? { backgroundColor: segmentFill } : undefined,
+        fill: timelineViewMode === "all" ? { target: "-1" } : false,
+        segment: timelineViewMode === "all" ? { backgroundColor: segmentFill } : undefined,
         order: 1,
         parsing: { xAxisKey: "x", yAxisKey: "y" },
       },
       {
-        seriesKey: "planTender",
+        seriesKey: "planTender" as const,
         label: "План тендеров",
         data: timeline.planTenderSeries.map((p) => ({ x: p.x, y: p.y })),
         borderColor: PLAN_TENDER_LINE,
@@ -245,7 +666,7 @@ export function GPRTenderDependencyChart({
         parsing: { xAxisKey: "x", yAxisKey: "y" },
       },
       {
-        seriesKey: "factTender",
+        seriesKey: "factTender" as const,
         label: "Факт тендеров",
         data: timeline.factTenderSeries.map((p) => ({ x: p.x, y: p.y })),
         borderColor: FACT_TENDER_LINE,
@@ -268,9 +689,9 @@ export function GPRTenderDependencyChart({
         .filter((d) => visibleKeys.has(d.seriesKey))
         .map(({ seriesKey: _sk, ...rest }) => rest),
     };
-  }, [timeline, viewMode]);
+  }, [timeline, timelineViewMode]);
 
-  const options: ChartOptions<"line"> = useMemo(
+  const timelineOptions: ChartOptions<"line"> = useMemo(
     () =>
       !timeline
         ? { responsive: true, maintainAspectRatio: false }
@@ -347,7 +768,7 @@ export function GPRTenderDependencyChart({
               },
             },
           },
-    [timeline, viewMode],
+    [timeline],
   );
 
   return (
@@ -357,31 +778,30 @@ export function GPRTenderDependencyChart({
       {...{ [PDF_SECTION_TITLE_ATTR]: "Зависимость выполнения ГПР от тендеров" }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h3 className="text-lg font-semibold text-slate-50">
-          Зависимость выполнения ГПР от тендеров
-        </h3>
-        {coverage.belowRiskThreshold ? (
-          <span className="rounded-full border border-amber-500/50 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-300">
-            Обеспеченность ниже {GPR_TENDER_COVERAGE_RISK_THRESHOLD}%
-          </span>
-        ) : null}
-      </div>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-slate-50">
+            Зависимость выполнения ГПР от тендеров
+          </h3>
+          {coverage.belowRiskThreshold ? (
+            <span className="mt-2 inline-flex rounded-full border border-amber-500/50 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-300">
+              Обеспеченность ниже {GPR_TENDER_COVERAGE_RISK_THRESHOLD}%
+            </span>
+          ) : null}
+        </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-slate-400">Линии на графике</p>
         <div
-          className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5"
+          className="ml-auto inline-flex shrink-0 rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5"
           role="tablist"
           aria-label="Режим отображения графика"
         >
-          {CHART_VIEW_MODES.map((m) => (
+          {BLOCK_VIEW_MODES.map((m) => (
             <button
               key={m.id}
               type="button"
               role="tab"
-              aria-selected={viewMode === m.id}
-              onClick={() => setViewMode(m.id)}
-              className={segmentedControlTabClass(viewMode === m.id, "dark")}
+              aria-selected={blockMode === m.id}
+              onClick={() => setBlockMode(m.id)}
+              className={segmentedControlTabClass(blockMode === m.id, "dark")}
             >
               {m.label}
             </button>
@@ -389,15 +809,99 @@ export function GPRTenderDependencyChart({
         </div>
       </div>
 
-      <div className="mt-3 h-[420px] w-full min-w-0 sm:h-[480px] md:h-[540px]">
-        {timeline ? (
-          <Chart key={viewMode} type="line" data={chartData} options={options} />
+      {blockMode === "stages" ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-400">Линии на графике</p>
+          <div
+            className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5"
+            role="tablist"
+            aria-label="Режим линий на графике"
+          >
+            {TIMELINE_VIEW_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="tab"
+                aria-selected={timelineViewMode === m.id}
+                onClick={() => setTimelineViewMode(m.id)}
+                className={segmentedControlTabClass(timelineViewMode === m.id, "dark")}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className={
+          blockMode === "completion"
+            ? "mt-4 h-[260px] w-full min-w-0 sm:h-[300px] md:h-[340px]"
+            : "mt-3 h-[420px] w-full min-w-0 sm:h-[480px] md:h-[540px]"
+        }
+      >
+        {blockMode === "completion" ? (
+          completionPoints.length > 0 ? (
+            <Chart
+              key="tender-completion"
+              type="line"
+              data={completionChartData}
+              options={completionOptions}
+              plugins={[
+                gprTenderCompletionMatrixPlugin,
+                gprTenderCompletionThresholdPlugin,
+                gprTenderCompletionAxisGuidesPlugin,
+                gprTenderCompletionStageLabelsPlugin,
+              ]}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
+              Недостаточно данных для режима «% выполнения» (нужны факт ГПР и завершённые
+              тендеры по этапам).
+            </div>
+          )
+        ) : timeline ? (
+          <Chart
+            key={timelineViewMode}
+            type="line"
+            data={timelineChartData}
+            options={timelineOptions}
+          />
         ) : (
           <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
             Недостаточно дат ГПР и тендеров для построения календарной шкалы.
           </div>
         )}
       </div>
+
+      {blockMode === "completion" && completionPoints.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-700/50 pt-3">
+          {GPR_TMC_COMPLETION_QUADRANT_LEGEND_ORDER.map((quadrantKey) => (
+            <div key={quadrantKey} className="flex items-center gap-2 text-xs text-slate-400">
+              {gprTenderCompletionQuadrantDisplayLabel(quadrantKey)}
+            </div>
+          ))}
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <svg
+              width="16"
+              height={GPR_TENDER_THRESHOLD_LINE_WIDTH + 2}
+              className="shrink-0"
+              aria-hidden
+            >
+              <line
+                x1="0"
+                y1={(GPR_TENDER_THRESHOLD_LINE_WIDTH + 2) / 2}
+                x2="16"
+                y2={(GPR_TENDER_THRESHOLD_LINE_WIDTH + 2) / 2}
+                stroke={GPR_TENDER_THRESHOLD_LINE_COLOR}
+                strokeWidth={GPR_TENDER_THRESHOLD_LINE_WIDTH}
+                strokeDasharray={`${GPR_TENDER_THRESHOLD_LINE_DASH[0]} ${GPR_TENDER_THRESHOLD_LINE_DASH[1]}`}
+              />
+            </svg>
+            <span>⚪ Порог 80%</span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
