@@ -563,6 +563,34 @@ export function buildGprTmcCompletionScatterPoints(
   return out;
 }
 
+export type GprTmcChildWorkLine = {
+  code: string;
+  name: string;
+};
+
+/** Наименование работы ГПР по шифру WBS. */
+export function gprTaskNameByCode(tasks: GPRTask[], code: string): string {
+  const normalized = normalizeGprCodeFinal(code);
+  if (!normalized) return "—";
+  const task = tasks.find((t) => normalizeGprCodeFinal(t.code) === normalized);
+  return task?.name?.trim() || "—";
+}
+
+/** Подпись «шифр — наименование» для тултипов и списков этапов. */
+export function formatGprWorkCodeAndTitle(code: string, title: string): string {
+  const c = normalizeGprCodeFinal(code) || code.trim();
+  const name = title.trim() || "—";
+  return `${c} — ${name}`;
+}
+
+/** Прямые дочерние работы WBS этапа с наименованиями. */
+export function listGprDirectChildWorks(tasks: GPRTask[], workCode: string): GprTmcChildWorkLine[] {
+  return listGprDirectChildWorkCodes(tasks, workCode).map((code) => ({
+    code,
+    name: gprTaskNameByCode(tasks, code),
+  }));
+}
+
 export type GprTmcWorkTmcSupplyLine = {
   name: string;
   supplyPercent: number;
@@ -611,11 +639,11 @@ export function listTmcSupplyLinesForWorkCode(
 }
 
 export type GprTmcCompletionScatterTooltipDetail = {
-  stageShort: string;
+  stageLabel: string;
   statusLabel: string;
   tmcPercent: number;
   gprPercent: number;
-  childWorkCodes: string[];
+  childWorks: GprTmcChildWorkLine[];
   tmcLines: GprTmcWorkTmcSupplyLine[];
 };
 
@@ -623,14 +651,17 @@ export function buildGprTmcCompletionScatterTooltipDetail(
   workCode: string,
   tasks: GPRTask[],
   tmcItems: TMCItem[],
-  point: Pick<GprTmcCompletionScatterPoint, "stageShort" | "tmcPercent" | "gprPercent" | "quadrant">,
+  point: Pick<
+    GprTmcCompletionScatterPoint,
+    "stageShort" | "stageTitle" | "tmcPercent" | "gprPercent" | "quadrant"
+  >,
 ): GprTmcCompletionScatterTooltipDetail {
   return {
-    stageShort: point.stageShort,
+    stageLabel: formatGprWorkCodeAndTitle(point.stageShort, point.stageTitle),
     statusLabel: GPR_TMC_COMPLETION_QUADRANT_STYLES[point.quadrant].label,
     tmcPercent: point.tmcPercent,
     gprPercent: point.gprPercent,
-    childWorkCodes: listGprDirectChildWorkCodes(tasks, workCode),
+    childWorks: listGprDirectChildWorks(tasks, workCode),
     tmcLines: listTmcSupplyLinesForWorkCode(tmcItems, workCode),
   };
 }

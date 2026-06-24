@@ -3,7 +3,9 @@ import {
   buildGprTmcCompletionScatterPoints,
   buildGprTmcCompletionScatterTooltipDetail,
   countGprTmcCompletionPointsByQuadrant,
+  formatGprWorkCodeAndTitle,
   listGprDirectChildWorkCodes,
+  listGprDirectChildWorks,
   listTmcSupplyLinesForWorkCode,
   resolveGprTmcCompletionScatterPointMeta,
   type GprTmcDependencyPoint,
@@ -117,11 +119,27 @@ assert(tmcLines.length === 1 && tmcLines[0]?.supplyPercent === 45, "tmc line sup
 
 const tooltip = buildGprTmcCompletionScatterTooltipDetail("2.05.04", childTasks, tmcItems, {
   stageShort: "2.05.04",
+  stageTitle: "Монолитные конструкции",
   tmcPercent: 9,
   gprPercent: 62,
   quadrant: "tmc_confirmed",
 });
-assert(tooltip.childWorkCodes.length === 2, "tooltip children");
+assert(tooltip.childWorks.length === 2, "tooltip children");
+assert(
+  tooltip.childWorks[0]?.name === "A" && tooltip.childWorks[1]?.name === "B",
+  "tooltip child names",
+);
+assert(
+  tooltip.stageLabel === "2.05.04 — Монолитные конструкции",
+  "tooltip stage label",
+);
+assert(
+  formatGprWorkCodeAndTitle(tooltip.childWorks[0]!.code, tooltip.childWorks[0]!.name) ===
+    "2.05.04.01 — A",
+  "child label format",
+);
+const childWorks = listGprDirectChildWorks(childTasks, "2.05.04");
+assert(childWorks.length === 2, "child works with names");
 assert(tooltip.tmcLines[0]?.name === "Арматура А500С", "tooltip tmc name");
 
 console.log("[gprTmcCompletionScatter.selftest] OK");

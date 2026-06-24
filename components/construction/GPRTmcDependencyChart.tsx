@@ -769,7 +769,7 @@ export function GPRTmcDependencyChart({
               const i = items[0]?.dataIndex;
               if (i === undefined) return "";
               const row = chartSeries[i];
-              return row ? `Этап: ${row.stageShort}` : "";
+              return row ? `${row.stageShort} — ${row.stageTitle}` : "";
             },
             label: () => "",
             afterBody: (items) => {
@@ -778,7 +778,6 @@ export function GPRTmcDependencyChart({
               const row = chartSeries[i];
               if (!row) return "";
               const lines = [
-                `Наименование: ${row.stageTitle}`,
                 `Выполнение ГПР: ${formatStagePercent(row.factGpr)}`,
                 `Обеспеченность ТМЦ: ${formatStagePercent(row.tmcSupply)}`,
               ];

@@ -51,6 +51,15 @@ function forecastAreaFillRgba(model: GprTimeForecastModel): string {
   return "rgba(239, 68, 68, 0.12)";
 }
 
+/** Обрезка плановой кривой на первой точке 100% (без горизонтального хвоста). */
+function truncatePlanSeriesAtCompletion(
+  series: ReadonlyArray<{ x: number; y: number }>,
+): Array<{ x: number; y: number }> {
+  const completionIdx = series.findIndex((p) => p.y >= 100);
+  const slice = completionIdx >= 0 ? series.slice(0, completionIdx + 1) : series;
+  return slice.map((p) => ({ x: p.x, y: p.y }));
+}
+
 // Стиль бейджа даты прогноза фиксированный (тёмный фон + оранжевая рамка),
 // см. требование: подпись должна читаться как самостоятельная информационная
 // метка независимо от риск-цвета линии. Риск по-прежнему передаётся цветом
@@ -210,7 +219,7 @@ export function GPRForecastChart({
 
     const planDs = {
       label: "План ГПР",
-      data: model.planSeries.map((p) => ({ x: p.x, y: p.y })),
+      data: truncatePlanSeriesAtCompletion(model.planSeries),
       borderColor: PLAN_LINE,
       backgroundColor: "transparent",
       tension: 0.38,
