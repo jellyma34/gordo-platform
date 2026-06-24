@@ -130,8 +130,10 @@ import {
   computeGprTasksPlanCompletionPercent,
   formatGprStageKpiFactDisplay,
   getGprStageWorkItems,
+  gprStageWorkItemBusinessStatus,
   isGprTaskFactCompleted,
   logGprKpiChartCompletionGapToConsole,
+  logGprStage205BusinessKpiConsistencyToConsole,
   logGprStage205KpiToConsole,
   type GprStageCompletionDiagnostic,
 } from "@/lib/gprStageCompletion";
@@ -1982,18 +1984,13 @@ function trafficStatusForTask(task: GPRTask, asOf: Date): {
 
 type GprDonutStatusKey = "on_time" | "risk" | "overdue" | "completed_late" | "not_started";
 
-function isGprWorkItemCompleted(task: GPRTask, asOf: Date): boolean {
-  return isGprTaskFactCompleted(task, asOf);
-}
-
-/** Статус этапа для donut KPI-карточки (отдельно от светофора в средних метриках). */
 function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusKey {
   if (isGprWorkItemNotStarted(task)) return "not_started";
 
   const planDays = daysInclusive(task.planStart, task.planEnd);
   if (planDays === null) return "not_started";
 
-  if (isGprWorkItemCompleted(task, asOf)) {
+  if (isGprTaskFactCompleted(task, asOf)) {
     const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
     if (endDelay === null) return "not_started";
     if (endDelay > 0) return "completed_late";
@@ -2006,28 +2003,6 @@ function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusK
   if (st === "green") return "on_time";
   if (st === "yellow") return "risk";
   return "overdue";
-}
-
-/**
- * Бизнес-классификация этапа для donut «Строительство зданий и сооружений».
- * Каждый этап попадает РОВНО в одну категорию; сумма всех = totalStages (workItems).
- * Приоритет:
- *   1) Не начато                  → "not_started" (нет factStart/factEnd, completion = 0)
- *   2) Завершено с опозданием     → "late"        (factEnd позже планового конца)
- *   3) Не завершено и срок прошёл → "overdue"     (плановый конец прошёл, факт не завершён)
- *   4) Завершено вовремя          → "completed"   (факт завершён до/в день планового конца)
- *   5) Остальные активные         → "in_progress" (в работе)
- */
-type GprBusinessStatusKey = "completed" | "in_progress" | "late" | "overdue" | "not_started";
-function gprStageWorkItemBusinessStatus(task: GPRTask, asOf: Date): GprBusinessStatusKey {
-  if (isGprWorkItemNotStarted(task)) return "not_started";
-
-  const completed = isGprWorkItemCompleted(task, asOf);
-  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
-  if (completed && endDelay !== null && endDelay > 0) return "late";
-  if (!completed && endDelay !== null && endDelay > 0) return "overdue";
-  if (completed) return "completed";
-  return "in_progress";
 }
 
 function computeGprStageStatusBreakdown(
@@ -2878,6 +2853,7 @@ export function GPRAnalytics({
       gprReportAsOf,
       planFactChartLabelsUnder205,
     );
+    logGprStage205BusinessKpiConsistencyToConsole(flatTasks, root205, gprReportAsOf);
   }, [
     flatTasks,
     gprReportAsOf,

@@ -17,6 +17,7 @@ import {
 } from "@/lib/gprTmcDependency";
 import { Chart } from "@/components/charting/reactChartjsChart";
 
+const PLAN_LINE = "#e2e8f0";
 const FACT_LINE = "#22c55e";
 
 const monthTickFmt = new Intl.DateTimeFormat("ru-RU", { month: "short", year: "numeric" });
@@ -207,6 +208,23 @@ export function GPRForecastChart({
     const lineColor = colorFromPlanFactLag(lag);
     const areaFill = forecastAreaFillRgba(model);
 
+    const planDs = {
+      label: "План ГПР",
+      data: model.planSeries.map((p) => ({ x: p.x, y: p.y })),
+      borderColor: PLAN_LINE,
+      backgroundColor: "transparent",
+      tension: 0.38,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      pointBackgroundColor: PLAN_LINE,
+      pointBorderColor: "rgba(15,23,42,0.6)",
+      pointBorderWidth: 1,
+      borderWidth: 2,
+      fill: false,
+      order: 0,
+      parsing: { xAxisKey: "x", yAxisKey: "y" },
+    };
+
     const factDs = {
       label: "Факт ГПР",
       data: factPast.map((p) => ({ x: p.x, y: p.y })),
@@ -220,7 +238,7 @@ export function GPRForecastChart({
       pointBorderWidth: 1,
       borderWidth: 2.5,
       fill: false,
-      order: 0,
+      order: 1,
       parsing: { xAxisKey: "x", yAxisKey: "y" },
     };
 
@@ -240,13 +258,13 @@ export function GPRForecastChart({
             pointBorderWidth: 2,
             borderWidth: 3,
             fill: "origin" as const,
-            order: 1,
+            order: 2,
             parsing: { xAxisKey: "x", yAxisKey: "y" },
           }
         : null;
 
     return {
-      datasets: forecastDs ? [factDs, forecastDs] : [factDs],
+      datasets: forecastDs ? [planDs, factDs, forecastDs] : [planDs, factDs],
     };
   }, [model]);
 

@@ -170,14 +170,21 @@ type CompletionPointZone = {
 
 type GprTenderCompletionMatrixPluginOpts = {
   pointZones: CompletionPointZone[];
+  enabled?: boolean;
 };
 
 type GprTenderCompletionGuidesPluginOpts = {
   colors: string[];
+  enabled?: boolean;
 };
 
 type GprTenderCompletionStageLabelsPluginOpts = {
   colors: string[];
+  enabled?: boolean;
+};
+
+type GprTenderCompletionThresholdPluginOpts = {
+  enabled?: boolean;
 };
 
 type CompletionChartPoint = {
@@ -227,6 +234,7 @@ const gprTenderCompletionMatrixPlugin: Plugin<"line"> = {
     const pluginOpts = (
       chart.options.plugins as { gprTenderCompletionMatrix?: GprTenderCompletionMatrixPluginOpts } | undefined
     )?.gprTenderCompletionMatrix;
+    if (pluginOpts?.enabled === false) return;
     const pointZones = pluginOpts?.pointZones ?? [];
     const xScale = chart.scales.x;
     const yScale = chart.scales.y;
@@ -256,13 +264,15 @@ const gprTenderCompletionMatrixPlugin: Plugin<"line"> = {
 const gprTenderCompletionAxisGuidesPlugin: Plugin<"line"> = {
   id: "gprTenderCompletionAxisGuides",
   beforeDatasetsDraw(chart) {
+    const pluginOpts = (
+      chart.options.plugins as { gprTenderCompletionGuides?: GprTenderCompletionGuidesPluginOpts } | undefined
+    )?.gprTenderCompletionGuides;
+    if (pluginOpts?.enabled !== true) return;
+
     const dataset = chart.data.datasets[0];
     const meta = chart.getDatasetMeta(0);
     if (!dataset?.data?.length || !meta?.data?.length) return;
 
-    const pluginOpts = (
-      chart.options.plugins as { gprTenderCompletionGuides?: GprTenderCompletionGuidesPluginOpts } | undefined
-    )?.gprTenderCompletionGuides;
     const colors = pluginOpts?.colors ?? [];
     const active = chart.getActiveElements();
     const hoveredIndex =
@@ -302,6 +312,13 @@ const gprTenderCompletionAxisGuidesPlugin: Plugin<"line"> = {
 const gprTenderCompletionThresholdPlugin: Plugin<"line"> = {
   id: "gprTenderCompletionThreshold",
   beforeDatasetsDraw(chart) {
+    const pluginOpts = (
+      chart.options.plugins as
+        | { gprTenderCompletionThreshold?: GprTenderCompletionThresholdPluginOpts }
+        | undefined
+    )?.gprTenderCompletionThreshold;
+    if (pluginOpts?.enabled !== true) return;
+
     const { ctx, chartArea, scales } = chart;
     const xScale = scales.x;
     const yScale = scales.y;
@@ -331,15 +348,17 @@ const gprTenderCompletionThresholdPlugin: Plugin<"line"> = {
 const gprTenderCompletionStageLabelsPlugin: Plugin<"line"> = {
   id: "gprTenderCompletionStageLabels",
   afterDatasetsDraw(chart) {
-    const dataset = chart.data.datasets[0];
-    const meta = chart.getDatasetMeta(0);
-    if (!dataset?.data?.length || !meta?.data?.length) return;
-
     const pluginOpts = (
       chart.options.plugins as
         | { gprTenderCompletionStageLabels?: GprTenderCompletionStageLabelsPluginOpts }
         | undefined
     )?.gprTenderCompletionStageLabels;
+    if (pluginOpts?.enabled !== true) return;
+
+    const dataset = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset?.data?.length || !meta?.data?.length) return;
+
     const colors = pluginOpts?.colors ?? [];
     const { ctx, chartArea } = chart;
     ctx.save();
@@ -381,7 +400,6 @@ ChartJS.register(
   gprTenderCompletionThresholdPlugin,
   gprTenderCompletionStageLabelsPlugin,
 );
-
 const PLAN_GPR_LINE = "#e2e8f0";
 const FACT_GPR_LINE = "#22c55e";
 const PLAN_TENDER_LINE = "#f59e0b";
@@ -583,9 +601,10 @@ export function GPRTenderDependencyChart({
       },
       plugins: {
         legend: { display: false },
-        gprTenderCompletionMatrix: { pointZones: completionPointZones },
-        gprTenderCompletionGuides: { colors: completionGuideColors },
-        gprTenderCompletionStageLabels: { colors: completionGuideColors },
+        gprTenderCompletionMatrix: { pointZones: completionPointZones, enabled: true },
+        gprTenderCompletionGuides: { colors: completionGuideColors, enabled: true },
+        gprTenderCompletionStageLabels: { colors: completionGuideColors, enabled: true },
+        gprTenderCompletionThreshold: { enabled: true },
         tooltip: { enabled: false, external: completionExternalTooltip },
       },
     }),
@@ -735,6 +754,10 @@ export function GPRTenderDependencyChart({
                 xMs: timeline.todayMs,
                 dateLabel: formatInstallmentPlatformDateLabel(timeline.todayIso),
               },
+              gprTenderCompletionMatrix: { pointZones: [], enabled: false },
+              gprTenderCompletionGuides: { colors: [], enabled: false },
+              gprTenderCompletionStageLabels: { colors: [], enabled: false },
+              gprTenderCompletionThreshold: { enabled: false },
               legend: {
                 position: "bottom",
                 labels: {
@@ -847,12 +870,6 @@ export function GPRTenderDependencyChart({
               type="line"
               data={completionChartData}
               options={completionOptions}
-              plugins={[
-                gprTenderCompletionMatrixPlugin,
-                gprTenderCompletionThresholdPlugin,
-                gprTenderCompletionAxisGuidesPlugin,
-                gprTenderCompletionStageLabelsPlugin,
-              ]}
             />
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 text-center text-sm text-slate-400">
@@ -862,7 +879,7 @@ export function GPRTenderDependencyChart({
           )
         ) : timeline ? (
           <Chart
-            key={timelineViewMode}
+            key={`tender-stages-${timelineViewMode}`}
             type="line"
             data={timelineChartData}
             options={timelineOptions}

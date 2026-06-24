@@ -342,7 +342,7 @@ export type GprStageKpiCardProps = {
    * Источник сегментов donut:
    * - workItem — классификация по этапам (по умолчанию);
    * - trafficKpi — четыре KPI-категории: в срок / с риском / просрочено / с опозданием;
-   * - businessKpi — бизнес-статусы: завершено / в процессе / с опозданием / просрочено / не начато.
+   * - businessKpi — бизнес-статусы: завершено / в процессе / завершено с опозданием / просрочено / не начато.
    */
   donutStatusVariant?: GprStageKpiDonutStatusVariant;
   factLabel: string;
@@ -424,7 +424,7 @@ export function GprStageKpiCard({
       ? [
           { label: "Завершено", value: businessCompletedCount, color: COLORS.green },
           { label: "В процессе", value: businessInProgressCount, color: COLORS.cyan },
-          { label: "С опозданием", value: businessLateCount, color: COLORS.orange },
+          { label: "Завершено с опозданием", value: businessLateCount, color: COLORS.orange },
           { label: "Просрочено", value: businessOverdueCount, color: COLORS.red },
           { label: "Не начато", value: businessNotStartedCount, color: COLORS.gray },
         ]
@@ -479,7 +479,7 @@ export function GprStageKpiCard({
         title,
         "Завершено": businessCompletedCount,
         "В процессе": businessInProgressCount,
-        "С опозданием": businessLateCount,
+        "Завершено с опозданием": businessLateCount,
         "Просрочено": businessOverdueCount,
         "Не начато": businessNotStartedCount,
         Итого: sum,

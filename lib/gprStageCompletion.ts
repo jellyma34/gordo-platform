@@ -3,9 +3,11 @@ import {
   getCalendarFactProgressPercent,
   getPlannedProgressPercent,
   gprTaskFactCompletionPercent,
+  isGprWorkItemNotStarted,
   matchesGprCodeBranch,
   normalizeGprCodeFinal,
   partIdToProjectPartKey,
+  planFactEndDeviationDays,
   type GPRTask,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
@@ -135,6 +137,179 @@ export function isGprTaskFactCompleted(task: GPRTask, asOf: Date = new Date()): 
 export function isGprTaskPlanCompleteByDate(task: GPRTask, asOf: Date): boolean {
   const plan = getPlannedProgressPercent(task, asOf);
   return plan !== null && plan >= 100;
+}
+
+/**
+ * Бизнес-классификация работы для donut KPI «Строительство зданий и сооружений».
+ * Каждая работа — ровно в одной категории; сумма всех = workTotal этапа.
+ */
+export type GprBusinessStatusKey =
+  | "completed"
+  | "in_progress"
+  | "late"
+  | "overdue"
+  | "not_started";
+
+export function gprStageWorkItemBusinessStatus(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): GprBusinessStatusKey {
+  if (isGprWorkItemNotStarted(task)) return "not_started";
+
+  const completed = isGprTaskFactCompleted(task, asOf);
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  if (completed && endDelay !== null && endDelay > 0) return "late";
+  if (!completed && endDelay !== null && endDelay > 0) return "overdue";
+  if (completed) return "completed";
+  return "in_progress";
+}
+
+export type GprStage205BusinessKpiConsistencyRow = {
+  code: string;
+  name: string;
+  businessStatus: GprBusinessStatusKey;
+  kpiCompleted: boolean;
+  progressPercent100: boolean;
+  completionField: number;
+  calendarFactPercent: number;
+  factEnd: string | null;
+  planEnd: string | null;
+  endDelayDays: number | null;
+};
+
+export type GprStage205BusinessKpiConsistency = {
+  rootCode: string;
+  workCompleted: number;
+  completedOnTime: number;
+  completedWithDelay: number;
+  inProgress: number;
+  notStarted: number;
+  overdue: number;
+  workCompletedEqualsOnTimePlusLate: boolean;
+  progressPercent100Total: number;
+  progressPercent100InCompletedBuckets: number;
+  progressPercent100OutsideCompletedBuckets: GprStage205BusinessKpiConsistencyRow[];
+  kpiCompletedOutsideCompletedBuckets: GprStage205BusinessKpiConsistencyRow[];
+  rows: GprStage205BusinessKpiConsistencyRow[];
+};
+
+/** Согласованность KPI «Выполнение» и donut «Завершено / Завершено с опозданием» этапа 2.05. */
+export function buildGprStage205BusinessKpiConsistency(
+  allTasks: GPRTask[],
+  rootTask: GPRTask,
+  asOf: Date = new Date(),
+): GprStage205BusinessKpiConsistency {
+  const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
+  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const insight = computeGprStageCompletionInsight(allTasks, rootTask, asOf);
+
+  const rows: GprStage205BusinessKpiConsistencyRow[] = workItems.map((task) => {
+    const businessStatus = gprStageWorkItemBusinessStatus(task, asOf);
+    const kpiCompleted = isGprTaskFactCompleted(task, asOf);
+    const progressPercent100 = isGprTaskProgressPercent100(task, asOf);
+    return {
+      code: normalizeGprCodeFinal(task.code) || task.code,
+      name: String(task.name ?? "").trim() || "—",
+      businessStatus,
+      kpiCompleted,
+      progressPercent100,
+      completionField: gprTaskFactCompletionPercent(task),
+      calendarFactPercent: getCalendarFactProgressPercent(task, asOf),
+      factEnd: task.factEnd?.trim() || null,
+      planEnd: task.planEnd?.trim() || null,
+      endDelayDays: planFactEndDeviationDays(task.planEnd, task.factEnd, asOf),
+    };
+  });
+
+  const completedOnTime = rows.filter((r) => r.businessStatus === "completed").length;
+  const completedWithDelay = rows.filter((r) => r.businessStatus === "late").length;
+  const inProgress = rows.filter((r) => r.businessStatus === "in_progress").length;
+  const notStarted = rows.filter((r) => r.businessStatus === "not_started").length;
+  const overdue = rows.filter((r) => r.businessStatus === "overdue").length;
+  const workCompleted = insight.workCompleted;
+
+  const progressPercent100OutsideCompletedBuckets = rows.filter(
+    (r) =>
+      r.progressPercent100 &&
+      r.businessStatus !== "completed" &&
+      r.businessStatus !== "late",
+  );
+  const kpiCompletedOutsideCompletedBuckets = rows.filter(
+    (r) =>
+      r.kpiCompleted &&
+      r.businessStatus !== "completed" &&
+      r.businessStatus !== "late",
+  );
+
+  return {
+    rootCode,
+    workCompleted,
+    completedOnTime,
+    completedWithDelay,
+    inProgress,
+    notStarted,
+    overdue,
+    workCompletedEqualsOnTimePlusLate:
+      workCompleted === completedOnTime + completedWithDelay,
+    progressPercent100Total: rows.filter((r) => r.progressPercent100).length,
+    progressPercent100InCompletedBuckets: rows.filter(
+      (r) =>
+        r.progressPercent100 &&
+        (r.businessStatus === "completed" || r.businessStatus === "late"),
+    ).length,
+    progressPercent100OutsideCompletedBuckets,
+    kpiCompletedOutsideCompletedBuckets,
+    rows,
+  };
+}
+
+export function logGprStage205BusinessKpiConsistencyToConsole(
+  allTasks: GPRTask[],
+  rootTask: GPRTask,
+  asOf: Date = new Date(),
+): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  const d = buildGprStage205BusinessKpiConsistency(allTasks, rootTask, asOf);
+
+  console.group("2.05 KPI consistency");
+  console.log("completedOnTime (Завершено)", d.completedOnTime);
+  console.log("completedWithDelay (Завершено с опозданием)", d.completedWithDelay);
+  console.log("workCompleted (Выполнение)", d.workCompleted);
+  console.log(
+    "workCompleted === completedOnTime + completedWithDelay",
+    d.workCompletedEqualsOnTimePlusLate,
+    `(${d.workCompleted} === ${d.completedOnTime} + ${d.completedWithDelay})`,
+  );
+  console.log("В процессе", d.inProgress);
+  console.log("Не начато", d.notStarted);
+  console.log("Просрочено", d.overdue);
+  console.log(
+    "progressPercent100 total / in completed buckets",
+    d.progressPercent100Total,
+    "/",
+    d.progressPercent100InCompletedBuckets,
+  );
+
+  if (!d.workCompletedEqualsOnTimePlusLate) {
+    console.warn(
+      "[2.05 KPI consistency] workCompleted не равен completedOnTime + completedWithDelay",
+    );
+    if (d.kpiCompletedOutsideCompletedBuckets.length > 0) {
+      console.log("KPI completed, но не в «Завершено» / «Завершено с опозданием»:");
+      console.table(d.kpiCompletedOutsideCompletedBuckets);
+    }
+  }
+
+  if (d.progressPercent100OutsideCompletedBuckets.length > 0) {
+    console.warn(
+      "[2.05 KPI consistency] progressPercent = 100 вне «Завершено» / «Завершено с опозданием»:",
+      d.progressPercent100OutsideCompletedBuckets.length,
+    );
+    console.table(d.progressPercent100OutsideCompletedBuckets);
+  }
+
+  console.groupEnd();
 }
 
 /** План % по набору работ: среднее календарных planPercent по всем работам. */
