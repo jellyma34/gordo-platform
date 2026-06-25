@@ -30,7 +30,8 @@ import {
   TmcRequestPlanFactChart,
 } from "@/components/tmc/TmcRequestPlanFactChart";
 import { TmcVolumeDynamicsChart } from "@/components/tmc/TmcVolumeDynamicsChart";
-import { TmcGprImpactChart } from "@/components/tmc/TmcGprImpactChart";
+import { TmcProcurementVolumeDynamicsBlock } from "@/components/tmc/TmcProcurementVolumeDynamicsBlock";
+import { TmcGprDeficitImpactBlock } from "@/components/tmc/TmcGprDeficitImpactBlock";
 import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import { useTmcKpiDonutSegments } from "@/components/tmc/useTmcKpiDonutSegments";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
@@ -568,8 +569,14 @@ function fmtQtyWithUnitForPdf(n: number, unit: string): string {
 
 export function TmcPresentation({
   activePartScope,
+  showGprDeficitImpactBlock = false,
+  blockFilter = "all",
 }: {
   activePartScope: ConstructionObjectScope;
+  /** Технический блок для аналитиков; в режиме презентации скрыт. */
+  showGprDeficitImpactBlock?: boolean;
+  /** Рендер только выбранного аналитического блока (режим редактирования). */
+  blockFilter?: "all" | "gprDeficitImpactOnly";
 }) {
   const { token, hydrated } = useAuth();
   const projectId = useMemo(() => getGprProjectId(), []);
@@ -875,8 +882,11 @@ export function TmcPresentation({
   );
 
   const tmcGprImpactRows = useMemo(
-    () => computeTmcGprImpactAnalysis(scopedGprTasks, enriched, activePartScope, today),
-    [scopedGprTasks, enriched, activePartScope, today],
+    () =>
+      showGprDeficitImpactBlock
+        ? computeTmcGprImpactAnalysis(scopedGprTasks, enriched, activePartScope, today)
+        : [],
+    [showGprDeficitImpactBlock, scopedGprTasks, enriched, activePartScope, today],
   );
 
   useEffect(() => {
@@ -1142,11 +1152,23 @@ export function TmcPresentation({
 
   const volumeDynamicsMeta = useMemo(() => {
     return encodePdfJson({
-      description: "Риск дефицита ТМЦ: процент незакрытой потребности с привязкой к этапам ГПР.",
+      description:
+        "Риск дефицита ТМЦ: незакрытая потребность и отклонение от планового графика закупок на сегодня.",
       source: "Импорт ТМЦ + ГПР",
       period: pdfReportPeriodLabel,
       table: {
-        headers: ["ТМЦ", "Ед.", "План", "Закуплено", "Осталось", "%", "Группы этапов ГПР"],
+        headers: [
+          "ТМЦ",
+          "Ед.",
+          "План",
+          "Закуплено",
+          "Осталось",
+          "% остатка",
+          "План на сегодня",
+          "Факт",
+          "Откл.",
+          "Группы этапов ГПР",
+        ],
         rows: volumeDynamics.rows.slice(0, 60).map((r) => [
           r.name,
           r.unit,
@@ -1154,6 +1176,13 @@ export function TmcPresentation({
           new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.purchasedQty),
           new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(r.remainingQty),
           `${String(r.remainingPercent).replace(".", ",")}%`,
+          r.planProvisionPercent == null
+            ? "—"
+            : `${String(r.planProvisionPercent).replace(".", ",")}%`,
+          `${String(r.factProvisionPercent).replace(".", ",")}%`,
+          r.scheduleDeviationPercent == null
+            ? "—"
+            : `${String(r.scheduleDeviationPercent).replace(".", ",")}%`,
           r.gprWorkGroups
             .map((g) => `${g.workTitle} ${g.groupCode} (${g.stageCount})`)
             .join("; "),
@@ -1163,6 +1192,7 @@ export function TmcPresentation({
   }, [volumeDynamics, pdfReportPeriodLabel]);
 
   const gprProcurementLagMeta = useMemo(() => {
+    if (!showGprDeficitImpactBlock) return "";
     return encodePdfJson({
       description:
         "Материалы с дефицитом ТМЦ и связанные этапы ГПР; impactScore по дефициту и суммарному отставанию.",
@@ -1212,7 +1242,16 @@ export function TmcPresentation({
         ),
       },
     });
-  }, [tmcGprImpactRows, pdfReportPeriodLabel]);
+  }, [showGprDeficitImpactBlock, tmcGprImpactRows, pdfReportPeriodLabel]);
+
+  if (blockFilter === "gprDeficitImpactOnly") {
+    if (!showGprDeficitImpactBlock) return null;
+    return (
+      <section className="mt-6">
+        <TmcGprDeficitImpactBlock rows={tmcGprImpactRows} pdfMeta={gprProcurementLagMeta} />
+      </section>
+    );
+  }
 
   return (
     <section
@@ -1741,27 +1780,14 @@ export function TmcPresentation({
         </div>
       </div>
 
-      <div
-        className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
-        data-pdf-chart-block
-        data-pdf-section-title="Влияние дефицита ТМЦ на выполнение ГПР"
-        {...{ [PDF_CHART_META_ATTR]: gprProcurementLagMeta }}
-        style={{
-          background:
-            "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
-        }}
-      >
-        <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
-          Влияние дефицита ТМЦ на выполнение ГПР
-        </h3>
-        <p className="mt-2 max-w-3xl text-xs leading-relaxed text-slate-400">
-          Материалы с незакрытой потребностью и связанные этапы ГПР. Сортировка по impactScore —
-          наверху материалы, которые с наибольшей вероятностью тормозят выполнение работ.
-        </p>
-        <div className="mt-4">
-          <TmcGprImpactChart rows={tmcGprImpactRows} />
-        </div>
-      </div>
+      <TmcProcurementVolumeDynamicsBlock
+        items={enriched}
+        todayIso={today.toISOString().slice(0, 10)}
+      />
+
+      {showGprDeficitImpactBlock ? (
+        <TmcGprDeficitImpactBlock rows={tmcGprImpactRows} pdfMeta={gprProcurementLagMeta} />
+      ) : null}
     </section>
   );
 }

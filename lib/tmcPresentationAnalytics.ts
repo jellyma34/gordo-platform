@@ -3551,6 +3551,14 @@ export type TmcVolumeDynamicsRow = {
   remainingQty: number;
   /** Процент незакрытой потребности: (remainingQty / plannedQty) × 100. */
   remainingPercent: number;
+  /** Есть supplyPlanDate для расчёта плановой обеспеченности на сегодня. */
+  hasCalendarPlan: boolean;
+  /** (Σ volumePlan с supplyPlanDate ≤ сегодня) / plannedQty × 100. */
+  planProvisionPercent: number | null;
+  /** purchasedQty / plannedQty × 100 — фактически закупленный объём. */
+  factProvisionPercent: number;
+  /** factProvisionPercent − planProvisionPercent (п.п.); null без календарного плана. */
+  scheduleDeviationPercent: number | null;
   /** Укрупнённые группы этапов ГПР для подписи на диаграмме. */
   gprWorkGroups: TmcVolumeGprWorkGroup[];
   /** Полные подписи этапов для tooltip (без изменений). */
@@ -3870,6 +3878,71 @@ function aggregateTmcItemsByNameWithSources(items: TMCItem[]): Map<
   return buckets;
 }
 
+function computeTmcMaterialScheduleProvision(
+  materialItems: TMCItem[],
+  plannedQty: number,
+  purchasedQty: number,
+  todayIso: string,
+): {
+  hasCalendarPlan: boolean;
+  planProvisionPercent: number | null;
+  factProvisionPercent: number;
+  scheduleDeviationPercent: number | null;
+} {
+  if (plannedQty <= 0) {
+    return {
+      hasCalendarPlan: false,
+      planProvisionPercent: null,
+      factProvisionPercent: 0,
+      scheduleDeviationPercent: null,
+    };
+  }
+
+  let planVolumeByToday = 0;
+  let hasCalendarPlan = false;
+
+  for (const item of materialItems) {
+    const supplyPlanDate = item.supplyPlanDate?.trim();
+    if (supplyPlanDate && item.volumePlan > 0) {
+      hasCalendarPlan = true;
+      if (supplyPlanDate <= todayIso) {
+        planVolumeByToday += item.volumePlan;
+      }
+    }
+  }
+
+  const factProvisionPercent = roundTmcCompletionBarPct((purchasedQty / plannedQty) * 100);
+
+  if (!hasCalendarPlan) {
+    return {
+      hasCalendarPlan: false,
+      planProvisionPercent: null,
+      factProvisionPercent,
+      scheduleDeviationPercent: null,
+    };
+  }
+
+  const planProvisionPercent = roundTmcCompletionBarPct((planVolumeByToday / plannedQty) * 100);
+  const scheduleDeviationPercent = roundTmcCompletionBarPct(
+    factProvisionPercent - planProvisionPercent,
+  );
+
+  return {
+    hasCalendarPlan: true,
+    planProvisionPercent,
+    factProvisionPercent,
+    scheduleDeviationPercent,
+  };
+}
+
+/** Цвет отклонения от планового графика закупок: ≥0 — зелёный, до −10 п.п. — жёлтый, иначе красный. */
+export function tmcVolumeDynamicsScheduleStatusColor(deviationPercent: number | null): string {
+  if (deviationPercent == null) return "#94a3b8";
+  if (deviationPercent >= 0) return "#22c55e";
+  if (deviationPercent >= -10) return "#f59e0b";
+  return "#ef4444";
+}
+
 /** Риск дефицита ТМЦ: % незакрытой потребности (remainingQty > 0). */
 export function computeTmcVolumeDynamics(
   items: TMCItem[],
@@ -3882,6 +3955,7 @@ export function computeTmcVolumeDynamics(
 ): TmcVolumeDynamicsResult {
   const gprTasks = options?.gprTasks ?? [];
   const today = options?.today ?? new Date();
+  const todayIso = today.toISOString().slice(0, 10);
   const buckets = aggregateTmcItemsByNameWithSources(items);
 
   const mapped = [...buckets.entries()]
@@ -3891,6 +3965,7 @@ export function computeTmcVolumeDynamics(
       const purchasedQty = v.volumeFact;
       const remainingQty = Math.max(plannedQty - purchasedQty, 0);
       const remainingPercent = computeTmcRemainingPercent(plannedQty, remainingQty);
+      const schedule = computeTmcMaterialScheduleProvision(v.items, plannedQty, purchasedQty, todayIso);
       const { workGroups, tooltipLines } = buildTmcMaterialGprStageLines(v.items);
       const atRiskStageCount = countAtRiskGprStagesForMaterial(v.items, gprTasks, items, today);
 
@@ -3902,6 +3977,10 @@ export function computeTmcVolumeDynamics(
         purchasedQty,
         remainingQty,
         remainingPercent,
+        hasCalendarPlan: schedule.hasCalendarPlan,
+        planProvisionPercent: schedule.planProvisionPercent,
+        factProvisionPercent: schedule.factProvisionPercent,
+        scheduleDeviationPercent: schedule.scheduleDeviationPercent,
         gprWorkGroups: workGroups,
         gprStageTooltipLines: tooltipLines,
         atRiskStageCount,
@@ -3919,6 +3998,28 @@ export function computeTmcVolumeDynamics(
     rows,
     allProcured: mapped.length > 0 && atRisk.length === 0,
   };
+}
+
+/** Ключ агрегации материала (арматура — выше/ниже 0.000). */
+export function resolveTmcMaterialBucketKey(item: TMCItem): string {
+  return tmcMaterialPlanFactBucketKey(item);
+}
+
+export function resolveTmcMaterialGprTooltipLines(items: TMCItem[]): TmcVolumeGprStageLine[] {
+  return buildTmcMaterialGprStageLines(items).tooltipLines;
+}
+
+export function computeTmcSupplyVolumeCompletionPercent(planVolume: number, factVolume: number): number {
+  if (!(planVolume > 0)) return 0;
+  return Math.round((factVolume / planVolume) * 1000) / 10;
+}
+
+/** Цвет фактической полосы поставки: 0% — серый, &lt;80% — красный, 80–99% — жёлтый, ≥100% — зелёный. */
+export function tmcSupplyVolumeCompletionFactColor(percent: number): string {
+  if (percent <= 0) return "rgba(148, 163, 184, 0.25)";
+  if (percent >= 100) return "#22c55e";
+  if (percent >= 80) return "#f59e0b";
+  return "#ef4444";
 }
 
 export type TmcVolumeDynamicsDiagnosticRow = {

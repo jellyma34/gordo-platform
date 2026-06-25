@@ -34,7 +34,8 @@ const GANTT_FACT_LEGEND_GRAY = "rgba(148, 163, 184, 0.5)";
 
 function ganttFactColorRankForLegend(color: string): number {
   const t = color.trim();
-  if (t === "#22c55e") return 3;
+  if (t === "#22c55e") return 4;
+  if (t === "#ef4444") return 3;
   if (t === "#f59e0b") return 2;
   return 1;
 }
@@ -57,7 +58,12 @@ function pickGanttFactLegendColor(
   return best;
 }
 
-function buildStageTooltip(model: PlanFactWorkTypeChartModel, index: number): string {
+function buildStageTooltip(
+  model: PlanFactWorkTypeChartModel,
+  index: number,
+  buildTooltip?: (model: PlanFactWorkTypeChartModel, index: number) => string,
+): string {
+  if (buildTooltip) return buildTooltip(model, index);
   const label = model.labels[index] ?? "";
   const d = model.rowDetails[index];
   if (!d) return label;
@@ -233,12 +239,16 @@ function PlanFactGprStageGroup({
   model,
   todayLeftPct,
   gridTemplateColumns,
+  buildTooltip,
+  showZeroFactPercent = false,
 }: {
   index: number;
   label: string;
   model: PlanFactWorkTypeChartModel;
   todayLeftPct: number | null;
   gridTemplateColumns: string;
+  buildTooltip?: (model: PlanFactWorkTypeChartModel, index: number) => string;
+  showZeroFactPercent?: boolean;
 }) {
   const planRange = model.planRanges[index] ?? null;
   const factRange = model.factRanges[index] ?? null;
@@ -248,12 +258,18 @@ function PlanFactGprStageGroup({
   const factColor = model.factColors[index] ?? GANTT_FACT_LEGEND_GRAY;
   const factPctRaw = model.factCompletionLabels[index]?.trim() ?? "";
   const factPercent = parseFactPercent(factPctRaw);
-  const showFact = factPercent != null && factPercent > 0;
-  const displayedFactSpan = showFact ? factSpan : null;
+  const showFact =
+    factPercent != null && (factPercent > 0 || (showZeroFactPercent && factPercent <= 0));
+  const displayedFactSpan =
+    showFact && factSpan
+      ? factSpan
+      : showFact && showZeroFactPercent && factPercent === 0 && planSpan
+        ? { leftPct: planSpan.leftPct, widthPct: Math.max(1.5, planSpan.widthPct * 0.06) }
+        : null;
   const factPercentLabel = showFact ? factPctRaw : null;
 
   const groupHeight = PLAN_FACT_GPR_CHART_ROWS_PER_STAGE * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
-  const tooltip = buildStageTooltip(model, index);
+  const tooltip = buildStageTooltip(model, index, buildTooltip);
 
   return (
     <div
@@ -288,8 +304,17 @@ function PlanFactGprStageGroup({
 
 export function PlanFactGprDynamicsChartPanel({
   model,
+  buildTooltip,
+  planLegendLabel = "План",
+  factLegendLabel = "Факт",
+  showZeroFactPercent = false,
 }: {
   model: PlanFactWorkTypeChartModel;
+  buildTooltip?: (model: PlanFactWorkTypeChartModel, index: number) => string;
+  planLegendLabel?: string;
+  factLegendLabel?: string;
+  /** Показывать фактическую строку при 0% (серый маркер и подпись). */
+  showZeroFactPercent?: boolean;
 }) {
   const stageCount = model.labels.length;
   const chartLayout = useMemo(() => computePlanFactGprChartLayout(stageCount), [stageCount]);
@@ -366,6 +391,8 @@ export function PlanFactGprDynamicsChartPanel({
               model={model}
               todayLeftPct={todayLeftPct}
               gridTemplateColumns={gridTemplateColumns}
+              buildTooltip={buildTooltip}
+              showZeroFactPercent={showZeroFactPercent}
             />
           ))}
         </div>
@@ -373,8 +400,8 @@ export function PlanFactGprDynamicsChartPanel({
 
       <div className="w-full shrink-0 pt-2">
         <AnalyticsLegendList>
-          <AnalyticsLegendItem markerColor={planLegend} label="План" />
-          <AnalyticsLegendItem markerColor={factLegend} label="Факт" />
+          <AnalyticsLegendItem markerColor={planLegend} label={planLegendLabel} />
+          <AnalyticsLegendItem markerColor={factLegend} label={factLegendLabel} />
         </AnalyticsLegendList>
       </div>
     </div>

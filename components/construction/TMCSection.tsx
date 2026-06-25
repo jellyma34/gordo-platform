@@ -61,6 +61,11 @@ export function TMCSection({
         <TMCSectionPartTabs activePartScope={activePartScope} onChangePartScope={onChangePartScope} />
         <TmcTable ref={tmcRef} embedded activePartId={editPartId} />
         <SuppliersBlock activePartId={editPartId} />
+        <TmcPresentation
+          activePartScope={activePartScope}
+          showGprDeficitImpactBlock
+          blockFilter="gprDeficitImpactOnly"
+        />
       </EditLayout>
     );
   }

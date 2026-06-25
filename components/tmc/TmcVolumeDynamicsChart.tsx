@@ -12,10 +12,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
-import type { TmcVolumeDynamicsRow } from "@/lib/tmcPresentationAnalytics";
+import {
+  tmcVolumeDynamicsScheduleStatusColor,
+  type TmcVolumeDynamicsRow,
+} from "@/lib/tmcPresentationAnalytics";
 
 const COLORS = {
   remaining: "#f59e0b",
+  scheduleOk: "#22c55e",
+  scheduleWarn: "#f59e0b",
+  scheduleRisk: "#ef4444",
+  scheduleNeutral: "#94a3b8",
 } as const;
 
 const AXIS_TICKS = [0, 25, 50, 75, 100] as const;
@@ -44,6 +51,22 @@ function formatRemainingPercentBarLabel(pct: number): string {
 function formatRemainingPercentTooltip(pct: number): string {
   const rounded = Math.round(pct * 10) / 10;
   return `${rounded.toFixed(1).replace(".", ",")}%`;
+}
+
+function formatSchedulePercent(pct: number | null): string {
+  if (pct == null) return "—";
+  return formatRemainingPercentBarLabel(pct);
+}
+
+function formatSignedScheduleDeviation(pct: number | null): string {
+  if (pct == null) return "—";
+  const rounded = Math.round(pct * 10) / 10;
+  const body = Number.isInteger(rounded)
+    ? String(Math.round(rounded))
+    : rounded.toFixed(1).replace(".", ",");
+  if (rounded > 0) return `+${body}%`;
+  if (rounded < 0) return `${body.replace("-", "−")}%`;
+  return "0%";
 }
 
 function gprStageTooltipLabel(text: string): string {
@@ -89,15 +112,30 @@ function TmcVolumeDynamicsTooltipContent({ row }: { row: TmcVolumeDynamicsRow })
 
   return (
     <>
-      <div className="font-semibold text-slate-100">{row.name}</div>
+      <div className="font-semibold text-slate-100">Материал:</div>
+      <div className="mt-0.5 text-slate-200">{row.name}</div>
       <div className="mt-2 space-y-1 tabular-nums text-slate-300">
-        <div>План: {fmtQtyWithUnit(row.plannedQty, row.unit)}</div>
-        <div>Закуплено: {fmtQtyWithUnit(row.purchasedQty, row.unit)}</div>
-        <div>Осталось: {fmtQtyWithUnit(row.remainingQty, row.unit)}</div>
-        <div>Осталось докупить: {formatRemainingPercentTooltip(row.remainingPercent)}</div>
+        <div>Плановый объём: {fmtQtyWithUnit(row.plannedQty, row.unit)}</div>
+        <div>Фактически закуплено: {fmtQtyWithUnit(row.purchasedQty, row.unit)}</div>
+        <div>
+          Плановая обеспеченность на сегодня:{" "}
+          {row.hasCalendarPlan
+            ? formatRemainingPercentTooltip(row.planProvisionPercent ?? 0)
+            : "нет графика"}
+        </div>
+        <div>
+          Фактическая обеспеченность: {formatRemainingPercentTooltip(row.factProvisionPercent)}
+        </div>
+        <div>
+          Отклонение:{" "}
+          {row.scheduleDeviationPercent == null
+            ? "—"
+            : formatSignedScheduleDeviation(row.scheduleDeviationPercent)}
+        </div>
+        <div>Остаток потребности: {formatRemainingPercentTooltip(row.remainingPercent)}</div>
       </div>
       <div className="mt-2 text-slate-300">
-        <div className="font-medium text-slate-200">Связанные этапы:</div>
+        <div className="font-medium text-slate-200">Этапы ГПР:</div>
         <ul className="mt-1 space-y-0.5">
           {stageLines.map((line) => (
             <li key={line}>{line}</li>
@@ -173,7 +211,7 @@ export function TmcVolumeDynamicsChart({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const chartHeight = useMemo(() => {
-    return Math.min(900, Math.max(320, rows.length * 96 + 72));
+    return Math.min(900, Math.max(320, rows.length * 96 + 88));
   }, [rows.length]);
 
   useEffect(() => {
@@ -244,7 +282,7 @@ export function TmcVolumeDynamicsChart({
               onFocus={(event) => handleRowFocus(row, event)}
               onBlur={handleRowBlur}
             >
-              <div className="tmc-volume-dynamics-chart__labels w-[min(280px,46%)] min-w-0 shrink-0 sm:w-[min(300px,42%)]">
+              <div className="tmc-volume-dynamics-chart__labels w-[min(220px,34%)] min-w-0 shrink-0 sm:w-[min(240px,32%)]">
                 <p className="tmc-volume-dynamics-chart__material-name break-words text-xs font-bold leading-snug text-slate-100 [overflow-wrap:anywhere]">
                   {row.name}
                 </p>
@@ -269,15 +307,39 @@ export function TmcVolumeDynamicsChart({
                 )}
               </div>
 
-              <div className="tmc-volume-dynamics-chart__bar-area flex min-w-0 flex-1 items-center gap-2">
+              <div className="tmc-volume-dynamics-chart__bar-area flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                 <div className="tmc-volume-dynamics-chart__bar-track relative h-[18px] min-w-0 flex-1 rounded bg-slate-800/35">
                   <div
                     className="tmc-volume-dynamics-chart__bar h-full rounded bg-[#f59e0b]"
                     style={{ width: `${Math.min(100, Math.max(0, row.remainingPercent))}%` }}
                   />
                 </div>
-                <span className="tmc-volume-dynamics-chart__percent w-10 shrink-0 text-right text-[11px] font-bold tabular-nums text-slate-100">
+                <span className="tmc-volume-dynamics-chart__percent w-9 shrink-0 text-right text-[11px] font-bold tabular-nums text-slate-100">
                   {formatRemainingPercentBarLabel(row.remainingPercent)}
+                </span>
+              </div>
+
+              <div
+                className="tmc-volume-dynamics-chart__schedule w-[min(112px,24%)] shrink-0 text-right text-[10px] leading-snug tabular-nums sm:w-[min(128px,22%)] sm:text-[11px]"
+                title={
+                  row.hasCalendarPlan
+                    ? `План ${formatSchedulePercent(row.planProvisionPercent)} · Факт ${formatSchedulePercent(row.factProvisionPercent)} · Откл. ${formatSignedScheduleDeviation(row.scheduleDeviationPercent)}`
+                    : "Нет плановых дат поставки для расчёта графика"
+                }
+              >
+                <span className="text-slate-400">{formatSchedulePercent(row.planProvisionPercent)}</span>
+                <span className="text-slate-600"> / </span>
+                <span className="font-semibold text-slate-200">
+                  {formatSchedulePercent(row.factProvisionPercent)}
+                </span>
+                <span className="text-slate-600"> / </span>
+                <span
+                  className="font-semibold"
+                  style={{
+                    color: tmcVolumeDynamicsScheduleStatusColor(row.scheduleDeviationPercent),
+                  }}
+                >
+                  {formatSignedScheduleDeviation(row.scheduleDeviationPercent)}
                 </span>
               </div>
             </div>
@@ -285,8 +347,8 @@ export function TmcVolumeDynamicsChart({
         </div>
 
         <div className="tmc-volume-dynamics-chart__axis mt-3 border-t border-slate-700/30 pt-2">
-          <div className="tmc-volume-dynamics-chart__axis-track ml-[min(280px,46%)] flex min-w-0 items-center gap-2 sm:ml-[min(300px,42%)]">
-            <div className="tmc-volume-dynamics-chart__axis-scale relative mr-10 h-4 min-w-0 flex-1">
+          <div className="tmc-volume-dynamics-chart__axis-track ml-[min(220px,34%)] flex min-w-0 items-center gap-1.5 sm:ml-[min(240px,32%)] sm:gap-2">
+            <div className="tmc-volume-dynamics-chart__axis-scale relative mr-9 h-4 min-w-0 flex-1 sm:mr-10">
               {AXIS_TICKS.map((tick) => (
                 <span
                   key={tick}
@@ -297,8 +359,12 @@ export function TmcVolumeDynamicsChart({
                 </span>
               ))}
             </div>
+            <span className="w-9 shrink-0" aria-hidden />
+            <p className="tmc-volume-dynamics-chart__schedule-axis w-[min(112px,24%)] shrink-0 text-right text-[10px] leading-snug text-slate-500 sm:w-[min(128px,22%)]">
+              План / Факт / Откл.
+            </p>
           </div>
-          <p className="tmc-volume-dynamics-chart__axis-title ml-[min(280px,46%)] mt-1 text-[11px] text-slate-500 sm:ml-[min(300px,42%)]">
+          <p className="tmc-volume-dynamics-chart__axis-title ml-[min(220px,34%)] mt-1 text-[11px] text-slate-500 sm:ml-[min(240px,32%)]">
             Процент незакрытой потребности
           </p>
         </div>
@@ -318,6 +384,9 @@ export function TmcVolumeDynamicsChart({
             markerColor={COLORS.remaining}
             label="Процент незакрытой потребности"
           />
+          <AnalyticsLegendItem markerColor={COLORS.scheduleOk} label="Факт ≥ план (график)" />
+          <AnalyticsLegendItem markerColor={COLORS.scheduleWarn} label="Отставание до 10 п.п." />
+          <AnalyticsLegendItem markerColor={COLORS.scheduleRisk} label="Отставание более 10 п.п." />
         </AnalyticsLegendList>
       </div>
     </div>
