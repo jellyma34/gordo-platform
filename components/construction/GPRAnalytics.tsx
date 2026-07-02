@@ -9,6 +9,7 @@ function encodePdfJson(value: unknown): string {
 
 import {
   calculateDeviation,
+  compareGprCodesByNumericPath,
   filterByPeriod,
   filterGprTasksByObjectScope,
   filterZhDomPlanFactTasksTo205Branch,
@@ -66,6 +67,7 @@ import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construct
 import { GPRForecastChart } from "@/components/construction/GPRForecastChart";
 import {
   gprStageDisplayTitle,
+  gprTaskNameByCode,
   gprStageGroupKeysForProjectPart,
   gprStageGroupKeysProjectWide,
   type ForecastPart,
@@ -139,6 +141,7 @@ import {
   type GprStageCompletionDiagnostic,
 } from "@/lib/gprStageCompletion";
 import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
+import { GprStageProgressBlock } from "@/components/construction/GprStageProgressBlock";
 import { PlanFactGprDynamicsChartPanel } from "@/components/construction/PlanFactGprDynamicsChartPanel";
 import {
   aggregateRootCodesForPart,
@@ -874,6 +877,194 @@ function stageDeviationGroupCardsGridClass(cardCount: number): string {
   return "grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3";
 }
 
+type GroupKey = "prep" | "build" | "network" | "improve";
+
+/** Корень ветки «Строительство зданий и сооружений» для подгрупп WBS в блоке отклонений. */
+const GPR_BUILD_DEVIATION_WBS_ROOT = "2.05";
+
+type StageDeviationRow = {
+  task: GPRTask;
+  deviation: number | null;
+  startDeviation: number | null;
+  finishDeviation: number | null;
+  durationDeviation: number | null;
+  planDuration: number | null;
+  factDuration: number | null;
+  group: GroupKey;
+};
+
+type StageDeviationWbsSubSection = {
+  code: string;
+  title: string;
+  rows: StageDeviationRow[];
+};
+
+/** Шифр подэтапа WBS (например, `2.05.04`) для работы внутри ветки `branchRoot`. */
+function gprWbsSubStageCode(taskCode: string, branchRoot: string): string | null {
+  const c = normalizeGprCodeFinal(taskCode);
+  const root = normalizeGprCodeFinal(branchRoot);
+  if (!matchesGprCodeBranch(c, root) || c === root) return null;
+  const segments = c.split(".").filter(Boolean);
+  const rootSegments = root.split(".").filter(Boolean);
+  const subStageLen = rootSegments.length + 1;
+  if (segments.length < subStageLen) return null;
+  return segments.slice(0, subStageLen).join(".");
+}
+
+/** Все подэтапы WBS уровня xx.xx.xx внутри ветки (например, 2.05.01 … 2.05.12). */
+function listGprWbsSubStages(
+  allTasks: GPRTask[],
+  branchRoot: string,
+  rows?: StageDeviationRow[],
+): { code: string; name: string }[] {
+  const codes = new Set<string>();
+  for (const t of allTasks) {
+    const c = normalizeGprCodeFinal(t.code);
+    const root = normalizeGprCodeFinal(branchRoot);
+    if (!matchesGprCodeBranch(c, root)) continue;
+    const segs = c.split(".").filter(Boolean);
+    const targetLen = root.split(".").filter(Boolean).length + 1;
+    if (segs.length === targetLen) codes.add(c);
+  }
+  if (rows) {
+    for (const r of rows) {
+      const sub = gprWbsSubStageCode(r.task.code, branchRoot);
+      if (sub) codes.add(sub);
+    }
+  }
+  return [...codes]
+    .sort(compareGprCodesByNumericPath)
+    .map((code) => ({
+      code,
+      name: gprTaskNameByCode(allTasks, code) || code,
+    }));
+}
+
+/** Группировка работ «Строительство зданий и сооружений» по подэтапам 2.05.XX. */
+function buildGpr205StageDeviationSubSections(
+  rows: StageDeviationRow[],
+  allTasks: GPRTask[],
+): StageDeviationWbsSubSection[] {
+  const subStages = listGprWbsSubStages(allTasks, GPR_BUILD_DEVIATION_WBS_ROOT, rows);
+  if (subStages.length === 0) return [];
+
+  return subStages
+    .map(({ code, name }) => {
+      const titleName = name || gprTaskNameByCode(allTasks, code);
+      const sectionRows = rows
+        .filter((r) => {
+          const tc = normalizeGprCodeFinal(r.task.code);
+          if (tc === code) return false;
+          return gprWbsSubStageCode(tc, GPR_BUILD_DEVIATION_WBS_ROOT) === code;
+        })
+        .sort((a, b) => compareGprCodesByNumericPath(a.task.code, b.task.code));
+      return {
+        code,
+        title: titleName && titleName !== code ? `${code} ${titleName}` : code,
+        rows: sectionRows,
+      };
+    })
+    .filter((s) => s.rows.length > 0);
+}
+
+function StageDeviationRowsPanel({
+  rows,
+  asOf,
+  tmcItems,
+  rowKeyPrefix,
+}: {
+  rows: StageDeviationRow[];
+  asOf: Date;
+  tmcItems: TMCItem[];
+  rowKeyPrefix: string;
+}) {
+  const scaleMax = stageDeviationScaleMax(rows);
+  const half = scaleMax / 2;
+  return (
+    <div>
+      <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
+        <div className="relative h-6 text-[11px] tabular-nums text-slate-400">
+          <span className="absolute left-0">{formatStageDeviationScaleTick(-scaleMax)}</span>
+          <span className="absolute left-1/4 -translate-x-1/2">
+            {formatStageDeviationScaleTick(-half)}
+          </span>
+          <span className="absolute left-1/2 -translate-x-1/2 font-medium text-slate-200">0</span>
+          <span className="absolute left-3/4 -translate-x-1/2">
+            {formatStageDeviationScaleTick(half)}
+          </span>
+          <span className="absolute right-0">{formatStageDeviationScaleTick(scaleMax)}</span>
+        </div>
+      </div>
+
+      <div
+        className={`relative z-10 mt-3 space-y-3 md:grid md:gap-x-3 md:gap-y-3 md:space-y-0 ${STAGE_DEVIATION_CARD_GRID}`}
+      >
+        {rows.map((r, i) => (
+          <StageDeviationScaleRow
+            key={`${rowKeyPrefix}-${r.task.id}-${i}`}
+            task={r.task}
+            asOf={asOf}
+            tmcItems={tmcItems}
+            durationDeviation={r.durationDeviation}
+            startDeviation={r.startDeviation}
+            finishDeviation={r.finishDeviation}
+            factDuration={r.factDuration}
+            planDuration={r.planDuration}
+            scaleMax={scaleMax}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StageDeviationWbsSubSection({
+  section,
+  asOf,
+  tmcItems,
+}: {
+  section: StageDeviationWbsSubSection;
+  asOf: Date;
+  tmcItems: TMCItem[];
+}) {
+  return (
+    <details
+      open
+      className="group rounded-xl border border-slate-700/60 bg-slate-900/20 [&_summary::-webkit-details-marker]:hidden"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 transition-colors hover:bg-slate-900/35">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-600/70 bg-slate-800/60 text-slate-300 transition-transform group-open:rotate-90"
+          aria-hidden
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+            <path d="M6 4l4 4-4 4V4z" />
+          </svg>
+        </span>
+        <span className="stage-title min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-100">
+          {section.title}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
+          {section.rows.length}{" "}
+          {section.rows.length === 1
+            ? "работа"
+            : section.rows.length >= 2 && section.rows.length <= 4
+              ? "работы"
+              : "работ"}
+        </span>
+      </summary>
+      <div className="border-t border-slate-700/50 px-4 pb-4 pt-3">
+        <StageDeviationRowsPanel
+          rows={section.rows}
+          asOf={asOf}
+          tmcItems={tmcItems}
+          rowKeyPrefix={`sub-${section.code}`}
+        />
+      </div>
+    </details>
+  );
+}
+
 /** Подпись поля в карточке этапа. */
 const STAGE_DEVIATION_FIELD_LABEL = "text-[11px] leading-[18px] text-slate-500";
 const STAGE_DEVIATION_FIELD_VALUE = "text-[11px] leading-[18px] tabular-nums text-slate-300";
@@ -1099,8 +1290,6 @@ const STATUS_DISTRIBUTION_SEGMENT_META: Record<
   red: { label: "Отставание", emoji: "🔴", showDeviation: true },
   gray: { label: "Нет данных", emoji: "⚪", showDeviation: false },
 };
-
-type GroupKey = "prep" | "build" | "network" | "improve";
 
 /** Иконки этапов (inline SVG — цвет через `currentColor` у родителя). */
 function StageDeviationStageIcon({ groupKey, className = "" }: { groupKey: GroupKey; className?: string }) {
@@ -2377,6 +2566,11 @@ export function GPRAnalytics({
     [tasksForKpiAnalytics, gprReportAsOf],
   );
   const flatTasks = flattenTasks(tasksForKpiAnalytics);
+  /** Полный ГПР для блока «Отклонения по этапам» (включая этажи монолита 2.05.04.2.*). */
+  const stageDeviationFlatTasks = useMemo(
+    () => flattenTasks(tasksForActivePart),
+    [tasksForActivePart],
+  );
 
   const stageDeviationGroupCards = useMemo(() => {
     const allowedGroupKeys = filterGprPresentationStageDeviationGroupKeys(
@@ -2389,7 +2583,7 @@ export function GPRAnalytics({
       },
     );
 
-    const devRows = flatTasks
+    const devRows: StageDeviationRow[] = stageDeviationFlatTasks
       .filter((t) => (t.level ?? t.code.split(".").length - 1) > 1)
       .map((t) => {
         const schedule = computeGprTaskScheduleDeviations(t, gprReportAsOf);
@@ -2419,10 +2613,15 @@ export function GPRAnalytics({
         const critical = completedRows.filter(
           (r) => getStatusByManagementScheduleDeviation(r.deviationDays) === "red",
         ).length;
+        const subSections =
+          g === "build"
+            ? buildGpr205StageDeviationSubSections(rows, stageDeviationFlatTasks)
+            : undefined;
         return {
           key: g,
           label,
           rows,
+          subSections,
           avg,
           critical,
           withDevCount: durationStats.completedStages,
@@ -2430,7 +2629,7 @@ export function GPRAnalytics({
       })
       .filter((card) => card.rows.length > 0);
   }, [
-    flatTasks,
+    stageDeviationFlatTasks,
     gprReportAsOf,
     tasksForActivePart,
     isProjectWide,
@@ -4091,52 +4290,38 @@ export function GPRAnalytics({
                   >
                     {active.label}
                   </div>
-                  {(() => {
-                    const scaleMax = stageDeviationScaleMax(active.rows);
-                    const half = scaleMax / 2;
-                    return (
-                  <div>
-                    <div className="relative z-10 rounded-xl border border-slate-700/60 bg-slate-900/30 px-4 py-3">
-                      <div className="relative h-6 text-[11px] tabular-nums text-slate-400">
-                        <span className="absolute left-0">{formatStageDeviationScaleTick(-scaleMax)}</span>
-                        <span className="absolute left-1/4 -translate-x-1/2">
-                          {formatStageDeviationScaleTick(-half)}
-                        </span>
-                        <span className="absolute left-1/2 -translate-x-1/2 font-medium text-slate-200">0</span>
-                        <span className="absolute left-3/4 -translate-x-1/2">
-                          {formatStageDeviationScaleTick(half)}
-                        </span>
-                        <span className="absolute right-0">{formatStageDeviationScaleTick(scaleMax)}</span>
-                      </div>
-                    </div>
-
-                    <div
-                      className={`relative z-10 mt-3 space-y-3 md:grid md:gap-x-3 md:gap-y-3 md:space-y-0 ${STAGE_DEVIATION_CARD_GRID}`}
-                    >
-                      {active.rows.map((r, i) => (
-                        <StageDeviationScaleRow
-                          key={`dev-line-${active.key}-${r.task.id}-${i}`}
-                          task={r.task}
+                  {active.key === "build" && active.subSections && active.subSections.length > 0 ? (
+                    <div className="space-y-3">
+                      {active.subSections.map((section) => (
+                        <StageDeviationWbsSubSection
+                          key={section.code}
+                          section={section}
                           asOf={gprReportAsOf}
                           tmcItems={tmcItemsForPart}
-                          durationDeviation={r.durationDeviation}
-                          startDeviation={r.startDeviation}
-                          finishDeviation={r.finishDeviation}
-                          factDuration={r.factDuration}
-                          planDuration={r.planDuration}
-                          scaleMax={scaleMax}
                         />
                       ))}
                     </div>
-                  </div>
-                    );
-                  })()}
+                  ) : (
+                    <StageDeviationRowsPanel
+                      rows={active.rows}
+                      asOf={gprReportAsOf}
+                      tmcItems={tmcItemsForPart}
+                      rowKeyPrefix={`dev-line-${active.key}`}
+                    />
+                  )}
                 </div>
               ) : null}
             </div>
           );
         })()}
       </div>
+
+      <GprStageProgressBlock
+        tasks={stageDeviationFlatTasks}
+        branchRoots={aggregateRootCodes}
+        asOf={gprReportAsOf}
+        reportDateLabel={gprReportDateLabel}
+      />
 
       <GPRTmcDependencyChart
         tasks={tasksForActivePart}
