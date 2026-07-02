@@ -3899,6 +3899,7 @@ export function GPRAnalytics({
               code={stageCodeNorm}
               status={status}
               metricsVariant={isCompactStageCard ? "compact" : "full"}
+              layoutVariant={isBuildingConstructionStageCard ? "dashboard" : "default"}
               donutStatusVariant={useBusinessDonut ? "businessKpi" : "workItem"}
               factLabel="Факт выполнения"
               factValue={formatGprStageKpiFactDisplay(stageInsight)}

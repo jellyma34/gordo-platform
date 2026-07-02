@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, type ReactNode } from "react";
-import { HardHat } from "lucide-react";
+import { Check, Circle, Clock, HardHat, RefreshCw } from "lucide-react";
 import { KpiDonutChart, type KpiDonutSegment } from "@/components/tmc/KpiDonutChart";
 
 const COLORS = {
@@ -17,6 +17,13 @@ export type GprStageKpiTraffic = "green" | "yellow" | "red" | "gray";
 
 function pct1(n: number): string {
   return `${n.toFixed(1).replace(".", ",")}%`;
+}
+
+function parseGprKpiPercentLabel(raw: string): number | null {
+  const text = raw.trim();
+  if (!text || text === "—") return null;
+  const value = Number.parseFloat(text.replace("%", "").replace(",", ".").replace("−", "-"));
+  return Number.isFinite(value) ? value : null;
 }
 
 function GprKpiDivider() {
@@ -205,6 +212,7 @@ function GprPremiumKpiCard({
   waveOpacity,
   paddingClass = "p-6",
   waveHeightClass,
+  visualTone = "default",
   children,
 }: {
   glowColor: string;
@@ -222,15 +230,20 @@ function GprPremiumKpiCard({
    * Передаётся в `GprKpiWave`. Если не указан — используется дефолт `h-28`.
    */
   waveHeightClass?: string;
+  /** Спокойная подача без ярких цветовых ореолов (dashboard 2.05). */
+  visualTone?: "default" | "calm";
   children: ReactNode;
 }) {
+  const calm = visualTone === "calm";
   return (
     <div
-      className={`relative flex h-full flex-col rounded-[20px] border ${paddingClass} backdrop-blur-[16px]`}
+      className={`relative flex h-full flex-col rounded-[20px] border ${paddingClass} ${calm ? "" : "backdrop-blur-[16px]"}`}
       style={{
         background: gradient,
-        borderColor: `${glowColor}55`,
-        boxShadow: `0 22px 56px rgba(0,0,0,0.52), 0 0 36px ${glowColor}28, inset 0 1px 0 rgba(255,255,255,0.1)`,
+        borderColor: calm ? "rgba(148,163,184,0.18)" : `${glowColor}55`,
+        boxShadow: calm
+          ? "none"
+          : `0 22px 56px rgba(0,0,0,0.52), 0 0 36px ${glowColor}28, inset 0 1px 0 rgba(255,255,255,0.1)`,
       }}
     >
       {waveColor ? (
@@ -248,9 +261,13 @@ function GprPremiumKpiCard({
 function GprKpiIconBadge({
   children,
   tone,
+  compact = false,
+  dense = false,
 }: {
   children: ReactNode;
   tone: "green" | "yellow" | "red" | "gray";
+  compact?: boolean;
+  dense?: boolean;
 }) {
   const toneClass =
     tone === "green"
@@ -260,9 +277,14 @@ function GprKpiIconBadge({
         : tone === "red"
           ? "bg-rose-500/15 text-rose-400 ring-rose-400/20"
           : "bg-slate-500/15 text-slate-400 ring-slate-400/20";
+  const sizeClass = dense
+    ? "h-8 w-8 rounded-lg"
+    : compact
+      ? "h-9 w-9 rounded-lg"
+      : "h-11 w-11 rounded-xl";
   return (
     <div
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ${toneClass}`}
+      className={`grid shrink-0 place-items-center ring-1 ${toneClass} ${sizeClass}`}
     >
       {children}
     </div>
@@ -316,6 +338,23 @@ function cardThemeForTraffic(status: GprStageKpiTraffic): {
   };
 }
 
+/** Плоский фон dashboard-карточки 2.05 без цветовых ореолов. */
+function calmDashboardCardTheme(theme: ReturnType<typeof cardThemeForTraffic>) {
+  return {
+    ...theme,
+    gradient: "linear-gradient(180deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.98) 100%)",
+  };
+}
+
+/** Цвета сегментов кольца dashboard 2.05 (референс). */
+const DASHBOARD_RING_COLORS = {
+  green: "#22c55e",
+  cyan: "#38bdf8",
+  orange: "#f59e0b",
+  gray: "#94a3b8",
+  track: "rgba(255,255,255,0.06)",
+} as const;
+
 function deviationValueColorClass(deltaPp: number | null): string {
   if (deltaPp === null) return "";
   if (deltaPp > 0) return "text-emerald-400";
@@ -323,7 +362,319 @@ function deviationValueColorClass(deltaPp: number | null): string {
   return "";
 }
 
+function GprKpiLargeProgressRing({
+  factValue,
+  planValue,
+  size = 260,
+  completedCount,
+  inProgressCount,
+  lateCount,
+  notStartedCount,
+}: {
+  factValue: string;
+  planValue: string;
+  size?: number;
+  completedCount: number;
+  inProgressCount: number;
+  lateCount: number;
+  notStartedCount: number;
+}) {
+  const strokeWidth = 20;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  const total =
+    completedCount + inProgressCount + lateCount + notStartedCount;
+  const safeTotal = total > 0 ? total : 1;
+
+  const greenLen = (completedCount / safeTotal) * circumference;
+  const blueLen = (inProgressCount / safeTotal) * circumference;
+  const orangeLen = (lateCount / safeTotal) * circumference;
+  const grayLen = Math.max(0, circumference - (greenLen + blueLen + orangeLen));
+  const greenStart = 0;
+  const blueStart = greenLen;
+  const orangeStart = greenLen + blueLen;
+  const grayStart = greenLen + blueLen + orangeLen;
+
+  const segmentProps = {
+    cx: size / 2,
+    cy: size / 2,
+    r: radius,
+    fill: "none" as const,
+    strokeWidth,
+    strokeLinecap: "butt" as const,
+  };
+
+  return (
+    <div
+      className="relative shrink-0"
+      style={{ width: size, height: size }}
+    >
+      <svg
+        className="block h-full w-full -rotate-90"
+        viewBox={`0 0 ${size} ${size}`}
+        aria-hidden
+      >
+        <circle
+          {...segmentProps}
+          stroke={DASHBOARD_RING_COLORS.track}
+        />
+        {greenLen > 0 ? (
+          <circle
+            {...segmentProps}
+            stroke={DASHBOARD_RING_COLORS.green}
+            strokeDasharray={`${greenLen} ${circumference - greenLen}`}
+            strokeDashoffset={-greenStart}
+          />
+        ) : null}
+
+        {blueLen > 0 ? (
+          <circle
+            {...segmentProps}
+            stroke={DASHBOARD_RING_COLORS.cyan}
+            strokeDasharray={`${blueLen} ${circumference - blueLen}`}
+            strokeDashoffset={-blueStart}
+          />
+        ) : null}
+
+        {orangeLen > 0 ? (
+          <circle
+            {...segmentProps}
+            stroke={DASHBOARD_RING_COLORS.orange}
+            strokeDasharray={`${orangeLen} ${circumference - orangeLen}`}
+            strokeDashoffset={-orangeStart}
+          />
+        ) : null}
+
+        {grayLen > 0 && notStartedCount > 0 ? (
+          <circle
+            {...segmentProps}
+            stroke={DASHBOARD_RING_COLORS.gray}
+            strokeOpacity={0.55}
+            strokeDasharray={`${grayLen} ${circumference - grayLen}`}
+            strokeDashoffset={-grayStart}
+          />
+        ) : null}
+      </svg>
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="pointer-events-none text-center">
+          <div className="text-[26px] font-extrabold tabular-nums leading-none tracking-tight text-white">
+            {factValue}
+          </div>
+          {planValue !== "—" ? (
+            <div className="mt-1 text-[10px] font-normal tabular-nums text-slate-500/60">
+              из {planValue}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GprKpiStatusListRow({
+  label,
+  value,
+  color,
+  icon,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="relative grid h-[42px] grid-cols-[16px_1fr_auto] items-center gap-1.5 pl-2 pr-0.5">
+      <div
+        className="absolute bottom-1.5 left-0 top-1.5 w-px"
+        style={{ backgroundColor: color }}
+        aria-hidden
+      />
+      <div className="grid place-items-center" style={{ color }}>
+        {icon}
+      </div>
+      <div className="min-w-0 truncate text-[11px] font-medium text-slate-400">{label}</div>
+      <div className="shrink-0 text-base font-bold tabular-nums leading-none text-white">{value}</div>
+    </div>
+  );
+}
+
+function GprKpiStatusList({
+  items,
+}: {
+  items: Array<{
+    label: string;
+    value: number;
+    color: string;
+    icon: ReactNode;
+  }>;
+}) {
+  return (
+    <div>
+      {items.map((item, index) => (
+        <div key={item.label}>
+          {index > 0 ? <div className="border-t border-slate-600/18" aria-hidden /> : null}
+          <GprKpiStatusListRow
+            label={item.label}
+            value={item.value}
+            color={item.color}
+            icon={item.icon}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GprStageKpiDashboardBody({
+  title,
+  theme,
+  factValue,
+  factTitle,
+  planValue,
+  deviationLabel,
+  deviationValue,
+  deviationDeltaPp,
+  completedStages,
+  totalStages,
+  completedSharePct,
+  completedShareNumerator,
+  completedShareDenominator,
+  businessCompletedCount,
+  businessInProgressCount,
+  businessLateCount,
+  businessNotStartedCount,
+}: {
+  title: string;
+  code?: string;
+  theme: ReturnType<typeof cardThemeForTraffic>;
+  factValue: string;
+  factTitle?: string;
+  planValue: string;
+  deviationLabel: string;
+  deviationValue: string;
+  deviationDeltaPp: number | null;
+  completedStages: number;
+  totalStages: number;
+  completedSharePct: number;
+  completedShareNumerator: number;
+  completedShareDenominator: number;
+  businessCompletedCount: number;
+  businessInProgressCount: number;
+  businessLateCount: number;
+  businessNotStartedCount: number;
+}) {
+  const completedShareLabel = "Доля выполненных работ";
+  const statusCards = [
+    {
+      label: "Завершено",
+      value: businessCompletedCount,
+      color: DASHBOARD_RING_COLORS.green,
+      icon: <Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
+    },
+    {
+      label: "В процессе",
+      value: businessInProgressCount,
+      color: DASHBOARD_RING_COLORS.cyan,
+      icon: <RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
+    },
+    {
+      label: "С опозданием",
+      value: businessLateCount,
+      color: DASHBOARD_RING_COLORS.orange,
+      icon: <Clock className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
+    },
+    {
+      label: "Не начато",
+      value: businessNotStartedCount,
+      color: COLORS.gray,
+      icon: <Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />,
+    },
+  ];
+
+  return (
+    <div
+      className="grid h-full min-h-0 gap-y-0.5"
+      style={{
+        gridTemplateColumns: "58% 42%",
+        gridTemplateRows: "auto 1fr auto",
+      }}
+    >
+      {/* Строка 1: иконка + заголовок */}
+      <div
+        className="col-span-2 grid grid-cols-[32px_minmax(0,1fr)] items-center gap-1.5"
+        style={{ gridColumn: "1 / -1" }}
+      >
+        <GprKpiIconBadge tone={theme.badgeTone} dense>
+          <HardHat className="h-3.5 w-3.5" strokeWidth={2} />
+        </GprKpiIconBadge>
+        <div className="min-w-0 whitespace-nowrap text-[17px] font-semibold leading-none tracking-tight text-slate-50">
+          {title}
+        </div>
+      </div>
+
+      {/* Левая колонка: кольцо + счётчик работ */}
+      <div className="grid min-h-0 place-content-center justify-items-center gap-1 px-1">
+        <div title={factTitle}>
+          <GprKpiLargeProgressRing
+            factValue={factValue}
+            planValue={planValue}
+            completedCount={businessCompletedCount}
+            inProgressCount={businessInProgressCount}
+            lateCount={businessLateCount}
+            notStartedCount={businessNotStartedCount}
+          />
+        </div>
+        <div className="grid justify-items-center gap-px text-center">
+          <div className="tabular-nums leading-none tracking-tight">
+            <span className="text-xl font-extrabold text-white">{completedStages}</span>
+            <span className="text-base font-medium text-slate-400"> / {totalStages}</span>
+          </div>
+          <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            РАБОТ
+          </div>
+        </div>
+      </div>
+
+      {/* Правая колонка: плоский список статусов */}
+      <div className="grid min-h-0 content-center py-0 pl-0.5 pr-0">
+        <GprKpiStatusList items={statusCards} />
+      </div>
+
+      {/* Нижняя панель: KPI на всю ширину */}
+      <div
+        className="col-span-2 grid h-[62px] shrink-0 grid-cols-2 border-t border-slate-600/20 bg-slate-900/15"
+        style={{ gridColumn: "1 / -1" }}
+      >
+        <div className="grid content-center gap-px border-r border-slate-600/20 px-2.5 py-1.5">
+          <div className="text-[8px] font-semibold uppercase tracking-wider text-slate-500">
+            {deviationLabel.replace(/,\s*%$/, "")}
+          </div>
+          <div
+            className={`text-base font-extrabold tabular-nums leading-none ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+          >
+            {deviationValue}
+          </div>
+        </div>
+        <div className="grid content-center gap-px px-2.5 py-1.5">
+          <div className="text-[8px] font-semibold uppercase tracking-wider text-slate-500">
+            {completedShareLabel}
+          </div>
+          <div className="text-base font-extrabold tabular-nums leading-none text-white">
+            {pct1(completedSharePct)}
+          </div>
+          <div className="text-[8px] tabular-nums text-slate-500/65">
+            ({completedShareNumerator} из {completedShareDenominator})
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type GprStageKpiMetricsVariant = "full" | "compact";
+
+export type GprStageKpiLayoutVariant = "default" | "dashboard";
 
 export type GprStageKpiDonutStatusVariant = "workItem" | "trafficKpi" | "businessKpi";
 
@@ -338,6 +689,8 @@ export type GprStageKpiCardProps = {
   status: GprStageKpiTraffic;
   /** Компактный набор KPI (карточки этапов жилого дома 2.04 / 2.05). */
   metricsVariant?: GprStageKpiMetricsVariant;
+  /** Dashboard-компоновка (кольцо + статусные карточки) — только для 2.05. */
+  layoutVariant?: GprStageKpiLayoutVariant;
   /**
    * Источник сегментов donut:
    * - workItem — классификация по этапам (по умолчанию);
@@ -383,6 +736,7 @@ export function GprStageKpiCard({
   code,
   status,
   metricsVariant = "full",
+  layoutVariant = "default",
   donutStatusVariant = "workItem",
   factLabel,
   factValue,
@@ -552,81 +906,112 @@ export function GprStageKpiCard({
     <div className="flex h-full min-w-0 flex-col" data-traffic-card={status}>
       <GprPremiumKpiCard
         glowColor={theme.glowColor}
-        gradient={theme.gradient}
-        waveColor={theme.waveColor}
-        waveOpacity={theme.waveOpacity}
+        gradient={
+          layoutVariant === "dashboard"
+            ? calmDashboardCardTheme(theme).gradient
+            : theme.gradient
+        }
+        waveColor={layoutVariant === "dashboard" ? undefined : theme.waveColor}
+        waveOpacity={layoutVariant === "dashboard" ? undefined : theme.waveOpacity}
+        visualTone={layoutVariant === "dashboard" ? "calm" : "default"}
+        paddingClass={layoutVariant === "dashboard" ? "p-3" : "p-6"}
       >
-        <div className="flex items-start gap-3">
-          <GprKpiIconBadge tone={theme.badgeTone}>
-            <HardHat className="h-5 w-5" strokeWidth={2} />
-          </GprKpiIconBadge>
-          <div className="min-w-0 flex-1">
-            <div className="text-lg font-semibold leading-snug text-slate-50">
-              {code ? (
-                <>
-                  <span className="font-medium">{code}</span>{" "}
-                </>
-              ) : null}
-              {title}
+        {layoutVariant === "dashboard" ? (
+          <GprStageKpiDashboardBody
+            title={title}
+            code={code}
+            theme={theme}
+            factValue={factValue}
+            factTitle={factTitle}
+            planValue={planValue}
+            deviationLabel={deviationLabel}
+            deviationValue={deviationValue}
+            deviationDeltaPp={deviationDeltaPp}
+            completedStages={completedStages}
+            totalStages={totalStages}
+            completedSharePct={completedSharePct}
+            completedShareNumerator={completedShareNumerator}
+            completedShareDenominator={completedShareDenominator}
+            businessCompletedCount={businessCompletedCount}
+            businessInProgressCount={businessInProgressCount}
+            businessLateCount={businessLateCount}
+            businessNotStartedCount={businessNotStartedCount}
+          />
+        ) : (
+          <>
+            <div className="flex items-start gap-3">
+              <GprKpiIconBadge tone={theme.badgeTone}>
+                <HardHat className="h-5 w-5" strokeWidth={2} />
+              </GprKpiIconBadge>
+              <div className="min-w-0 flex-1">
+                <div className="text-lg font-semibold leading-snug text-slate-50">
+                  {code ? (
+                    <>
+                      <span className="font-medium">{code}</span>{" "}
+                    </>
+                  ) : null}
+                  {title}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div className={compactMetrics ? "mt-3" : "mt-4"}>
-          {compactMetrics ? (
-            <>
-              <GprKpiSplitPercentRow
-                label={factLabel}
-                factValue={factValue}
-                planValue={planValue}
-                title={factTitle}
-                compact
-                noDivider
-              />
-              <GprKpiSplitCountRow
-                label="Выполнение"
-                primaryCount={completedStages}
-                totalCount={totalStages}
-                compact
-              />
-              <GprKpiMetricRow
-                label={deviationLabel}
-                value={deviationValue}
-                valueClassName={deviationValueColorClass(deviationDeltaPp)}
-                compact
-              />
-              <GprKpiCompletedShareRow
-                label={completedShareLabel}
-                numerator={completedShareNumerator}
-                denominator={completedShareDenominator}
-                compact
-              />
-            </>
-          ) : (
-            fullMetricRows.map((row, index) => (
-              <GprKpiMetricRow
-                key={row.label}
-                label={row.label}
-                value={row.value}
-                valueClassName={row.valueClassName}
-                title={row.title}
-                noDivider={index === 0}
-              />
-            ))
-          )}
-        </div>
+            <div className={compactMetrics ? "mt-3" : "mt-4"}>
+              {compactMetrics ? (
+                <>
+                  <GprKpiSplitPercentRow
+                    label={factLabel}
+                    factValue={factValue}
+                    planValue={planValue}
+                    title={factTitle}
+                    compact
+                    noDivider
+                  />
+                  <GprKpiSplitCountRow
+                    label="Выполнение"
+                    primaryCount={completedStages}
+                    totalCount={totalStages}
+                    compact
+                  />
+                  <GprKpiMetricRow
+                    label={deviationLabel}
+                    value={deviationValue}
+                    valueClassName={deviationValueColorClass(deviationDeltaPp)}
+                    compact
+                  />
+                  <GprKpiCompletedShareRow
+                    label={completedShareLabel}
+                    numerator={completedShareNumerator}
+                    denominator={completedShareDenominator}
+                    compact
+                  />
+                </>
+              ) : (
+                fullMetricRows.map((row, index) => (
+                  <GprKpiMetricRow
+                    key={row.label}
+                    label={row.label}
+                    value={row.value}
+                    valueClassName={row.valueClassName}
+                    title={row.title}
+                    noDivider={index === 0}
+                  />
+                ))
+              )}
+            </div>
 
-        <div className={`space-y-1.5 ${compactMetrics ? "mt-2" : "mt-4"}`}>
-          <GprKpiDivider />
-          <div className={compactMetrics ? "pt-2" : "pt-3"}>
-            <KpiDonutChart
-              segments={donutSegments}
-              percentBase={donutStatusTotal}
-              chartHeight={100}
-            />
-          </div>
-        </div>
-        <div className="min-h-0 flex-1" aria-hidden />
+            <div className={`space-y-1.5 ${compactMetrics ? "mt-2" : "mt-4"}`}>
+              <GprKpiDivider />
+              <div className={compactMetrics ? "pt-2" : "pt-3"}>
+                <KpiDonutChart
+                  segments={donutSegments}
+                  percentBase={donutStatusTotal}
+                  chartHeight={100}
+                />
+              </div>
+            </div>
+            <div className="min-h-0 flex-1" aria-hidden />
+          </>
+        )}
       </GprPremiumKpiCard>
     </div>
   );
