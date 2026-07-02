@@ -13,8 +13,10 @@ import { buildPlanFactProjectWideRows } from "@/lib/gprProjectPlanFactStages";
 import { aggregateWorksToProjectPlanFactBounds } from "@/lib/gprProjectOverview";
 import {
   computeGprStageCompletionInsight,
+  filterGprTasksForKpiAnalytics,
   formatGprStageFactPercentValue,
   formatGprStageKpiFactDisplay,
+  formatGprStageKpiPlanDisplay,
   isGprStageFactCompletionNoData,
 } from "@/lib/gprStageCompletion";
 
@@ -240,11 +242,15 @@ export type PlanFactWorkTypeChartModel = {
   factColors: string[];
   /** Подпись «Факт выполнения» у полосы факта (как в KPI-карточке). */
   factCompletionLabels: string[];
+  /** Подпись «План выполнения» у плановой полосы (режим «Упрощённо»). */
+  planCompletionLabels?: string[];
   rowDetails: PlanFactWorkTypeRowDetail[];
   originMonth: Date;
   xMin: number;
   xMax: number;
   todayX: number | null;
+  /** Режим «Упрощённо»: шкала 0–100%, полосы = KPI plan/fact %. */
+  percentScaleMode?: boolean;
 };
 
 const PLAN_BAR = "rgba(148, 163, 184, 0.5)";
@@ -443,6 +449,17 @@ export function planFactGprXAxisMonthTicks(
   return ticks;
 }
 
+/** Метки % для режима «Упрощённо» (шкала 0–100). */
+export function planFactGprXAxisPercentTicks(
+  xMin: number,
+  xMax: number,
+): Array<{ value: number; label: string }> {
+  const candidates = [0, 25, 50, 75, 100];
+  return candidates
+    .filter((v) => v >= xMin - 1e-6 && v <= xMax + 1e-6)
+    .map((v) => ({ value: v, label: `${v}%` }));
+}
+
 /** @deprecated Используйте HTML-колонку подписей; оставлено для совместимости. */
 export function formatPlanFactGprChartYAxisTickLabel(label: string, maxChars = 42): string {
   const text = String(label ?? "").trim();
@@ -476,6 +493,9 @@ export function auditPlanFactChartModel(model: PlanFactWorkTypeChartModel): Plan
     model.factColors.length,
     model.factCompletionLabels.length,
   ];
+  if (model.percentScaleMode) {
+    lengths.push(model.planCompletionLabels?.length ?? 0);
+  }
   let firstMismatchIndex: number | null = null;
   const maxLen = Math.max(...lengths);
   const minLen = Math.min(...lengths);
@@ -933,6 +953,102 @@ export function listMonolithChartFloorProgress(
   };
 }
 
+function clampGprKpiPercentScale(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+/**
+ * Режим «Упрощённо»: визуализация KPI plan/fact % на шкале 0–100.
+ * Источник — тот же `computeGprStageCompletionInsight`, что и KPI-карточки.
+ */
+function buildGprPlanFactSimplifiedKpiChartModel(
+  entries: PlanFactChartBuildEntry[],
+  branchPoolTasks: GPRTask[],
+  today: Date,
+): PlanFactWorkTypeChartModel {
+  const kpiPool = filterGprTasksForKpiAnalytics(branchPoolTasks);
+
+  const labels: string[] = [];
+  const planRanges: Array<[number, number] | null> = [];
+  const factRanges: Array<[number, number] | null> = [];
+  const planColors: string[] = [];
+  const factColors: string[] = [];
+  const factCompletionLabels: string[] = [];
+  const planCompletionLabels: string[] = [];
+  const rowDetails: PlanFactWorkTypeRowDetail[] = [];
+
+  for (const e of entries) {
+    labels.push(e.label);
+    const insight = computeGprStageCompletionInsight(kpiPool, e.task, today);
+    const planLabel = formatGprStageKpiPlanDisplay(insight.planPercent);
+    const factLabel = formatGprStageKpiFactDisplay(insight);
+
+    planCompletionLabels.push(planLabel === "—" ? "" : planLabel);
+    factCompletionLabels.push(factLabel === "—" ? "" : factLabel);
+
+    const planPct =
+      insight.planPercent === null ? null : clampGprKpiPercentScale(insight.planPercent);
+    const factPct = clampGprKpiPercentScale(insight.factPercent);
+
+    if (planPct != null && planPct > 0) {
+      planRanges.push([0, planPct]);
+      planColors.push(PLAN_BAR);
+    } else {
+      planRanges.push(null);
+      planColors.push(NO_DATE_PLAN);
+    }
+
+    if (!isGprStageFactCompletionNoData(insight) && factPct > 0) {
+      factRanges.push([0, factPct]);
+      factColors.push(planFactBarFactColorByProgressPercent(insight.factPercent));
+    } else if (!isGprStageFactCompletionNoData(insight) && factPct === 0) {
+      factRanges.push([0, 0]);
+      factColors.push(FACT_WEAK);
+    } else {
+      factRanges.push(null);
+      factColors.push(FACT_WEAK);
+    }
+
+    rowDetails.push({
+      planStart: planLabel,
+      planEnd: "",
+      factStart: factLabel,
+      factEnd: null,
+      hasDates: true,
+    });
+
+    if (
+      typeof process !== "undefined" &&
+      process.env.NODE_ENV !== "production" &&
+      normalizeGprCodeFinal(e.task.code) === "2.05"
+    ) {
+      console.info("[PlanFactGprDynamicsChart] row 2.05 simplified KPI sync", {
+        label: e.label,
+        planPercent: planLabel,
+        factPercent: factLabel,
+        planRange: planRanges[planRanges.length - 1],
+        factRange: factRanges[factRanges.length - 1],
+      });
+    }
+  }
+
+  return {
+    labels,
+    planRanges,
+    factRanges,
+    planColors,
+    factColors,
+    factCompletionLabels,
+    planCompletionLabels,
+    rowDetails,
+    originMonth: startOfMonth(today),
+    xMin: 0,
+    xMax: 100,
+    todayX: null,
+    percentScaleMode: true,
+  };
+}
+
 function buildGprPlanFactBarChartModel(
   tasks: GPRTask[],
   todayIso: string,
@@ -985,26 +1101,15 @@ function buildGprPlanFactBarChartModel(
     const hasDates = Boolean(psm != null && pem != null && pem >= psm);
     const label = formatGprPlanFactBarLabel(task.code, task.name);
     entries.push({ task, label, hasDates, ps, pe, fs, fe });
-
-    if (
-      typeof process !== "undefined" &&
-      process.env.NODE_ENV !== "production" &&
-      barLevel === "simplified" &&
-      normalizeGprCodeFinal(task.code) === "2.05"
-    ) {
-      const insight = computeGprStageCompletionInsight(branchPoolTasks, task, today);
-      console.info("[PlanFactGprDynamicsChart] row 2.05 simplified data audit", {
-        label,
-        planStart: ps,
-        planEnd: pe,
-        factStart: fs,
-        factEnd: fe,
-        factPercent: formatGprStageKpiFactDisplay(insight),
-      });
-    }
   }
 
   entries = expandMonolithFloorsForChart(entries, branchPoolTasks, todayIso, barLevel);
+
+  if (barLevel === "simplified") {
+    const simplifiedModel = buildGprPlanFactSimplifiedKpiChartModel(entries, branchPoolTasks, today);
+    assertPlanFactChartModelArraysAligned(simplifiedModel);
+    return simplifiedModel;
+  }
 
   for (const e of entries) {
     if (e.hasDates && e.ps && e.pe) {

@@ -11,6 +11,7 @@ import {
   logPlanFactChartColorDiagnostic,
   planFactGprBarSpanPct,
   planFactGprXAxisMonthTicks,
+  planFactGprXAxisPercentTicks,
   planFactGprXPositionPct,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX,
@@ -67,6 +68,11 @@ function buildStageTooltip(
   const label = model.labels[index] ?? "";
   const d = model.rowDetails[index];
   if (!d) return label;
+  if (model.percentScaleMode) {
+    const planPct = model.planCompletionLabels?.[index]?.trim() || "—";
+    const factPct = model.factCompletionLabels[index]?.trim() || "—";
+    return `${label}\nПлан: ${planPct}\nФакт: ${factPct}`;
+  }
   if (d.hasDates === false) {
     return `${label}\nПлан: нет данных\nФакт: нет данных`;
   }
@@ -96,10 +102,12 @@ function PlanFactGprXAxis({
   model: PlanFactWorkTypeChartModel;
   todayLeftPct: number | null;
 }) {
-  const ticks = useMemo(
-    () => planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax),
-    [model.originMonth, model.xMin, model.xMax],
-  );
+  const ticks = useMemo(() => {
+    if (model.percentScaleMode) {
+      return planFactGprXAxisPercentTicks(model.xMin, model.xMax);
+    }
+    return planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax);
+  }, [model.originMonth, model.percentScaleMode, model.xMin, model.xMax]);
 
   return (
     <div
@@ -136,10 +144,12 @@ function PlanFactGprChartGridOverlay({
   model: PlanFactWorkTypeChartModel;
   todayLeftPct: number | null;
 }) {
-  const ticks = useMemo(
-    () => planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax),
-    [model.originMonth, model.xMin, model.xMax],
-  );
+  const ticks = useMemo(() => {
+    if (model.percentScaleMode) {
+      return planFactGprXAxisPercentTicks(model.xMin, model.xMax);
+    }
+    return planFactGprXAxisMonthTicks(model.originMonth, model.xMin, model.xMax);
+  }, [model.originMonth, model.percentScaleMode, model.xMin, model.xMax]);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
@@ -258,6 +268,10 @@ function PlanFactGprStageGroup({
   const factColor = model.factColors[index] ?? GANTT_FACT_LEGEND_GRAY;
   const factPctRaw = model.factCompletionLabels[index]?.trim() ?? "";
   const factPercent = parseFactPercent(factPctRaw);
+  const planPctRaw = model.percentScaleMode
+    ? (model.planCompletionLabels?.[index]?.trim() ?? "")
+    : "";
+  const planPercentLabel = planPctRaw || null;
   const showFact =
     factPercent != null && (factPercent > 0 || (showZeroFactPercent && factPercent <= 0));
   const displayedFactSpan =
@@ -290,7 +304,12 @@ function PlanFactGprStageGroup({
         <span className="line-clamp-2 w-full break-words">{label}</span>
       </div>
 
-      <PlanFactGprSingleBar span={planSpan} color={planColor} todayLeftPct={todayLeftPct} />
+      <PlanFactGprSingleBar
+        span={planSpan}
+        color={planColor}
+        percentLabel={planPercentLabel}
+        todayLeftPct={todayLeftPct}
+      />
 
       <PlanFactGprSingleBar
         span={displayedFactSpan}

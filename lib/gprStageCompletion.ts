@@ -59,6 +59,12 @@ export function formatGprStageKpiFactDisplay(insight: GprStageCompletionInsight)
   return formatGprStageFactPercentValue(insight.factPercent);
 }
 
+/** Подпись «План выполнения» для KPI и диаграммы «Динамика выполнения ГПР» (режим «Упрощённо»). */
+export function formatGprStageKpiPlanDisplay(planPercent: number | null): string {
+  if (planPercent === null) return "—";
+  return formatGprStageFactPercentValue(planPercent);
+}
+
 export type GprStageCompletionDiagnosticTask = {
   code: string;
   name: string;
