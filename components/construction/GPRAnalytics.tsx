@@ -129,7 +129,8 @@ import {
   computeGprTasksFactCompletionPercent,
   computeGprTasksPlanCompletionPercent,
   formatGprStageKpiFactDisplay,
-  getGprStageWorkItems,
+  getGprKpiWorkItems,
+  filterGprTasksForKpiAnalytics,
   gprStageWorkItemBusinessStatus,
   isGprTaskFactCompleted,
   logGprKpiChartCompletionGapToConsole,
@@ -1671,7 +1672,7 @@ function collectGprWorkItemsForRoots(
   for (const code of rootCodes) {
     const root = findGprCsvRootTask(taskList, code);
     if (!root) continue;
-    items.push(...getGprStageWorkItems(taskList, root));
+    items.push(...getGprKpiWorkItems(taskList, root));
   }
   return items;
 }
@@ -1732,7 +1733,9 @@ function sumProjectWideStageBreakdown(
   const stageRows: ProjectWideStageBreakdownRow[] = [];
 
   for (const { scope, partKey } of partScopes) {
-    const scopedTasks = filterGprTasksByObjectScope(fullTaskList, scope);
+    const scopedTasks = filterGprTasksForKpiAnalytics(
+      filterGprTasksByObjectScope(fullTaskList, scope),
+    );
     if (scopedTasks.length === 0) continue;
     const flat = flattenTasks(scopedTasks);
     const rootCodes = aggregateRootCodesForPart(partKey, flat);
@@ -1907,7 +1910,7 @@ function computePartAggregateCore(
               : "Благоустройство"
             : shortWeightLabelForPart(nameSafe, residentialStageIndex);
     residentialStageIndex += 1;
-    const workItems = getGprStageWorkItems(taskList, t);
+    const workItems = getGprKpiWorkItems(taskList, t);
     pooledTasks.push(...workItems);
     const c = computeGprStageFactCompletionPercent(taskList, t, asOfSafe);
     rows.push({ t, code: codeStr, composeTitle, weightShortLabel, c, planD, workTotal: workItems.length });
@@ -2011,7 +2014,7 @@ function computeGprStageStatusBreakdown(
   asOf: Date,
   stageInsight: ReturnType<typeof computeGprStageCompletionInsight>,
 ) {
-  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const workItems = getGprKpiWorkItems(allTasks, rootTask);
   const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
   const donutCounts = {
     on_time: 0,
@@ -2253,8 +2256,14 @@ export function GPRAnalytics({
     [fullTaskList, activePartScope],
   );
 
-  /** Источник «Распределение статусов» — тот же набор, что и tasksForActivePart. */
-  const statusDistributionTasks = tasksForActivePart;
+  /** KPI-карточки: исходный ГПР без дочерних строк 2.05.04.2.* (этажи монолита). */
+  const tasksForKpiAnalytics = useMemo(
+    () => filterGprTasksForKpiAnalytics(tasksForActivePart),
+    [tasksForActivePart],
+  );
+
+  /** Источник «Распределение статусов» — KPI-набор без этажей монолита. */
+  const statusDistributionTasks = tasksForKpiAnalytics;
 
   /** Корневые шифры агрегата с учётом фактической структуры CSV (2.04/2.05 vs 2.06/2.07). */
   const aggregateRootCodes = useMemo(
@@ -2305,12 +2314,12 @@ export function GPRAnalytics({
   const partProgressAggregate = useMemo(
     () =>
       computePartAggregate(
-        tasksForActivePart,
+        tasksForKpiAnalytics,
         aggregateRootCodes,
         aggregatePartKey,
         gprReportAsOf,
       ),
-    [tasksForActivePart, aggregateRootCodes, aggregatePartKey, gprReportAsOf],
+    [tasksForKpiAnalytics, aggregateRootCodes, aggregatePartKey, gprReportAsOf],
   );
 
   /** Сводная карточка «Проект»: все части (ЖД + автостоянка), корни 2.04–2.07. */
@@ -2318,23 +2327,27 @@ export function GPRAnalytics({
     () => filterGprTasksByObjectScope(fullTaskList, "project"),
     [fullTaskList],
   );
+  const tasksForProjectKpiAnalytics = useMemo(
+    () => filterGprTasksForKpiAnalytics(tasksForProjectAggregate),
+    [tasksForProjectAggregate],
+  );
   const projectProgressAggregate = useMemo(
     () =>
       computePartAggregate(
-        tasksForProjectAggregate,
+        tasksForProjectKpiAnalytics,
         AGGREGATE_ROOT_CODES_PROJECT,
         "project",
         gprReportAsOf,
       ),
-    [tasksForProjectAggregate, gprReportAsOf],
+    [tasksForProjectKpiAnalytics, gprReportAsOf],
   );
   const projectOrderedStageRoots = useMemo(
     () => resolveStageCardRootTasks(tasksForProjectAggregate, AGGREGATE_ROOT_CODES_PROJECT),
     [tasksForProjectAggregate],
   );
   const projectFlatTasks = useMemo(
-    () => flattenTasks(tasksForProjectAggregate),
-    [tasksForProjectAggregate],
+    () => flattenTasks(tasksForProjectKpiAnalytics),
+    [tasksForProjectKpiAnalytics],
   );
 
   const orderedStageRoots = useMemo(
@@ -2360,10 +2373,10 @@ export function GPRAnalytics({
     return allTmc.filter((x) => x.projectPart === activeProjectPart);
   }, [isProjectWide, activeProjectPart, allTmc]);
   const metrics = useMemo(
-    () => getProjectStats(tasksForActivePart, gprReportAsOf),
-    [tasksForActivePart, gprReportAsOf],
+    () => getProjectStats(tasksForKpiAnalytics, gprReportAsOf),
+    [tasksForKpiAnalytics, gprReportAsOf],
   );
-  const flatTasks = flattenTasks(tasksForActivePart);
+  const flatTasks = flattenTasks(tasksForKpiAnalytics);
 
   const stageDeviationGroupCards = useMemo(() => {
     const allowedGroupKeys = filterGprPresentationStageDeviationGroupKeys(
@@ -2428,9 +2441,11 @@ export function GPRAnalytics({
 
   /** Всего этапов ГПР объекта «Жилой дом» (сумма workTotal по корневым этапам 2.04 / 2.05). */
   const residentialZhDomGprStageTotal = useMemo(() => {
-    const residentialTasks = filterGprTasksByObjectScope(
-      fullTaskList.length > 0 ? fullTaskList : tasks,
-      PROJECT_PART_KEY_TO_ID.residential,
+    const residentialTasks = filterGprTasksForKpiAnalytics(
+      filterGprTasksByObjectScope(
+        fullTaskList.length > 0 ? fullTaskList : tasks,
+        PROJECT_PART_KEY_TO_ID.residential,
+      ),
     );
     if (residentialTasks.length === 0) return 0;
     const residentialFlat = flattenTasks(residentialTasks);
@@ -2450,9 +2465,11 @@ export function GPRAnalytics({
    * как уже сделано для жилого дома через residentialZhDomGprStageTotal.
    */
   const parkingAvtoGprStageTotal = useMemo(() => {
-    const parkingTasks = filterGprTasksByObjectScope(
-      fullTaskList.length > 0 ? fullTaskList : tasks,
-      PROJECT_PART_KEY_TO_ID.parking,
+    const parkingTasks = filterGprTasksForKpiAnalytics(
+      filterGprTasksByObjectScope(
+        fullTaskList.length > 0 ? fullTaskList : tasks,
+        PROJECT_PART_KEY_TO_ID.parking,
+      ),
     );
     if (parkingTasks.length === 0) return 0;
     const parkingFlat = flattenTasks(parkingTasks);
@@ -2875,7 +2892,7 @@ export function GPRAnalytics({
         parentFactPercent: monolith.parentFactPercent,
         floorsAt100: chartOnlyRows?.length ?? 0,
         note:
-          "Строки «N этаж» на диаграмме — синтетическое разбиение одной работы 2.05.04.2; KPI считает листья WBS.",
+          "Строки «N этаж» на диаграмме — синтетическое разбиение одной работы 2.05.04.2; KPI считает монолит одной работой без этажей.",
       });
     }
   }, [kpiChartCompletionGapDiagnostic, planFactFlatTasks, gprReportYmd]);
@@ -2919,11 +2936,11 @@ export function GPRAnalytics({
 
   const projectTrafficForAggregateCard = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-    for (const t of tasksForProjectAggregate) {
+    for (const t of tasksForProjectKpiAnalytics) {
       counts[trafficStatusForTask(t, gprReportAsOf).status] += 1;
     }
     return counts;
-  }, [tasksForProjectAggregate, gprReportAsOf]);
+  }, [tasksForProjectKpiAnalytics, gprReportAsOf]);
 
   const projectAggregateCardStatus = useMemo(
     () => aggregateProgressStatusFromDistribution(projectTrafficForAggregateCard),
@@ -3367,11 +3384,12 @@ export function GPRAnalytics({
   }, [fullTaskList, gprReportAsOf]);
 
   const aggregatePlannedPercent = useMemo<number | null>(() => {
-    const residentialTasks = filterGprTasksByObjectScope(
-      fullTaskList,
-      PROJECT_PART_KEY_TO_ID.residential,
+    const residentialTasks = filterGprTasksForKpiAnalytics(
+      filterGprTasksByObjectScope(fullTaskList, PROJECT_PART_KEY_TO_ID.residential),
     );
-    const parkingTasks = filterGprTasksByObjectScope(fullTaskList, PROJECT_PART_KEY_TO_ID.parking);
+    const parkingTasks = filterGprTasksForKpiAnalytics(
+      filterGprTasksByObjectScope(fullTaskList, PROJECT_PART_KEY_TO_ID.parking),
+    );
     const pooled = [
       ...collectGprWorkItemsForRoots(
         residentialTasks,

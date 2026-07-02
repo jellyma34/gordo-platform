@@ -117,6 +117,64 @@ function isLeafAmong(task: GPRTask, group: GPRTask[]): boolean {
   });
 }
 
+/** Шифр «Монолитные конструкции» — в KPI одна работа; разбиение на этажи только на диаграмме. */
+export const GPR_MONOLITH_KPI_STAGE_CODE = "2.05.04.2";
+
+export function isGprMonolithKpiStageCode(code: string | null | undefined): boolean {
+  return normalizeGprCodeFinal(code ?? "") === GPR_MONOLITH_KPI_STAGE_CODE;
+}
+
+export function findGprMonolithStageTask(allTasks: GPRTask[]): GPRTask | null {
+  return allTasks.find((t) => isGprMonolithKpiStageCode(t.code)) ?? null;
+}
+
+function isUnderMonolithKpiBranch(code: string, monolithCode: string): boolean {
+  const c = normalizeGprCodeFinal(code);
+  const root = normalizeGprCodeFinal(monolithCode);
+  if (!root) return false;
+  return c === root || c.startsWith(`${root}.`);
+}
+
+/**
+ * KPI: если в наборе работ несколько строк ветки 2.05.04.2 (этажи WBS),
+ * считаем одной работой «Монолитные конструкции», как в исходном CSV.
+ */
+export function collapseMonolithBranchForKpi(allTasks: GPRTask[], workItems: GPRTask[]): GPRTask[] {
+  const monolith = findGprMonolithStageTask(allTasks);
+  if (!monolith) return workItems;
+
+  const root = normalizeGprCodeFinal(monolith.code);
+  const branchItems = workItems.filter((t) => isUnderMonolithKpiBranch(t.code, root));
+  if (branchItems.length <= 1) return workItems;
+
+  const withoutBranch = workItems.filter((t) => !isUnderMonolithKpiBranch(t.code, root));
+  if (!withoutBranch.some((t) => normalizeGprCodeFinal(t.code) === root)) {
+    withoutBranch.push(monolith);
+  }
+  return withoutBranch;
+}
+
+/**
+ * Плоский список задач для KPI: убирает дочерние строки 2.05.04.2.*,
+ * оставляя родителя «Монолитные конструкции».
+ */
+export function filterGprTasksForKpiAnalytics(tasks: GPRTask[]): GPRTask[] {
+  const monolith = findGprMonolithStageTask(tasks);
+  if (!monolith) return tasks;
+
+  const root = normalizeGprCodeFinal(monolith.code);
+  const hasBranchChildren = tasks.some((t) => {
+    const c = normalizeGprCodeFinal(t.code);
+    return c.startsWith(`${root}.`) && c !== root;
+  });
+  if (!hasBranchChildren) return tasks;
+
+  return tasks.filter((t) => {
+    const c = normalizeGprCodeFinal(t.code);
+    return !c.startsWith(`${root}.`) || c === root;
+  });
+}
+
 export function isGprTaskProgressPercent100(task: GPRTask, asOf: Date = new Date()): boolean {
   if (gprTaskFactCompletionPercent(task) >= 100) return true;
   if (getCalendarFactProgressPercent(task, asOf) >= 100) return true;
@@ -200,7 +258,7 @@ export function buildGprStage205BusinessKpiConsistency(
   asOf: Date = new Date(),
 ): GprStage205BusinessKpiConsistency {
   const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
-  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const workItems = getGprKpiWorkItems(allTasks, rootTask);
   const insight = computeGprStageCompletionInsight(allTasks, rootTask, asOf);
 
   const rows: GprStage205BusinessKpiConsistencyRow[] = workItems.map((task) => {
@@ -414,33 +472,31 @@ function buildTooltip(
 }
 
 /**
- * Факт выполнения этапа ГПР: среднее календарных % по дочерним/листовым работам, иначе по корню.
- * Единая модель для карточек этапов, «Выполнение ГПР» и графиков «Факт ГПР».
+ * Факт выполнения этапа ГПР для KPI и rollup: без разбиения монолита на этажи.
+ * Диаграмма «Динамика выполнения ГПР» использует отдельное визуальное разбиение 2.05.04.2.
  */
 export function computeGprStageCompletionInsight(
   allTasks: GPRTask[],
   rootTask: GPRTask,
   asOf: Date = new Date(),
 ): GprStageCompletionInsight {
-  const descendants = tasksUnderRootCode(allTasks, rootTask.code);
-  const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+  const statsSet = getGprKpiWorkItems(allTasks, rootTask);
+  const rawSet = getGprStageWorkItems(allTasks, rootTask);
 
   let source: GprStageCompletionSource;
-  let statsSet: GPRTask[];
-
-  if (leaves.length > 0) {
+  if (statsSet.length !== rawSet.length && findGprMonolithStageTask(allTasks)) {
     source = "leaf_rollup";
-    statsSet = leaves;
-  } else if (descendants.length > 0) {
-    source = "descendant_rollup";
-    statsSet = descendants;
   } else {
-    source = "root_field";
-    statsSet = [rootTask];
+    const descendants = tasksUnderRootCode(allTasks, rootTask.code);
+    const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
+    if (leaves.length > 0) source = "leaf_rollup";
+    else if (descendants.length > 0) source = "descendant_rollup";
+    else source = "root_field";
   }
 
   const factPercent =
-    computeGprTasksFactCompletionPercent(statsSet, asOf) ?? getCalendarFactProgressPercent(rootTask, asOf);
+    computeGprTasksFactCompletionPercent(statsSet, asOf) ??
+    getCalendarFactProgressPercent(rootTask, asOf);
   const planPercent = computeGprTasksPlanCompletionPercent(statsSet, asOf);
   const stats = countWorkStats(statsSet, asOf);
   const partial = {
@@ -455,7 +511,7 @@ export function computeGprStageCompletionInsight(
   };
 }
 
-/** Набор работ этапа — тот же, что для rollup % и счётчиков выполнения. */
+/** Набор работ этапа по WBS (листья) — для диагностики и сравнения с диаграммой. */
 export function getGprStageWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GPRTask[] {
   const descendants = tasksUnderRootCode(allTasks, rootTask.code);
   const leaves = descendants.filter((t) => isLeafAmong(t, descendants));
@@ -464,13 +520,18 @@ export function getGprStageWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GP
   return [rootTask];
 }
 
+/** Набор работ для KPI-карточек: монолит 2.05.04.2 — одна работа, без этажей WBS. */
+export function getGprKpiWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GPRTask[] {
+  return collapseMonolithBranchForKpi(allTasks, getGprStageWorkItems(allTasks, rootTask));
+}
+
 /** Диагностика расчёта готовности этапа: счётчики и список задач с наступившим плановым окончанием. */
 export function buildGprStageCompletionDiagnostic(
   allTasks: GPRTask[],
   rootTask: GPRTask,
   asOf: Date = new Date(),
 ): GprStageCompletionDiagnostic {
-  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const workItems = getGprKpiWorkItems(allTasks, rootTask);
   const completedItems = workItems.filter((t) => isGprTaskFactCompleted(t, asOf));
   const plannedCompleteItems = workItems.filter((t) => isGprTaskPlanCompleteByDate(t, asOf));
 
@@ -512,7 +573,7 @@ export function buildGprStage205KpiDiagnostic(
   const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
   const allRows = allTasks.filter((t) => matchesGprCodeBranch(t.code, rootCode));
   const leafRows = allRows.filter((t) => isLeafAmong(t, allRows));
-  const rowsUsedInKpi = getGprStageWorkItems(allTasks, rootTask);
+  const rowsUsedInKpi = getGprKpiWorkItems(allTasks, rootTask);
   const completedItems = rowsUsedInKpi.filter((t) => isGprTaskFactCompleted(t, asOf));
 
   const descendants = tasksUnderRootCode(allTasks, rootTask.code);
@@ -560,7 +621,7 @@ export function filterPlanFactChartLabelsForBranch(labels: string[], rootCode: s
 
 /**
  * Диагностика KPI этапа 2.05 в консоль: источник «N из M», сравнение с диаграммой.
- * `totalTasks` — листья WBS ветки 2.05 (`getGprStageWorkItems`).
+ * `totalTasks` — работы этапа для KPI (`getGprKpiWorkItems`, без этажей монолита).
  */
 export function logGprStage205KpiToConsole(
   allTasks: GPRTask[],
@@ -571,7 +632,7 @@ export function logGprStage205KpiToConsole(
   if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
 
   const diagnostic = buildGprStage205KpiDiagnostic(allTasks, rootTask, asOf);
-  const totalTasks = getGprStageWorkItems(allTasks, rootTask);
+  const totalTasks = getGprKpiWorkItems(allTasks, rootTask);
   const completedTasks = totalTasks.filter((t) => isGprTaskFactCompleted(t, asOf));
 
   console.group("2.05 KPI");
@@ -580,7 +641,7 @@ export function logGprStage205KpiToConsole(
   console.log(
     "source",
     diagnostic.source,
-    "— знаменатель «из N» = листья WBS этапа (getGprStageWorkItems)",
+    "— знаменатель «из N» = работы этапа для KPI (getGprKpiWorkItems, монолит без этажей)",
   );
   console.log("allRowsUnder205 (вся ветка WBS, включая родителей)", diagnostic.allRowsUnder205);
   console.log("leafRowsUnder205 (листья в ветке, без фильтра этапа)", diagnostic.leafRowsUnder205);
@@ -712,7 +773,7 @@ export function buildGprKpiChartCompletionGapDiagnostic(
   asOf: Date = new Date(),
 ): GprKpiChartCompletionGapDiagnostic {
   const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
-  const workItems = getGprStageWorkItems(allTasks, rootTask);
+  const workItems = getGprKpiWorkItems(allTasks, rootTask);
   const rows: GprKpiChartCompletionGapRow[] = workItems.map((t) => {
     const kpiCompleted = isGprTaskFactCompleted(t, asOf);
     const progressPercent100 = isGprTaskProgressPercent100(t, asOf);
