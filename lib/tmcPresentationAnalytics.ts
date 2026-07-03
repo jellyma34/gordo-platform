@@ -2239,10 +2239,19 @@ export type TmcMaterialCostDynamicsRow = {
   deviationKindLabel: string;
 };
 
+/** Категории оси X графика «Динамика стоимости единицы ТМЦ» — только наименования материалов. */
+export function buildTmcMaterialCostDynamicsCategories(
+  rows: TmcMaterialCostDynamicsRow[],
+): string[] {
+  return rows.map((row) => row.name);
+}
+
 /**
- * План/факт цены за единицу по уникальному наименованию ТМЦ.
- * Несколько строк CSV с одним материалом → один столбец;
+ * План/факт цены за единицу по наименованию ТМЦ (поле «Наименование» из CSV).
+ * Порядок столбцов = порядок первого появления материала в нормализованном списке items (как в CSV).
+ * Несколько строк CSV с одним наименованием → один столбец;
  * цена = средневзвешенная по объёму: Σ(price × qty) / Σ(qty).
+ * Этапы ГПР, коды и виды работ не используются.
  */
 export function computeTmcMaterialCostDynamics(
   items: TMCItem[],
@@ -2263,9 +2272,14 @@ export function computeTmcMaterialCostDynamics(
       weightedFactPrice: number;
     }
   >();
+  /** Порядок категорий оси X — первое появление наименования при обходе items (порядок CSV). */
+  const nameOrder: string[] = [];
 
   for (const item of items) {
     const name = item.name.trim() || "Без наименования";
+    if (!buckets.has(name)) {
+      nameOrder.push(name);
+    }
     const cur = buckets.get(name) ?? {
       volumePlan: 0,
       volumeFact: 0,
@@ -2297,8 +2311,11 @@ export function computeTmcMaterialCostDynamics(
     buckets.set(name, cur);
   }
 
-  const rows = [...buckets.entries()]
-    .map(([name, v]) => {
+  const rows = nameOrder
+    .map((name) => {
+      const v = buckets.get(name);
+      if (!v) return null;
+
       const planUnitPrice = weightedAvgUnitPrice(
         v.weightedPlanPrice,
         v.volumePlan,
@@ -2339,7 +2356,8 @@ export function computeTmcMaterialCostDynamics(
         deviationKindLabel,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    .filter((row): row is TmcMaterialCostDynamicsRow => row != null)
+    .filter((row) => row.planUnitPrice > 0 || row.factUnitPrice > 0);
 
   const limited =
     limit != null && limit > 0 && rows.length > limit ? rows.slice(0, limit) : rows;

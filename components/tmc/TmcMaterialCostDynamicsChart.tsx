@@ -14,10 +14,11 @@ import {
 import { AnalyticsLegendItem, AnalyticsLegendList } from "@/components/construction/AnalyticsLegendItem";
 import { createTmcMaterialXAxisTick } from "@/components/tmc/TmcMaterialXAxisTick";
 import { TmcMaterialPriceIndexLineChartView } from "@/components/tmc/TmcMaterialPriceIndexChart";
-import type {
-  TmcMaterialCostDynamicsMode,
-  TmcMaterialCostDynamicsRow,
-  TmcMaterialPriceIndexLineDataset,
+import {
+  buildTmcMaterialCostDynamicsCategories,
+  type TmcMaterialCostDynamicsMode,
+  type TmcMaterialCostDynamicsRow,
+  type TmcMaterialPriceIndexLineDataset,
 } from "@/lib/tmcPresentationAnalytics";
 import { tmcMaterialAxisLineCount } from "@/lib/tmcMaterialAxisLabels";
 
@@ -73,6 +74,13 @@ function priceRub(value: number): string {
   const formatted = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded);
   if (rounded < 0) return `−${formatted} ₽`;
   return `${formatted} ₽`;
+}
+
+/** Угол подписей оси X: 0° при малом числе категорий, иначе 45° или 60°. */
+function resolveMaterialCostXTickAngle(categoryCount: number): number {
+  if (categoryCount <= 6) return 0;
+  if (categoryCount <= 12) return -45;
+  return -60;
 }
 
 function formatBarTopLabel(value: unknown): string {
@@ -328,19 +336,22 @@ function TmcMaterialCostTooltip({
 }
 
 function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamicsRow[] }) {
+  const categories = useMemo(() => buildTmcMaterialCostDynamicsCategories(rows), [rows]);
+
   const chartData = useMemo<ChartRow[]>(
     () =>
-      rows.map((row) => ({
+      rows.map((row, index) => ({
         ...row,
-        label: row.name,
+        label: categories[index] ?? row.name,
         plan: roundPriceRub(row.planUnitPrice),
-        fact: roundPriceRub(row.factUnitPrice),
+        fact:
+          row.factUnitPrice > 0 ? roundPriceRub(row.factUnitPrice) : 0,
       })),
-    [rows],
+    [rows, categories],
   );
 
-  const xTickAngle = chartData.length > 6 ? -32 : 0;
-  const xTickAnchor = chartData.length > 6 ? ("end" as const) : ("middle" as const);
+  const xTickAngle = resolveMaterialCostXTickAngle(chartData.length);
+  const xTickAnchor = xTickAngle !== 0 ? ("end" as const) : ("middle" as const);
   const materialXTick = useMemo(
     () =>
       createTmcMaterialXAxisTick({
@@ -364,6 +375,8 @@ function TmcMaterialCostByMaterialView({ rows }: { rows: TmcMaterialCostDynamics
       1,
     );
     const angled = chartData.length > 6;
+    const steep = chartData.length > 12;
+    if (steep) return maxLines > 1 ? 104 : 92;
     if (angled) return maxLines > 1 ? 88 : 72;
     return maxLines > 1 ? 56 : 40;
   }, [chartData]);
