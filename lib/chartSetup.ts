@@ -2,7 +2,7 @@ import { Chart as ChartJS, type Plugin } from "chart.js/auto";
 
 export const gprForecastTodayPlugin: Plugin = {
   id: "gprForecastToday",
-  afterDatasetsDraw(chart) {
+  beforeDatasetsDraw(chart) {
     const plugins = chart.options.plugins as
       | { gprForecastToday?: { todayMs?: number } | boolean }
       | undefined;
@@ -14,23 +14,18 @@ export const gprForecastTodayPlugin: Plugin = {
     const { ctx, chartArea } = chart;
     const xScale = chart.scales.x;
     const x = xScale.getPixelForValue(todayMs);
-    if (x < chartArea.left || x > chartArea.right) return;
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
 
+    const xi = Math.round(x) + 0.5;
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(x, chartArea.top);
-    ctx.lineTo(x, chartArea.bottom);
+    ctx.moveTo(xi, chartArea.top);
+    ctx.lineTo(xi, chartArea.bottom);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    ctx.font = "600 12px system-ui, sans-serif";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText("Сегодня", x, chartArea.top - 2);
     ctx.restore();
   },
 };

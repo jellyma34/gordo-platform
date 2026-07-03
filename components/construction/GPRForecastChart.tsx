@@ -26,6 +26,11 @@ const endDateFmt = new Intl.DateTimeFormat("ru-RU", {
   month: "short",
   year: "numeric",
 });
+const todayBadgeDateFmt = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
 
 function formatDateLong(ms: number): string {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -65,16 +70,19 @@ const FORECAST_BADGE_BORDER = "rgba(249, 115, 22, 0.9)";
 const FORECAST_BADGE_SHADOW = "0 6px 18px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(2, 6, 23, 0.4)";
 const PLAN_BADGE_BORDER = "rgba(226, 232, 240, 0.92)";
 const PLAN_BADGE_SHADOW = "0 6px 18px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(148, 163, 184, 0.25)";
+const TODAY_BADGE_BORDER = "rgba(226, 232, 240, 0.92)";
+const TODAY_BADGE_SHADOW = PLAN_BADGE_SHADOW;
 
 const FORECAST_BADGE_GAP_PX = 16;
-/** Воздух между нижней границей бейджа плана и верхней границей plotArea (12–16 px). */
-const PLAN_BADGE_AIR_GAP_PX = 14;
+/** Воздух между нижней границей верхнего бейджа и верхней границей plotArea (12–16 px). */
+const TOP_ANNOTATION_AIR_GAP_PX = 14;
 const CHART_TOP_PADDING_MIN_PX = 38;
 const BADGE_SAFETY_PX = 8;
 const BADGE_PAIR_PAD_PX = 6;
 const PLAN_LEADER_WIDTH_PX = 1;
 const BADGE_FALLBACK_WIDTH_PX = 170;
 const BADGE_FALLBACK_HEIGHT_PX = 28;
+const TODAY_BADGE_FALLBACK_HEIGHT_PX = 40;
 
 type BadgeSide = "right" | "above" | "left" | "below";
 
@@ -87,11 +95,15 @@ type ForecastBadgeLayout = {
   gap: number;
 };
 
-/** Плановый бейдж: X — конечная дата, Y — от верхней границы plotArea. */
-type PlanBadgeLayout = {
+/** Верхний бейдж: X — дата на оси, Y — от верхней границы plotArea. */
+type TopAnnotationBadgeLayout = {
   centerX: number;
   top: number;
   badgeBottom: number;
+};
+
+/** Плановый бейдж с leader line к конечной точке линии. */
+type PlanBadgeLayout = TopAnnotationBadgeLayout & {
   leaderEndX: number;
   leaderEndY: number;
 };
@@ -99,6 +111,7 @@ type PlanBadgeLayout = {
 type OverlayLayouts = {
   forecast: ForecastBadgeLayout | null;
   plan: PlanBadgeLayout | null;
+  today: TopAnnotationBadgeLayout | null;
 };
 
 function badgeTransform(side: BadgeSide, gap: number, offsetX: number, offsetY: number): string {
@@ -136,8 +149,8 @@ function forecastBadgeBoundingRect(
   }
 }
 
-function planBadgeBoundingRect(
-  layout: PlanBadgeLayout,
+function topAnnotationBadgeBoundingRect(
+  layout: TopAnnotationBadgeLayout,
   width: number,
   height: number,
 ): { left: number; top: number; right: number; bottom: number } {
@@ -147,6 +160,14 @@ function planBadgeBoundingRect(
     right: layout.centerX + width / 2,
     bottom: layout.top + height,
   };
+}
+
+function planBadgeBoundingRect(
+  layout: PlanBadgeLayout,
+  width: number,
+  height: number,
+): { left: number; top: number; right: number; bottom: number } {
+  return topAnnotationBadgeBoundingRect(layout, width, height);
 }
 
 function rectsOverlap(
@@ -222,11 +243,63 @@ function resolveForecastBadgeLayout(
   );
 }
 
-function computePlanBadgeTopPadding(badgeHeight: number): number {
+function computeTopAnnotationTopPadding(badgeHeight: number): number {
   return Math.max(
     CHART_TOP_PADDING_MIN_PX,
-    badgeHeight + PLAN_BADGE_AIR_GAP_PX + BADGE_SAFETY_PX,
+    badgeHeight + TOP_ANNOTATION_AIR_GAP_PX + BADGE_SAFETY_PX,
   );
+}
+
+function isTimestampInAxisRange(timestampMs: number, model: GprTimeForecastModel): boolean {
+  return timestampMs >= model.axisMinMs && timestampMs <= model.axisMaxMs;
+}
+
+function getTodayLineCanvasX(chart: ChartJS, todayMs: number): number | null {
+  const xScale = chart.scales.x;
+  if (!xScale) return null;
+  const canvasX = xScale.getPixelForValue(todayMs);
+  if (!Number.isFinite(canvasX)) return null;
+  if (canvasX < chart.chartArea.left || canvasX > chart.chartArea.right) return null;
+  return canvasX;
+}
+
+function computeTopAnnotationBadgeLayout(
+  chart: ChartJS,
+  wrap: HTMLElement,
+  timestampMs: number,
+  badgeHeight: number,
+): TopAnnotationBadgeLayout | null {
+  const canvasX = getTodayLineCanvasX(chart, timestampMs);
+  if (canvasX == null) return null;
+
+  const centerX = canvasPointToWrap(chart, wrap, canvasX, chart.chartArea.top).left;
+  const plotTop = canvasPointToWrap(chart, wrap, chart.chartArea.left, chart.chartArea.top).top;
+  const badgeBottom = plotTop - TOP_ANNOTATION_AIR_GAP_PX;
+  const top = badgeBottom - badgeHeight;
+
+  return { centerX, top, badgeBottom };
+}
+
+function separateStackedTopBadges(
+  todayLayout: TopAnnotationBadgeLayout | null,
+  planLayout: PlanBadgeLayout | null,
+  todaySize: { w: number; h: number },
+  planSize: { w: number; h: number },
+): { today: TopAnnotationBadgeLayout | null; plan: PlanBadgeLayout | null } {
+  if (!todayLayout || !planLayout) return { today: todayLayout, plan: planLayout };
+
+  const todayRect = topAnnotationBadgeBoundingRect(todayLayout, todaySize.w, todaySize.h);
+  const planRect = planBadgeBoundingRect(planLayout, planSize.w, planSize.h);
+  if (!rectsOverlap(todayRect, planRect, BADGE_PAIR_PAD_PX)) {
+    return { today: todayLayout, plan: planLayout };
+  }
+
+  const liftedPlan: PlanBadgeLayout = {
+    ...planLayout,
+    top: todayLayout.top - planSize.h - BADGE_PAIR_PAD_PX,
+    badgeBottom: todayLayout.top - BADGE_PAIR_PAD_PX,
+  };
+  return { today: todayLayout, plan: liftedPlan };
 }
 
 function canvasPointToWrap(
@@ -257,12 +330,12 @@ function computePlanBadgeLayout(
 
   const planPoint = canvasPointToWrap(chart, wrap, last.x, last.y);
   const plotTop = canvasPointToWrap(chart, wrap, chart.chartArea.left, chart.chartArea.top).top;
-  const badgeBottom = plotTop - PLAN_BADGE_AIR_GAP_PX;
-  const badgeTop = badgeBottom - badgeHeight;
+  const badgeBottom = plotTop - TOP_ANNOTATION_AIR_GAP_PX;
+  const top = badgeBottom - badgeHeight;
 
   return {
     centerX: planPoint.left,
-    top: badgeTop,
+    top,
     badgeBottom,
     leaderEndX: planPoint.left,
     leaderEndY: planPoint.top,
@@ -289,7 +362,14 @@ function overlayLayoutsEqual(a: OverlayLayouts, b: OverlayLayouts): boolean {
       x.badgeBottom === y.badgeBottom &&
       x.leaderEndX === y.leaderEndX &&
       x.leaderEndY === y.leaderEndY);
-  return sameForecast(a.forecast, b.forecast) && samePlan(a.plan, b.plan);
+  const sameToday = (x: TopAnnotationBadgeLayout | null, y: TopAnnotationBadgeLayout | null) =>
+    x === y ||
+    (x != null &&
+      y != null &&
+      x.centerX === y.centerX &&
+      x.top === y.top &&
+      x.badgeBottom === y.badgeBottom);
+  return sameForecast(a.forecast, b.forecast) && samePlan(a.plan, b.plan) && sameToday(a.today, b.today);
 }
 
 export function GPRForecastChart({
@@ -314,7 +394,12 @@ export function GPRForecastChart({
   const chartRef = useRef<ChartJS<"line"> | null>(null);
   const forecastBadgeRef = useRef<HTMLDivElement>(null);
   const planBadgeRef = useRef<HTMLDivElement>(null);
-  const [overlayLayouts, setOverlayLayouts] = useState<OverlayLayouts>({ forecast: null, plan: null });
+  const todayBadgeRef = useRef<HTMLDivElement>(null);
+  const [overlayLayouts, setOverlayLayouts] = useState<OverlayLayouts>({
+    forecast: null,
+    plan: null,
+    today: null,
+  });
   const [chartTopPadding, setChartTopPadding] = useState(CHART_TOP_PADDING_MIN_PX);
 
   const planSeriesForChart = useMemo(
@@ -324,12 +409,13 @@ export function GPRForecastChart({
 
   const planEndMs = planSeriesForChart.length > 0 ? planSeriesForChart[planSeriesForChart.length - 1]!.x : null;
   const showPlanBadge = planEndMs != null && planSeriesForChart.length > 0;
+  const showTodayMarker = model != null && isTimestampInAxisRange(model.todayMs, model);
 
   const updateOverlays = useCallback(() => {
     const wrap = chartWrapRef.current;
     const chart = chartRef.current;
     if (!wrap || !chart?.canvas || !model) {
-      setOverlayLayouts({ forecast: null, plan: null });
+      setOverlayLayouts({ forecast: null, plan: null, today: null });
       return;
     }
 
@@ -341,9 +427,18 @@ export function GPRForecastChart({
     const forecastH = forecastBadgeRef.current?.offsetHeight ?? 0;
     const planW = planBadgeRef.current?.offsetWidth ?? 0;
     const planH = planBadgeRef.current?.offsetHeight ?? 0;
+    const todayW = todayBadgeRef.current?.offsetWidth ?? 0;
+    const todayH = todayBadgeRef.current?.offsetHeight ?? 0;
 
     const planBadgeH = showPlanBadge ? (planH > 0 ? planH : BADGE_FALLBACK_HEIGHT_PX) : 0;
-    const requiredTopPadding = showPlanBadge ? computePlanBadgeTopPadding(planBadgeH) : CHART_TOP_PADDING_MIN_PX;
+    const todayBadgeH = showTodayMarker ? (todayH > 0 ? todayH : TODAY_BADGE_FALLBACK_HEIGHT_PX) : 0;
+    const requiredTopPadding = Math.max(
+      showPlanBadge ? computeTopAnnotationTopPadding(planBadgeH) : CHART_TOP_PADDING_MIN_PX,
+      showTodayMarker ? computeTopAnnotationTopPadding(todayBadgeH) : CHART_TOP_PADDING_MIN_PX,
+      showPlanBadge && showTodayMarker
+        ? computeTopAnnotationTopPadding(planBadgeH + todayBadgeH + BADGE_PAIR_PAD_PX)
+        : CHART_TOP_PADDING_MIN_PX,
+    );
 
     if (requiredTopPadding !== chartTopPadding) {
       setChartTopPadding(requiredTopPadding);
@@ -360,22 +455,57 @@ export function GPRForecastChart({
       return canvasPointToWrap(chart, wrap, last.x, last.y);
     };
 
-    const planLayout = showPlanBadge ? computePlanBadgeLayout(chart, wrap, planBadgeH) : null;
+    let planLayout = showPlanBadge ? computePlanBadgeLayout(chart, wrap, planBadgeH) : null;
+    let todayLayout =
+      showTodayMarker && getTodayLineCanvasX(chart, model.todayMs) != null
+        ? computeTopAnnotationBadgeLayout(chart, wrap, model.todayMs, todayBadgeH)
+        : null;
 
     if (planLayout && planLayout.top < BADGE_SAFETY_PX) {
       const extraTopPadding =
-        chartTopPadding + (BADGE_SAFETY_PX - planLayout.top) + PLAN_BADGE_AIR_GAP_PX;
+        chartTopPadding + (BADGE_SAFETY_PX - planLayout.top) + TOP_ANNOTATION_AIR_GAP_PX;
       if (extraTopPadding > chartTopPadding) {
         setChartTopPadding(extraTopPadding);
         return;
       }
     }
 
+    if (todayLayout && todayLayout.top < BADGE_SAFETY_PX) {
+      const extraTopPadding =
+        chartTopPadding + (BADGE_SAFETY_PX - todayLayout.top) + TOP_ANNOTATION_AIR_GAP_PX;
+      if (extraTopPadding > chartTopPadding) {
+        setChartTopPadding(extraTopPadding);
+        return;
+      }
+    }
+
+    const stacked = separateStackedTopBadges(
+      todayLayout,
+      planLayout,
+      {
+        w: todayW > 0 ? todayW : BADGE_FALLBACK_WIDTH_PX,
+        h: todayBadgeH,
+      },
+      {
+        w: planW > 0 ? planW : BADGE_FALLBACK_WIDTH_PX,
+        h: planBadgeH,
+      },
+    );
+    todayLayout = stacked.today;
+    planLayout = stacked.plan;
+
     const planRect =
       planLayout && planW > 0
         ? planBadgeBoundingRect(planLayout, planW, planBadgeH)
         : planLayout
           ? planBadgeBoundingRect(planLayout, BADGE_FALLBACK_WIDTH_PX, planBadgeH)
+          : null;
+
+    const todayRect =
+      todayLayout && todayW > 0
+        ? topAnnotationBadgeBoundingRect(todayLayout, todayW, todayBadgeH)
+        : todayLayout
+          ? topAnnotationBadgeBoundingRect(todayLayout, BADGE_FALLBACK_WIDTH_PX, todayBadgeH)
           : null;
 
     const forecastAnchor = getForecastAnchor();
@@ -388,13 +518,13 @@ export function GPRForecastChart({
           },
           wrap.clientWidth,
           wrap.clientHeight,
-          planRect,
+          planRect ?? todayRect,
         )
       : null;
 
-    const next: OverlayLayouts = { forecast: forecastLayout, plan: planLayout };
+    const next: OverlayLayouts = { forecast: forecastLayout, plan: planLayout, today: todayLayout };
     setOverlayLayouts((prev) => (overlayLayoutsEqual(prev, next) ? prev : next));
-  }, [model, planSeriesForChart, showPlanBadge, chartTopPadding]);
+  }, [model, planSeriesForChart, showPlanBadge, showTodayMarker, chartTopPadding]);
 
   const updateOverlaysRef = useRef(updateOverlays);
   updateOverlaysRef.current = updateOverlays;
@@ -412,10 +542,11 @@ export function GPRForecastChart({
   }, [model, planSeriesForChart, chartTopPadding]);
 
   useLayoutEffect(() => {
-    if (!overlayLayouts.forecast && !overlayLayouts.plan) return;
+    if (!overlayLayouts.forecast && !overlayLayouts.plan && !overlayLayouts.today) return;
     const planH = planBadgeRef.current?.offsetHeight ?? 0;
     const forecastH = forecastBadgeRef.current?.offsetHeight ?? 0;
-    if (planH <= 0 && forecastH <= 0) return;
+    const todayH = todayBadgeRef.current?.offsetHeight ?? 0;
+    if (planH <= 0 && forecastH <= 0 && todayH <= 0) return;
     updateOverlaysRef.current();
   }, [overlayLayouts]);
 
@@ -553,6 +684,7 @@ export function GPRForecastChart({
               gprFactGlow: true,
               gprForecastFactNow: model.factNow ?? undefined,
               gprForecastPlanLagPp: model.planFactLagPp ?? undefined,
+              gprForecastToday: showTodayMarker ? { todayMs: model.todayMs } : false,
               legend: {
                 position: "bottom",
                 labels: {
@@ -628,7 +760,7 @@ export function GPRForecastChart({
               },
             },
           },
-    [model, chartTopPadding],
+    [model, chartTopPadding, showTodayMarker],
   );
 
   const forecastBadgeLabel =
@@ -638,6 +770,8 @@ export function GPRForecastChart({
 
   const planBadgeLabel =
     planEndMs != null ? `до ${endDateFmt.format(new Date(planEndMs))}` : "";
+
+  const todayBadgeDateLabel = model ? todayBadgeDateFmt.format(new Date(model.todayMs)) : "";
 
   return (
     <div
@@ -675,6 +809,27 @@ export function GPRForecastChart({
                   strokeOpacity={0.85}
                 />
               </svg>
+            ) : null}
+            {showTodayMarker ? (
+              <div
+                ref={todayBadgeRef}
+                className="pointer-events-none absolute z-30 rounded-lg border px-3 py-2 text-center leading-tight"
+                style={{
+                  left: overlayLayouts.today?.centerX ?? -9999,
+                  top: overlayLayouts.today?.top ?? -9999,
+                  transform: "translateX(-50%)",
+                  visibility: overlayLayouts.today ? "visible" : "hidden",
+                  background: FORECAST_BADGE_BG,
+                  borderColor: TODAY_BADGE_BORDER,
+                  borderWidth: 1,
+                  boxShadow: TODAY_BADGE_SHADOW,
+                }}
+              >
+                <div className="text-[10px] font-semibold tracking-tight text-slate-300">Сегодня</div>
+                <div className="mt-0.5 text-xs font-semibold tracking-tight text-slate-50">
+                  {todayBadgeDateLabel}
+                </div>
+              </div>
             ) : null}
             {overlayLayouts.forecast && forecastBadgeLabel ? (
               <div
