@@ -52,8 +52,6 @@ import {
   Legend as ChartLegend,
 } from "chart.js";
 import type { Plugin } from "chart.js";
-import { GPRTmcDependencyChart } from "@/components/construction/GPRTmcDependencyChart";
-import { GPRTenderDependencyChart } from "@/components/construction/GPRTenderDependencyChart";
 import {
   CONSTRUCTION_PDF_ROOT_ATTR,
   PDF_CHART_BLOCK_ATTR,
@@ -2413,7 +2411,6 @@ export function GPRAnalytics({
 }) {
   /** Слайд презентации (и /construction в режиме «презентация»): без всплывающих popover; детали статусов — под диаграммой по клику. */
   const presentationAnalyticsSkin = mode === "view";
-  const dependencyAnalyticDepth = presentationAnalyticsSkin ? "presentation" : "work";
   const isProjectWide = activePartScope === "project";
   const activeProjectPart = partIdToProjectPartKey(
     activePartScope === "project" ? 1 : activePartScope,
@@ -4324,22 +4321,6 @@ export function GPRAnalytics({
         reportDateLabel={gprReportDateLabel}
       />
 
-      <GPRTmcDependencyChart
-        tasks={tasksForActivePart}
-        tmcItems={tmcItemsForPart}
-        activeProjectPart={chartPart}
-        analyticDepth={dependencyAnalyticDepth}
-        reportAsOfIso={gprReportYmd}
-        reportDateLabel={gprReportDateLabel}
-      />
-      <GPRTenderDependencyChart
-        tasks={tasksForActivePart}
-        tenders={tendersForActivePart}
-        activeProjectPart={chartPart}
-        analyticDepth={dependencyAnalyticDepth}
-        reportAsOfIso={gprReportYmd}
-        reportDateLabel={gprReportDateLabel}
-      />
       <GPRForecastChart
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
