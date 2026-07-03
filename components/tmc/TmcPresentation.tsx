@@ -59,11 +59,12 @@ import {
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
   computeTmcOverdueReasonBreakdown,
+  computeTmcRemainderCardCounts,
   logTmcDataPipelineDiagnostics,
   logTmcPipelineStatusDiagnostic,
   logTmcPurchasedVsRequestDiagnostic,
   logTmcContractFactKpiChartDiagnostic,
-  getTmcRequestChartFactCumulative,
+  countTmcRequestFactsThroughToday,
   type TmcMaterialCostDynamicsMode,
   diagnoseTmcDeliveryDynamicsMonths,
   diagnoseTmcProcurementDynamicsMonths,
@@ -717,6 +718,10 @@ export function TmcPresentation({
     () => computeTmcProcurementKpi(enriched, today, scopedTenders),
     [enriched, today, scopedTenders],
   );
+  const remainderCard = useMemo(
+    () => computeTmcRemainderCardCounts(enriched, scopedTenders, today),
+    [enriched, scopedTenders, today],
+  );
   const averageDeliveryLateDays = useMemo(
     () => computeTmcAverageDeliveryLateDays(enriched),
     [enriched],
@@ -793,8 +798,8 @@ export function TmcPresentation({
   );
 
   const requestContractFactCount = useMemo(
-    () => getTmcRequestChartFactCumulative(requestTimeline, today),
-    [requestTimeline, today],
+    () => countTmcRequestFactsThroughToday(enriched, today),
+    [enriched, today],
   );
 
   const materialPlanFact = useMemo(
@@ -1016,14 +1021,14 @@ export function TmcPresentation({
       `Фактическая стоимость поставок: ${rubKpiAmount(kpi.receiptsFactRub)} ₽`,
       `Средняя просрочка поставки: ${averageDeliveryLateDays} дн.`,
       `Освоение бюджета: ${pct1(receiptCostExecutionPct)}`,
-      `В работе: ${kpi.overdueAmongRemainingCount} из ${kpi.remainingItemCount}`,
-      `Не закуплено: ${kpi.notPurchasedAmongRemainingCount} из ${kpi.remainingItemCount}`,
+      `В работе: ${remainderCard.activeWorkCount} из ${kpi.remainingItemCount}`,
+      `Не закуплено: ${remainderCard.notStartedCount} из ${kpi.remainingItemCount}`,
       `Средняя просрочка: ${kpi.averageOverdueDays} дн.`,
       `Экономия: ${rubKpiAmount(financialResult.economyRub)} ₽`,
       `Перерасход: ${rubKpiAmount(financialResult.overrunRub)} ₽`,
       `Отклонение от закупленного: ${pctSigned1(financialResult.deviationPct)}`,
     ],
-    [kpi, receiptCostExecutionPct, financialResult, averageDeliveryLateDays],
+    [kpi, receiptCostExecutionPct, financialResult, averageDeliveryLateDays, remainderCard],
   );
 
   const pdfSummaryRows = useMemo(
@@ -1357,7 +1362,7 @@ export function TmcPresentation({
                     : undefined
                 }
               >
-                <span className="text-4xl font-extrabold text-white">{kpi.overdueAmongRemainingCount}</span>
+                <span className="text-4xl font-extrabold text-white">{remainderCard.activeWorkCount}</span>
                 <span className="text-3xl font-medium text-slate-300/65">
                   из {kpi.remainingItemCount}
                 </span>
@@ -1389,7 +1394,7 @@ export function TmcPresentation({
             />
             <TmcKpiCountBlock
               label="НЕ ЗАКУПЛЕНО"
-              primaryCount={kpi.notPurchasedAmongRemainingCount}
+              primaryCount={remainderCard.notStartedCount}
               totalCount={kpi.remainingItemCount}
               accentColor={COLORS.red}
             />

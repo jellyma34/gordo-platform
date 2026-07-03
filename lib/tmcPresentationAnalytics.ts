@@ -4225,6 +4225,181 @@ export function classifyTmcPurchasedDeliveryBucket(
   return "inTransit";
 }
 
+/** Сегмент donut карточки «Поставлено» — жизненный цикл по закупке по договору. */
+export type TmcContractDeliveryDonutBucket =
+  | "deliveredOnTime"
+  | "deliveredLate"
+  | "inTransit";
+
+export type TmcContractDeliveryDonutCounts = {
+  /** База = countTmcRequestFactsThroughToday (KPI «Закуплено по договору»). */
+  contractTotal: number;
+  deliveredOnTime: number;
+  deliveredLate: number;
+  inTransit: number;
+  donutSum: number;
+};
+
+/**
+ * Donut «Поставлено»: взаимоисключающий сегмент среди позиций с договором на дату отчёта.
+ * 1) isTmcDeliveryFact → вовремя / с опозданием;
+ * 2) иначе → в пути.
+ */
+export function classifyTmcContractDeliveryDonutBucket(
+  item: TmcEnrichedItem,
+  today: Date = new Date(),
+): TmcContractDeliveryDonutBucket | null {
+  if (!isTmcRequestFactThroughToday(item, today)) return null;
+
+  if (isTmcDeliveryFact(item)) {
+    const deviationDays =
+      tmcSupplyDeliveryDeviationDays(item) ?? tmcDeviationDays(item);
+    if (deviationDays !== null && deviationDays > 0) return "deliveredLate";
+    return "deliveredOnTime";
+  }
+
+  return "inTransit";
+}
+
+/** Donut карточки «Поставлено»: база = isTmcRequestFactThroughToday. */
+export function computeTmcContractDeliveryDonutCounts(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+  options?: { logDiagnostic?: boolean },
+): TmcContractDeliveryDonutCounts {
+  const counts: Record<TmcContractDeliveryDonutBucket, number> = {
+    deliveredOnTime: 0,
+    deliveredLate: 0,
+    inTransit: 0,
+  };
+
+  let contractTotal = 0;
+
+  for (const item of items) {
+    const bucket = classifyTmcContractDeliveryDonutBucket(item, today);
+    if (bucket === null) continue;
+    contractTotal += 1;
+    counts[bucket] += 1;
+  }
+
+  const donutSum = counts.deliveredOnTime + counts.deliveredLate + counts.inTransit;
+  const contractKpi = countTmcRequestFactsThroughToday(items, today);
+
+  if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
+    console.table({
+      contractKpi,
+      contractTotal,
+      deliveredOnTime: counts.deliveredOnTime,
+      deliveredLate: counts.deliveredLate,
+      inTransit: counts.inTransit,
+      donutSum,
+    });
+    if (donutSum !== contractTotal) {
+      console.warn("[TMC contract delivery donut] donutSum !== contractTotal", {
+        donutSum,
+        contractTotal,
+      });
+    }
+    if (contractTotal !== contractKpi) {
+      console.warn("[TMC contract delivery donut] contractTotal !== contractKpi", {
+        contractTotal,
+        contractKpi,
+      });
+    }
+  }
+
+  return {
+    contractTotal,
+    deliveredOnTime: counts.deliveredOnTime,
+    deliveredLate: counts.deliveredLate,
+    inTransit: counts.inTransit,
+    donutSum,
+  };
+}
+
+/** Сегмент donut карточки «В работе» — остаток после поставки. */
+export type TmcRemainderCardDonutBucket =
+  | "notStarted"
+  | "tenderInProgress"
+  | "inTransit"
+  | "overdue";
+
+export type TmcRemainderCardCounts = {
+  remainingItemCount: number;
+  /** Не объявлен тендер − в пути (процесс закупки не начат). */
+  notStartedCount: number;
+  tenderInProgressCount: number;
+  inTransitCount: number;
+  overdueCount: number;
+  /** Тендер в работе + в пути + просрочено. */
+  activeWorkCount: number;
+  donutSum: number;
+};
+
+/** «В пути» среди остатка: договор на дату отчёта, поставка не подтверждена. */
+export function countTmcInTransitAmongRemaining(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+): number {
+  let count = 0;
+  for (const item of items) {
+    if (isTmcDeliveryFact(item)) continue;
+    if (classifyTmcContractDeliveryDonutBucket(item, today) === "inTransit") {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * KPI и donut карточки «В работе»:
+ * активная работа = тендер в работе + в пути + просрочено;
+ * не закуплено = не объявлен тендер − в пути.
+ */
+export function computeTmcRemainderCardCounts(
+  items: TmcEnrichedItem[],
+  tenders: Tender[],
+  today: Date = new Date(),
+  options?: { logDiagnostic?: boolean },
+): TmcRemainderCardCounts {
+  const pipeline = computeTmcPipelineStatusDistribution(items, tenders, today);
+  const inTransitCount = countTmcInTransitAmongRemaining(items, today);
+  const notStartedCount = pipeline.counts.tenderNotAnnounced - inTransitCount;
+  const tenderInProgressCount = pipeline.counts.tenderInProgress;
+  const overdueCount = pipeline.counts.deliveryOverdue;
+  const activeWorkCount = tenderInProgressCount + inTransitCount + overdueCount;
+  const donutSum =
+    notStartedCount + tenderInProgressCount + inTransitCount + overdueCount;
+
+  if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
+    console.table({
+      remainingItemCount: pipeline.remainingItemCount,
+      notStartedCount,
+      tenderInProgressCount,
+      inTransitCount,
+      overdueCount,
+      activeWorkCount,
+      donutSum,
+    });
+    if (donutSum !== pipeline.remainingItemCount) {
+      console.warn("[TMC remainder card] donutSum !== remainingItemCount", {
+        donutSum,
+        remainingItemCount: pipeline.remainingItemCount,
+      });
+    }
+  }
+
+  return {
+    remainingItemCount: pipeline.remainingItemCount,
+    notStartedCount,
+    tenderInProgressCount,
+    inTransitCount,
+    overdueCount,
+    activeWorkCount,
+    donutSum,
+  };
+}
+
 /**
  * Классификация позиции в ровно один сегмент:
  * 1) факт поставки → вовремя (fact ≤ plan) или с опозданием (fact > plan);
@@ -4872,6 +5047,76 @@ const PURCHASED_DELIVERY_COLORS: Record<TmcPurchasedDeliveryBucket, string> = {
   cancelled: TMC_KPI_DONUT_COLORS.notPurchased,
 };
 
+const CONTRACT_DELIVERY_LABELS: Record<TmcContractDeliveryDonutBucket, string> = {
+  deliveredOnTime: "Поставлено вовремя",
+  deliveredLate: "Поставлено с опозданием",
+  inTransit: "В пути",
+};
+
+const CONTRACT_DELIVERY_COLORS: Record<TmcContractDeliveryDonutBucket, string> = {
+  deliveredOnTime: TMC_KPI_DONUT_COLORS.deliveredOnTime,
+  deliveredLate: TMC_KPI_DONUT_COLORS.deliveredLate,
+  inTransit: TMC_KPI_DONUT_COLORS.inTransit,
+};
+
+function buildContractDeliveryDonutSegments(
+  counts: Record<TmcContractDeliveryDonutBucket, number>,
+): TmcKpiDonutSegment[] {
+  const order: TmcContractDeliveryDonutBucket[] = [
+    "deliveredOnTime",
+    "deliveredLate",
+    "inTransit",
+  ];
+  return order
+    .filter((key) => counts[key] > 0)
+    .map((key) => ({
+      label: CONTRACT_DELIVERY_LABELS[key],
+      value: counts[key],
+      color: CONTRACT_DELIVERY_COLORS[key],
+    }));
+}
+
+const REMAINDER_CARD_LABELS: Record<TmcRemainderCardDonutBucket, string> = {
+  notStarted: TMC_PIPELINE_STATUS_LABELS.tenderNotAnnounced,
+  tenderInProgress: TMC_PIPELINE_STATUS_LABELS.tenderInProgress,
+  inTransit: "В пути",
+  overdue: TMC_PIPELINE_STATUS_LABELS.deliveryOverdue,
+};
+
+const REMAINDER_CARD_COLORS: Record<TmcRemainderCardDonutBucket, string> = {
+  notStarted: TMC_PIPELINE_STATUS_COLORS.tenderNotAnnounced,
+  tenderInProgress: TMC_PIPELINE_STATUS_COLORS.tenderInProgress,
+  inTransit: TMC_KPI_DONUT_COLORS.inTransit,
+  overdue: TMC_PIPELINE_STATUS_COLORS.deliveryOverdue,
+};
+
+function buildRemainderCardDonutSegments(
+  counts: Pick<
+    TmcRemainderCardCounts,
+    "notStartedCount" | "tenderInProgressCount" | "inTransitCount" | "overdueCount"
+  >,
+): TmcKpiDonutSegment[] {
+  const order: TmcRemainderCardDonutBucket[] = [
+    "notStarted",
+    "tenderInProgress",
+    "inTransit",
+    "overdue",
+  ];
+  const values: Record<TmcRemainderCardDonutBucket, number> = {
+    notStarted: counts.notStartedCount,
+    tenderInProgress: counts.tenderInProgressCount,
+    inTransit: counts.inTransitCount,
+    overdue: counts.overdueCount,
+  };
+  return order
+    .filter((key) => values[key] > 0)
+    .map((key) => ({
+      label: REMAINDER_CARD_LABELS[key],
+      value: values[key],
+      color: REMAINDER_CARD_COLORS[key],
+    }));
+}
+
 function buildPurchasedDeliveryDonutSegments(
   counts: Record<TmcPurchasedDeliveryBucket, number>,
 ): TmcKpiDonutSegment[] {
@@ -4979,39 +5224,39 @@ export function computeTmcKpiDonutDistributions(
   today: Date = new Date(),
   tenders: Tender[] = [],
 ): TmcKpiDonutDistributions {
-  const purchasedDeliveryDonut = computeTmcPurchasedDeliveryDonutCounts(items, {
+  const contractDeliveryDonut = computeTmcContractDeliveryDonutCounts(items, today, {
     logDiagnostic: options?.logDeliveryDiagnostic,
   });
 
-  const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
+  const remainderCard = computeTmcRemainderCardCounts(items, tenders, today, {
+    logDiagnostic: options?.logProblemDiagnostic,
+  });
 
   const purchasedBudgetDonut = computeTmcPurchasedBudgetDonutCounts(items, {
     logDiagnostic: options?.logBudgetDiagnostic,
   });
 
-  const purchasedCounts: Record<TmcPurchasedDeliveryBucket, number> = {
-    deliveredOnTime: purchasedDeliveryDonut.deliveredOnTime,
-    deliveredLate: purchasedDeliveryDonut.deliveredLate,
-    inTransit: purchasedDeliveryDonut.inTransit,
-    cancelled: purchasedDeliveryDonut.cancelled,
+  const contractDeliveryCounts: Record<TmcContractDeliveryDonutBucket, number> = {
+    deliveredOnTime: contractDeliveryDonut.deliveredOnTime,
+    deliveredLate: contractDeliveryDonut.deliveredLate,
+    inTransit: contractDeliveryDonut.inTransit,
   };
 
   const remainingStatusCounts: Record<TmcRemainingStatusBucket, number> = {
-    overdue: pipelineDist.deliveryOverdueAmongRemaining,
-    notPurchased: pipelineDist.notPurchasedAmongRemaining,
-    onTime: pipelineDist.inProgressAmongRemaining,
+    overdue: remainderCard.overdueCount,
+    notPurchased: remainderCard.notStartedCount,
+    onTime: remainderCard.tenderInProgressCount + remainderCard.inTransitCount,
   };
 
   if (options?.logProblemDiagnostic && process.env.NODE_ENV !== "production") {
     console.table({
-      overdue: remainingStatusCounts.overdue,
-      notPurchased: remainingStatusCounts.notPurchased,
-      inProgress: remainingStatusCounts.onTime,
-      remainingTotal: pipelineDist.remainingItemCount,
-      donutSum:
-        remainingStatusCounts.overdue +
-        remainingStatusCounts.notPurchased +
-        remainingStatusCounts.onTime,
+      notStarted: remainderCard.notStartedCount,
+      tenderInProgress: remainderCard.tenderInProgressCount,
+      inTransit: remainderCard.inTransitCount,
+      overdue: remainderCard.overdueCount,
+      activeWork: remainderCard.activeWorkCount,
+      remainingTotal: remainderCard.remainingItemCount,
+      donutSum: remainderCard.donutSum,
     });
   }
 
@@ -5022,10 +5267,10 @@ export function computeTmcKpiDonutDistributions(
     noFact: purchasedBudgetDonut.noFactCount,
   };
 
-  const overdueReasons = pipelineDist.remainderDonutSegments;
+  const overdueReasons = buildRemainderCardDonutSegments(remainderCard);
 
   return {
-    deliveryStatus: buildPurchasedDeliveryDonutSegments(purchasedCounts),
+    deliveryStatus: buildContractDeliveryDonutSegments(contractDeliveryCounts),
     overdueStructure: buildRemainingStatusDonutSegments(remainingStatusCounts),
     overdueReasons,
     budgetDeviation: buildPurchasedBudgetDonutSegments(budgetCounts),
