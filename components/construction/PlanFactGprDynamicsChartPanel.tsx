@@ -8,11 +8,13 @@ import {
 import {
   auditPlanFactChartModel,
   computePlanFactGprChartLayout,
+  computePlanFactOverdueStartOverlaySpanPct,
   logPlanFactChartColorDiagnostic,
   planFactGprBarSpanPct,
   planFactGprXAxisMonthTicks,
   planFactGprXAxisPercentTicks,
   planFactGprXPositionPct,
+  PLAN_FACT_OVERDUE_START_OVERLAY,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX,
   PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
@@ -181,11 +183,14 @@ function PlanFactGprSingleBar({
   color,
   percentLabel,
   todayLeftPct,
+  overdueOverlaySpan,
 }: {
   span: { leftPct: number; widthPct: number } | null;
   color: string;
   percentLabel?: string | null;
   todayLeftPct: number | null;
+  /** Подложка просроченного старта поверх плановой полосы. */
+  overdueOverlaySpan?: { leftPct: number; widthPct: number } | null;
 }) {
   const showPercent = Boolean(percentLabel?.trim());
   let percentLeftPct = span ? span.leftPct + span.widthPct : 0;
@@ -222,6 +227,17 @@ function PlanFactGprSingleBar({
               width: `${span.widthPct}%`,
               backgroundColor: color,
             }}
+          />
+        ) : null}
+        {span && overdueOverlaySpan ? (
+          <div
+            className="pointer-events-none absolute inset-y-0 rounded"
+            style={{
+              left: `${overdueOverlaySpan.leftPct}%`,
+              width: `${overdueOverlaySpan.widthPct}%`,
+              backgroundColor: PLAN_FACT_OVERDUE_START_OVERLAY,
+            }}
+            aria-hidden
           />
         ) : null}
         {showPercent && span ? (
@@ -281,6 +297,7 @@ function PlanFactGprStageGroup({
         ? { leftPct: planSpan.leftPct, widthPct: Math.max(1.5, planSpan.widthPct * 0.06) }
         : null;
   const factPercentLabel = showFact ? factPctRaw : null;
+  const overdueStartOverlaySpan = computePlanFactOverdueStartOverlaySpanPct(model, index);
 
   const groupHeight = PLAN_FACT_GPR_CHART_ROWS_PER_STAGE * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
   const tooltip = buildStageTooltip(model, index, buildTooltip);
@@ -309,6 +326,7 @@ function PlanFactGprStageGroup({
         color={planColor}
         percentLabel={planPercentLabel}
         todayLeftPct={todayLeftPct}
+        overdueOverlaySpan={overdueStartOverlaySpan}
       />
 
       <PlanFactGprSingleBar

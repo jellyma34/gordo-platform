@@ -52,10 +52,10 @@ function GprKpiMetricRow({
   noDivider?: boolean;
 }) {
   const labelClass = compact
-    ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+    ? GPR_KPI_COMPACT_LABEL_CLASS
     : "text-[10px] font-medium uppercase tracking-wider text-slate-500";
   const valueClass = compact
-    ? "mt-1.5 text-2xl font-extrabold tabular-nums tracking-tight text-white"
+    ? `mt-1.5 ${GPR_KPI_COMPACT_VALUE_CLASS}`
     : "mt-1 text-base font-semibold tabular-nums text-slate-300/80";
   return (
     <div className="space-y-1.5">
@@ -89,8 +89,8 @@ function GprKpiSplitCountRow({
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
         <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
         <div className="mt-2 flex items-baseline gap-1 tabular-nums tracking-tight">
-          <span className="text-2xl font-extrabold text-white">{primaryCount}</span>
-          <span className="text-xl font-medium text-slate-300/65">
+          <span className={GPR_KPI_COMPACT_VALUE_CLASS}>{primaryCount}</span>
+          <span className={GPR_KPI_COMPACT_SECONDARY_CLASS}>
             из {totalCount}
           </span>
         </div>
@@ -124,8 +124,8 @@ function GprKpiCompletedShareRow({
     <div className="space-y-1.5">
       {noDivider ? null : <GprKpiDivider />}
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
-        <div className="mt-2 text-2xl font-extrabold tabular-nums tracking-tight text-white">{value}</div>
+        <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{label}</div>
+        <div className={`mt-2 ${GPR_KPI_COMPACT_VALUE_CLASS}`}>{value}</div>
       </div>
     </div>
   );
@@ -150,13 +150,13 @@ function GprKpiSplitPercentRow({
     <div className="space-y-1.5">
       {noDivider ? null : <GprKpiDivider />}
       <div className={noDivider ? "" : compact ? "pt-3" : "pt-4"}>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">{label}</div>
+        <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{label}</div>
         <div
           className="mt-2 flex items-baseline gap-1 tabular-nums tracking-tight"
           title={title}
         >
-          <span className="text-2xl font-extrabold text-white">{factValue}</span>
-          <span className="text-xl font-medium text-slate-300/65">
+          <span className={GPR_KPI_COMPACT_VALUE_CLASS}>{factValue}</span>
+          <span className={GPR_KPI_COMPACT_SECONDARY_CLASS}>
             из {planValue}
           </span>
         </div>
@@ -291,6 +291,36 @@ function GprKpiIconBadge({
   );
 }
 
+const GPR_KPI_CARD_TITLE_CLASS = "text-lg font-semibold leading-snug text-slate-50";
+
+const GPR_KPI_COMPACT_LABEL_CLASS =
+  "text-[10px] font-semibold uppercase tracking-wider text-slate-300";
+const GPR_KPI_COMPACT_VALUE_CLASS =
+  "text-2xl font-extrabold tabular-nums tracking-tight text-white";
+const GPR_KPI_COMPACT_SECONDARY_CLASS =
+  "text-xl font-medium tabular-nums tracking-tight text-slate-300/65";
+
+function GprKpiCardTitle({
+  code,
+  title,
+  nowrap = false,
+}: {
+  code?: string;
+  title: string;
+  nowrap?: boolean;
+}) {
+  return (
+    <div className={`min-w-0 ${nowrap ? "whitespace-nowrap" : ""} ${GPR_KPI_CARD_TITLE_CLASS}`}>
+      {code ? (
+        <>
+          <span className="font-medium">{code}</span>{" "}
+        </>
+      ) : null}
+      {title}
+    </div>
+  );
+}
+
 function cardThemeForTraffic(status: GprStageKpiTraffic): {
   glowColor: string;
   gradient: string;
@@ -365,21 +395,22 @@ function deviationValueColorClass(deltaPp: number | null): string {
 function GprKpiLargeProgressRing({
   factValue,
   planValue,
-  size = 260,
   completedCount,
   inProgressCount,
   lateCount,
   notStartedCount,
+  className = "w-full max-w-[288px]",
 }: {
   factValue: string;
   planValue: string;
-  size?: number;
   completedCount: number;
   inProgressCount: number;
   lateCount: number;
   notStartedCount: number;
+  className?: string;
 }) {
-  const strokeWidth = 20;
+  const size = 100;
+  const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -406,19 +437,13 @@ function GprKpiLargeProgressRing({
   };
 
   return (
-    <div
-      className="relative shrink-0"
-      style={{ width: size, height: size }}
-    >
+    <div className={`relative aspect-square shrink-0 ${className}`}>
       <svg
         className="block h-full w-full -rotate-90"
         viewBox={`0 0 ${size} ${size}`}
         aria-hidden
       >
-        <circle
-          {...segmentProps}
-          stroke={DASHBOARD_RING_COLORS.track}
-        />
+        <circle {...segmentProps} stroke={DASHBOARD_RING_COLORS.track} />
         {greenLen > 0 ? (
           <circle
             {...segmentProps}
@@ -427,7 +452,6 @@ function GprKpiLargeProgressRing({
             strokeDashoffset={-greenStart}
           />
         ) : null}
-
         {blueLen > 0 ? (
           <circle
             {...segmentProps}
@@ -436,7 +460,6 @@ function GprKpiLargeProgressRing({
             strokeDashoffset={-blueStart}
           />
         ) : null}
-
         {orangeLen > 0 ? (
           <circle
             {...segmentProps}
@@ -445,24 +468,22 @@ function GprKpiLargeProgressRing({
             strokeDashoffset={-orangeStart}
           />
         ) : null}
-
-        {grayLen > 0 && notStartedCount > 0 ? (
+        {grayLen > 0 ? (
           <circle
             {...segmentProps}
             stroke={DASHBOARD_RING_COLORS.gray}
-            strokeOpacity={0.55}
             strokeDasharray={`${grayLen} ${circumference - grayLen}`}
             strokeDashoffset={-grayStart}
           />
         ) : null}
       </svg>
       <div className="absolute inset-0 grid place-items-center">
-        <div className="pointer-events-none text-center">
-          <div className="text-[26px] font-extrabold tabular-nums leading-none tracking-tight text-white">
+        <div className="pointer-events-none text-center leading-none">
+          <div className="text-[clamp(18px,5.2vw,28px)] font-extrabold tabular-nums tracking-tight text-white">
             {factValue}
           </div>
           {planValue !== "—" ? (
-            <div className="mt-1 text-[10px] font-normal tabular-nums text-slate-500/60">
+            <div className="mt-1 text-[clamp(9px,2.4vw,11px)] font-normal tabular-nums text-slate-500/65">
               из {planValue}
             </div>
           ) : null}
@@ -484,17 +505,17 @@ function GprKpiStatusListRow({
   icon: ReactNode;
 }) {
   return (
-    <div className="relative grid h-[42px] grid-cols-[16px_1fr_auto] items-center gap-1.5 pl-2 pr-0.5">
+    <div className="relative grid h-[48px] grid-cols-[20px_1fr_auto] items-center gap-x-2.5 pl-2 pr-1">
       <div
-        className="absolute bottom-1.5 left-0 top-1.5 w-px"
+        className="absolute bottom-2 left-0 top-2 w-px"
         style={{ backgroundColor: color }}
         aria-hidden
       />
       <div className="grid place-items-center" style={{ color }}>
         {icon}
       </div>
-      <div className="min-w-0 truncate text-[11px] font-medium text-slate-400">{label}</div>
-      <div className="shrink-0 text-base font-bold tabular-nums leading-none text-white">{value}</div>
+      <div className="min-w-0 truncate text-xs font-medium text-slate-400">{label}</div>
+      <div className="shrink-0 text-lg font-bold tabular-nums leading-none text-white">{value}</div>
     </div>
   );
 }
@@ -513,7 +534,7 @@ function GprKpiStatusList({
     <div>
       {items.map((item, index) => (
         <div key={item.label}>
-          {index > 0 ? <div className="border-t border-slate-600/18" aria-hidden /> : null}
+          {index > 0 ? <div className="border-t border-white/[0.18]" aria-hidden /> : null}
           <GprKpiStatusListRow
             label={item.label}
             value={item.value}
@@ -528,6 +549,7 @@ function GprKpiStatusList({
 
 function GprStageKpiDashboardBody({
   title,
+  code,
   theme,
   factValue,
   factTitle,
@@ -594,28 +616,26 @@ function GprStageKpiDashboardBody({
 
   return (
     <div
-      className="grid h-full min-h-0 gap-y-0.5"
+      className="grid h-full min-h-0 overflow-hidden"
       style={{
-        gridTemplateColumns: "58% 42%",
-        gridTemplateRows: "auto 1fr auto",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "auto minmax(0, 1fr) auto",
       }}
     >
-      {/* Строка 1: иконка + заголовок */}
+      {/* Заголовок */}
       <div
-        className="col-span-2 grid grid-cols-[32px_minmax(0,1fr)] items-center gap-1.5"
+        className="mb-0.5 grid shrink-0 grid-cols-[32px_minmax(0,1fr)] items-center gap-1.5"
         style={{ gridColumn: "1 / -1" }}
       >
         <GprKpiIconBadge tone={theme.badgeTone} dense>
           <HardHat className="h-3.5 w-3.5" strokeWidth={2} />
         </GprKpiIconBadge>
-        <div className="min-w-0 whitespace-nowrap text-[17px] font-semibold leading-none tracking-tight text-slate-50">
-          {title}
-        </div>
+        <GprKpiCardTitle code={code} title={title} nowrap />
       </div>
 
-      {/* Левая колонка: кольцо + счётчик работ */}
-      <div className="grid min-h-0 place-content-center justify-items-center gap-1 px-1">
-        <div title={factTitle}>
+      {/* Левая колонка: кольцо + работы */}
+      <div className="grid min-h-0 grid-rows-[auto_auto] content-center justify-items-center gap-0.5 self-center overflow-hidden pr-1">
+        <div className="w-full" title={factTitle}>
           <GprKpiLargeProgressRing
             factValue={factValue}
             planValue={planValue}
@@ -623,47 +643,46 @@ function GprStageKpiDashboardBody({
             inProgressCount={businessInProgressCount}
             lateCount={businessLateCount}
             notStartedCount={businessNotStartedCount}
+            className="mx-auto w-full max-w-[288px]"
           />
         </div>
-        <div className="grid justify-items-center gap-px text-center">
+        <div className="grid justify-items-center gap-0.5 text-center">
           <div className="tabular-nums leading-none tracking-tight">
-            <span className="text-xl font-extrabold text-white">{completedStages}</span>
-            <span className="text-base font-medium text-slate-400"> / {totalStages}</span>
+            <span className="text-[22px] font-extrabold text-white">{completedStages}</span>
+            <span className="text-[17px] font-medium text-slate-400"> / {totalStages}</span>
           </div>
-          <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">
             РАБОТ
           </div>
         </div>
       </div>
 
-      {/* Правая колонка: плоский список статусов */}
-      <div className="grid min-h-0 content-center py-0 pl-0.5 pr-0">
+      {/* Правая колонка: список статусов */}
+      <div className="grid min-h-0 content-center self-center overflow-hidden pl-1">
         <GprKpiStatusList items={statusCards} />
       </div>
 
-      {/* Нижняя панель: KPI на всю ширину */}
+      {/* Нижняя панель KPI */}
       <div
-        className="col-span-2 grid h-[62px] shrink-0 grid-cols-2 border-t border-slate-600/20 bg-slate-900/15"
+        className="grid shrink-0 grid-cols-2 border-t border-slate-600/20"
         style={{ gridColumn: "1 / -1" }}
       >
-        <div className="grid content-center gap-px border-r border-slate-600/20 px-2.5 py-1.5">
-          <div className="text-[8px] font-semibold uppercase tracking-wider text-slate-500">
+        <div className="flex min-h-0 flex-col justify-center gap-0 border-r border-slate-600/20 px-2 py-2">
+          <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
             {deviationLabel.replace(/,\s*%$/, "")}
           </div>
           <div
-            className={`text-base font-extrabold tabular-nums leading-none ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+            className={`${GPR_KPI_COMPACT_VALUE_CLASS} leading-tight ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
           >
             {deviationValue}
           </div>
         </div>
-        <div className="grid content-center gap-px px-2.5 py-1.5">
-          <div className="text-[8px] font-semibold uppercase tracking-wider text-slate-500">
-            {completedShareLabel}
-          </div>
-          <div className="text-base font-extrabold tabular-nums leading-none text-white">
+        <div className="flex min-h-0 flex-col justify-center gap-0 px-2 py-2">
+          <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{completedShareLabel}</div>
+          <div className={`${GPR_KPI_COMPACT_VALUE_CLASS} leading-tight`}>
             {pct1(completedSharePct)}
           </div>
-          <div className="text-[8px] tabular-nums text-slate-500/65">
+          <div className={`${GPR_KPI_COMPACT_SECONDARY_CLASS} leading-tight`}>
             ({completedShareNumerator} из {completedShareDenominator})
           </div>
         </div>
@@ -914,7 +933,7 @@ export function GprStageKpiCard({
         waveColor={layoutVariant === "dashboard" ? undefined : theme.waveColor}
         waveOpacity={layoutVariant === "dashboard" ? undefined : theme.waveOpacity}
         visualTone={layoutVariant === "dashboard" ? "calm" : "default"}
-        paddingClass={layoutVariant === "dashboard" ? "p-3" : "p-6"}
+        paddingClass={layoutVariant === "dashboard" ? "px-2.5 py-2" : "p-6"}
       >
         {layoutVariant === "dashboard" ? (
           <GprStageKpiDashboardBody
@@ -944,14 +963,7 @@ export function GprStageKpiCard({
                 <HardHat className="h-5 w-5" strokeWidth={2} />
               </GprKpiIconBadge>
               <div className="min-w-0 flex-1">
-                <div className="text-lg font-semibold leading-snug text-slate-50">
-                  {code ? (
-                    <>
-                      <span className="font-medium">{code}</span>{" "}
-                    </>
-                  ) : null}
-                  {title}
-                </div>
+                <GprKpiCardTitle code={code} title={title} />
               </div>
             </div>
 

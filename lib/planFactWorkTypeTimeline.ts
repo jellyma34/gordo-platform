@@ -260,6 +260,9 @@ const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
 const FACT_GREEN = "#22c55e";
 const FACT_YELLOW = "#f59e0b";
 
+/** Подложка просроченного старта на плановой полосе (enterprise, без ярко-красного). */
+export const PLAN_FACT_OVERDUE_START_OVERLAY = "rgba(220, 70, 70, 0.4)";
+
 /** Визуализация: фактическая полоса не выходит за пределы плановой на шкале X. */
 function clampFactMonthFloatRangeToPlan(
   planStart: number,
@@ -430,6 +433,57 @@ export function planFactGprBarSpanPct(
   const widthPct = rightPct - leftPct;
   if (widthPct <= 0) return null;
   return { leftPct, widthPct };
+}
+
+/**
+ * Работа не начата: 0% или нет подписи при отсутствии фактических дат.
+ * Не опираемся на пустую factCompletionLabel — для не начатых строк она "".
+ */
+function isPlanFactRowNotStartedForOverdueStart(
+  detail: PlanFactWorkTypeRowDetail,
+  factPercent: number | null,
+): boolean {
+  if (factPercent != null && factPercent > 0) return false;
+  const hasFactDates = Boolean(detail.factStart?.trim() || detail.factEnd?.trim());
+  if (hasFactDates) return false;
+  return factPercent === 0 || factPercent === null;
+}
+
+/**
+ * Подсветка просроченного старта на плановой полосе.
+ *
+ * - today < plannedStart → null
+ * - factProgress > 0 → null
+ * - plannedStart < today ≤ plannedFinish и fact = 0 → [plannedStart, today]
+ * - today > plannedFinish и fact = 0 → [plannedStart, plannedFinish] (вся полоса)
+ */
+export function computePlanFactOverdueStartOverlaySpanPct(
+  model: PlanFactWorkTypeChartModel,
+  rowIndex: number,
+): { leftPct: number; widthPct: number } | null {
+  if (model.percentScaleMode) return null;
+
+  const detail = model.rowDetails[rowIndex];
+  if (!detail || detail.hasDates === false) return null;
+
+  const factPercent = parsePlanFactChartPercentLabel(
+    model.factCompletionLabels[rowIndex]?.trim() ?? "",
+  );
+  if (!isPlanFactRowNotStartedForOverdueStart(detail, factPercent)) return null;
+
+  const todayX = model.todayX;
+  if (todayX == null || !Number.isFinite(todayX)) return null;
+
+  const planStartX = monthFloatFromIso(detail.planStart, model.originMonth);
+  const planEndX = monthFloatFromIso(detail.planEnd, model.originMonth);
+  if (planStartX == null || planEndX == null || planEndX < planStartX) return null;
+
+  if (todayX <= planStartX) return null;
+
+  const overlayEndX = todayX > planEndX ? planEndX : todayX;
+  if (overlayEndX <= planStartX) return null;
+
+  return planFactGprBarSpanPct([planStartX, overlayEndX], model.xMin, model.xMax);
 }
 
 /** Метки месяцев для горизонтальной шкалы диаграммы. */
