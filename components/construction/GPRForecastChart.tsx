@@ -60,13 +60,237 @@ function truncatePlanSeriesAtCompletion(
   return slice.map((p) => ({ x: p.x, y: p.y }));
 }
 
-// Стиль бейджа даты прогноза фиксированный (тёмный фон + оранжевая рамка),
-// см. требование: подпись должна читаться как самостоятельная информационная
-// метка независимо от риск-цвета линии. Риск по-прежнему передаётся цветом
-// самой линии прогноза, см. colorFromPlanFactLag выше.
 const FORECAST_BADGE_BG = "#0f172a";
 const FORECAST_BADGE_BORDER = "rgba(249, 115, 22, 0.9)";
 const FORECAST_BADGE_SHADOW = "0 6px 18px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(2, 6, 23, 0.4)";
+const PLAN_BADGE_BORDER = "rgba(226, 232, 240, 0.92)";
+const PLAN_BADGE_SHADOW = "0 6px 18px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(148, 163, 184, 0.25)";
+
+const FORECAST_BADGE_GAP_PX = 16;
+/** Воздух между нижней границей бейджа плана и верхней границей plotArea (12–16 px). */
+const PLAN_BADGE_AIR_GAP_PX = 14;
+const CHART_TOP_PADDING_MIN_PX = 38;
+const BADGE_SAFETY_PX = 8;
+const BADGE_PAIR_PAD_PX = 6;
+const PLAN_LEADER_WIDTH_PX = 1;
+const BADGE_FALLBACK_WIDTH_PX = 170;
+const BADGE_FALLBACK_HEIGHT_PX = 28;
+
+type BadgeSide = "right" | "above" | "left" | "below";
+
+type ForecastBadgeLayout = {
+  left: number;
+  top: number;
+  side: BadgeSide;
+  offsetX: number;
+  offsetY: number;
+  gap: number;
+};
+
+/** Плановый бейдж: X — конечная дата, Y — от верхней границы plotArea. */
+type PlanBadgeLayout = {
+  centerX: number;
+  top: number;
+  badgeBottom: number;
+  leaderEndX: number;
+  leaderEndY: number;
+};
+
+type OverlayLayouts = {
+  forecast: ForecastBadgeLayout | null;
+  plan: PlanBadgeLayout | null;
+};
+
+function badgeTransform(side: BadgeSide, gap: number, offsetX: number, offsetY: number): string {
+  const ox = offsetX ? ` + ${offsetX}px` : "";
+  const oy = offsetY ? ` + ${offsetY}px` : "";
+  switch (side) {
+    case "left":
+      return `translate(calc(-100% - ${gap}px${ox}), calc(-50%${oy}))`;
+    case "above":
+      return `translate(calc(-50%${ox}), calc(-100% - ${gap}px${oy}))`;
+    case "below":
+      return `translate(calc(-50%${ox}), calc(${gap}px${oy}))`;
+    default:
+      return `translate(calc(${gap}px${ox}), calc(-50%${oy}))`;
+  }
+}
+
+function forecastBadgeBoundingRect(
+  layout: ForecastBadgeLayout,
+  width: number,
+  height: number,
+): { left: number; top: number; right: number; bottom: number } {
+  const cx = layout.left + layout.offsetX;
+  const cy = layout.top + layout.offsetY;
+  const { side, gap } = layout;
+  switch (side) {
+    case "left":
+      return { left: cx - gap - width, top: cy - height / 2, right: cx - gap, bottom: cy + height / 2 };
+    case "above":
+      return { left: cx - width / 2, top: cy - gap - height, right: cx + width / 2, bottom: cy - gap };
+    case "below":
+      return { left: cx - width / 2, top: cy + gap, right: cx + width / 2, bottom: cy + gap + height };
+    default:
+      return { left: cx + gap, top: cy - height / 2, right: cx + gap + width, bottom: cy + height / 2 };
+  }
+}
+
+function planBadgeBoundingRect(
+  layout: PlanBadgeLayout,
+  width: number,
+  height: number,
+): { left: number; top: number; right: number; bottom: number } {
+  return {
+    left: layout.centerX - width / 2,
+    top: layout.top,
+    right: layout.centerX + width / 2,
+    bottom: layout.top + height,
+  };
+}
+
+function rectsOverlap(
+  a: { left: number; top: number; right: number; bottom: number },
+  b: { left: number; top: number; right: number; bottom: number },
+  padding = 0,
+): boolean {
+  return !(
+    a.right + padding < b.left ||
+    b.right + padding < a.left ||
+    a.bottom + padding < b.top ||
+    b.bottom + padding < a.top
+  );
+}
+
+function fitsInWrap(
+  rect: { left: number; top: number; right: number; bottom: number },
+  wrapWidth: number,
+  wrapHeight: number,
+  safety: number,
+): boolean {
+  return (
+    rect.left >= safety &&
+    rect.top >= safety &&
+    rect.right <= wrapWidth - safety &&
+    rect.bottom <= wrapHeight - safety
+  );
+}
+
+function forecastPlacementCandidates(): Array<
+  Pick<ForecastBadgeLayout, "side" | "offsetX" | "offsetY" | "gap">
+> {
+  const sides: BadgeSide[] = ["right", "above", "left", "below"];
+  return sides.map((side) => ({
+    side,
+    offsetX: 0,
+    offsetY: 0,
+    gap: FORECAST_BADGE_GAP_PX,
+  }));
+}
+
+function resolveForecastBadgeLayout(
+  forecastAnchor: { left: number; top: number },
+  forecastSize: { w: number; h: number },
+  wrapWidth: number,
+  wrapHeight: number,
+  planRect: { left: number; top: number; right: number; bottom: number } | null,
+): ForecastBadgeLayout {
+  let best: ForecastBadgeLayout | null = null;
+  let bestScore = -Infinity;
+
+  for (const placement of forecastPlacementCandidates()) {
+    const layout: ForecastBadgeLayout = { ...forecastAnchor, ...placement };
+    const rect = forecastBadgeBoundingRect(layout, forecastSize.w, forecastSize.h);
+    if (!fitsInWrap(rect, wrapWidth, wrapHeight, BADGE_SAFETY_PX)) continue;
+    if (planRect && rectsOverlap(rect, planRect, BADGE_PAIR_PAD_PX)) continue;
+
+    let score = placement.side === "right" ? 4 : placement.side === "above" ? 2 : 0;
+    if (best == null || score > bestScore) {
+      best = layout;
+      bestScore = score;
+    }
+  }
+
+  return (
+    best ?? {
+      ...forecastAnchor,
+      side: "right",
+      offsetX: 0,
+      offsetY: 0,
+      gap: FORECAST_BADGE_GAP_PX,
+    }
+  );
+}
+
+function computePlanBadgeTopPadding(badgeHeight: number): number {
+  return Math.max(
+    CHART_TOP_PADDING_MIN_PX,
+    badgeHeight + PLAN_BADGE_AIR_GAP_PX + BADGE_SAFETY_PX,
+  );
+}
+
+function canvasPointToWrap(
+  chart: ChartJS,
+  wrap: HTMLElement,
+  canvasX: number,
+  canvasY: number,
+): { left: number; top: number } {
+  const canvas = chart.canvas;
+  const wrapRect = wrap.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  return {
+    left: canvasX + (canvasRect.left - wrapRect.left),
+    top: canvasY + (canvasRect.top - wrapRect.top),
+  };
+}
+
+function computePlanBadgeLayout(
+  chart: ChartJS,
+  wrap: HTMLElement,
+  badgeHeight: number,
+): PlanBadgeLayout | null {
+  const dsIdx = chart.data.datasets.findIndex((d) => d.label === "План ГПР");
+  if (dsIdx < 0) return null;
+  const meta = chart.getDatasetMeta(dsIdx);
+  const last = meta?.data?.[meta.data.length - 1] as { x?: number; y?: number } | undefined;
+  if (last == null || typeof last.x !== "number" || typeof last.y !== "number") return null;
+
+  const planPoint = canvasPointToWrap(chart, wrap, last.x, last.y);
+  const plotTop = canvasPointToWrap(chart, wrap, chart.chartArea.left, chart.chartArea.top).top;
+  const badgeBottom = plotTop - PLAN_BADGE_AIR_GAP_PX;
+  const badgeTop = badgeBottom - badgeHeight;
+
+  return {
+    centerX: planPoint.left,
+    top: badgeTop,
+    badgeBottom,
+    leaderEndX: planPoint.left,
+    leaderEndY: planPoint.top,
+  };
+}
+
+function overlayLayoutsEqual(a: OverlayLayouts, b: OverlayLayouts): boolean {
+  const sameForecast = (x: ForecastBadgeLayout | null, y: ForecastBadgeLayout | null) =>
+    x === y ||
+    (x != null &&
+      y != null &&
+      x.left === y.left &&
+      x.top === y.top &&
+      x.side === y.side &&
+      x.offsetX === y.offsetX &&
+      x.offsetY === y.offsetY &&
+      x.gap === y.gap);
+  const samePlan = (x: PlanBadgeLayout | null, y: PlanBadgeLayout | null) =>
+    x === y ||
+    (x != null &&
+      y != null &&
+      x.centerX === y.centerX &&
+      x.top === y.top &&
+      x.badgeBottom === y.badgeBottom &&
+      x.leaderEndX === y.leaderEndX &&
+      x.leaderEndY === y.leaderEndY);
+  return sameForecast(a.forecast, b.forecast) && samePlan(a.plan, b.plan);
+}
 
 export function GPRForecastChart({
   tasks,
@@ -88,80 +312,96 @@ export function GPRForecastChart({
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ChartJS<"line"> | null>(null);
-  const badgeRef = useRef<HTMLDivElement>(null);
-  type BadgeSide = "right" | "above" | "left";
-  const [badgePos, setBadgePos] = useState<
-    { left: number; top: number; side: BadgeSide } | null
-  >(null);
+  const forecastBadgeRef = useRef<HTMLDivElement>(null);
+  const planBadgeRef = useRef<HTMLDivElement>(null);
+  const [overlayLayouts, setOverlayLayouts] = useState<OverlayLayouts>({ forecast: null, plan: null });
+  const [chartTopPadding, setChartTopPadding] = useState(CHART_TOP_PADDING_MIN_PX);
 
-  // Подпись прогнозной точки рисуется поверх canvas в обёртке chartWrapRef.
-  // Порядок выбора стороны: справа → сверху → слева. «Справа» предпочтительнее,
-  // потому что в этой зоне (layout.padding.right канвы) под текстом гарантированно
-  // нет линий графика. Если бейдж не помещается справа — пробуем «сверху»: это
-  // ставит метку над точкой и так же уводит её с линии прогноза (линия в правом
-  // конце заканчивается на самой точке, выше неё ничего нет). «Слева» — крайний
-  // случай, когда метку приходится разместить внутри области графика; за счёт
-  // непрозрачного фона и z-index линия под текстом не просвечивает.
-  // Цена решения: позиция самой точки на canvas не меняется (см. requirement #6),
-  // двигается ТОЛЬКО текстовая подпись.
-  const BADGE_GAP_PX = 16;
-  const BADGE_SAFETY_PX = 8;
-  const BADGE_FALLBACK_WIDTH_PX = 170; // ≈ ширина «до 16 нояб. 2027 г.» с новыми отступами
-  const BADGE_FALLBACK_HEIGHT_PX = 28;
+  const planSeriesForChart = useMemo(
+    () => (model ? truncatePlanSeriesAtCompletion(model.planSeries) : []),
+    [model],
+  );
 
-  const updateBadgePosition = useCallback(() => {
+  const planEndMs = planSeriesForChart.length > 0 ? planSeriesForChart[planSeriesForChart.length - 1]!.x : null;
+  const showPlanBadge = planEndMs != null && planSeriesForChart.length > 0;
+
+  const updateOverlays = useCallback(() => {
     const wrap = chartWrapRef.current;
     const chart = chartRef.current;
-    if (!wrap || !chart?.canvas || !model?.forecastSeries.length) {
-      setBadgePos(null);
+    if (!wrap || !chart?.canvas || !model) {
+      setOverlayLayouts({ forecast: null, plan: null });
       return;
     }
-    const fcIdx = chart.data.datasets.findIndex((d) => d.label === "Прогноз ГПР");
-    if (fcIdx < 0) {
-      setBadgePos(null);
+
+    if (!chart.chartArea || chart.chartArea.width <= 0 || chart.chartArea.height <= 0) {
       return;
     }
-    const meta = chart.getDatasetMeta(fcIdx);
-    const last = meta?.data?.[meta.data.length - 1] as { x?: number; y?: number } | undefined;
-    if (last == null || typeof last.x !== "number" || typeof last.y !== "number") {
-      setBadgePos(null);
+
+    const forecastW = forecastBadgeRef.current?.offsetWidth ?? 0;
+    const forecastH = forecastBadgeRef.current?.offsetHeight ?? 0;
+    const planW = planBadgeRef.current?.offsetWidth ?? 0;
+    const planH = planBadgeRef.current?.offsetHeight ?? 0;
+
+    const planBadgeH = showPlanBadge ? (planH > 0 ? planH : BADGE_FALLBACK_HEIGHT_PX) : 0;
+    const requiredTopPadding = showPlanBadge ? computePlanBadgeTopPadding(planBadgeH) : CHART_TOP_PADDING_MIN_PX;
+
+    if (requiredTopPadding !== chartTopPadding) {
+      setChartTopPadding(requiredTopPadding);
       return;
     }
-    const { x, y } = last;
-    const canvas = chart.canvas;
-    const wrapRect = wrap.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    const left = x + (canvasRect.left - wrapRect.left);
-    const top = y + (canvasRect.top - wrapRect.top);
 
-    // Решаем сторону. Берём фактически измеренные размеры бейджа (если уже
-    // отрендерен); иначе — оценку. На следующем пересчёте (ResizeObserver / смена
-    // модели) размеры уточняются по реальному значению, поэтому fallback нужен
-    // только на самый первый кадр.
-    const wrapWidth = wrap.clientWidth;
-    const measuredW = badgeRef.current?.offsetWidth ?? 0;
-    const measuredH = badgeRef.current?.offsetHeight ?? 0;
-    const badgeW = measuredW > 0 ? measuredW : BADGE_FALLBACK_WIDTH_PX;
-    const badgeH = measuredH > 0 ? measuredH : BADGE_FALLBACK_HEIGHT_PX;
-    const fitsRight = left + BADGE_GAP_PX + badgeW <= wrapWidth - BADGE_SAFETY_PX;
-    const fitsAbove = top - BADGE_GAP_PX - badgeH >= BADGE_SAFETY_PX;
-    const fitsLeft = left - BADGE_GAP_PX - badgeW >= BADGE_SAFETY_PX;
+    const getForecastAnchor = (): { left: number; top: number } | null => {
+      if (model.forecastSeries.length < 2) return null;
+      const dsIdx = chart.data.datasets.findIndex((d) => d.label === "Прогноз ГПР");
+      if (dsIdx < 0) return null;
+      const meta = chart.getDatasetMeta(dsIdx);
+      const last = meta?.data?.[meta.data.length - 1] as { x?: number; y?: number } | undefined;
+      if (last == null || typeof last.x !== "number" || typeof last.y !== "number") return null;
+      return canvasPointToWrap(chart, wrap, last.x, last.y);
+    };
 
-    let side: BadgeSide;
-    if (fitsRight) side = "right";
-    else if (fitsAbove) side = "above";
-    else if (fitsLeft) side = "left";
-    else side = "above"; // ультра-узкий контейнер: всё равно прячем линию под фоном
+    const planLayout = showPlanBadge ? computePlanBadgeLayout(chart, wrap, planBadgeH) : null;
 
-    setBadgePos({ left, top, side });
-  }, [model]);
+    if (planLayout && planLayout.top < BADGE_SAFETY_PX) {
+      const extraTopPadding =
+        chartTopPadding + (BADGE_SAFETY_PX - planLayout.top) + PLAN_BADGE_AIR_GAP_PX;
+      if (extraTopPadding > chartTopPadding) {
+        setChartTopPadding(extraTopPadding);
+        return;
+      }
+    }
 
-  const updateBadgeRef = useRef(updateBadgePosition);
-  updateBadgeRef.current = updateBadgePosition;
+    const planRect =
+      planLayout && planW > 0
+        ? planBadgeBoundingRect(planLayout, planW, planBadgeH)
+        : planLayout
+          ? planBadgeBoundingRect(planLayout, BADGE_FALLBACK_WIDTH_PX, planBadgeH)
+          : null;
+
+    const forecastAnchor = getForecastAnchor();
+    const forecastLayout = forecastAnchor
+      ? resolveForecastBadgeLayout(
+          forecastAnchor,
+          {
+            w: forecastW > 0 ? forecastW : BADGE_FALLBACK_WIDTH_PX,
+            h: forecastH > 0 ? forecastH : BADGE_FALLBACK_HEIGHT_PX,
+          },
+          wrap.clientWidth,
+          wrap.clientHeight,
+          planRect,
+        )
+      : null;
+
+    const next: OverlayLayouts = { forecast: forecastLayout, plan: planLayout };
+    setOverlayLayouts((prev) => (overlayLayoutsEqual(prev, next) ? prev : next));
+  }, [model, planSeriesForChart, showPlanBadge, chartTopPadding]);
+
+  const updateOverlaysRef = useRef(updateOverlays);
+  updateOverlaysRef.current = updateOverlays;
 
   useLayoutEffect(() => {
     const run = () => {
-      requestAnimationFrame(() => updateBadgeRef.current());
+      requestAnimationFrame(() => updateOverlaysRef.current());
     };
     run();
     const wrap = chartWrapRef.current;
@@ -169,36 +409,15 @@ export function GPRForecastChart({
     const ro = new ResizeObserver(run);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [model]);
+  }, [model, planSeriesForChart, chartTopPadding]);
 
-  // После первого рендера бейджа сверяем фактическую измеренную ширину и при
-  // необходимости переключаем сторону. Это страхует случай, когда fallback-оценка
-  // ширины оказалась неточной (другой шрифт / другая дата): эффект перерасчёта
-  // отрабатывает до paint, поэтому пользователь не видит «вспышку» неправильного
-  // расположения.
   useLayoutEffect(() => {
-    if (!badgePos || !badgeRef.current || !chartWrapRef.current) return;
-    const measuredW = badgeRef.current.offsetWidth;
-    const measuredH = badgeRef.current.offsetHeight;
-    if (measuredW <= 0 || measuredH <= 0) return;
-    const wrapWidth = chartWrapRef.current.clientWidth;
-    const fitsRight =
-      badgePos.left + BADGE_GAP_PX + measuredW <= wrapWidth - BADGE_SAFETY_PX;
-    const fitsAbove =
-      badgePos.top - BADGE_GAP_PX - measuredH >= BADGE_SAFETY_PX;
-    const fitsLeft =
-      badgePos.left - BADGE_GAP_PX - measuredW >= BADGE_SAFETY_PX;
-
-    let correct: BadgeSide;
-    if (fitsRight) correct = "right";
-    else if (fitsAbove) correct = "above";
-    else if (fitsLeft) correct = "left";
-    else correct = "above";
-
-    if (correct !== badgePos.side) {
-      setBadgePos((prev) => (prev ? { ...prev, side: correct } : prev));
-    }
-  }, [badgePos]);
+    if (!overlayLayouts.forecast && !overlayLayouts.plan) return;
+    const planH = planBadgeRef.current?.offsetHeight ?? 0;
+    const forecastH = forecastBadgeRef.current?.offsetHeight ?? 0;
+    if (planH <= 0 && forecastH <= 0) return;
+    updateOverlaysRef.current();
+  }, [overlayLayouts]);
 
   const chartData = useMemo(() => {
     if (!model) {
@@ -219,7 +438,7 @@ export function GPRForecastChart({
 
     const planDs = {
       label: "План ГПР",
-      data: truncatePlanSeriesAtCompletion(model.planSeries),
+      data: planSeriesForChart,
       borderColor: PLAN_LINE,
       backgroundColor: "transparent",
       tension: 0.38,
@@ -275,7 +494,7 @@ export function GPRForecastChart({
     return {
       datasets: forecastDs ? [planDs, factDs, forecastDs] : [planDs, factDs],
     };
-  }, [model]);
+  }, [model, planSeriesForChart]);
 
   const options: ChartOptions<"line"> = useMemo(
     () =>
@@ -290,12 +509,12 @@ export function GPRForecastChart({
               intersect: false,
             },
             layout: {
-              padding: { top: 38, right: 56, left: 4, bottom: 4 },
+              padding: { top: chartTopPadding, right: 56, left: 4, bottom: 4 },
             },
             animation: {
               duration: 450,
               onComplete: () => {
-                updateBadgeRef.current();
+                updateOverlaysRef.current();
               },
             },
             scales: {
@@ -311,12 +530,6 @@ export function GPRForecastChart({
                   callback: (v) => {
                     const n = typeof v === "number" ? v : Number(v);
                     if (!Number.isFinite(n)) return "";
-                    // Правый отступ axisMaxMs − dataEndMs — это техническая зона
-                    // для бейджа даты завершения прогноза. Подписи месяцев,
-                    // попадающие в этот буфер (например, «март 2028» при реальном
-                    // окончании проекта в ноябре 2027), не относятся к календарю
-                    // проекта и должны быть скрыты. Положение точек, линий и
-                    // прогноз при этом не меняются — режется ТОЛЬКО текст метки.
                     if (n > model.dataEndMs) return "";
                     return monthTickFmt.format(new Date(n));
                   },
@@ -415,13 +628,16 @@ export function GPRForecastChart({
               },
             },
           },
-    [model],
+    [model, chartTopPadding],
   );
 
-  const badgeLabel =
+  const forecastBadgeLabel =
     model && model.forecastSeries.length >= 2
       ? `до ${endDateFmt.format(new Date(model.forecastMs))}`
       : "";
+
+  const planBadgeLabel =
+    planEndMs != null ? `до ${endDateFmt.format(new Date(planEndMs))}` : "";
 
   return (
     <div
@@ -444,26 +660,60 @@ export function GPRForecastChart({
               data={chartData as ChartData<"line">}
               options={options}
             />
-            {badgePos && model.forecastSeries.length >= 2 ? (
+            {overlayLayouts.plan && planBadgeLabel ? (
+              <svg
+                className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+                aria-hidden
+              >
+                <line
+                  x1={overlayLayouts.plan.centerX}
+                  y1={overlayLayouts.plan.badgeBottom}
+                  x2={overlayLayouts.plan.leaderEndX}
+                  y2={overlayLayouts.plan.leaderEndY}
+                  stroke={PLAN_LINE}
+                  strokeWidth={PLAN_LEADER_WIDTH_PX}
+                  strokeOpacity={0.85}
+                />
+              </svg>
+            ) : null}
+            {overlayLayouts.forecast && forecastBadgeLabel ? (
               <div
-                ref={badgeRef}
-                className="pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-semibold leading-none tracking-tight text-slate-50"
+                ref={forecastBadgeRef}
+                className="pointer-events-none absolute z-30 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-semibold leading-none tracking-tight text-slate-50"
                 style={{
-                  left: badgePos.left,
-                  top: badgePos.top,
-                  transform:
-                    badgePos.side === "left"
-                      ? `translate(calc(-100% - ${BADGE_GAP_PX}px), -50%)`
-                      : badgePos.side === "above"
-                        ? `translate(-50%, calc(-100% - ${BADGE_GAP_PX}px))`
-                        : `translate(${BADGE_GAP_PX}px, -50%)`,
+                  left: overlayLayouts.forecast.left,
+                  top: overlayLayouts.forecast.top,
+                  transform: badgeTransform(
+                    overlayLayouts.forecast.side,
+                    overlayLayouts.forecast.gap,
+                    overlayLayouts.forecast.offsetX,
+                    overlayLayouts.forecast.offsetY,
+                  ),
                   background: FORECAST_BADGE_BG,
                   borderColor: FORECAST_BADGE_BORDER,
                   borderWidth: 1,
                   boxShadow: FORECAST_BADGE_SHADOW,
                 }}
               >
-                {badgeLabel}
+                {forecastBadgeLabel}
+              </div>
+            ) : null}
+            {showPlanBadge && planBadgeLabel ? (
+              <div
+                ref={planBadgeRef}
+                className="pointer-events-none absolute z-30 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-semibold leading-none tracking-tight text-slate-100"
+                style={{
+                  left: overlayLayouts.plan?.centerX ?? -9999,
+                  top: overlayLayouts.plan?.top ?? -9999,
+                  transform: "translateX(-50%)",
+                  visibility: overlayLayouts.plan ? "visible" : "hidden",
+                  background: FORECAST_BADGE_BG,
+                  borderColor: PLAN_BADGE_BORDER,
+                  borderWidth: 1,
+                  boxShadow: PLAN_BADGE_SHADOW,
+                }}
+              >
+                {planBadgeLabel}
               </div>
             ) : null}
           </>
