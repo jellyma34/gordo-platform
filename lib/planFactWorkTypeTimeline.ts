@@ -280,6 +280,31 @@ export function aggregatePlanFactBranchSchedule(
   };
 }
 
+/** Факт одной строки графика (full): только сама задача, без агрегации ветки. */
+function resolvePlanFactBarRowFactSchedule(
+  rowTask: GPRTask,
+  todayIso: string,
+): { factStart: string | null; factEnd: string | null } {
+  if (isGprCsvArticleWork(rowTask)) {
+    const fact = aggregatePlanFactArticleFactSchedule([rowTask], todayIso);
+    return { factStart: fact?.factStart ?? null, factEnd: fact?.factEnd ?? null };
+  }
+  const factStart = parseDateSafe(rowTask.factStart);
+  const factEnd = parseDateSafe(rowTask.factEnd);
+  if (!factStart && !factEnd && (Number(rowTask.completion) || 0) <= 0) {
+    return { factStart: null, factEnd: null };
+  }
+  if (factEnd) {
+    return { factStart: factStart ?? factEnd, factEnd };
+  }
+  if (factStart) {
+    const extended =
+      resolvePlanFactChartFactEnd(rowTask, [rowTask], todayIso) ?? factStart;
+    return { factStart, factEnd: extended };
+  }
+  return { factStart: null, factEnd: null };
+}
+
 /** План (WBS) и факт (CSV) для одной строки bar-chart. */
 function resolvePlanFactBarRowSchedule(
   rowTask: GPRTask,
@@ -287,29 +312,23 @@ function resolvePlanFactBarRowSchedule(
   todayIso: string,
   barLevel: PlanFactTasksBarLevel,
 ): PlanFactBarSchedule {
-  const branch = collectPlanFactBranchTasks(rowTask, allTasks);
-  const articleWorks =
-    barLevel === "full" && isGprCsvArticleWork(rowTask)
-      ? [rowTask]
-      : collectPlanFactArticleWorkItems(rowTask, allTasks);
-
-  let planStart: string | null = null;
-  let planEnd: string | null = null;
-
   if (barLevel === "full") {
-    planStart = parseDateSafe(rowTask.planStart);
-    planEnd = parseDateSafe(rowTask.planEnd);
-  } else {
-    const plan = aggregatePlanFactBranchPlanSchedule(branch);
-    planStart = plan?.planStart ?? null;
-    planEnd = plan?.planEnd ?? null;
+    return {
+      planStart: parseDateSafe(rowTask.planStart),
+      planEnd: parseDateSafe(rowTask.planEnd),
+      ...resolvePlanFactBarRowFactSchedule(rowTask, todayIso),
+    };
   }
 
+  const branch = collectPlanFactBranchTasks(rowTask, allTasks);
+  const articleWorks = collectPlanFactArticleWorkItems(rowTask, allTasks);
+
+  const plan = aggregatePlanFactBranchPlanSchedule(branch);
   const fact = aggregatePlanFactArticleFactSchedule(articleWorks, todayIso);
 
   return {
-    planStart,
-    planEnd,
+    planStart: plan?.planStart ?? null,
+    planEnd: plan?.planEnd ?? null,
     factStart: fact?.factStart ?? null,
     factEnd: fact?.factEnd ?? null,
   };
@@ -1046,6 +1065,22 @@ function expandMonolithFloorsForChart(
 ): PlanFactChartBuildEntry[] {
   if (barLevel !== "full") return entries;
 
+  const monolithRoot = normalizeGprCodeFinal(GPR_MONOLITH_CHART_STAGE_CODE);
+  const monolithPrefix = `${monolithRoot}.`;
+  const existingFloorEntries = entries.filter((e) => {
+    const c = normalizeGprCodeFinal(e.task.code);
+    return c.startsWith(monolithPrefix);
+  });
+  if (existingFloorEntries.length > 0) {
+    if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+      console.info("[PlanFactGprDynamicsChart] monolith floor split skipped — CSV leaf rows present", {
+        count: existingFloorEntries.length,
+        codes: existingFloorEntries.map((e) => normalizeGprCodeFinal(e.task.code)),
+      });
+    }
+    return entries;
+  }
+
   const monolith = findMonolithChartTask(branchPoolTasks);
   if (!monolith) return entries;
 
@@ -1328,6 +1363,29 @@ function buildGprPlanFactBarChartModel(
     const hasFactDates = Boolean(fsm != null && fem != null && fem >= fsm);
     const label = formatGprPlanFactBarLabel(task.code, task.name);
     entries.push({ task, label, hasPlanDates, hasFactDates, ps, pe, fs, fe });
+
+    if (
+      typeof process !== "undefined" &&
+      process.env.NODE_ENV !== "production" &&
+      normalizeGprCodeFinal(task.code) === "2.05.04.2.1"
+    ) {
+      console.info("[PlanFactGprDynamicsChart] row 2.05.04.2.1 schedule trace", {
+        sourceTaskId: task.id,
+        sourceTaskCode: task.code,
+        articleNumber: task.articleNumber,
+        globalTaskId: task.globalTaskId,
+        planStart: { value: ps, origin: "rowTask.planStart" },
+        planEnd: { value: pe, origin: "rowTask.planEnd" },
+        factStart: { value: fs, origin: "rowTask.factStart (strict row)" },
+        factEnd: { value: fe, origin: "rowTask.factEnd (strict row)" },
+        barLevel,
+        rowTaskPlanStart: task.planStart,
+        rowTaskPlanEnd: task.planEnd,
+        rowTaskFactStart: task.factStart,
+        rowTaskFactEnd: task.factEnd,
+        completion: task.completion,
+      });
+    }
   }
 
   entries = expandMonolithFloorsForChart(entries, branchPoolTasks, todayIso, barLevel);
