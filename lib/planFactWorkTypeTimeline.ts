@@ -832,23 +832,11 @@ export function collectPlanFactGprChartTimelineDomainDates(
   return dates;
 }
 
-/**
- * Этапы «Прочие / Прочее …» — только фильтр отображения диаграммы «Динамика выполнения ГПР».
- * KPI, агрегаты и исходные задачи не затрагиваются.
- */
+/** Этапы «Прочие / Прочее …» — вспомогательная проверка (не фильтрует диаграмму). */
 export function isGprPlanFactChartExcludedMiscStageName(name: string | null | undefined): boolean {
   const text = String(name ?? "").trim();
   if (!text) return false;
   return text.includes("Прочие") || text.includes("Прочее");
-}
-
-/** Режимы «Детально» и «Все этапы»: убрать строки с «Прочие» / «Прочее» в названии. */
-function filterGprPlanFactChartMiscDisplayTasks(
-  tasks: GPRTask[],
-  barLevel: PlanFactTasksBarLevel,
-): GPRTask[] {
-  if (barLevel === "simplified") return tasks;
-  return tasks.filter((t) => !isGprPlanFactChartExcludedMiscStageName(t.name));
 }
 
 function filterGprTasksForPlanFactBarLevel(
@@ -1315,29 +1303,11 @@ function buildGprPlanFactBarChartModel(
   partKey: PlanFactWorkTypePartKey,
   branchPoolTasks: GPRTask[],
 ): PlanFactWorkTypeChartModel | null {
-  const rawList = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
+  const list = filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey).sort((a, b) => {
     const cmp = compareGprCodesByNumericPath(a.code, b.code);
     if (cmp !== 0) return cmp;
     return gprPlanFactCompositeKey(a).localeCompare(gprPlanFactCompositeKey(b));
   });
-  const list = filterGprPlanFactChartMiscDisplayTasks(rawList, barLevel);
-
-  if (
-    typeof process !== "undefined" &&
-    process.env.NODE_ENV !== "production" &&
-    barLevel !== "simplified" &&
-    rawList.length !== list.length
-  ) {
-    const excluded = rawList
-      .filter((t) => isGprPlanFactChartExcludedMiscStageName(t.name))
-      .map((t) => formatGprPlanFactBarLabel(t.code, t.name));
-    console.info("[PlanFactGprDynamicsChart] misc stage filter", {
-      barLevel,
-      before: rawList.length,
-      after: list.length,
-      excluded,
-    });
-  }
 
   if (list.length === 0) return null;
 
