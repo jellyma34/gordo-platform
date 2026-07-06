@@ -358,6 +358,17 @@ export function clampSerialRange(
   return [a, b];
 }
 
+/** Строка диаграммы Ганта: хотя бы одна план/факт дата (только критерий отображения). */
+export function gprTaskHasGanttScheduleDisplayData(
+  task: Pick<GPRTask, "planStart" | "planEnd" | "factStart" | "factEnd">,
+): boolean {
+  if (task.planStart?.trim()) return true;
+  if (task.planEnd?.trim()) return true;
+  if (task.factStart?.trim()) return true;
+  if (task.factEnd?.trim()) return true;
+  return false;
+}
+
 /** Порог «много работ в квартале» по распределению счётчиков. */
 export function quarterOverloadThreshold(counts: Iterable<number>): number {
   const arr = [...counts].filter((n) => n > 0).sort((x, y) => x - y);

@@ -89,6 +89,7 @@ import {
   filterKvartalyTasksForGantt,
   formatQuarterDisplayLabel,
   getGanttXWindow,
+  gprTaskHasGanttScheduleDisplayData,
   serialDayFromOrigin,
   toKvartalyGanttFilter,
   type QuarterlyAggregateBucket,
@@ -1468,7 +1469,9 @@ function useKvartalyGanttModel(
   const ganttRows = useMemo(() => {
     if (!enabled || !ganttWindow) return [];
     const { origin, maxSerial } = ganttWindow;
-    const vis = candidates.filter((t) => rowVisibleInGanttWindow(t, origin, maxSerial));
+    const vis = candidates.filter(
+      (t) => gprTaskHasGanttScheduleDisplayData(t) && rowVisibleInGanttWindow(t, origin, maxSerial),
+    );
 
     if (granularity === "overview") {
       const agg = aggregateWorksToProjectPlanFactBounds(candidates);

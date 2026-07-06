@@ -991,6 +991,20 @@ type PlanFactChartBuildEntry = {
   factLabelOverride?: string;
 };
 
+/** Критерий отображения строки диаграммы Ганта (только UI, модель/KPI не затрагивается). */
+function gprGanttChartEntryHasScheduleDisplayData(e: PlanFactChartBuildEntry): boolean {
+  if (e.hasPlanDates || e.hasFactDates) return true;
+  if (e.ps?.trim()) return true;
+  if (e.pe?.trim()) return true;
+  if (e.fs?.trim()) return true;
+  if (e.fe?.trim()) return true;
+  return false;
+}
+
+function filterGprGanttChartEntriesForDisplay(entries: PlanFactChartBuildEntry[]): PlanFactChartBuildEntry[] {
+  return entries.filter(gprGanttChartEntryHasScheduleDisplayData);
+}
+
 /** Подпись % на диаграмме: только при наличии факта. */
 function resolvePlanFactChartRowFactLabel(
   e: PlanFactChartBuildEntry,
@@ -1360,6 +1374,9 @@ function buildGprPlanFactBarChartModel(
 
   entries = expandMonolithFloorsForChart(entries, branchPoolTasks, todayIso, barLevel);
   entries = sortPlanFactChartBuildEntries(entries);
+  entries = filterGprGanttChartEntriesForDisplay(entries);
+
+  if (entries.length === 0) return null;
 
   if (barLevel === "simplified") {
     const simplifiedModel = buildGprPlanFactSimplifiedKpiChartModel(entries, branchPoolTasks, today);
