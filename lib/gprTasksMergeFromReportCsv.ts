@@ -105,11 +105,16 @@ function gprCsvRowToTask(
 
   const scopeKey = `${code}::${objectType}`;
   const id = `${gprStableIdFromCode(code)}--${idSuffix}`;
+  const globalTaskId =
+    row.articleNumber != null
+      ? `${scopeKey}::art${row.articleNumber}`
+      : `${scopeKey}::__csv${row.sourceRowIndex}`;
 
   return {
     id,
-    globalTaskId: `${scopeKey}::__csv${row.sourceRowIndex}`,
+    globalTaskId,
     code,
+    articleNumber: row.articleNumber,
     objectType,
     planFactScope,
     name: row.name || code,
@@ -226,7 +231,8 @@ export function mergeGprTasksFromReportCsv(
         ...existed,
         ...incoming,
         id: existed.id,
-        globalTaskId: existed.globalTaskId || incoming.globalTaskId,
+        globalTaskId: incoming.globalTaskId || existed.globalTaskId,
+        articleNumber: incoming.articleNumber ?? existed.articleNumber ?? null,
         missingFromImport: false,
       };
     }

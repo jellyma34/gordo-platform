@@ -612,7 +612,25 @@ export function listGprDirectChildWorkCodes(tasks: GPRTask[], workCode: string):
     directChildren.add(`${parent}.${directSegment}`);
   }
 
-  return [...directChildren].sort((a, b) => compareGprCodesByNumericPath(a, b));
+  const articleByCode = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.articleNumber == null) continue;
+    const code = normalizeGprCodeFinal(task.code);
+    if (!directChildren.has(code)) continue;
+    const prev = articleByCode.get(code);
+    if (prev == null || task.articleNumber < prev) {
+      articleByCode.set(code, task.articleNumber);
+    }
+  }
+
+  return [...directChildren].sort((a, b) => {
+    const aa = articleByCode.get(a);
+    const bb = articleByCode.get(b);
+    if (aa != null && bb != null && aa !== bb) return aa - bb;
+    if (aa != null && bb == null) return -1;
+    if (aa == null && bb != null) return 1;
+    return compareGprCodesByNumericPath(a, b);
+  });
 }
 
 /** Позиции ТМЦ этапа с фактической обеспеченностью по каждой строке реестра. */

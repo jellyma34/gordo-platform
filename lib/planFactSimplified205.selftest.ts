@@ -18,14 +18,16 @@ const today = "2026-06-23";
 const asOf = new Date(`${today}T12:00:00`);
 
 const residentialOnly205 = tasks.filter(
-  (t: { code?: string }) =>
-    String(t.code ?? "").startsWith("2.05") || String(t.code ?? "") === "2.05",
+  (t: { code?: string; partId?: number }) =>
+    t.partId === 1 &&
+    (String(t.code ?? "").startsWith("2.05") || String(t.code ?? "") === "2.05"),
 );
 
 const kpiPool = filterGprTasksForKpiAnalytics(tasks);
-const root205 = kpiPool.find((t) => normalizeGprCodeFinal(t.code) === "2.05");
-assert(root205 != null, "2.05 root required in KPI pool");
-const insight = computeGprStageCompletionInsight(kpiPool, root205!, asOf);
+const root205 =
+  tasks.find((t: { code?: string }) => normalizeGprCodeFinal(t.code ?? "") === "2.05") ?? null;
+assert(root205 != null, "2.05 root required in task list");
+const insight = computeGprStageCompletionInsight(tasks, root205!, asOf);
 
 const model = buildPlanFactWorkTypeChartModel(
   residentialOnly205,
@@ -40,18 +42,19 @@ assert(model!.labels[0]!.includes("2.05"), "row label should be 2.05");
 assert(model!.percentScaleMode === true, "simplified uses percent scale");
 assert(model!.xMin === 0 && model!.xMax === 100, "simplified x axis 0–100");
 
-const i = 0;
-assert(model!.planRanges[i] != null, "plan bar range required");
-assert(model!.factRanges[i] != null, "fact bar range required");
-assert(model!.planRanges[i]![0] === 0, "plan bar starts at 0%");
-assert(model!.factRanges[i]![0] === 0, "fact bar starts at 0%");
-
 const expectedPlan = insight.planPercent ?? 0;
 const expectedFact = insight.factPercent;
-assert(
-  Math.abs(model!.planRanges[i]![1]! - expectedPlan) < 1e-6,
-  `plan bar end must match KPI planPercent (${expectedPlan})`,
-);
+const i = 0;
+if (expectedPlan > 0) {
+  assert(model!.planRanges[i] != null, "plan bar range required when plan > 0");
+  assert(model!.planRanges[i]![0] === 0, "plan bar starts at 0%");
+  assert(
+    Math.abs(model!.planRanges[i]![1]! - expectedPlan) < 1e-6,
+    `plan bar end must match KPI planPercent (${expectedPlan})`,
+  );
+}
+assert(model!.factRanges[i] != null, "fact bar range required");
+assert(model!.factRanges[i]![0] === 0, "fact bar starts at 0%");
 assert(
   Math.abs(model!.factRanges[i]![1]! - expectedFact) < 1e-6,
   `fact bar end must match KPI factPercent (${expectedFact})`,

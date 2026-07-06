@@ -1,4 +1,5 @@
 import { gprMockData } from "@/lib/gprMockData";
+import { filterGprTasksForKpiAnalytics } from "@/lib/gprStageCompletion";
 import { getProjectStats, getStatusByGprProgressDelta } from "@/lib/gprUtils";
 import { marketingMockData } from "@/lib/marketingMockData";
 
@@ -133,7 +134,7 @@ export function getHomeDashboardSnapshot(asOf: Date = new Date()): HomeDashboard
   const marketingFootnote = buildMarketingFootnote({ monthDeltas, worst, best });
   const marketingRiskFromMonth = (worst?.delta ?? 0) < -3;
 
-  const stats = getProjectStats(gprMockData);
+  const stats = getProjectStats(filterGprTasksForKpiAnalytics(gprMockData));
   const progressDeltaPp = Number.isFinite(stats.avgDeviation) ? stats.avgDeviation : 0;
   const plannedPercentAtDate = stats.avgPlannedPercent ?? 0;
   const factPercent = stats.avgFactPercent ?? 0;

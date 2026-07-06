@@ -1,13 +1,15 @@
 /**
  * Разбор экспорта отчёта ГПР: разделитель `;` или `,` (если в строке нет `;`), BOM снимается до разбивки по строкам.
- * Колонки «ID Код» и «Этап работ» определяются по строке заголовка; иначе — 0 и 1.
- * Поле `name` — только «Этап работ», не «Описание работ». Даты/прогресс — с фиксированных индексов.
+ * Колонки «ID Код», «Этап работ», даты план/факт и «№ статей» определяются по строкам заголовка.
+ * Поле `name` — только «Этап работ», не «Описание работ».
  * Строки без дат не отбрасываются — поля дат остаются null.
  */
 
 export type GprReportCsvRow = {
   /** Индекс строки в массиве после `split(/\r?\n/)` (0-based). */
   sourceRowIndex: number;
+  /** Порядковый номер работы из колонки «№ статей» (если задан в CSV). */
+  articleNumber: number | null;
   /** Последний объявленный в файле объект (заголовок секции без шифра в первой колонке). */
   objectType: string;
   rawCode: string;
@@ -78,15 +80,33 @@ function ensureWorkCode(rawTrimmed: string, rowIndex: number): string {
   return `9.99.${rowIndex + 1}`;
 }
 
-/** Типичная разметка экспорта ГПР: план/факт начиная с 10-й колонки; короткие строки допускаются — недостающие ячейки = undefined. */
-const PLAN_START_IDX = 10;
+/** Fallback при отсутствии подзаголовка дат (экспорт без «№ статей»). */
+const LEGACY_DATE_COLUMN_MAP = {
+  planStartIdx: 10,
+  planEndIdx: 11,
+  factStartIdx: 13,
+  factEndIdx: 14,
+  completionIdx: 17,
+} as const;
 
 type GprReportCsvColumnMap = {
+  /** Колонка «№ статей»; null — нумерация только по шифру WBS. */
+  articleIdx: number | null;
   codeIdx: number;
   stageIdx: number;
+  planStartIdx: number;
+  planEndIdx: number;
+  factStartIdx: number;
+  factEndIdx: number;
+  completionIdx: number;
 };
 
-const DEFAULT_COLUMN_MAP: GprReportCsvColumnMap = { codeIdx: 0, stageIdx: 1 };
+const DEFAULT_COLUMN_MAP: GprReportCsvColumnMap = {
+  articleIdx: null,
+  codeIdx: 0,
+  stageIdx: 1,
+  ...LEGACY_DATE_COLUMN_MAP,
+};
 
 function normalizeHeaderCell(cell: string): string {
   return cell.trim().toLowerCase().replace(/\s+/g, " ");
@@ -97,7 +117,57 @@ function detectColumnMapFromHeaderRow(cols: string[]): GprReportCsvColumnMap | n
   const codeIdx = norm.findIndex((c) => c === "id код" || c.startsWith("id код"));
   const stageIdx = norm.findIndex((c) => c === "этап работ" || c.startsWith("этап работ"));
   if (codeIdx < 0 || stageIdx < 0) return null;
-  return { codeIdx, stageIdx };
+  const completionIdx = norm.findIndex(
+    (c) => c.includes("прогресс выполнения") || c.startsWith("прогресс"),
+  );
+  return {
+    articleIdx: null,
+    codeIdx,
+    stageIdx,
+    planStartIdx: LEGACY_DATE_COLUMN_MAP.planStartIdx,
+    planEndIdx: LEGACY_DATE_COLUMN_MAP.planEndIdx,
+    factStartIdx: LEGACY_DATE_COLUMN_MAP.factStartIdx,
+    factEndIdx: LEGACY_DATE_COLUMN_MAP.factEndIdx,
+    completionIdx: completionIdx >= 0 ? completionIdx : LEGACY_DATE_COLUMN_MAP.completionIdx,
+  };
+}
+
+function isPlanStartHeader(cell: string): boolean {
+  const n = normalizeHeaderCell(cell);
+  return n === "дата начала" || n.startsWith("дата начала");
+}
+
+function isPlanEndHeader(cell: string): boolean {
+  const n = normalizeHeaderCell(cell);
+  return n === "дата окончания" || n.startsWith("дата окончания");
+}
+
+function detectDateIndicesFromSubHeaderRow(cols: string[]): Pick<
+  GprReportCsvColumnMap,
+  "planStartIdx" | "planEndIdx" | "factStartIdx" | "factEndIdx"
+> | null {
+  const startIdxs: number[] = [];
+  const endIdxs: number[] = [];
+  for (let i = 0; i < cols.length; i++) {
+    const cell = cols[i] ?? "";
+    if (isPlanStartHeader(cell)) startIdxs.push(i);
+    else if (isPlanEndHeader(cell)) endIdxs.push(i);
+  }
+  if (startIdxs.length < 2 || endIdxs.length < 2) return null;
+  const planStartIdx = startIdxs[0]!;
+  const planEndIdx = endIdxs.find((idx) => idx > planStartIdx);
+  const factStartIdx = startIdxs.find((idx) => idx > (planEndIdx ?? planStartIdx));
+  const factEndIdx = endIdxs.find((idx) => idx > (factStartIdx ?? planStartIdx));
+  if (
+    planEndIdx == null ||
+    factStartIdx == null ||
+    factEndIdx == null ||
+    planEndIdx <= planStartIdx ||
+    factEndIdx <= factStartIdx
+  ) {
+    return null;
+  }
+  return { planStartIdx, planEndIdx, factStartIdx, factEndIdx };
 }
 
 function isGprReportHeaderRow(cols: string[]): boolean {
@@ -107,6 +177,30 @@ function isGprReportHeaderRow(cols: string[]): boolean {
 function isGprReportSubHeaderRow(cols: string[]): boolean {
   const joined = cols.map(normalizeHeaderCell).join(" ");
   return joined.includes("дата начала") && joined.includes("дата окончания");
+}
+
+/** Подстрока заголовков с «№ статей» — задаёт колонку порядкового номера работы. */
+function detectArticleIdxFromSubHeaderRow(cols: string[]): number | null {
+  for (let i = 0; i < cols.length; i++) {
+    const cell = normalizeHeaderCell(cols[i] ?? "");
+    if (
+      cell === "№ статей" ||
+      cell.startsWith("№ статей") ||
+      cell === "№" ||
+      cell.startsWith("№ п/п")
+    ) {
+      return i;
+    }
+  }
+  return null;
+}
+
+function parseArticleNumberCell(cell: string | undefined): number | null {
+  const raw = (cell ?? "").trim();
+  if (!raw) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Обёртки Excel: пробелы и завершающая точка у шифра в первой колонке (как в ТЗ импорта). */
@@ -159,6 +253,9 @@ export type ParseGprReportCsvResult = {
   rows: GprReportCsvRow[];
   /** Число строк после `split(/\r?\n/)` (включая пустые). */
   csvPapaRowCount: number;
+  /** Диагностика заполнения дат после разбора. */
+  rowsWithPlanStart: number;
+  rowsWithFactStart: number;
 };
 
 /**
@@ -185,7 +282,16 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
       columnMap = detectedMap;
       continue;
     }
-    if (isGprReportSubHeaderRow(cols)) continue;
+    if (isGprReportSubHeaderRow(cols)) {
+      const articleIdx = detectArticleIdxFromSubHeaderRow(cols);
+      const dateIdxs = detectDateIndicesFromSubHeaderRow(cols);
+      columnMap = {
+        ...columnMap,
+        articleIdx: articleIdx ?? columnMap.articleIdx,
+        ...(dateIdxs ?? {}),
+      };
+      continue;
+    }
 
     const codeCell = cols[columnMap.codeIdx] ?? cols[0] ?? "";
     const codeCellText = String(codeCell).trim();
@@ -214,14 +320,20 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
     if (normalizeHeaderCell(name) === "этап работ") continue;
     if (!name) name = code;
 
-    const planStart = ruDateCellToIsoOrNull(cols[PLAN_START_IDX]);
-    const planEnd = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 1]);
-    const factStart = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 3]);
-    const factEnd = ruDateCellToIsoOrNull(cols[PLAN_START_IDX + 4]);
-    const completion = parseCompletionCell(cols[PLAN_START_IDX + 6]);
+    const planStart = ruDateCellToIsoOrNull(cols[columnMap.planStartIdx]);
+    const planEnd = ruDateCellToIsoOrNull(cols[columnMap.planEndIdx]);
+    const factStart = ruDateCellToIsoOrNull(cols[columnMap.factStartIdx]);
+    const factEnd = ruDateCellToIsoOrNull(cols[columnMap.factEndIdx]);
+    const completion = parseCompletionCell(cols[columnMap.completionIdx]);
+
+    const articleNumber =
+      columnMap.articleIdx != null
+        ? parseArticleNumberCell(cols[columnMap.articleIdx])
+        : null;
 
     out.push({
       sourceRowIndex: i,
+      articleNumber,
       objectType: currentObject,
       rawCode: rawClean,
       code,
@@ -234,7 +346,27 @@ export function parseGprReportCsvWithStats(text: string): ParseGprReportCsvResul
     });
   }
 
-  return { rows: out, csvPapaRowCount: rows.length };
+  const rowsWithPlanStart = out.filter((r) => r.planStart != null).length;
+  const rowsWithFactStart = out.filter((r) => r.factStart != null).length;
+
+  if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+    console.info("[gprReportCsv] parse stats", {
+      taskRows: out.length,
+      rowsWithPlanStart,
+      rowsWithFactStart,
+      columnMap: {
+        articleIdx: columnMap.articleIdx,
+        codeIdx: columnMap.codeIdx,
+        planStartIdx: columnMap.planStartIdx,
+        planEndIdx: columnMap.planEndIdx,
+        factStartIdx: columnMap.factStartIdx,
+        factEndIdx: columnMap.factEndIdx,
+        completionIdx: columnMap.completionIdx,
+      },
+    });
+  }
+
+  return { rows: out, csvPapaRowCount: rows.length, rowsWithPlanStart, rowsWithFactStart };
 }
 
 export function parseGprReportCsv(text: string): GprReportCsvRow[] {

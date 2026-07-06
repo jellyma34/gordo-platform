@@ -9,6 +9,8 @@ export type GPRTask = {
   code: string;
   name: string;
   partId: number;
+  /** Порядковый номер работы из CSV («№ статей»), если задан. */
+  articleNumber?: number | null;
   /** Часть проекта в терминах API / визуализации (`residential` — жилой дом, `parking` — автостоянка). */
   projectPartKey?: ProjectPartKey;
   relatedTmcIds?: string[];
@@ -937,6 +939,28 @@ export function sortGprTasksByCode(tasks: GPRTask[]): GPRTask[] {
     if (c !== 0) return c;
     return a.id.localeCompare(b.id);
   });
+}
+
+/** Порядок работ как в CSV: по «№ статей», затем по шифру WBS. */
+export function sortGprTasksByCsvArticleNumber(tasks: GPRTask[]): GPRTask[] {
+  return [...tasks].sort((a, b) => {
+    const aa = a.articleNumber;
+    const bb = b.articleNumber;
+    if (aa != null && bb != null && aa !== bb) return aa - bb;
+    if (aa != null && bb == null) return -1;
+    if (aa == null && bb != null) return 1;
+    const c = compareGprCodesByNumericPath(a.code, b.code);
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/** Подпись номера работы для KPI / таблиц (из CSV или шифр). */
+export function formatGprTaskArticleLabel(task: GPRTask): string {
+  if (task.articleNumber != null && task.articleNumber > 0) {
+    return String(task.articleNumber);
+  }
+  return normalizeGprCodeFinal(task.code) || task.code;
 }
 
 export function isIsoDateString(s: string | null | undefined): s is string {

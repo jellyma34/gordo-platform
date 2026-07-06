@@ -9,13 +9,18 @@ import {
   matchesGprCodeBranch,
   normalizeGprCodeFinal,
   planFactEndDeviationDays,
+  sortGprTasksByCsvArticleNumber,
   type GPRTask,
 } from "@/lib/gprUtils";
 import { isGprTaskFactCompleted } from "@/lib/gprStageCompletion";
 import { listGprDirectChildWorkCodes } from "@/lib/gprTmcDependency";
 
-/** Сортировка работ в порядке календарного графика ГПР (planStart, затем шифр). */
+/** Сортировка работ в порядке CSV («№ статей»), затем календарь / шифр. */
 export function sortGprTasksByCalendarOrder(tasks: GPRTask[]): GPRTask[] {
+  const hasArticleNumbers = tasks.some((t) => t.articleNumber != null && t.articleNumber > 0);
+  if (hasArticleNumbers) {
+    return sortGprTasksByCsvArticleNumber(tasks);
+  }
   return [...tasks].sort((a, b) => {
     const sa = a.planStart?.trim()
       ? new Date(`${a.planStart.trim()}T00:00:00`).getTime()

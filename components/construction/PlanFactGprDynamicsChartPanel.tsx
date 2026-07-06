@@ -289,7 +289,8 @@ function PlanFactGprStageGroup({
     : "";
   const planPercentLabel = planPctRaw || null;
   const showFact =
-    factPercent != null && (factPercent > 0 || (showZeroFactPercent && factPercent <= 0));
+    (factPercent != null && (factPercent > 0 || (showZeroFactPercent && factPercent <= 0))) ||
+    Boolean(factSpan && factSpan.widthPct > 0);
   const displayedFactSpan =
     showFact && factSpan
       ? factSpan

@@ -13,6 +13,7 @@ import {
   PROJECT_PARTS,
   type GPRTask,
 } from "@/lib/gprUtils";
+import { filterGprTasksForKpiAnalytics } from "@/lib/gprStageCompletion";
 import { computeConstructionStructureDiagnostic } from "@/lib/constructionStructureDiagnosticMetrics";
 import { contractDeviationDays, type Tender } from "@/lib/tenderData";
 import { tmcFactReferenceDate, tmcPlanReferenceDate, type TMCItem } from "@/lib/tmcData";
@@ -169,7 +170,8 @@ export function buildConstructionPresentationExplain(
       ? "Проект (сводно)"
       : (PROJECT_PARTS.find((p) => p.id === partId)?.name ?? "Часть проекта");
   const today = new Date();
-  const stats = getProjectStats(tasks);
+  const kpiTasks = filterGprTasksForKpiAnalytics(tasks);
+  const stats = getProjectStats(kpiTasks);
   const completedPct = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
 
   const sampleDev = tasks
