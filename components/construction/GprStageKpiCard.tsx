@@ -321,6 +321,30 @@ function GprKpiCardTitle({
   );
 }
 
+/** Единый header KPI-карточек: иконка + заголовок (как в карточке «Проект»). */
+function GprKpiCardHeader({
+  code,
+  title,
+  badgeTone,
+  nowrap = false,
+}: {
+  code?: string;
+  title: string;
+  badgeTone: "green" | "yellow" | "red" | "gray";
+  nowrap?: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <GprKpiIconBadge tone={badgeTone}>
+        <HardHat className="h-5 w-5" strokeWidth={2} />
+      </GprKpiIconBadge>
+      <div className="min-w-0 flex-1">
+        <GprKpiCardTitle code={code} title={title} nowrap={nowrap} />
+      </div>
+    </div>
+  );
+}
+
 function cardThemeForTraffic(status: GprStageKpiTraffic): {
   glowColor: string;
   gradient: string;
@@ -514,7 +538,7 @@ function GprKpiStatusListRow({
       <div className="grid place-items-center" style={{ color }}>
         {icon}
       </div>
-      <div className="min-w-0 truncate text-xs font-medium text-slate-400">{label}</div>
+      <div className="min-w-0 truncate pl-2 pr-1.5 text-xs font-medium text-slate-400">{label}</div>
       <div className="shrink-0 text-lg font-bold tabular-nums leading-none text-white">{value}</div>
     </div>
   );
@@ -623,14 +647,8 @@ function GprStageKpiDashboardBody({
       }}
     >
       {/* Заголовок */}
-      <div
-        className="mb-0.5 grid shrink-0 grid-cols-[32px_minmax(0,1fr)] items-center gap-1.5"
-        style={{ gridColumn: "1 / -1" }}
-      >
-        <GprKpiIconBadge tone={theme.badgeTone} dense>
-          <HardHat className="h-3.5 w-3.5" strokeWidth={2} />
-        </GprKpiIconBadge>
-        <GprKpiCardTitle code={code} title={title} nowrap />
+      <div className="mb-0.5 shrink-0" style={{ gridColumn: "1 / -1" }}>
+        <GprKpiCardHeader code={code} title={title} badgeTone={theme.badgeTone} nowrap />
       </div>
 
       {/* Левая колонка: кольцо + работы */}
@@ -958,14 +976,7 @@ export function GprStageKpiCard({
           />
         ) : (
           <>
-            <div className="flex items-start gap-3">
-              <GprKpiIconBadge tone={theme.badgeTone}>
-                <HardHat className="h-5 w-5" strokeWidth={2} />
-              </GprKpiIconBadge>
-              <div className="min-w-0 flex-1">
-                <GprKpiCardTitle code={code} title={title} />
-              </div>
-            </div>
+            <GprKpiCardHeader code={code} title={title} badgeTone={theme.badgeTone} />
 
             <div className={compactMetrics ? "mt-3" : "mt-4"}>
               {compactMetrics ? (
