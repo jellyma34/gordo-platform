@@ -589,7 +589,7 @@ function GprStageKpiDashboardBody({
   const completedShareLabel = "Доля выполненных работ";
   const statusCards = [
     {
-      label: "Завершено",
+      label: "Завершено в срок",
       value: businessCompletedCount,
       color: DASHBOARD_RING_COLORS.green,
       icon: <Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
@@ -601,7 +601,7 @@ function GprStageKpiDashboardBody({
       icon: <RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
     },
     {
-      label: "С опозданием",
+      label: "Завершено с опозданием",
       value: businessLateCount,
       color: DASHBOARD_RING_COLORS.orange,
       icon: <Clock className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
