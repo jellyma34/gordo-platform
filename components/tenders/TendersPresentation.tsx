@@ -97,6 +97,14 @@ function pctSigned1(n: number): string {
   return `${formatted}%`;
 }
 
+function tenderCountLabel(count: number): string {
+  const mod10 = Math.abs(count) % 10;
+  const mod100 = Math.abs(count) % 100;
+  if (mod10 === 1 && mod100 !== 11) return "тендер";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "тендера";
+  return "тендеров";
+}
+
 function encodePdfJson(value: unknown): string {
   return encodeURIComponent(JSON.stringify(value));
 }
@@ -1096,6 +1104,7 @@ export function TendersPresentation({
               <TenderKpiLabel>ПРОВЕДЕНО</TenderKpiLabel>
               <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
                 <span className="text-4xl font-extrabold text-white">{kpi.conductedCount}</span>
+                <span className="text-xl font-medium text-slate-300/65">{tenderCountLabel(kpi.conductedCount)}</span>
               </div>
             </div>
           </div>
@@ -1114,7 +1123,9 @@ export function TendersPresentation({
               <KpiDonutChart
                 segments={kpiDonutSegments.conductedPipeline}
                 percentBase={kpiDonutSegments.totalTenders}
-                chartHeight={156}
+                centerValue={String(kpiDonutSegments.totalTenders)}
+                centerSublabel={tenderCountLabel(kpiDonutSegments.totalTenders)}
+                chartHeight={190}
                 legendPosition="bottom"
                 legendColumns={2}
                 compactLegend
