@@ -22,7 +22,10 @@ import {
   type TenderProcurementStatus,
   type TenderTraffic,
 } from "@/lib/tenderData";
-import { importTenderCsvFile, type TenderCsvImportAudit } from "@/lib/tenderCsvImport";
+import {
+  importTenderCsvFile,
+  type TenderCsvImportAudit,
+} from "@/lib/tenderCsvImportUi";
 import { diffTendersImportScoped, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
 import { GprDateField } from "@/components/ui/GprDateField";

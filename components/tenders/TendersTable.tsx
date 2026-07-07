@@ -29,8 +29,20 @@ import {
   type TenderProcurementStatus,
   type TenderTraffic,
 } from "@/lib/tenderData";
-import { importTenderCsvFile, type TenderCsvImportAudit } from "@/lib/tenderCsvImport";
+import {
+  importTenderCsvFile,
+  type TenderCsvImportAudit,
+} from "@/lib/tenderCsvImportUi";
 import { diffTendersImportScoped, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
+import {
+  logPipelineAfterDiff,
+  logPipelineAfterSave,
+  logPipelineBeforeDiff,
+  logPipelineBeforeSave,
+  logPipelineFirstZeroLoss,
+  logPipelineReactState,
+  logPipelineTableRender,
+} from "@/lib/tenderUiPipelineDiagnostics";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
 import { GprDateField } from "@/components/ui/GprDateField";
 import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
@@ -131,15 +143,164 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   const [tenderPersistReady, setTenderPersistReady] = useState(!tenderLocalMode);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  /** Поколение активного импорта (инкремент при каждом выборе файла). */
+  const importGenerationRef = useRef(0);
+  /** Счётчик попыток импорта (для гонки с bootstrap-load). */
+  const importAttemptRef = useRef(0);
+  /** attemptId последнего успешно применённого snapshot (items+audit+stats). */
+  const importCommittedAttemptRef = useRef(0);
+  const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
+  const [importAudit, setImportAudit] = useState<TenderCsvImportAudit | null>(null);
+
+  type ImportUiSnapshot = {
+    items: Tender[];
+    audit: TenderCsvImportAudit;
+    stats: TenderImportDiffStats;
+  };
+
+  function snapshotImportAudit(audit: TenderCsvImportAudit): TenderCsvImportAudit {
+    return { ...audit, skippedRows: [...audit.skippedRows] };
+  }
+
+  function auditTrace(
+    stage: string,
+    ctx: {
+      generation?: number;
+      attemptId?: number;
+      loaded?: number;
+      skipped?: number;
+      total?: number;
+      itemsLength?: number;
+      registryLength?: number;
+      [key: string]: unknown;
+    },
+  ): void {
+    console.log(`[audit-trace] ${stage}`, ctx);
+  }
+
+  function isImportGenerationStale(generation: number, stage: string): boolean {
+    if (generation === importGenerationRef.current) return false;
+    auditTrace(`stale import ignored — ${stage}`, {
+      generation,
+      currentGeneration: importGenerationRef.current,
+      attemptId: importAttemptRef.current,
+      committedAttempt: importCommittedAttemptRef.current,
+    });
+    return true;
+  }
+
+  function shouldSkipBootstrapLoad(loadAttemptAtStart: number, source: string): boolean {
+    if (importAttemptRef.current !== loadAttemptAtStart) {
+      auditTrace(`skip ${source}: import attempt changed during load`, {
+        generation: importGenerationRef.current,
+        attemptId: importAttemptRef.current,
+        loadAttemptAtStart,
+        committedAttempt: importCommittedAttemptRef.current,
+      });
+      return true;
+    }
+    if (importCommittedAttemptRef.current > loadAttemptAtStart) {
+      auditTrace(`skip ${source}: committed import after load started`, {
+        generation: importGenerationRef.current,
+        attemptId: importAttemptRef.current,
+        loadAttemptAtStart,
+        committedAttempt: importCommittedAttemptRef.current,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  function commitImportFailureSnapshot(
+    generation: number,
+    attemptId: number,
+    audit: TenderCsvImportAudit,
+    stats: TenderImportDiffStats,
+    stage: string,
+    registryLength: number,
+  ): void {
+    if (isImportGenerationStale(generation, stage)) return;
+    const auditSnap = snapshotImportAudit(audit);
+    auditTrace(`before setImportAudit (${stage})`, {
+      generation,
+      attemptId,
+      loaded: auditSnap.loaded,
+      skipped: auditSnap.skipped,
+      total: stats.total,
+      registryLength,
+    });
+    setImportAudit(auditSnap);
+    auditTrace(`before setImportStats (${stage})`, {
+      generation,
+      attemptId,
+      loaded: auditSnap.loaded,
+      skipped: auditSnap.skipped,
+      total: stats.total,
+      registryLength,
+    });
+    setImportStats({ ...stats });
+    auditTrace(`after failure snapshot (${stage})`, {
+      generation,
+      attemptId,
+      loaded: auditSnap.loaded,
+      skipped: auditSnap.skipped,
+      total: stats.total,
+      registryLength,
+    });
+  }
+
+  function commitImportSuccessSnapshot(
+    generation: number,
+    attemptId: number,
+    snapshot: ImportUiSnapshot,
+    stage: string,
+  ): void {
+    if (isImportGenerationStale(generation, stage)) return;
+    const auditSnap = snapshotImportAudit(snapshot.audit);
+    const statsSnap = { ...snapshot.stats };
+    const itemsSnap = snapshot.items;
+    auditTrace(`before commit success snapshot (${stage})`, {
+      generation,
+      attemptId,
+      loaded: auditSnap.loaded,
+      skipped: auditSnap.skipped,
+      total: statsSnap.total,
+      itemsLength: itemsSnap.length,
+      registryLength: itemsSnap.length,
+    });
+    importCommittedAttemptRef.current = attemptId;
+    setImportAudit(auditSnap);
+    setImportStats(statsSnap);
+    setItems(itemsSnap);
+    auditTrace(`after commit success snapshot (${stage})`, {
+      generation,
+      attemptId,
+      loaded: auditSnap.loaded,
+      skipped: auditSnap.skipped,
+      total: statsSnap.total,
+      itemsLength: itemsSnap.length,
+      registryLength: itemsSnap.length,
+      committedAttempt: importCommittedAttemptRef.current,
+    });
+  }
+
   useEffect(() => {
     if (tenderLocalMode) {
       lastSavedTenderJsonRef.current = null;
       setTenderPersistReady(false);
       let cancelled = false;
+      const loadAttemptAtStart = importAttemptRef.current;
       (async () => {
         try {
           const r = await loadPersistedTenderItems(projectId);
           if (cancelled) return;
+          if (shouldSkipBootstrapLoad(loadAttemptAtStart, "loadPersistedTenderItems")) return;
+          auditTrace("loadPersistedTenderItems → setItems", {
+            generation: importGenerationRef.current,
+            attemptId: importAttemptRef.current,
+            registryLength: r.tenders.length,
+          });
           setItems(r.tenders);
           lastSavedTenderJsonRef.current = r.bootstrapJson;
           setLoadError(null);
@@ -157,13 +318,19 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     }
     if (!hydrated || !token) return;
     let cancelled = false;
+    const loadAttemptAtStart = importAttemptRef.current;
     (async () => {
       try {
         const rows = await listTendersFromDb(token);
-        if (!cancelled) {
-          setItems(rows);
-          setLoadError(null);
-        }
+        if (cancelled) return;
+        if (shouldSkipBootstrapLoad(loadAttemptAtStart, "listTendersFromDb")) return;
+        auditTrace("listTendersFromDb → setItems", {
+          generation: importGenerationRef.current,
+          attemptId: importAttemptRef.current,
+          registryLength: rows.length,
+        });
+        setItems(rows);
+        setLoadError(null);
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Не удалось загрузить тендеры");
@@ -188,9 +355,6 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     }
   }, [items, tenderPersistReady, projectId]);
 
-  const csvInputRef = useRef<HTMLInputElement>(null);
-  const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
-  const [importAudit, setImportAudit] = useState<TenderCsvImportAudit | null>(null);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [trafficFilter, setTrafficFilter] = useState<"all" | TenderTraffic>("all");
@@ -237,6 +401,70 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     });
     return out;
   }, [filteredRows]);
+
+  useEffect(() => {
+    if (!importAudit && !importStats) return;
+    auditTrace("useEffect before stats JSX", {
+      generation: importGenerationRef.current,
+      attemptId: importAttemptRef.current,
+      committedAttempt: importCommittedAttemptRef.current,
+      loaded: importAudit?.loaded ?? null,
+      skipped: importAudit?.skipped ?? null,
+      total: importStats?.total ?? null,
+      itemsLength: items.length,
+      registryLength: items.length,
+      renderRows: sortedFilteredRows.length,
+    });
+  }, [importAudit, importStats, items.length, sortedFilteredRows.length]);
+
+  useEffect(() => {
+    if (!importAudit) return;
+    auditTrace("useEffect[items,importAudit,importStats]", {
+      generation: importGenerationRef.current,
+      attemptId: importAttemptRef.current,
+      committedAttempt: importCommittedAttemptRef.current,
+      loaded: importAudit.loaded,
+      skipped: importAudit.skipped,
+      total: importStats?.total ?? null,
+      itemsLength: items.length,
+      registryLength: items.length,
+      renderRows: rows.length,
+    });
+    logPipelineReactState(
+      { file: "components/tenders/TendersTable.tsx", fn: "useEffect[items,importAudit]", line: 252 },
+      {
+        tableRows: rows.length,
+        registrySize: items.length,
+        activePartId,
+        importAuditLoaded: importAudit.loaded,
+        importStatsTotal: importStats?.total ?? null,
+      },
+    );
+    if (importAudit.loaded === 0 && importAudit.parsedRows > 0) {
+      logPipelineFirstZeroLoss(
+        "importAudit.loaded (UI «загружено»)",
+        { file: "components/tenders/TendersTable.tsx", fn: "useEffect[importAudit]", line: 252 },
+        {
+          parsedRows: importAudit.parsedRows,
+          skipped: importAudit.skipped,
+          registrySize: items.length,
+          reason: "Текст UI берётся из importAudit.loaded, не из items.length",
+        },
+      );
+    }
+  }, [items, importAudit, importStats, rows.length, activePartId]);
+
+  useEffect(() => {
+    if (!importAudit) return;
+    logPipelineTableRender(
+      { file: "components/tenders/TendersTable.tsx", fn: "useEffect[sortedFilteredRows]", line: 275 },
+      {
+        renderRows: sortedFilteredRows.length,
+        renderFirstCode: sortedFilteredRows[0]?.code ?? null,
+        filteredFrom: rows.length,
+      },
+    );
+  }, [sortedFilteredRows, importAudit, rows.length]);
 
   const tenderCodesWithChildren = useMemo(() => {
     const codes = sortedFilteredRows.map((r) => r.code.trim());
@@ -312,17 +540,89 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       e.target.value = "";
       if (!file) return;
       try {
+        const generation = ++importGenerationRef.current;
+        const attemptId = ++importAttemptRef.current;
+        auditTrace("handleTenderCsvImport start", {
+          generation,
+          attemptId,
+          registryLength: items.length,
+        });
+
         const { tenders: normalized, audit } = await importTenderCsvFile(file);
-        setImportAudit(audit);
+
+        auditTrace("after importTenderCsvFile (pipeline)", {
+          generation,
+          attemptId,
+          currentGeneration: importGenerationRef.current,
+          loaded: audit.loaded,
+          skipped: audit.skipped,
+          total: normalized.length,
+          itemsLength: normalized.length,
+          registryLength: items.length,
+        });
+        if (isImportGenerationStale(generation, "after importTenderCsvFile")) return;
+
+        if (audit.columnMapDiagnostics?.error) {
+          commitImportFailureSnapshot(
+            generation,
+            attemptId,
+            audit,
+            {
+              total: 0,
+              added: 0,
+              updated: 0,
+              unchanged: 0,
+              skippedInvalid: audit.parsedRows,
+            },
+            "columnMapDiagnostics.error",
+            items.length,
+          );
+          logPipelineFirstZeroLoss(
+            "columnMapDiagnostics.error early return",
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 358 },
+            { error: audit.columnMapDiagnostics.error, loaded: audit.loaded, parsedRows: audit.parsedRows },
+          );
+          window.alert(audit.columnMapDiagnostics.error);
+          return;
+        }
+
+        logPipelineBeforeDiff(
+          { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 368 },
+          {
+            registryIn: items.length,
+            normalizedCount: normalized.length,
+            firstCode: normalized[0]?.code ?? null,
+            parsedRows: audit.parsedRows,
+          },
+        );
 
         if (normalized.length === 0) {
-          setImportStats({
-            total: 0,
-            added: 0,
-            updated: 0,
-            unchanged: 0,
-            skippedInvalid: audit.parsedRows,
-          });
+          commitImportFailureSnapshot(
+            generation,
+            attemptId,
+            audit,
+            {
+              total: 0,
+              added: 0,
+              updated: 0,
+              unchanged: 0,
+              skippedInvalid: audit.parsedRows,
+            },
+            "normalized.length===0",
+            items.length,
+          );
+          logPipelineFirstZeroLoss(
+            "normalized.length === 0 early return",
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 378 },
+            {
+              auditLoaded: audit.loaded,
+              auditSkipped: audit.skipped,
+              parsedRows: audit.parsedRows,
+              firstSkip: audit.skippedRows[0] ?? null,
+              registrySize: items.length,
+              reason: "diff/save/setItems не вызываются — в таблице остаётся прежний реестр",
+            },
+          );
           const sample = audit.skippedRows
             .slice(0, 3)
             .map((s) => `стр. ${s.rowIndex}: ${s.reason}`)
@@ -336,17 +636,74 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
         }
 
         const { result, stats } = diffTendersImportScoped(items, normalized, audit.parsedRows);
-        setImportStats(stats);
-        setItems(result);
+        if (isImportGenerationStale(generation, "after diffTendersImportScoped")) return;
+
+        logPipelineAfterDiff(
+          { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 408 },
+          {
+            registryIn: items.length,
+            resultCount: result.length,
+            stats,
+            firstCode: result[0]?.code ?? null,
+          },
+        );
+
+        if (result.length === 0 && normalized.length > 0) {
+          logPipelineFirstZeroLoss(
+            "diffTendersImportScoped result empty",
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 408 },
+            { normalizedCount: normalized.length, stats },
+          );
+        }
+
+        let finalItems = result;
+
         if (tenderLocalMode) {
+          logPipelineBeforeSave(
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 424 },
+            { mode: "localStorage", recordsToSave: result.length, firstRecord: result[0] ?? null },
+          );
           saveTendersToLocalStorage(projectId, result);
+          logPipelineAfterSave(
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 429 },
+            { mode: "localStorage", savedCount: result.length, firstCode: result[0]?.code ?? null },
+          );
           void postTenderImportToApi(projectId, result);
         } else if (token) {
+          logPipelineBeforeSave(
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 435 },
+            { mode: "bulkImport", recordsToSave: result.length, firstRecord: result[0] ?? null },
+          );
           const saved = await bulkImportTendersToDb(token, result);
-          setItems(saved);
+          auditTrace("after bulkImportTendersToDb", {
+            generation,
+            attemptId,
+            loaded: audit.loaded,
+            skipped: audit.skipped,
+            total: stats.total,
+            itemsLength: saved.length,
+            registryLength: saved.length,
+          });
+          if (isImportGenerationStale(generation, "after bulkImportTendersToDb")) return;
+          logPipelineAfterSave(
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 440 },
+            { mode: "bulkImport", savedCount: saved.length, firstCode: saved[0]?.code ?? null },
+          );
+          finalItems = saved;
         } else {
+          logPipelineBeforeSave(
+            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 446 },
+            { mode: "displayOnly", recordsToSave: result.length, firstRecord: result[0] ?? null },
+          );
           window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
         }
+
+        commitImportSuccessSnapshot(
+          generation,
+          attemptId,
+          { items: finalItems, audit, stats },
+          "success",
+        );
         window.dispatchEvent(new Event("gordo-tenders-saved"));
       } catch (err) {
         console.error(err);

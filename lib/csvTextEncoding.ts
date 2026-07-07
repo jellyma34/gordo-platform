@@ -3,25 +3,21 @@
  * `File.text()` всегда интерпретирует байты как UTF-8 → «кракозябры» или `?`.
  */
 
-function countCyrillicLetters(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c >= 0x0400 && c <= 0x04ff) n++;
-  }
-  return n;
-}
-
 /** Убрать BOM UTF-8 из начала строки. */
 function stripUtf8Bom(s: string): string {
   return s.replace(/^\uFEFF/, "");
 }
 
 /**
- * Декодирует байты CSV: выбирает UTF-8 или Windows-1251 по доле кириллицы и U+FFFD.
+ * Декодирует байты CSV: UTF-8 если валиден, иначе Windows-1251.
  */
 export function decodeCsvBytesWithBestEncoding(bytes: Uint8Array): string {
   const utf8 = stripUtf8Bom(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+
+  // Валидный UTF-8 без U+FFFD — не сравнивать с CP1251 (мисдекод даёт ложную «кириллицу»).
+  if (!utf8.includes("\uFFFD")) {
+    return utf8;
+  }
 
   let cp1251: string;
   try {
@@ -30,24 +26,7 @@ export function decodeCsvBytesWithBestEncoding(bytes: Uint8Array): string {
     return utf8;
   }
 
-  if (utf8.includes("\uFFFD")) {
-    return cp1251;
-  }
-
-  const cyUtf = countCyrillicLetters(utf8);
-  const cyCp = countCyrillicLetters(cp1251);
-
-  // Русский CSV из Excel (CP1251), открытый как UTF-8: мало корректной кириллицы в UTF-8
-  if (cyCp > cyUtf + 3) {
-    return cp1251;
-  }
-
-  // Файл уже в UTF-8 с русским текстом
-  if (cyUtf > cyCp + 3) {
-    return utf8;
-  }
-
-  return utf8;
+  return cp1251;
 }
 
 /** Читает `File` как CSV с подбором кодировки (UTF-8 vs Windows-1251). */

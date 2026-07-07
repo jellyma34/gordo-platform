@@ -327,18 +327,21 @@ function GprKpiCardHeader({
   title,
   badgeTone,
   nowrap = false,
+  titleContainerClassName,
 }: {
   code?: string;
   title: string;
   badgeTone: "green" | "yellow" | "red" | "gray";
   nowrap?: boolean;
+  /** Смещение только текстового блока заголовка (иконка не затрагивается). */
+  titleContainerClassName?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
       <GprKpiIconBadge tone={badgeTone}>
         <HardHat className="h-5 w-5" strokeWidth={2} />
       </GprKpiIconBadge>
-      <div className="min-w-0 flex-1">
+      <div className={`min-w-0 flex-1 ${titleContainerClassName ?? ""}`}>
         <GprKpiCardTitle code={code} title={title} nowrap={nowrap} />
       </div>
     </div>
@@ -581,6 +584,7 @@ function GprStageKpiDashboardBody({
   deviationLabel,
   deviationValue,
   deviationDeltaPp,
+  deviationLagWorkCount,
   completedStages,
   totalStages,
   completedSharePct,
@@ -600,6 +604,8 @@ function GprStageKpiDashboardBody({
   deviationLabel: string;
   deviationValue: string;
   deviationDeltaPp: number | null;
+  /** Количество работ со статусом «Отставание» (statusBreakdown.overdueCount). */
+  deviationLagWorkCount: number;
   completedStages: number;
   totalStages: number;
   completedSharePct: number;
@@ -646,9 +652,15 @@ function GprStageKpiDashboardBody({
         gridTemplateRows: "auto minmax(0, 1fr) auto",
       }}
     >
-      {/* Заголовок */}
+      {/* Заголовок: текст на одной линии с карточкой «Проект» (p-6 − py-2 = 16px). */}
       <div className="mb-0.5 shrink-0" style={{ gridColumn: "1 / -1" }}>
-        <GprKpiCardHeader code={code} title={title} badgeTone={theme.badgeTone} nowrap />
+        <GprKpiCardHeader
+          code={code}
+          title={title}
+          badgeTone={theme.badgeTone}
+          nowrap
+          titleContainerClassName="relative top-4"
+        />
       </div>
 
       {/* Левая колонка: кольцо + работы */}
@@ -685,23 +697,28 @@ function GprStageKpiDashboardBody({
         className="grid shrink-0 grid-cols-2 border-t border-slate-600/20"
         style={{ gridColumn: "1 / -1" }}
       >
-        <div className="flex min-h-0 flex-col justify-center gap-0 border-r border-slate-600/20 px-2 py-2">
+        <div className="flex min-h-0 flex-col gap-0 border-r border-slate-600/20 px-2 pt-2 pb-2">
           <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
             {deviationLabel.replace(/,\s*%$/, "")}
           </div>
-          <div
-            className={`${GPR_KPI_COMPACT_VALUE_CLASS} leading-tight ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
-          >
-            {deviationValue}
+          <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
+            <span
+              className={`${GPR_KPI_COMPACT_VALUE_CLASS} ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+            >
+              {deviationValue}
+            </span>
+            <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
+              ({deviationLagWorkCount} из {totalStages})
+            </span>
           </div>
         </div>
-        <div className="flex min-h-0 flex-col justify-center gap-0 px-2 py-2">
+        <div className="flex min-h-0 flex-col gap-0 px-2 pt-2 pb-2">
           <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{completedShareLabel}</div>
-          <div className={`${GPR_KPI_COMPACT_VALUE_CLASS} leading-tight`}>
-            {pct1(completedSharePct)}
-          </div>
-          <div className={`${GPR_KPI_COMPACT_SECONDARY_CLASS} leading-tight`}>
-            ({completedShareNumerator} из {completedShareDenominator})
+          <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
+            <span className={GPR_KPI_COMPACT_VALUE_CLASS}>{pct1(completedSharePct)}</span>
+            <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
+              ({completedShareNumerator} из {completedShareDenominator})
+            </span>
           </div>
         </div>
       </div>
@@ -964,6 +981,7 @@ export function GprStageKpiCard({
             deviationLabel={deviationLabel}
             deviationValue={deviationValue}
             deviationDeltaPp={deviationDeltaPp}
+            deviationLagWorkCount={overdueCount}
             completedStages={completedStages}
             totalStages={totalStages}
             completedSharePct={completedSharePct}

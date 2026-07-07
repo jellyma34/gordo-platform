@@ -17,6 +17,7 @@
     "dev:all": "npm run clean-ports && concurrently \"npm run backend\" \"npm run dev\"",
     "clean-ports": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ports = @(8080,3000); foreach ($p in $ports) { Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }\"",
     "test:gpr-code": "tsx lib/gprCodeSort.selftest.ts",
+    "test:tender-csv": "tsx lib/tenderCsvImport.selftest.ts",
     "tender:audit": "tsx scripts/tender-csv-audit.ts"
   },
   "dependencies": {
