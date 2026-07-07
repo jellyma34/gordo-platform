@@ -341,7 +341,7 @@ export function computeGprTaskScheduleDeviations(
   };
 }
 
-/** Завершённая работа для среднего отклонения длительности (все плановые и фактические даты). */
+/** Завершённая работа с полным плановым и фактическим окном длительности. */
 export function isGprTaskEligibleForCompletedDurationDeviation(task: GPRTask): boolean {
   return Boolean(
     task.planStart?.trim() &&
@@ -349,6 +349,52 @@ export function isGprTaskEligibleForCompletedDurationDeviation(task: GPRTask): b
       task.factStart?.trim() &&
       task.factEnd?.trim(),
   );
+}
+
+function asOfIsoYmd(asOf: Date | string | number): string {
+  const date =
+    asOf instanceof Date
+      ? asOf
+      : new Date(asOf);
+  if (Number.isNaN(date.getTime())) {
+    const fallback = new Date();
+    return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, "0")}-${String(fallback.getDate()).padStart(2, "0")}`;
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Отклонение длительности для KPI «Среднее отклонение длительности»:
+ * actualDuration − planDuration (+ = перерасход).
+ * Завершённые — по фактическому окну; в процессе — factStart → asOf.
+ */
+function resolveGprTaskDurationDeviationDays(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): Pick<GprStageDurationDeviationLogRow, "plannedDays" | "actualDays" | "deviationDays"> | null {
+  if (!task.planStart?.trim() || !task.planEnd?.trim()) return null;
+  if (isGprWorkItemNotStarted(task)) return null;
+
+  const planDurRaw = durationDays(task.planStart, task.planEnd);
+  if (!Number.isFinite(planDurRaw)) return null;
+  const plannedDays = planDurRaw;
+
+  const factStart = task.factStart?.trim();
+  if (!factStart) return null;
+
+  const factEnd = task.factEnd?.trim();
+  const actualEndIso = factEnd || asOfIsoYmd(asOf);
+  const actualDurRaw = durationDays(factStart, actualEndIso);
+  if (!Number.isFinite(actualDurRaw)) return null;
+
+  return {
+    plannedDays,
+    actualDays: actualDurRaw,
+    deviationDays: actualDurRaw - plannedDays,
+  };
 }
 
 export type GprStageDurationDeviationLogRow = {
@@ -366,34 +412,30 @@ export type GprStageGroupAverageDurationDeviation = {
 };
 
 /**
- * Среднее арифметическое отклонения длительности завершённых работ:
- * (фактическая длительность − плановая длительность) по каждой работе.
+ * Среднее отклонение длительности по работам с положительным перерасходом:
+ * сумма (факт − план) / количество работ, где отклонение &gt; 0.
+ * Учитываются только начатые работы (в процессе или завершённые) с плановым окном.
  */
 export function computeGprStageGroupAverageDurationDeviation(
   tasks: GPRTask[],
   logContext?: string,
-  options?: { log?: boolean },
+  options?: { log?: boolean; asOf?: Date },
 ): GprStageGroupAverageDurationDeviation {
+  const asOf = options?.asOf ?? new Date();
   const rows: GprStageDurationDeviationLogRow[] = [];
   let totalDeviation = 0;
 
   for (const task of tasks) {
-    if (!isGprTaskEligibleForCompletedDurationDeviation(task)) continue;
-    const schedule = computeGprTaskScheduleDeviations(task);
-    if (
-      schedule.durationDeviation === null ||
-      schedule.planDuration === null ||
-      schedule.actualDuration === null
-    ) {
-      continue;
-    }
+    const resolved = resolveGprTaskDurationDeviationDays(task, asOf);
+    if (!resolved || resolved.deviationDays <= 0) continue;
+
     rows.push({
       stage: task.name.trim() || task.code,
-      plannedDays: schedule.planDuration,
-      actualDays: schedule.actualDuration,
-      deviationDays: schedule.durationDeviation,
+      plannedDays: resolved.plannedDays,
+      actualDays: resolved.actualDays,
+      deviationDays: resolved.deviationDays,
     });
-    totalDeviation += schedule.durationDeviation;
+    totalDeviation += resolved.deviationDays;
   }
 
   const completedStages = rows.length;

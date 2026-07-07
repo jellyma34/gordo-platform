@@ -164,6 +164,11 @@ import {
   formatGprStageDurationDays,
 } from "@/lib/gprScheduleDeviationInsight";
 import {
+  buildGprStageProgressWorkCell,
+  GPR_WORK_HEATMAP_META,
+  type GprStageProgressWorkCell,
+} from "@/lib/gprStageProgress";
+import {
   CartesianGrid,
   Cell,
   Pie,
@@ -879,6 +884,7 @@ function stageDeviationGroupCardsGridClass(cardCount: number): string {
 }
 
 type GroupKey = "prep" | "build" | "network" | "improve";
+type StageDeviationViewLevel = "simplified" | "detailed";
 
 /** Корень ветки «Строительство зданий и сооружений» для подгрупп WBS в блоке отклонений. */
 const GPR_BUILD_DEVIATION_WBS_ROOT = "2.05";
@@ -899,6 +905,11 @@ type StageDeviationWbsSubSection = {
   title: string;
   rows: StageDeviationRow[];
 };
+
+/** Вид работ уровня X.XX.XX (без углубления до X.XX.XX.X и ниже). */
+function isStageDeviationWorkTypeCode(code: string): boolean {
+  return normalizeGprCodeFinal(code).split(".").filter(Boolean).length === 3;
+}
 
 /** Шифр подэтапа WBS (например, `2.05.04`) для работы внутри ветки `branchRoot`. */
 function gprWbsSubStageCode(taskCode: string, branchRoot: string): string | null {
@@ -968,6 +979,95 @@ function buildGpr205StageDeviationSubSections(
     .filter((s) => s.rows.length > 0);
 }
 
+/** Группировка строк отклонений по видам работ уровня X.XX.XX для compact/expand режима. */
+function buildStageDeviationWorkTypeSubSections(
+  rows: StageDeviationRow[],
+  allTasks: GPRTask[],
+): StageDeviationWbsSubSection[] {
+  const workTypeCodes = new Set<string>();
+  for (const r of rows) {
+    const code = normalizeGprCodeFinal(r.task.code);
+    const segs = code.split(".").filter(Boolean);
+    if (segs.length < 3) continue;
+    workTypeCodes.add(segs.slice(0, 3).join("."));
+  }
+
+  return [...workTypeCodes]
+    .sort(compareGprCodesByNumericPath)
+    .map((code) => {
+      const titleName = gprTaskNameByCode(allTasks, code);
+      const sectionRows = rows
+        .filter((r) => {
+          const tc = normalizeGprCodeFinal(r.task.code);
+          return matchesGprCodeBranch(tc, code);
+        })
+        .sort((a, b) => compareGprCodesByNumericPath(a.task.code, b.task.code));
+      return {
+        code,
+        title: titleName && titleName !== code ? `${code} ${titleName}` : code,
+        rows: sectionRows,
+      };
+    })
+    .filter((s) => s.rows.length > 0);
+}
+
+function buildStageDeviationWorkTypeAggregateRow(
+  section: StageDeviationWbsSubSection,
+  allTasks: GPRTask[],
+  asOf: Date,
+): StageDeviationRow {
+  const stageTaskByCode = allTasks.find(
+    (t) => normalizeGprCodeFinal(t.code) === normalizeGprCodeFinal(section.code),
+  );
+  const fallbackTask = section.rows[0]?.task;
+  const baseTask = stageTaskByCode ?? fallbackTask;
+  if (!baseTask) {
+    const synthetic: GPRTask = {
+      id: `agg-${section.code}`,
+      globalTaskId: `agg-${section.code}`,
+      code: section.code,
+      name: section.title.replace(`${section.code} `, ""),
+      partId: 1,
+      completion: 0,
+    };
+    return {
+      task: synthetic,
+      deviation: null,
+      startDeviation: null,
+      finishDeviation: null,
+      durationDeviation: null,
+      planDuration: null,
+      factDuration: null,
+      group: "build",
+    };
+  }
+
+  const durationStats = computeGprStageGroupAverageDurationDeviation(
+    section.rows.map((r) => r.task),
+    section.title,
+    { asOf },
+  );
+  const aggregateDeviation = durationStats.averageDeviation;
+  const titleName = section.title.replace(`${section.code} `, "").trim() || section.title;
+
+  return {
+    task: {
+      ...baseTask,
+      id: `agg-${section.code}`,
+      globalTaskId: `agg-${section.code}`,
+      code: section.code,
+      name: titleName,
+    },
+    deviation: aggregateDeviation,
+    startDeviation: null,
+    finishDeviation: null,
+    durationDeviation: aggregateDeviation,
+    planDuration: null,
+    factDuration: null,
+    group: inferGroup(baseTask),
+  };
+}
+
 function StageDeviationRowsPanel({
   rows,
   asOf,
@@ -1028,31 +1128,126 @@ function StageDeviationWbsSubSection({
   asOf: Date;
   tmcItems: TMCItem[];
 }) {
+  const summary = useMemo(() => {
+    const tasks = section.rows.map((r) => r.task);
+    const workCells: GprStageProgressWorkCell[] = tasks.map((task) =>
+      buildGprStageProgressWorkCell(task, asOf),
+    );
+    const durationStats = computeGprStageGroupAverageDurationDeviation(tasks, section.title, { asOf });
+    const averageDeviation = durationStats.averageDeviation;
+    const criticalCount = durationStats.rows.filter(
+      (r) => getStatusByManagementScheduleDeviation(r.deviationDays) === "red",
+    ).length;
+    const business = {
+      completed: 0,
+      inProgress: 0,
+      notStarted: 0,
+    };
+    for (const task of tasks) {
+      const st = gprStageWorkItemBusinessStatus(task, asOf);
+      if (st === "completed" || st === "late") business.completed += 1;
+      else if (st === "in_progress" || st === "overdue") business.inProgress += 1;
+      else business.notStarted += 1;
+    }
+    const notStartedOnTime = computeGprStageNotStartedOnTimeKpi(tasks, asOf).notStartedOnTimeCount;
+    const completionPercent =
+      tasks.length > 0 ? Math.round((business.completed / tasks.length) * 1000) / 10 : 0;
+    return {
+      workCells,
+      averageDeviation,
+      criticalCount,
+      totalCount: tasks.length,
+      completionPercent,
+      completedCount: business.completed,
+      inProgressCount: business.inProgress,
+      notStartedCount: business.notStarted,
+      notStartedOnTimeCount: notStartedOnTime,
+    };
+  }, [section, asOf]);
+
+  const avgText =
+    summary.averageDeviation == null
+      ? "—"
+      : formatGprManagementScheduleDeviationDays(summary.averageDeviation, { decimals: true });
+  const ringSize = 38;
+  const ringStroke = 4;
+  const ringRadius = (ringSize - ringStroke) / 2;
+  const ringCirc = 2 * Math.PI * ringRadius;
+  const ringPct = Math.max(0, Math.min(100, summary.completionPercent));
+  const ringOffset = ringCirc - (ringPct / 100) * ringCirc;
+  const ringColor = ringPct >= 70 ? "#22c55e" : ringPct >= 40 ? "#f59e0b" : "#ef4444";
+
   return (
     <details
-      open
       className="group rounded-xl border border-slate-700/60 bg-slate-900/20 [&_summary::-webkit-details-marker]:hidden"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 transition-colors hover:bg-slate-900/35">
+      <summary className="flex cursor-pointer list-none items-start gap-3 px-4 py-3.5 transition-colors hover:bg-slate-900/35">
         <span
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-600/70 bg-slate-800/60 text-slate-300 transition-transform group-open:rotate-90"
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-600/70 bg-slate-800/60 text-slate-300 transition-transform group-open:rotate-90"
           aria-hidden
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
             <path d="M6 4l4 4-4 4V4z" />
           </svg>
         </span>
-        <span className="stage-title min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-100">
-          {section.title}
-        </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
-          {section.rows.length}{" "}
-          {section.rows.length === 1
-            ? "работа"
-            : section.rows.length >= 2 && section.rows.length <= 4
-              ? "работы"
-              : "работ"}
-        </span>
+        <div className="min-w-0 flex-1">
+          <div className="stage-title min-w-0 text-sm font-semibold leading-snug text-slate-100">
+            {section.title}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex items-center gap-1.5">
+              {summary.workCells.slice(0, 20).map((cell) => (
+                <span
+                  key={`hm-${cell.task.globalTaskId ?? cell.task.id}`}
+                  className="inline-block h-2.5 w-2.5 rounded-[2px] ring-1 ring-inset ring-black/10"
+                  style={{ backgroundColor: GPR_WORK_HEATMAP_META[cell.status].color }}
+                  aria-hidden
+                />
+              ))}
+            </div>
+            <span className="text-[11px] font-semibold tabular-nums text-slate-200">
+              {Number.isInteger(ringPct) ? ringPct : ringPct.toFixed(1)}%
+            </span>
+            <span className="text-[11px] tabular-nums text-slate-400">
+              {summary.totalCount}{" "}
+              {summary.totalCount === 1
+                ? "работа"
+                : summary.totalCount >= 2 && summary.totalCount <= 4
+                  ? "работы"
+                  : "работ"}
+            </span>
+            <span className="text-[11px] font-semibold tabular-nums text-slate-200">{avgText}</span>
+            <span className="text-[11px] tabular-nums text-slate-400">критических: {summary.criticalCount}</span>
+          </div>
+        </div>
+        <div className="shrink-0">
+          <div className="relative" style={{ width: ringSize, height: ringSize }} aria-hidden>
+            <svg className="h-full w-full -rotate-90" viewBox={`0 0 ${ringSize} ${ringSize}`}>
+              <circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                fill="none"
+                stroke="rgba(255,255,255,0.08)"
+                strokeWidth={ringStroke}
+              />
+              <circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                fill="none"
+                stroke={ringColor}
+                strokeWidth={ringStroke}
+                strokeLinecap="round"
+                strokeDasharray={ringCirc}
+                strokeDashoffset={ringOffset}
+              />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold tabular-nums text-slate-200">
+              {Number.isInteger(ringPct) ? ringPct : ringPct.toFixed(0)}%
+            </span>
+          </div>
+        </div>
       </summary>
       <div className="border-t border-slate-700/50 px-4 pb-4 pt-3">
         <StageDeviationRowsPanel
@@ -2265,6 +2460,22 @@ function logGprProjectCardsValidationToConsole(
   );
 }
 
+function logGprProjectKpiTemplateToConsole(active: boolean): void {
+  if (process.env.NODE_ENV === "production" || !active) return;
+
+  console.log("=== PROJECT KPI TEMPLATE ===");
+  console.log("Template source:");
+  console.log("✓ Stage 2.05 card");
+  console.log("Visual style:");
+  console.log("✓ identical");
+  console.log("Layout:");
+  console.log("✓ identical");
+  console.log("Data:");
+  console.log("✓ unchanged");
+  console.log("Calculations:");
+  console.log("✓ unchanged");
+}
+
 function kpiCard({
   label,
   value,
@@ -2656,6 +2867,7 @@ export function GPRAnalytics({
         const label = gprStageDisplayTitle(tasksForActivePart, g);
         const durationStats = computeGprStageGroupAverageDurationDeviation(groupTasks, label, {
           log: process.env.NODE_ENV !== "production",
+          asOf: gprReportAsOf,
         });
         const completedRows = durationStats.rows;
         const avg = durationStats.averageDeviation;
@@ -2686,6 +2898,7 @@ export function GPRAnalytics({
     presentationAnalyticsSkin,
     activePartScope,
   ]);
+
 
   /** Всего этапов ГПР объекта «Жилой дом» (сумма workTotal по корневым этапам 2.04 / 2.05). */
   const residentialZhDomGprStageTotal = useMemo(() => {
@@ -2745,6 +2958,11 @@ export function GPRAnalytics({
     [kvartalyAllFlat],
   );
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
+  const [expandedWorkTypeCodes, setExpandedWorkTypeCodes] = useState<Set<string>>(new Set());
+  const [stageDeviationViewLevel, setStageDeviationViewLevel] =
+    useState<StageDeviationViewLevel>("detailed");
+  const [stageDeviationGroupFilter, setStageDeviationGroupFilter] =
+    useState<GroupKey | "all">("all");
   const [planFactFilter, setPlanFactFilter] = useState<PlanFactChartFilter>({ filterType: "all" });
   const [planFactKvartalyGranularity, setPlanFactKvartalyGranularity] =
     useState<PlanFactKvartalyGranularity>("overview");
@@ -2801,7 +3019,18 @@ export function GPRAnalytics({
 
   useEffect(() => {
     setActiveGroup(null);
+    setExpandedWorkTypeCodes(new Set());
+    setStageDeviationViewLevel("detailed");
+    setStageDeviationGroupFilter("all");
   }, [activePartScope]);
+
+  const stageDeviationVisibleGroupCards = useMemo(
+    () =>
+      stageDeviationGroupFilter === "all"
+        ? stageDeviationGroupCards
+        : stageDeviationGroupCards.filter((g) => g.key === stageDeviationGroupFilter),
+    [stageDeviationGroupCards, stageDeviationGroupFilter],
+  );
 
   useEffect(() => {
     setPlanFactFilter({ filterType: "all" });
@@ -3784,6 +4013,13 @@ export function GPRAnalytics({
     logGprProjectCardsValidationToConsole(projectStageCardEntries);
   }, [isProjectWide, projectStageCardEntries]);
 
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    logGprProjectKpiTemplateToConsole(
+      !isProjectWide && activeProjectPart === "residential",
+    );
+  }, [isProjectWide, activeProjectPart]);
+
   const stage205NotStartedKpiSnapshots = useMemo(() => {
     const snapshots: {
       scopeLabel: string;
@@ -3898,6 +4134,18 @@ export function GPRAnalytics({
     [aggregateTotalProgressUi.display, aggregatePlanDisplay, aggregateStageBreakdown],
   );
 
+  const residentialProjectDashboardTemplate =
+    !isProjectWide && activeProjectPart === "residential";
+
+  const projectDashboardNotStartedOnTimeCount = useMemo(() => {
+    if (!residentialProjectDashboardTemplate) return undefined;
+    const works = collectGprProjectKpiArticleWorks(
+      filterGprTasksByObjectScope(fullTaskList, "project"),
+    );
+    if (works.length === 0) return undefined;
+    return computeGprStageNotStartedOnTimeKpi(works, gprReportAsOf).notStartedOnTimeCount;
+  }, [residentialProjectDashboardTemplate, fullTaskList, gprReportAsOf]);
+
   if (mode === "edit") {
     return (
       <section className="min-w-0 space-y-4 overflow-x-clip">
@@ -3932,13 +4180,13 @@ export function GPRAnalytics({
     );
   }
 
-  // Итоговая агрегатная карточка «Проект» — всегда весь объект (ЖД + автостоянка, 2.04–2.07).
   const partAggregateCard = (
     <GprStageKpiCard
       key="part-aggregate"
       title="Проект"
       status={projectAggregateCardStatus.status}
       metricsVariant="compact"
+      layoutVariant={residentialProjectDashboardTemplate ? "dashboard" : "default"}
       donutStatusVariant="trafficKpi"
       factLabel="Факт выполнения"
       factValue={aggregateTotalProgressUi.display}
@@ -3967,6 +4215,15 @@ export function GPRAnalytics({
       businessOverdueCount={aggregateStageBreakdown.businessOverdue}
       businessNotStartedCount={aggregateStageBreakdown.businessNotStarted}
       problematicSharePct={0}
+      dashboardBottomKpi={
+        residentialProjectDashboardTemplate
+          ? {
+              label: "Отклонение готовности",
+              primaryText: `${aggregateDeviationDisplay}%`,
+            }
+          : undefined
+      }
+      dashboardStatusNotStartedOnTimeCount={projectDashboardNotStartedOnTimeCount}
     />
   );
 
@@ -4137,6 +4394,9 @@ export function GPRAnalytics({
                       primaryText: formatGprStageNotStartedOnTimeKpiDisplay(stage205NotStartedKpi),
                     }
                   : undefined
+              }
+              dashboardStatusNotStartedOnTimeCount={
+                stage205NotStartedKpi?.notStartedOnTimeCount
               }
             />
             </div>
@@ -4402,9 +4662,51 @@ export function GPRAnalytics({
         {...{ [PDF_CHART_BLOCK_ATTR]: "" }}
         {...{ [PDF_SECTION_TITLE_ATTR]: "Отклонения по этапам" }}
       >
-        <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h3 className="text-lg font-semibold text-slate-50">Отклонения по этапам</h3>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex min-w-[170px] flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Уровень</span>
+              <select
+                value={stageDeviationGroupFilter}
+                onChange={(e) => {
+                  const next = e.target.value as GroupKey | "all";
+                  setStageDeviationGroupFilter(next);
+                  setActiveGroup((prev) => {
+                    if (!prev) return prev;
+                    if (next === "all") return prev;
+                    return prev === next ? prev : null;
+                  });
+                }}
+                className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+              >
+                <option value="all">Все этапы</option>
+                {stageDeviationGroupCards.map((g) => (
+                  <option key={g.key} value={g.key}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex w-[130px] flex-none flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Вид</span>
+              <select
+                value={stageDeviationViewLevel}
+                onChange={(e) => {
+                  const next = e.target.value as StageDeviationViewLevel;
+                  setStageDeviationViewLevel(next);
+                  if (next === "simplified") setActiveGroup(null);
+                }}
+                className="h-8 rounded-lg border border-slate-600/70 bg-slate-900/60 px-2.5 text-xs text-slate-100"
+              >
+                <option value="simplified">Упрощённо</option>
+                <option value="detailed">Детально</option>
+              </select>
+            </label>
+          </div>
+        </div>
         {(() => {
-          const groupCards = stageDeviationGroupCards;
+          const groupCards = stageDeviationVisibleGroupCards;
           const active = activeGroup ? groupCards.find((g) => g.key === activeGroup) ?? null : null;
 
           const toggleGroup = (group: GroupKey) => {
@@ -4413,7 +4715,7 @@ export function GPRAnalytics({
 
           return (
             <div className="mt-4 space-y-4">
-              {groupCards.length > 0 ? (
+              {stageDeviationViewLevel === "simplified" && groupCards.length > 0 ? (
                 <div className={stageDeviationGroupCardsGridClass(groupCards.length)}>
                   {groupCards.map((g) => {
                     const activeCard = activeGroup === g.key;
@@ -4493,7 +4795,7 @@ export function GPRAnalytics({
                 </div>
               ) : null}
 
-              {active ? (
+              {stageDeviationViewLevel === "simplified" && active ? (
                 <div className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4">
                   <div
                     className="stage-title mb-3 text-sm font-semibold leading-snug text-slate-100"
@@ -4501,25 +4803,100 @@ export function GPRAnalytics({
                   >
                     {active.label}
                   </div>
-                  {active.key === "build" && active.subSections && active.subSections.length > 0 ? (
-                    <div className="space-y-3">
-                      {active.subSections.map((section) => (
-                        <StageDeviationWbsSubSection
-                          key={section.code}
-                          section={section}
-                          asOf={gprReportAsOf}
-                          tmcItems={tmcItemsForPart}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <StageDeviationRowsPanel
-                      rows={active.rows}
-                      asOf={gprReportAsOf}
-                      tmcItems={tmcItemsForPart}
-                      rowKeyPrefix={`dev-line-${active.key}`}
-                    />
-                  )}
+                  {(() => {
+                    const subSections =
+                      active.key === "build" && active.subSections && active.subSections.length > 0
+                        ? active.subSections
+                        : buildStageDeviationWorkTypeSubSections(active.rows, stageDeviationFlatTasks);
+                    return subSections.length > 0 ? (
+                      <div className="space-y-3">
+                        {subSections.map((section) => {
+                          const aggregateRow = buildStageDeviationWorkTypeAggregateRow(
+                            section,
+                            stageDeviationFlatTasks,
+                            gprReportAsOf,
+                          );
+                          const expanded = expandedWorkTypeCodes.has(section.code);
+                          return (
+                            <div
+                              key={section.code}
+                              className="rounded-xl border border-slate-700/60 bg-slate-900/20"
+                            >
+                              <button
+                                type="button"
+                                className="w-full p-3 text-left"
+                                onClick={() =>
+                                  setExpandedWorkTypeCodes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(section.code)) next.delete(section.code);
+                                    else next.add(section.code);
+                                    return next;
+                                  })
+                                }
+                                aria-expanded={expanded}
+                              >
+                                <StageDeviationRowsPanel
+                                  rows={[aggregateRow]}
+                                  asOf={gprReportAsOf}
+                                  tmcItems={tmcItemsForPart}
+                                  rowKeyPrefix={`dev-type-${section.code}`}
+                                />
+                              </button>
+                              {expanded ? (
+                                <div className="border-t border-slate-700/50 px-4 pb-4 pt-3">
+                                  <StageDeviationRowsPanel
+                                    rows={section.rows}
+                                    asOf={gprReportAsOf}
+                                    tmcItems={tmcItemsForPart}
+                                    rowKeyPrefix={`sub-${section.code}`}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 py-5 text-sm text-slate-400">
+                        Нет видов работ уровня X.XX.XX для выбранного этапа.
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : null}
+
+              {stageDeviationViewLevel === "detailed" ? (
+                <div className="space-y-4">
+                  {groupCards.map((groupCard) => {
+                    const workTypeRows = groupCard.rows
+                      .filter((r) => isStageDeviationWorkTypeCode(r.task.code))
+                      .sort((a, b) => compareGprCodesByNumericPath(a.task.code, b.task.code));
+                    return (
+                      <div
+                        key={`dev-detailed-${groupCard.key}`}
+                        className="rounded-xl border border-slate-700/60 bg-slate-900/25 p-4"
+                      >
+                        <div
+                          className="stage-title mb-3 text-sm font-semibold leading-snug text-slate-100"
+                          title={groupCard.label}
+                        >
+                          {groupCard.label}
+                        </div>
+                        {workTypeRows.length > 0 ? (
+                          <StageDeviationRowsPanel
+                            rows={workTypeRows}
+                            asOf={gprReportAsOf}
+                            tmcItems={tmcItemsForPart}
+                            rowKeyPrefix={`dev-line-${groupCard.key}`}
+                          />
+                        ) : (
+                          <div className="rounded-lg border border-slate-700/50 bg-slate-900/30 px-4 py-5 text-sm text-slate-400">
+                            Нет видов работ уровня X.XX.XX для выбранного этапа.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

@@ -288,11 +288,36 @@ export type TenderKpiDonutDistributions = {
   budgetBlockTenderCount: number;
 };
 
-const CONDUCTED_PIPELINE_CYCLE_STATUSES: TenderCycleStatus[] = [
-  "conducted",
-  "contractSigned",
-  "contractNotConcluded",
+type ConductedPipelineStatus =
+  | "signedOnTime"
+  | "signedLate"
+  | "overdue"
+  | "inSigning"
+  | "notStarted";
+
+const CONDUCTED_PIPELINE_STATUSES: ConductedPipelineStatus[] = [
+  "signedOnTime",
+  "signedLate",
+  "inSigning",
+  "overdue",
+  "notStarted",
 ];
+
+const CONDUCTED_PIPELINE_LABELS: Record<ConductedPipelineStatus, string> = {
+  signedOnTime: "Подписано в срок",
+  signedLate: "Подписано с опозданием",
+  overdue: "Не объявлен тендер",
+  inSigning: "В процессе подписания",
+  notStarted: "Не начато",
+};
+
+const CONDUCTED_PIPELINE_COLORS: Record<ConductedPipelineStatus, string> = {
+  signedOnTime: TENDER_KPI_DONUT_COLORS.conductedOnTime,
+  signedLate: "#38bdf8",
+  overdue: TENDER_KPI_DONUT_COLORS.conductedLate,
+  inSigning: "#f59e0b",
+  notStarted: TENDER_KPI_DONUT_COLORS.contractNotConcluded,
+};
 
 const OVERDUE_REASON_LABELS: Record<TenderOverdueReasonBucket, string> = {
   notAnnounced: "Не объявлен тендер",
@@ -328,30 +353,50 @@ const BUDGET_COLORS: Record<TenderBudgetBucket, string> = {
 
 function classifyConductedPipelineStatus(
   t: Tender,
-): (typeof CONDUCTED_PIPELINE_CYCLE_STATUSES)[number] | null {
-  if (!isTenderConducted(t)) return null;
+  today: Date = new Date(),
+): ConductedPipelineStatus {
+  const factContract = parseTenderIsoDate(t.factContractDate);
+  const planContract = parseTenderIsoDate(t.planContractDate);
+
+  if (factContract) {
+    if (!planContract || factContract.getTime() <= planContract.getTime()) return "signedOnTime";
+    return "signedLate";
+  }
+
+  if (planContract && planContract.getTime() < today.getTime()) return "overdue";
+
   const cycle = resolveTenderCycleStatus(t);
-  if (cycle === "contractSigned" || hasTenderSignedContract(t)) return "contractSigned";
-  if (cycle === "contractNotConcluded") return "contractNotConcluded";
-  return "conducted";
+  const inSigningCycle =
+    cycle === "conducted" ||
+    cycle === "underReview" ||
+    cycle === "negotiations" ||
+    cycle === "onApproval" ||
+    cycle === "contractPrepared" ||
+    cycle === "contractSent";
+
+  if (inSigningCycle || Boolean(t.factStart?.trim()) || Boolean(t.contractor?.trim())) return "inSigning";
+
+  return "notStarted";
 }
 
-function buildConductedStatusSegments(tenders: Tender[]): KpiDonutSegment[] {
-  const counts: Record<(typeof CONDUCTED_PIPELINE_CYCLE_STATUSES)[number], number> = {
-    conducted: 0,
-    contractSigned: 0,
-    contractNotConcluded: 0,
+function buildConductedStatusSegments(tenders: Tender[], today: Date = new Date()): KpiDonutSegment[] {
+  const counts: Record<ConductedPipelineStatus, number> = {
+    signedOnTime: 0,
+    signedLate: 0,
+    overdue: 0,
+    inSigning: 0,
+    notStarted: 0,
   };
 
   for (const t of tenders) {
-    const pipeline = classifyConductedPipelineStatus(t);
-    if (pipeline) counts[pipeline] += 1;
+    const pipeline = classifyConductedPipelineStatus(t, today);
+    counts[pipeline] += 1;
   }
 
-  return CONDUCTED_PIPELINE_CYCLE_STATUSES.map((cycle) => ({
-    label: TENDER_CYCLE_STATUS_LABEL[cycle],
-    value: counts[cycle],
-    color: TENDER_CYCLE_STATUS_COLORS[cycle],
+  return CONDUCTED_PIPELINE_STATUSES.map((status) => ({
+    label: CONDUCTED_PIPELINE_LABELS[status],
+    value: counts[status],
+    color: CONDUCTED_PIPELINE_COLORS[status],
   }));
 }
 
@@ -417,7 +462,7 @@ export function computeTenderKpiDonutDistributions(
   const budgetBlockTenderCount = Object.values(budgetCounts).reduce((sum, count) => sum + count, 0);
 
   return {
-    conductedPipeline: buildConductedStatusSegments(tenders),
+    conductedPipeline: buildConductedStatusSegments(tenders, today),
     overdueReasons: buildOverdueReasonSegments(overdueCounts),
     budgetDeviation: buildBudgetSegments(budgetCounts),
     totalTenders: tenders.length,

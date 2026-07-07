@@ -18,6 +18,7 @@ import {
   formatGprStageFactPercentValue,
   formatGprStageKpiFactDisplay,
   formatGprStageKpiPlanDisplay,
+  gprStageWorkItemBusinessStatus,
   isGprCsvArticleWork,
   isGprStageFactCompletionNoData,
 } from "@/lib/gprStageCompletion";
@@ -367,10 +368,63 @@ const NO_DATE_PLAN = "rgba(100, 116, 139, 0.55)";
 const NO_DATE_FACT = "rgba(71, 85, 105, 0.48)";
 const FACT_WEAK = "rgba(148, 163, 184, 0.25)";
 const FACT_GREEN = "#22c55e";
+const FACT_CYAN = "#38bdf8";
 const FACT_YELLOW = "#f59e0b";
+const FACT_ORANGE = "#f97316";
+const PLAN_RED = "#ef4444";
 
 /** Подложка просроченного старта на плановой полосе (enterprise, без ярко-красного). */
 export const PLAN_FACT_OVERDUE_START_OVERLAY = "rgba(220, 70, 70, 0.4)";
+
+/** Цвета шкалы «Динамика выполнения ГПР» — синхронизированы с KPI-карточкой 2.05. */
+export const GPR_TIMELINE_COLOR = {
+  completedOnTime: FACT_GREEN,
+  completedLate: FACT_CYAN,
+  inProgress: FACT_YELLOW,
+  notStartedOverduePlan: PLAN_RED,
+  future: PLAN_BAR,
+  planDefault: PLAN_BAR,
+  factNotStarted: FACT_WEAK,
+} as const;
+
+export function logGprTimelineColorsToConsole(): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  console.log("=== TIMELINE ===");
+  console.log("✓ overdue segment only");
+  console.log("✓ future plan stays gray");
+  console.log("✓ no full red bars");
+}
+
+function resolvePlanFactChartRowPlanColor(_task: GPRTask, _asOf: Date, hasPlanDates: boolean): string {
+  if (!hasPlanDates) return NO_DATE_PLAN;
+  return PLAN_BAR;
+}
+
+/** Цвет полосы «Факт» по бизнес-статусу (как KPI-карточка 2.05). */
+function resolvePlanFactChartRowFactColorByBusinessStatus(task: GPRTask, asOf: Date): string {
+  const status = gprStageWorkItemBusinessStatus(task, asOf);
+  switch (status) {
+    case "completed":
+      return FACT_GREEN;
+    case "late":
+      return FACT_CYAN;
+    case "in_progress":
+    case "overdue":
+      return FACT_YELLOW;
+    case "not_started":
+    default:
+      return FACT_WEAK;
+  }
+}
+
+function resolvePlanFactChartRowFactColorFromPercent(
+  task: GPRTask,
+  asOf: Date,
+  _progressPercent: number | null,
+): string {
+  return resolvePlanFactChartRowFactColorByBusinessStatus(task, asOf);
+}
 
 /** Визуализация: фактическая полоса не выходит за пределы плановой на шкале X. */
 function clampFactMonthFloatRangeToPlan(
@@ -421,16 +475,8 @@ function resolvePlanFactChartRowFactColor(
   branchPoolTasks: GPRTask[],
   asOf: Date,
 ): string {
-  const displayedLabel =
-    e.factLabelOverride !== undefined
-      ? e.factLabelOverride
-      : resolvePlanFactChartRowFactLabel(e, branchPoolTasks, asOf);
-  let progressPercent = parsePlanFactChartPercentLabel(displayedLabel);
-  if (progressPercent === null && (e.fs?.trim() || e.fe?.trim())) {
-    const insight = computeGprStageCompletionInsight(branchPoolTasks, e.task, asOf);
-    progressPercent = insight.factPercent;
-  }
-  return planFactBarFactColorByProgressPercent(progressPercent);
+  void branchPoolTasks;
+  return resolvePlanFactChartRowFactColorByBusinessStatus(e.task, asOf);
 }
 
 /** Временная диагностика окраски строк с progress = 100%. */
@@ -1253,7 +1299,7 @@ function buildGprPlanFactSimplifiedKpiChartModel(
 
     if (planPct != null && planPct > 0) {
       planRanges.push([0, planPct]);
-      planColors.push(PLAN_BAR);
+      planColors.push(resolvePlanFactChartRowPlanColor(e.task, today, true));
     } else {
       planRanges.push(null);
       planColors.push(NO_DATE_PLAN);
@@ -1261,13 +1307,13 @@ function buildGprPlanFactSimplifiedKpiChartModel(
 
     if (!isGprStageFactCompletionNoData(insight) && factPct > 0) {
       factRanges.push([0, factPct]);
-      factColors.push(planFactBarFactColorByProgressPercent(insight.factPercent));
+      factColors.push(resolvePlanFactChartRowFactColorByBusinessStatus(e.task, today));
     } else if (!isGprStageFactCompletionNoData(insight) && factPct === 0) {
       factRanges.push([0, 0]);
-      factColors.push(FACT_WEAK);
+      factColors.push(resolvePlanFactChartRowFactColorByBusinessStatus(e.task, today));
     } else {
       factRanges.push(null);
-      factColors.push(FACT_WEAK);
+      factColors.push(resolvePlanFactChartRowFactColorByBusinessStatus(e.task, today));
     }
 
     rowDetails.push({
@@ -1441,7 +1487,7 @@ function buildGprPlanFactBarChartModel(
       const pfE = monthFloatFromIso(e.pe, originMonth);
       if (pfS != null && pfE != null && pfE >= pfS) {
         planRanges.push([pfS, pfE]);
-        planColors.push(PLAN_BAR);
+        planColors.push(resolvePlanFactChartRowPlanColor(e.task, asOf, true));
       } else {
         planRanges.push([anchor - 0.1, anchor + 0.1]);
         planColors.push(NO_DATE_PLAN);
@@ -1567,11 +1613,11 @@ export function buildPlanFactWorkTypeChartModel(
     planRanges.push([ps, pe]);
     labels.push(r.label);
     factCompletionLabels.push("");
-    planColors.push(PLAN_BAR);
     const groupDef = groups?.find((g) => g.key === r.key);
     const groupWorks = groupDef
       ? tasks.filter((t) => groupDef.match(normalizeGprCodeFinal(t.code)))
       : tasks;
+    planColors.push(PLAN_BAR);
     const factEndDisplay = resolvePlanFactGroupChartFactEnd(groupWorks, todayIso);
     rowDetails.push({
       planStart: b.planStart,

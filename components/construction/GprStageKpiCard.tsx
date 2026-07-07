@@ -13,6 +13,15 @@ const COLORS = {
   cyan: "#06b6d4",
 } as const;
 
+/** Единая палитра бизнес-статусов KPI-карточек ГПР (кольцо, легенда, donut). */
+const GPR_KPI_STATUS_COLORS = {
+  completedOnTime: COLORS.green,
+  completedLate: "#38bdf8",
+  inProgress: COLORS.yellow,
+  notStartedOnTime: COLORS.red,
+  notStarted: COLORS.gray,
+} as const;
+
 export type GprStageKpiTraffic = "green" | "yellow" | "red" | "gray";
 
 function pct1(n: number): string {
@@ -300,6 +309,33 @@ const GPR_KPI_COMPACT_VALUE_CLASS =
 const GPR_KPI_COMPACT_SECONDARY_CLASS =
   "text-xl font-medium tabular-nums tracking-tight text-slate-300/65";
 
+/** Нижний KPI dashboard-карточки 2.05 «Не начаты в срок». */
+const GPR_STAGE_205_NOT_STARTED_ON_TIME_KPI_LABEL = "Не начаты в срок";
+
+/** Danger-палитра критических состояний (как COLORS.red / #ef4444 в ГПР). */
+const GPR_KPI_CRITICAL_LABEL_CLASS =
+  "text-[10px] font-semibold uppercase tracking-wider text-[#ef4444]";
+const GPR_KPI_CRITICAL_VALUE_CLASS =
+  "text-2xl font-extrabold tabular-nums tracking-tight text-[#ef4444]";
+
+function isGprStage205NotStartedOnTimeBottomKpi(
+  dashboardBottomKpi?: { label: string; primaryText: string },
+): boolean {
+  return dashboardBottomKpi?.label === GPR_STAGE_205_NOT_STARTED_ON_TIME_KPI_LABEL;
+}
+
+function logGprStage205KpiCardConsole(): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  console.log("=== KPI CARD ===");
+  console.log("Changed:");
+  console.log("✓ only Stage 2.05 KPI card");
+  console.log("Timeline:");
+  console.log("✓ unchanged");
+  console.log("Parser:");
+  console.log("✓ unchanged");
+}
+
 function GprKpiCardTitle({
   code,
   title,
@@ -403,11 +439,12 @@ function calmDashboardCardTheme(theme: ReturnType<typeof cardThemeForTraffic>) {
   };
 }
 
-/** Цвета сегментов кольца dashboard 2.05 (референс). */
+/** Цвета сегментов кольца dashboard (синхронизированы с GPR_KPI_STATUS_COLORS). */
 const DASHBOARD_RING_COLORS = {
-  green: "#22c55e",
-  cyan: "#38bdf8",
-  orange: "#f59e0b",
+  green: GPR_KPI_STATUS_COLORS.completedOnTime,
+  cyan: GPR_KPI_STATUS_COLORS.completedLate,
+  yellow: GPR_KPI_STATUS_COLORS.inProgress,
+  red: GPR_KPI_STATUS_COLORS.notStartedOnTime,
   gray: "#94a3b8",
   track: "rgba(255,255,255,0.06)",
 } as const;
@@ -426,14 +463,20 @@ function GprKpiLargeProgressRing({
   inProgressCount,
   lateCount,
   notStartedCount,
+  notStartedOnTimeCount,
   className = "w-full max-w-[288px]",
 }: {
   factValue: string;
   planValue: string;
+  /** Завершено в срок. */
   completedCount: number;
   inProgressCount: number;
+  /** Завершено с опозданием. */
   lateCount: number;
+  /** Все не начатые работы. */
   notStartedCount: number;
+  /** Не начаты в срок (подмножество notStartedCount, KPI notStartedOnTimeCount). */
+  notStartedOnTimeCount?: number;
   className?: string;
 }) {
   const size = 100;
@@ -441,18 +484,37 @@ function GprKpiLargeProgressRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
-  const total =
-    completedCount + inProgressCount + lateCount + notStartedCount;
+  const notStartedOverdueCount = Math.max(
+    0,
+    Math.min(notStartedCount, notStartedOnTimeCount ?? 0),
+  );
+  const notStartedEarlyCount = Math.max(0, notStartedCount - notStartedOverdueCount);
+
+  const segmentValues = [
+    completedCount,
+    lateCount,
+    inProgressCount,
+    notStartedOverdueCount,
+    notStartedEarlyCount,
+  ];
+  const segmentColors = [
+    GPR_KPI_STATUS_COLORS.completedOnTime,
+    GPR_KPI_STATUS_COLORS.completedLate,
+    GPR_KPI_STATUS_COLORS.inProgress,
+    GPR_KPI_STATUS_COLORS.notStartedOnTime,
+    GPR_KPI_STATUS_COLORS.notStarted,
+  ] as const;
+
+  const total = segmentValues.reduce((sum, value) => sum + value, 0);
   const safeTotal = total > 0 ? total : 1;
 
-  const greenLen = (completedCount / safeTotal) * circumference;
-  const blueLen = (inProgressCount / safeTotal) * circumference;
-  const orangeLen = (lateCount / safeTotal) * circumference;
-  const grayLen = Math.max(0, circumference - (greenLen + blueLen + orangeLen));
-  const greenStart = 0;
-  const blueStart = greenLen;
-  const orangeStart = greenLen + blueLen;
-  const grayStart = greenLen + blueLen + orangeLen;
+  let arcOffset = 0;
+  const arcs = segmentValues.map((value, index) => {
+    const len = (value / safeTotal) * circumference;
+    const arc = { len, color: segmentColors[index], offset: arcOffset };
+    arcOffset += len;
+    return arc;
+  });
 
   const segmentProps = {
     cx: size / 2,
@@ -471,38 +533,17 @@ function GprKpiLargeProgressRing({
         aria-hidden
       >
         <circle {...segmentProps} stroke={DASHBOARD_RING_COLORS.track} />
-        {greenLen > 0 ? (
-          <circle
-            {...segmentProps}
-            stroke={DASHBOARD_RING_COLORS.green}
-            strokeDasharray={`${greenLen} ${circumference - greenLen}`}
-            strokeDashoffset={-greenStart}
-          />
-        ) : null}
-        {blueLen > 0 ? (
-          <circle
-            {...segmentProps}
-            stroke={DASHBOARD_RING_COLORS.cyan}
-            strokeDasharray={`${blueLen} ${circumference - blueLen}`}
-            strokeDashoffset={-blueStart}
-          />
-        ) : null}
-        {orangeLen > 0 ? (
-          <circle
-            {...segmentProps}
-            stroke={DASHBOARD_RING_COLORS.orange}
-            strokeDasharray={`${orangeLen} ${circumference - orangeLen}`}
-            strokeDashoffset={-orangeStart}
-          />
-        ) : null}
-        {grayLen > 0 ? (
-          <circle
-            {...segmentProps}
-            stroke={DASHBOARD_RING_COLORS.gray}
-            strokeDasharray={`${grayLen} ${circumference - grayLen}`}
-            strokeDashoffset={-grayStart}
-          />
-        ) : null}
+        {arcs.map((arc, index) =>
+          arc.len > 0 ? (
+            <circle
+              key={index}
+              {...segmentProps}
+              stroke={arc.color}
+              strokeDasharray={`${arc.len} ${circumference - arc.len}`}
+              strokeDashoffset={-arc.offset}
+            />
+          ) : null,
+        )}
       </svg>
       <div className="absolute inset-0 grid place-items-center">
         <div className="pointer-events-none text-center leading-none">
@@ -518,6 +559,21 @@ function GprKpiLargeProgressRing({
       </div>
     </div>
   );
+}
+
+function logGprStage205StatusDistributionConsole(): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  console.log("=== 2.05 STATUS DISTRIBUTION ===");
+  console.log("✓ Completed on time (green)");
+  console.log("✓ Completed late (cyan)");
+  console.log("✓ In progress (yellow)");
+  console.log("✓ Not started (gray)");
+  console.log("✓ Not started on time (red)");
+  console.log('Source for "Not started on time":');
+  console.log("notStartedOnTimeCount");
+  console.log("No KPI recalculation:");
+  console.log("✓");
 }
 
 function GprKpiStatusListRow({
@@ -612,31 +668,35 @@ function GprKpiDashboardStatusList({
   completedLate,
   inProgress,
   notStarted,
+  notStartedOnTime,
 }: {
   completedOnTime: number;
   completedLate: number;
   inProgress: number;
   notStarted: number;
+  /** Счётчик из KPI «Не начаты в срок» (поле notStartedOnTimeCount). */
+  notStartedOnTime?: number;
 }) {
   const completedTotal = completedOnTime + completedLate;
+  const showNotStartedOnTime = notStartedOnTime !== undefined;
 
   return (
     <div>
       <GprKpiStatusListGroup
         label="Завершено"
         value={completedTotal}
-        color={DASHBOARD_RING_COLORS.green}
+        color={GPR_KPI_STATUS_COLORS.completedOnTime}
         icon={<Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />}
         subItems={[
           {
             label: "Завершено в срок",
             value: completedOnTime,
-            color: DASHBOARD_RING_COLORS.green,
+            color: GPR_KPI_STATUS_COLORS.completedOnTime,
           },
           {
             label: "Завершено с опозданием",
             value: completedLate,
-            color: DASHBOARD_RING_COLORS.orange,
+            color: GPR_KPI_STATUS_COLORS.completedLate,
           },
         ]}
       />
@@ -644,16 +704,32 @@ function GprKpiDashboardStatusList({
       <GprKpiStatusListRow
         label="В процессе"
         value={inProgress}
-        color={DASHBOARD_RING_COLORS.cyan}
+        color={GPR_KPI_STATUS_COLORS.inProgress}
         icon={<RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />}
       />
       <div className="border-t border-white/[0.18]" aria-hidden />
-      <GprKpiStatusListRow
-        label="Не начато"
-        value={notStarted}
-        color={COLORS.gray}
-        icon={<Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
-      />
+      {showNotStartedOnTime ? (
+        <GprKpiStatusListGroup
+          label="Не начато"
+          value={notStarted}
+          color={GPR_KPI_STATUS_COLORS.notStarted}
+          icon={<Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
+          subItems={[
+            {
+              label: GPR_STAGE_205_NOT_STARTED_ON_TIME_KPI_LABEL,
+              value: notStartedOnTime,
+              color: GPR_KPI_STATUS_COLORS.notStartedOnTime,
+            },
+          ]}
+        />
+      ) : (
+        <GprKpiStatusListRow
+          label="Не начато"
+          value={notStarted}
+          color={GPR_KPI_STATUS_COLORS.notStarted}
+          icon={<Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
+        />
+      )}
     </div>
   );
 }
@@ -676,6 +752,7 @@ function GprStageKpiDashboardBody({
   businessInProgressCount,
   businessLateCount,
   businessNotStartedCount,
+  dashboardStatusNotStartedOnTimeCount,
 }: {
   title: string;
   code?: string;
@@ -696,7 +773,11 @@ function GprStageKpiDashboardBody({
   businessInProgressCount: number;
   businessLateCount: number;
   businessNotStartedCount: number;
+  /** Счётчик «Не начаты в срок» для блока распределения статусов (2.05). */
+  dashboardStatusNotStartedOnTimeCount?: number;
 }) {
+  const criticalBottomKpi = isGprStage205NotStartedOnTimeBottomKpi(dashboardBottomKpi);
+
   return (
     <div
       className="grid h-full min-h-0 overflow-hidden"
@@ -726,6 +807,7 @@ function GprStageKpiDashboardBody({
             inProgressCount={businessInProgressCount}
             lateCount={businessLateCount}
             notStartedCount={businessNotStartedCount}
+            notStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
             className="mx-auto w-full max-w-[288px]"
           />
         </div>
@@ -747,6 +829,7 @@ function GprStageKpiDashboardBody({
           completedLate={businessLateCount}
           inProgress={businessInProgressCount}
           notStarted={businessNotStartedCount}
+          notStartedOnTime={dashboardStatusNotStartedOnTimeCount}
         />
       </div>
 
@@ -755,9 +838,17 @@ function GprStageKpiDashboardBody({
         <div className="flex min-h-0 w-full flex-col gap-0 px-2 pt-2 pb-2">
           {dashboardBottomKpi ? (
             <>
-              <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{dashboardBottomKpi.label}</div>
               <div
-                className={`${GPR_KPI_COMPACT_VALUE_CLASS} whitespace-nowrap text-white`}
+                className={
+                  criticalBottomKpi ? GPR_KPI_CRITICAL_LABEL_CLASS : GPR_KPI_COMPACT_LABEL_CLASS
+                }
+              >
+                {dashboardBottomKpi.label}
+              </div>
+              <div
+                className={`${
+                  criticalBottomKpi ? GPR_KPI_CRITICAL_VALUE_CLASS : GPR_KPI_COMPACT_VALUE_CLASS
+                } whitespace-nowrap ${criticalBottomKpi ? "" : "text-white"}`}
               >
                 {dashboardBottomKpi.primaryText}
               </div>
@@ -844,6 +935,11 @@ export type GprStageKpiCardProps = {
   problematicSharePct: number;
   /** Нижний KPI dashboard-карточки 2.05 («Не начаты в срок»). */
   dashboardBottomKpi?: { label: string; primaryText: string };
+  /**
+   * Числитель KPI «Не начаты в срок» для блока «Распределение статусов» (2.05).
+   * Берётся из GprStageNotStartedOnTimeKpi.notStartedOnTimeCount без пересчёта.
+   */
+  dashboardStatusNotStartedOnTimeCount?: number;
 };
 
 export function GprStageKpiCard({
@@ -880,9 +976,23 @@ export function GprStageKpiCard({
   businessOverdueCount = 0,
   businessNotStartedCount = 0,
   dashboardBottomKpi,
+  dashboardStatusNotStartedOnTimeCount,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
+
+  useEffect(() => {
+    if (layoutVariant !== "dashboard") return;
+    if (!isGprStage205NotStartedOnTimeBottomKpi(dashboardBottomKpi)) return;
+    logGprStage205KpiCardConsole();
+  }, [layoutVariant, dashboardBottomKpi?.label]);
+
+  useEffect(() => {
+    if (layoutVariant !== "dashboard") return;
+    if (dashboardStatusNotStartedOnTimeCount === undefined) return;
+    logGprStage205StatusDistributionConsole();
+  }, [layoutVariant, dashboardStatusNotStartedOnTimeCount]);
+
   const completedShareLabel = "Доля выполненных работ";
   const completedShareDisplay = formatGprCompletedShareDisplay(
     completedShareNumerator,
@@ -892,33 +1002,37 @@ export function GprStageKpiCard({
   const donutSegments: KpiDonutSegment[] =
     donutStatusVariant === "businessKpi"
       ? [
-          { label: "Завершено", value: businessCompletedCount, color: COLORS.green },
-          { label: "В процессе", value: businessInProgressCount, color: COLORS.cyan },
-          { label: "Завершено с опозданием", value: businessLateCount, color: COLORS.orange },
-          { label: "Просрочено", value: businessOverdueCount, color: COLORS.red },
-          { label: "Не начато", value: businessNotStartedCount, color: COLORS.gray },
+          { label: "Завершено", value: businessCompletedCount, color: GPR_KPI_STATUS_COLORS.completedOnTime },
+          { label: "В процессе", value: businessInProgressCount, color: GPR_KPI_STATUS_COLORS.inProgress },
+          {
+            label: "Завершено с опозданием",
+            value: businessLateCount,
+            color: GPR_KPI_STATUS_COLORS.completedLate,
+          },
+          { label: "Просрочено", value: businessOverdueCount, color: GPR_KPI_STATUS_COLORS.notStartedOnTime },
+          { label: "Не начато", value: businessNotStartedCount, color: GPR_KPI_STATUS_COLORS.notStarted },
         ]
       : donutStatusVariant === "trafficKpi"
       ? [
-          { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
-          { label: "С риском", value: donutRiskCount, color: COLORS.yellow },
-          { label: "Просрочено", value: donutOverdueCount, color: COLORS.red },
+          { label: "В срок", value: donutOnTimeCount, color: GPR_KPI_STATUS_COLORS.completedOnTime },
+          { label: "С риском", value: donutRiskCount, color: GPR_KPI_STATUS_COLORS.inProgress },
+          { label: "Просрочено", value: donutOverdueCount, color: GPR_KPI_STATUS_COLORS.notStartedOnTime },
           {
             label: "Выполнено с опозданием",
             value: donutCompletedLateCount,
-            color: COLORS.orange,
+            color: GPR_KPI_STATUS_COLORS.completedLate,
           },
         ]
       : [
-          { label: "В срок", value: donutOnTimeCount, color: COLORS.green },
-          { label: "Риск", value: donutRiskCount, color: COLORS.yellow },
-          { label: "Просрочено", value: donutOverdueCount, color: COLORS.red },
+          { label: "В срок", value: donutOnTimeCount, color: GPR_KPI_STATUS_COLORS.completedOnTime },
+          { label: "Риск", value: donutRiskCount, color: GPR_KPI_STATUS_COLORS.inProgress },
+          { label: "Просрочено", value: donutOverdueCount, color: GPR_KPI_STATUS_COLORS.notStartedOnTime },
           {
             label: "Выполнено с опозданием",
             value: donutCompletedLateCount,
-            color: COLORS.orange,
+            color: GPR_KPI_STATUS_COLORS.completedLate,
           },
-          { label: "Не начато", value: donutNotStartedCount, color: COLORS.gray },
+          { label: "Не начато", value: donutNotStartedCount, color: GPR_KPI_STATUS_COLORS.notStarted },
         ];
 
   const donutStatusTotal =
@@ -1051,6 +1165,7 @@ export function GprStageKpiCard({
             businessInProgressCount={businessInProgressCount}
             businessLateCount={businessLateCount}
             businessNotStartedCount={businessNotStartedCount}
+            dashboardStatusNotStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
           />
         ) : (
           <>

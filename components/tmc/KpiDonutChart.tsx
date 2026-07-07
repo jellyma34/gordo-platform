@@ -28,6 +28,8 @@ type KpiDonutChartProps = {
   showLegendPercent?: boolean;
   /** Показывать в легенде сегменты с нулевым значением. */
   showZeroInLegend?: boolean;
+  /** Показывать нулевые сегменты в donut (тонкими долями). */
+  showZeroInChart?: boolean;
   /** Крупное значение в центре donut. */
   centerValue?: string;
   /** Подпись под значением в центре. */
@@ -36,6 +38,16 @@ type KpiDonutChartProps = {
   centerValueColor?: string;
   /** Tooltip в формате «Причина / Количество ТМЦ / Доля». */
   reasonTooltip?: boolean;
+  /** Увеличенный режим для акцентного KPI-блока. */
+  large?: boolean;
+  /** Позиция легенды относительно donut. */
+  legendPosition?: "right" | "bottom";
+  /** Число колонок легенды (актуально для legendPosition="bottom"). */
+  legendColumns?: number;
+  /** Уплотнить легенду: чуть меньше шрифт и интервалы. */
+  compactLegend?: boolean;
+  /** Показывать подписи легенды без усечения. */
+  fullLegendLabels?: boolean;
 };
 
 function pct1(value: number, total: number): string {
@@ -50,10 +62,16 @@ export function KpiDonutChart({
   chartHeight = 96,
   showLegendPercent = false,
   showZeroInLegend = false,
+  showZeroInChart = false,
   centerValue,
   centerSublabel,
   centerValueColor = "#f8fafc",
   reasonTooltip = false,
+  large = false,
+  legendPosition = "right",
+  legendColumns = 1,
+  compactLegend = false,
+  fullLegendLabels = false,
 }: KpiDonutChartProps) {
   const gradPrefix = useId().replace(/:/g, "");
 
@@ -74,17 +92,22 @@ export function KpiDonutChart({
 
   const labelBase = percentBase != null && percentBase > 0 ? percentBase : segmentSum;
 
-  const chartData = useMemo(
-    () =>
-      activeSegments.map((seg, index) => ({
+  const chartData = useMemo(() => {
+    const source = showZeroInChart ? legendSegments : activeSegments;
+    const visualTotal = source.reduce((sum, seg) => sum + (seg.value > 0 ? seg.value : 0.001), 0);
+    return source.map((seg, index) => {
+      const visualValue = seg.value > 0 ? seg.value : 0.001;
+      return {
         ...seg,
         gradId: `${gradPrefix}-${index}`,
+        visualValue,
         sharePct: segmentSum > 0 ? Math.round((seg.value / segmentSum) * 1000) / 10 : 0,
-      })),
-    [activeSegments, gradPrefix, segmentSum],
-  );
+        visualSharePct: visualTotal > 0 ? Math.round((visualValue / visualTotal) * 1000) / 10 : 0,
+      };
+    });
+  }, [showZeroInChart, legendSegments, activeSegments, gradPrefix, segmentSum]);
 
-  const hasData = activeSegments.length > 0 && segmentSum > 0;
+  const hasData = showZeroInChart ? legendSegments.length > 0 : activeSegments.length > 0 && segmentSum > 0;
 
   if (!hasData) {
     return (
@@ -125,20 +148,118 @@ export function KpiDonutChart({
     );
   }
 
+  const renderLegendList = (items: typeof legendSegments) => (
+    <ul
+      className={
+        large
+          ? compactLegend
+            ? "min-w-0 flex-1 space-y-1.5"
+            : "min-w-0 flex-1 space-y-2"
+          : "min-w-0 flex-1 space-y-1.5"
+      }
+    >
+      {items.map((seg) => (
+        <li
+          key={seg.label}
+          className={
+            large
+              ? compactLegend
+                ? "flex items-center justify-between gap-2"
+                : "flex items-center justify-between gap-2.5"
+              : "flex items-center justify-between gap-2"
+          }
+        >
+          <span
+            className={
+              large
+                ? compactLegend
+                  ? "flex min-w-0 items-center gap-2"
+                  : "flex min-w-0 items-center gap-2.5"
+                : "flex min-w-0 items-center gap-2"
+            }
+          >
+            <span
+              className={large ? "h-2.5 w-2.5 shrink-0 rounded-full" : "h-2 w-2 shrink-0 rounded-full"}
+              style={{
+                backgroundColor: seg.color,
+                boxShadow: `0 0 10px ${seg.color}cc`,
+              }}
+              aria-hidden
+            />
+            <span
+              className={
+                large
+                  ? compactLegend
+                    ? fullLegendLabels
+                      ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                      : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                    : fullLegendLabels
+                      ? "text-[11px] font-semibold uppercase tracking-wider text-slate-300"
+                      : "truncate text-[11px] font-semibold uppercase tracking-wider text-slate-300"
+                  : fullLegendLabels
+                    ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                    : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+              }
+            >
+              {seg.label}
+            </span>
+          </span>
+          <span
+            className={
+              large
+                ? "shrink-0 tabular-nums text-lg font-semibold text-white"
+                : "shrink-0 tabular-nums text-base font-semibold text-white"
+            }
+          >
+            {seg.value}
+            {showLegendPercent ? (
+              <span className="ml-1.5 text-sm font-medium text-slate-300/65">
+                {pct1(seg.value, labelBase)}
+              </span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  const isBottomLegend = legendPosition === "bottom";
+  const useTwoColumns = isBottomLegend && legendColumns >= 2;
+  const leftLegend = useTwoColumns ? legendSegments.slice(0, Math.ceil(legendSegments.length / 2)) : legendSegments;
+  const rightLegend = useTwoColumns ? legendSegments.slice(Math.ceil(legendSegments.length / 2)) : [];
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-3">
+    <div className={large ? "space-y-3" : "space-y-2"}>
+      <div
+        className={
+          isBottomLegend
+            ? "flex items-center justify-center"
+            : large
+              ? "flex items-center gap-4"
+              : "flex items-center gap-3"
+        }
+      >
         <div className="relative shrink-0" style={{ width: chartHeight, height: chartHeight }}>
           {centerValue ? (
             <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center text-center">
               <span
-                className="text-lg font-extrabold tabular-nums leading-none tracking-tight"
+                className={
+                  large
+                    ? "text-xl font-extrabold tabular-nums leading-none tracking-tight"
+                    : "text-lg font-extrabold tabular-nums leading-none tracking-tight"
+                }
                 style={{ color: centerValueColor }}
               >
                 {centerValue}
               </span>
               {centerSublabel ? (
-                <span className="mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400">
+                <span
+                  className={
+                    large
+                      ? "mt-1.5 max-w-[5.2rem] text-[10px] font-medium uppercase leading-tight tracking-wide text-slate-400"
+                      : "mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400"
+                  }
+                >
                   {centerSublabel}
                 </span>
               ) : null}
@@ -210,7 +331,7 @@ export function KpiDonutChart({
               />
               <Pie
                 data={chartData}
-                dataKey="value"
+                dataKey={showZeroInChart ? "visualValue" : "value"}
                 nameKey="label"
                 cx="50%"
                 cy="50%"
@@ -237,38 +358,18 @@ export function KpiDonutChart({
             </PieChart>
           </ResponsiveContainer>
         </div>
-
-        <ul className="min-w-0 flex-1 space-y-1.5">
-          {legendSegments.map((seg) => (
-            <li
-              key={seg.label}
-              className="flex items-center justify-between gap-2"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: seg.color,
-                    boxShadow: `0 0 10px ${seg.color}cc`,
-                  }}
-                  aria-hidden
-                />
-                <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300">
-                  {seg.label}
-                </span>
-              </span>
-              <span className="shrink-0 tabular-nums text-base font-semibold text-white">
-                {seg.value}
-                {showLegendPercent ? (
-                  <span className="ml-1.5 text-sm font-medium text-slate-300/65">
-                    {pct1(seg.value, labelBase)}
-                  </span>
-                ) : null}
-              </span>
-            </li>
-          ))}
-        </ul>
+        {!isBottomLegend ? renderLegendList(legendSegments) : null}
       </div>
+      {isBottomLegend ? (
+        useTwoColumns ? (
+          <div className="grid grid-cols-2 gap-x-5">
+            <div>{renderLegendList(leftLegend)}</div>
+            <div>{renderLegendList(rightLegend)}</div>
+          </div>
+        ) : (
+          renderLegendList(legendSegments)
+        )
+      ) : null}
     </div>
   );
 }

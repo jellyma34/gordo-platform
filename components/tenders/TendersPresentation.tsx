@@ -1096,41 +1096,30 @@ export function TendersPresentation({
               <TenderKpiLabel>ПРОВЕДЕНО</TenderKpiLabel>
               <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
                 <span className="text-4xl font-extrabold text-white">{kpi.conductedCount}</span>
-                <span className="text-3xl font-medium text-slate-300/65">
-                  из {kpi.totalCount} шт
-                </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-2 flex flex-1 flex-col justify-evenly">
+          <div className="mt-2">
             <TenderKpiSplitMoneyBlock
-              label="ОБЪЕМ ПРОВЕДЕННЫХ ТЕНДЕРОВ, РУБ"
+              label="ЗАКЛЮЧЕНО ДОГОВОРОВ НА СУММУ"
               factRub={kpi.conductedFactRub}
               planRub={kpi.conductedPlanRub}
               accentColor={COLORS.green}
             />
-            <TenderKpiAmountBlock
-              label="СРЕДНИЙ ЧЕК ТЕНДЕРА"
-              amountRub={kpi.conductedAvgCheckRub}
-              accentColor={COLORS.green}
-            />
-            <TenderKpiMetricBlock
-              label="ВЫПОЛНЕНИЕ ОБЩЕГО ОБЪЕМА"
-              value={pct1(kpi.totalVolumeExecutionPct)}
-              tier="primary"
-              accentColor={COLORS.green}
-              sectionPt="pt-5"
-            />
           </div>
 
-          <div className="mt-auto space-y-1.5">
-            <TenderKpiDivider />
-            <div className="pt-3">
+          <div className="mt-2 flex flex-1 items-center py-2">
+            <div className="w-full">
               <KpiDonutChart
                 segments={kpiDonutSegments.conductedPipeline}
                 percentBase={kpiDonutSegments.totalTenders}
-                chartHeight={100}
+                chartHeight={156}
+                legendPosition="bottom"
+                legendColumns={2}
+                compactLegend
+                fullLegendLabels
+                large
               />
             </div>
           </div>
@@ -1150,9 +1139,6 @@ export function TendersPresentation({
               <TenderKpiLabel>ПРОСРОЧЕНЫ</TenderKpiLabel>
               <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
                 <span className="text-4xl font-extrabold text-white">{kpi.overdueCount}</span>
-                <span className="text-3xl font-medium text-slate-300/65">
-                  из {kpi.totalCount} шт
-                </span>
               </div>
             </div>
           </div>

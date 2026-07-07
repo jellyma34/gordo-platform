@@ -9,6 +9,7 @@ import {
   auditPlanFactChartModel,
   computePlanFactGprChartLayout,
   computePlanFactOverdueStartOverlaySpanPct,
+  logGprTimelineColorsToConsole,
   logPlanFactChartColorDiagnostic,
   planFactGprBarSpanPct,
   planFactGprXAxisMonthTicks,
@@ -37,7 +38,9 @@ const GANTT_FACT_LEGEND_GRAY = "rgba(148, 163, 184, 0.5)";
 
 function ganttFactColorRankForLegend(color: string): number {
   const t = color.trim();
-  if (t === "#22c55e") return 4;
+  if (t === "#22c55e") return 5;
+  if (t === "#38bdf8") return 4;
+  if (t === "#f97316") return 4;
   if (t === "#ef4444") return 3;
   if (t === "#f59e0b") return 2;
   return 1;
@@ -368,6 +371,7 @@ export function PlanFactGprDynamicsChartPanel({
     if (process.env.NODE_ENV === "production") return;
     console.info("[PlanFactGprDynamicsChart] data audit", audit);
     logPlanFactChartColorDiagnostic(model);
+    logGprTimelineColorsToConsole();
   }, [audit, model]);
 
   const planLegend = model.planColors[0] ?? "#94a3b8";
