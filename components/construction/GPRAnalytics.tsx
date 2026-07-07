@@ -126,15 +126,23 @@ import {
   buildGprKpiChartCompletionGapDiagnostic,
   computeGprStageFactCompletionPercent,
   computeGprStageCompletionInsight,
+  computeGprKpiArticleWorksBreakdown,
+  computeGprStageNotStartedOnTimeKpi,
   computeGprTasksCompletionDeviation,
   computeGprTasksFactCompletionPercent,
   computeGprTasksPlanCompletionPercent,
+  collectGprProjectKpiArticleWorks,
   formatGprStageKpiFactDisplay,
+  formatGprStageNotStartedOnTimeKpiDisplay,
   getGprKpiWorkItems,
   filterGprTasksForKpiAnalytics,
+  gprKpiWorkItemTrafficStatus,
   gprStageWorkItemBusinessStatus,
   isGprTaskFactCompleted,
   logGprKpiChartCompletionGapToConsole,
+  logGprProjectKpiValidationToConsole,
+  logGprParkingValidationToConsole,
+  logGprStageNotStartedOnTimeKpiToConsole,
   logGprStage205BusinessKpiConsistencyToConsole,
   logGprStage205KpiToConsole,
   type GprStageCompletionDiagnostic,
@@ -144,7 +152,6 @@ import { GprStageProgressBlock } from "@/components/construction/GprStageProgres
 import { PlanFactGprDynamicsChartPanel } from "@/components/construction/PlanFactGprDynamicsChartPanel";
 import {
   aggregateRootCodesForPart,
-  DEFAULT_AGGREGATE_ROOT_CODES_PROJECT,
   filterGprPresentationStageCardRoots,
   filterGprPresentationStageDeviationGroupKeys,
   findGprCsvRootTask,
@@ -567,14 +574,6 @@ function GprStage205DiagnosticPanel({
     </div>
   );
 }
-
-/** Корневые этапы для агрегата и порядка карточек по части проекта (значения по умолчанию). */
-const AGGREGATE_ROOT_CODES_BY_PART: Record<ProjectPartKey, readonly string[]> = {
-  residential: ["2.04", "2.05"],
-  parking: ["2.06", "2.07"],
-};
-
-const AGGREGATE_ROOT_CODES_PROJECT = DEFAULT_AGGREGATE_ROOT_CODES_PROJECT;
 
 const PART_SHORT_TITLE: Record<ProjectPartKey, string> = {
   residential: "Жилой дом",
@@ -1935,21 +1934,6 @@ function sumProjectWideStageBreakdown(
     for (const root of roots) {
       const insight = computeGprStageCompletionInsight(flat, root, asOf);
       const bd = computeGprStageStatusBreakdown(flat, root, asOf, insight);
-      workCompleted += bd.completedStages;
-      workTotal += bd.totalStages;
-      trafficGreen += bd.onTimeCount;
-      trafficYellow += bd.atRiskCount;
-      trafficRed += bd.overdueCount;
-      donutOnTime += bd.donutOnTimeCount;
-      donutRisk += bd.donutRiskCount;
-      donutOverdue += bd.donutOverdueCount;
-      donutCompletedLate += bd.donutCompletedLateCount;
-      donutNotStarted += bd.donutNotStartedCount;
-      businessCompleted += bd.businessCompletedCount;
-      businessInProgress += bd.businessInProgressCount;
-      businessLate += bd.businessLateCount;
-      businessOverdue += bd.businessOverdueCount;
-      businessNotStarted += bd.businessNotStartedCount;
       stageRows.push({
         root: normalizeGprCodeFinal(root.code) || root.code,
         name: root.name,
@@ -1962,8 +1946,28 @@ function sumProjectWideStageBreakdown(
     }
   }
 
-  const completedSharePct =
-    workTotal > 0 ? Math.round((workCompleted / workTotal) * 1000) / 10 : 0;
+  const projectArticleWorks = collectGprProjectKpiArticleWorks(
+    filterGprTasksByObjectScope(fullTaskList, "project"),
+  );
+  const totals = computeGprKpiArticleWorksBreakdown(projectArticleWorks, asOf);
+
+  workCompleted = totals.completedStages;
+  workTotal = totals.totalStages;
+  trafficGreen = totals.onTimeCount;
+  trafficYellow = totals.atRiskCount;
+  trafficRed = totals.overdueCount;
+  donutOnTime = totals.donutOnTimeCount;
+  donutRisk = totals.donutRiskCount;
+  donutOverdue = totals.donutOverdueCount;
+  donutCompletedLate = totals.donutCompletedLateCount;
+  donutNotStarted = totals.donutNotStartedCount;
+  businessCompleted = totals.businessCompletedCount;
+  businessInProgress = totals.businessInProgressCount;
+  businessLate = totals.businessLateCount;
+  businessOverdue = totals.businessOverdueCount;
+  businessNotStarted = totals.businessNotStartedCount;
+
+  const completedSharePct = totals.completedSharePct;
 
   return {
     workCompleted,
@@ -2051,10 +2055,7 @@ function computePartAggregateCore(
       asOfSafe,
     );
 
-    const pooledTasks = [
-      ...collectGprWorkItemsForRoots(residentialTasks, residentialRoots),
-      ...collectGprWorkItemsForRoots(parkingTasks, parkingRoots),
-    ];
+    const pooledTasks = collectGprProjectKpiArticleWorks(taskList);
     if (pooledTasks.length === 0) {
       return { totalPercent: null, totalDeviation: null, stages: [] };
     }
@@ -2178,29 +2179,6 @@ function trafficStatusForTask(task: GPRTask, asOf: Date): {
   return { status: st as Traffic, planDays, factDays, deviationDays };
 }
 
-type GprDonutStatusKey = "on_time" | "risk" | "overdue" | "completed_late" | "not_started";
-
-function gprStageWorkItemDonutStatus(task: GPRTask, asOf: Date): GprDonutStatusKey {
-  if (isGprWorkItemNotStarted(task)) return "not_started";
-
-  const planDays = daysInclusive(task.planStart, task.planEnd);
-  if (planDays === null) return "not_started";
-
-  if (isGprTaskFactCompleted(task, asOf)) {
-    const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
-    if (endDelay === null) return "not_started";
-    if (endDelay > 0) return "completed_late";
-    return "on_time";
-  }
-
-  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
-  if (endDelay === null) return "not_started";
-  const st = getStatusByDeviation(endDelay);
-  if (st === "green") return "on_time";
-  if (st === "yellow") return "risk";
-  return "overdue";
-}
-
 function computeGprStageStatusBreakdown(
   allTasks: GPRTask[],
   rootTask: GPRTask,
@@ -2208,56 +2186,15 @@ function computeGprStageStatusBreakdown(
   stageInsight: ReturnType<typeof computeGprStageCompletionInsight>,
 ) {
   const workItems = getGprKpiWorkItems(allTasks, rootTask);
-  const counts = { green: 0, yellow: 0, red: 0, gray: 0 };
-  const donutCounts = {
-    on_time: 0,
-    risk: 0,
-    overdue: 0,
-    completed_late: 0,
-    not_started: 0,
-  };
-  const businessCounts = {
-    completed: 0,
-    in_progress: 0,
-    late: 0,
-    overdue: 0,
-    not_started: 0,
-  };
-  for (const t of workItems) {
-    const { status } = trafficStatusForTask(t, asOf);
-    counts[status] += 1;
-    donutCounts[gprStageWorkItemDonutStatus(t, asOf)] += 1;
-    businessCounts[gprStageWorkItemBusinessStatus(t, asOf)] += 1;
-  }
-  const total = stageInsight.workTotal;
-  const completed = stageInsight.workCompleted;
-  const problematic =
-    donutCounts.risk + donutCounts.overdue + donutCounts.completed_late;
-  const withStatus =
-    donutCounts.on_time +
-    donutCounts.risk +
-    donutCounts.overdue +
-    donutCounts.completed_late;
+  const breakdown = computeGprKpiArticleWorksBreakdown(workItems, asOf);
   return {
-    completedStages: completed,
-    totalStages: total,
-    onTimeCount: counts.green,
-    atRiskCount: counts.yellow,
-    overdueCount: counts.red,
-    notStartedCount: counts.gray,
-    completedSharePct: total > 0 ? Math.round((completed / total) * 1000) / 10 : 0,
-    donutOnTimeCount: donutCounts.on_time,
-    donutRiskCount: donutCounts.risk,
-    donutOverdueCount: donutCounts.overdue,
-    donutCompletedLateCount: donutCounts.completed_late,
-    donutNotStartedCount: donutCounts.not_started,
-    businessCompletedCount: businessCounts.completed,
-    businessInProgressCount: businessCounts.in_progress,
-    businessLateCount: businessCounts.late,
-    businessOverdueCount: businessCounts.overdue,
-    businessNotStartedCount: businessCounts.not_started,
-    problematicSharePct:
-      withStatus > 0 ? Math.round((problematic / withStatus) * 1000) / 10 : 0,
+    ...breakdown,
+    completedStages: stageInsight.workCompleted,
+    totalStages: stageInsight.workTotal,
+    completedSharePct:
+      stageInsight.workTotal > 0
+        ? Math.round((stageInsight.workCompleted / stageInsight.workTotal) * 1000) / 10
+        : 0,
   };
 }
 
@@ -2294,6 +2231,38 @@ function logGprProjectAggregationDebugToConsole(input: {
     );
   }
   console.groupEnd();
+}
+
+type GprProjectStageCardEntry = {
+  task: GPRTask;
+  cardPartKey: ProjectPartKey;
+  cardFlatStageTasks: GPRTask[];
+};
+
+function logGprProjectCardsValidationToConsole(
+  stageEntries: readonly GprProjectStageCardEntry[],
+): void {
+  if (process.env.NODE_ENV === "production") return;
+
+  const residential = stageEntries.filter((e) => e.cardPartKey === "residential");
+  const parking = stageEntries.filter((e) => e.cardPartKey === "parking");
+
+  const mark = (ok: boolean) => (ok ? "✓" : "✗");
+
+  console.log("=== PROJECT STAGE CARDS ===");
+  console.log(`${mark(residential.some((e) => normalizeGprCodeFinal(e.task.code) === "2.04"))} 2.04`);
+  console.log(
+    `${mark(residential.some((e) => normalizeGprCodeFinal(e.task.code) === "2.05"))} 2.05 (Жилой дом)`,
+  );
+  console.log(
+    `${mark(parking.some((e) => normalizeGprCodeFinal(e.task.code) === "2.05"))} 2.05 (Автостоянка)`,
+  );
+  console.log(`${mark(parking.some((e) => normalizeGprCodeFinal(e.task.code) === "2.06"))} 2.06`);
+  console.log(`${mark(parking.some((e) => normalizeGprCodeFinal(e.task.code) === "2.07"))} 2.07`);
+  console.log("Всего карточек проекта:", stageEntries.length + 1);
+  console.log(
+    "Примечание: 2.04 исключалась filterGprPresentationStageCardRoots при activePartScope=residential на вкладке «Проект»; для проекта используется activePartScope=project.",
+  );
 }
 
 function kpiCard({
@@ -2457,12 +2426,13 @@ export function GPRAnalytics({
   /** Источник «Распределение статусов» — KPI-набор без этажей монолита. */
   const statusDistributionTasks = tasksForKpiAnalytics;
 
-  /** Корневые шифры агрегата с учётом фактической структуры CSV (2.04/2.05 vs 2.06/2.07). */
+  /** Корневые шифры агрегата — из CSV-задач объекта (без жёсткого перечня этапов). */
   const aggregateRootCodes = useMemo(
     () =>
-      isProjectWide
-        ? AGGREGATE_ROOT_CODES_PROJECT
-        : aggregateRootCodesForPart(activeProjectPart, tasksForActivePart),
+      aggregateRootCodesForPart(
+        isProjectWide ? "project" : activeProjectPart,
+        tasksForActivePart,
+      ),
     [isProjectWide, activeProjectPart, tasksForActivePart],
   );
 
@@ -2523,19 +2493,23 @@ export function GPRAnalytics({
     () => filterGprTasksForKpiAnalytics(tasksForProjectAggregate),
     [tasksForProjectAggregate],
   );
+  const projectAggregateRootCodes = useMemo(
+    () => aggregateRootCodesForPart("project", tasksForProjectAggregate),
+    [tasksForProjectAggregate],
+  );
   const projectProgressAggregate = useMemo(
     () =>
       computePartAggregate(
         tasksForProjectAggregate,
-        AGGREGATE_ROOT_CODES_PROJECT,
+        projectAggregateRootCodes,
         "project",
         gprReportAsOf,
       ),
-    [tasksForProjectAggregate, gprReportAsOf],
+    [tasksForProjectAggregate, projectAggregateRootCodes, gprReportAsOf],
   );
   const projectOrderedStageRoots = useMemo(
-    () => resolveStageCardRootTasks(tasksForProjectAggregate, AGGREGATE_ROOT_CODES_PROJECT),
-    [tasksForProjectAggregate],
+    () => resolveStageCardRootTasks(tasksForProjectAggregate, projectAggregateRootCodes),
+    [tasksForProjectAggregate, projectAggregateRootCodes],
   );
   const projectFlatTasks = useMemo(
     () => flattenTasks(tasksForProjectKpiAnalytics),
@@ -2573,6 +2547,73 @@ export function GPRAnalytics({
     () => flattenTasks(tasksForActivePart),
     [tasksForActivePart],
   );
+
+  /**
+   * Вкладка «Проект»: отдельные карточки этапов по каждому объекту.
+   * filterGprPresentationStageCardRoots — только с activePartScope «project»,
+   * чтобы 2.04 не скрывалась (скрытие 2.04 — только на вкладке «Жилой дом»).
+   */
+  const projectStageCardEntries = useMemo((): GprProjectStageCardEntry[] | null => {
+    if (!isProjectWide) return null;
+
+    const entries: GprProjectStageCardEntry[] = [];
+
+    const residentialTasks = filterGprTasksByObjectScope(
+      fullTaskList,
+      PROJECT_PART_KEY_TO_ID.residential,
+    );
+    if (residentialTasks.length > 0) {
+      const residentialFlat = flattenTasks(residentialTasks);
+      const residentialRoots = filterGprPresentationStageCardRoots(
+        resolveStageCardRootTasks(
+          residentialFlat,
+          aggregateRootCodesForPart("residential", residentialFlat),
+        ),
+        {
+          presentationMode: presentationAnalyticsSkin,
+          activePartScope: "project",
+        },
+      );
+      for (const root of residentialRoots) {
+        entries.push({
+          task: root,
+          cardPartKey: "residential",
+          cardFlatStageTasks: residentialFlat,
+        });
+      }
+    }
+
+    const parkingTasks = filterGprTasksByObjectScope(
+      fullTaskList,
+      PROJECT_PART_KEY_TO_ID.parking,
+    );
+    if (parkingTasks.length > 0) {
+      const parkingFlat = flattenTasks(parkingTasks);
+      const parkingRoots = resolveStageCardRootTasks(
+        parkingFlat,
+        aggregateRootCodesForPart("parking", parkingFlat),
+      );
+      for (const root of parkingRoots) {
+        entries.push({
+          task: root,
+          cardPartKey: "parking",
+          cardFlatStageTasks: parkingFlat,
+        });
+      }
+    }
+
+    return entries;
+  }, [isProjectWide, fullTaskList, presentationAnalyticsSkin]);
+
+  const stageCardsForRender = useMemo((): GprProjectStageCardEntry[] => {
+    if (projectStageCardEntries) return projectStageCardEntries;
+    return stageCardRoots.map((task) => ({
+      task,
+      cardPartKey: activeProjectPart,
+      cardFlatStageTasks: flatStageTasks,
+    }));
+  }, [projectStageCardEntries, stageCardRoots, activeProjectPart, flatStageTasks]);
+
   const flatTasks = flattenTasks(tasksForKpiAnalytics);
   /** Полный ГПР для блока «Отклонения по этапам» (включая этажи монолита 2.05.04.2.*). */
   const stageDeviationFlatTasks = useMemo(
@@ -3587,24 +3628,9 @@ export function GPRAnalytics({
   }, [fullTaskList, gprReportAsOf]);
 
   const aggregatePlannedPercent = useMemo<number | null>(() => {
-    const residentialTasks = filterGprTasksByObjectScope(
-      fullTaskList,
-      PROJECT_PART_KEY_TO_ID.residential,
+    const pooled = collectGprProjectKpiArticleWorks(
+      filterGprTasksByObjectScope(fullTaskList, "project"),
     );
-    const parkingTasks = filterGprTasksByObjectScope(
-      fullTaskList,
-      PROJECT_PART_KEY_TO_ID.parking,
-    );
-    const pooled = [
-      ...collectGprWorkItemsForRoots(
-        residentialTasks,
-        aggregateRootCodesForPart("residential", residentialTasks),
-      ),
-      ...collectGprWorkItemsForRoots(
-        parkingTasks,
-        aggregateRootCodesForPart("parking", parkingTasks),
-      ),
-    ];
     return computeGprTasksPlanCompletionPercent(pooled, gprReportAsOf);
   }, [fullTaskList, gprReportAsOf]);
 
@@ -3620,7 +3646,7 @@ export function GPRAnalytics({
       cardWorkTotal: aggregateStageBreakdown.workTotal,
       cardWorkCompleted: aggregateStageBreakdown.workCompleted,
       datasource:
-        "sumProjectWideStageBreakdown(fullTaskList): residential(2.04/2.05) + parking(2.06/2.07)",
+        "collectGprProjectKpiArticleWorks(project): строки CSV с «№ статей» (тот же алгоритм, что карточка 2.05)",
     });
   }, [
     projectAggregationStageCounts,
@@ -3694,6 +3720,155 @@ export function GPRAnalytics({
         : aggregateDeviationDeltaPp > 0
           ? `+${aggregateDeviationDeltaPp}`
           : "0";
+
+  const parkingKpiValidationSnapshot = useMemo(() => {
+    const parkingTasks = filterGprTasksByObjectScope(
+      fullTaskList,
+      PROJECT_PART_KEY_TO_ID.parking,
+    );
+    if (parkingTasks.length === 0) return null;
+
+    const parkingFlat = flattenTasks(parkingTasks);
+    const stageRootCodes = aggregateRootCodesForPart("parking", parkingFlat);
+    const stageRows = stageRootCodes.map((rootCode) => {
+      const root = resolveStageCardRootTasks(parkingFlat, [rootCode])[0];
+      if (!root) return { rootCode, workTotal: 0, workCompleted: 0 };
+      const works = getGprKpiWorkItems(parkingFlat, root);
+      const bd = computeGprKpiArticleWorksBreakdown(works, gprReportAsOf);
+      return {
+        rootCode,
+        workTotal: bd.totalStages,
+        workCompleted: bd.completedStages,
+      };
+    });
+
+    const parkingArticleWorks = filterGprTasksForKpiAnalytics(parkingTasks);
+    const parkingBd = computeGprKpiArticleWorksBreakdown(parkingArticleWorks, gprReportAsOf);
+    const projectWorks = collectGprProjectKpiArticleWorks(
+      filterGprTasksByObjectScope(fullTaskList, "project"),
+    );
+    const projectBd = computeGprKpiArticleWorksBreakdown(projectWorks, gprReportAsOf);
+
+    return {
+      stageRootCodes,
+      stageRows,
+      parkingTotals: {
+        workTotal: parkingBd.totalStages,
+        workCompleted: parkingBd.completedStages,
+        onTime: parkingBd.businessCompletedCount,
+        late: parkingBd.businessLateCount,
+        inProgress: parkingBd.businessInProgressCount,
+        notStarted: parkingBd.businessNotStartedCount,
+        completionPct: parkingBd.completedSharePct,
+        factPercent: computeGprTasksFactCompletionPercent(parkingArticleWorks, gprReportAsOf),
+        planPercent: computeGprTasksPlanCompletionPercent(parkingArticleWorks, gprReportAsOf),
+        deviationPp: computeGprTasksCompletionDeviation(parkingArticleWorks, gprReportAsOf),
+      },
+      projectKpi: {
+        workTotal: projectBd.totalStages,
+        workCompleted: projectBd.completedStages,
+        completionPct: projectBd.completedSharePct,
+      },
+    };
+  }, [fullTaskList, gprReportAsOf]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!parkingKpiValidationSnapshot) return;
+    logGprParkingValidationToConsole(parkingKpiValidationSnapshot);
+  }, [parkingKpiValidationSnapshot]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!isProjectWide || !projectStageCardEntries?.length) return;
+    logGprProjectCardsValidationToConsole(projectStageCardEntries);
+  }, [isProjectWide, projectStageCardEntries]);
+
+  const stage205NotStartedKpiSnapshots = useMemo(() => {
+    const snapshots: {
+      scopeLabel: string;
+      kpi: ReturnType<typeof computeGprStageNotStartedOnTimeKpi>;
+    }[] = [];
+
+    for (const { scope, label } of [
+      { scope: PROJECT_PART_KEY_TO_ID.residential, label: "2.05 Жилой дом" },
+      { scope: PROJECT_PART_KEY_TO_ID.parking, label: "2.05 Автостоянка" },
+    ] as const) {
+      const scopedTasks = filterGprTasksByObjectScope(fullTaskList, scope);
+      const root205 = resolveStageCardRootTasks(scopedTasks, ["2.05"]).find(
+        (r) => normalizeGprCodeFinal(r.code) === "2.05",
+      );
+      if (!root205) continue;
+      const works = getGprKpiWorkItems(flattenTasks(scopedTasks), root205);
+      if (works.length === 0) continue;
+      snapshots.push({
+        scopeLabel: label,
+        kpi: computeGprStageNotStartedOnTimeKpi(works, gprReportAsOf),
+      });
+    }
+
+    return snapshots;
+  }, [fullTaskList, gprReportAsOf]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    for (const snapshot of stage205NotStartedKpiSnapshots) {
+      logGprStageNotStartedOnTimeKpiToConsole(snapshot);
+    }
+  }, [stage205NotStartedKpiSnapshots]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+
+    const residentialTasks = filterGprTasksByObjectScope(
+      fullTaskList,
+      PROJECT_PART_KEY_TO_ID.residential,
+    );
+    const root205 = resolveStageCardRootTasks(residentialTasks, ["2.04", "2.05"]).find(
+      (r) => normalizeGprCodeFinal(r.code) === "2.05",
+    );
+
+    const algorithmMatches205 = root205
+      ? (() => {
+          const works205 = getGprKpiWorkItems(residentialTasks, root205);
+          const ref = computeGprKpiArticleWorksBreakdown(works205, gprReportAsOf);
+          const stageBd = computeGprStageStatusBreakdown(
+            residentialTasks,
+            root205,
+            gprReportAsOf,
+            computeGprStageCompletionInsight(residentialTasks, root205, gprReportAsOf),
+          );
+          return (
+            ref.totalStages === stageBd.totalStages &&
+            ref.completedStages === stageBd.completedStages &&
+            ref.businessCompletedCount === stageBd.businessCompletedCount &&
+            ref.businessLateCount === stageBd.businessLateCount &&
+            ref.businessNotStartedCount === stageBd.businessNotStartedCount
+          );
+        })()
+      : true;
+
+    logGprProjectKpiValidationToConsole({
+      workTotal: aggregateStageBreakdown.workTotal,
+      workCompleted: aggregateStageBreakdown.workCompleted,
+      completedOnTime: aggregateStageBreakdown.businessCompleted,
+      completedLate: aggregateStageBreakdown.businessLate,
+      notStarted: aggregateStageBreakdown.businessNotStarted,
+      completionPct: aggregateStageBreakdown.completedSharePct,
+      factPercent: projectAggTotalPercent,
+      planPercent: aggregatePlannedPercent,
+      deviationPp: aggregateDeviationDeltaPp,
+      dataSource: "CSV ГПР: filterGprTasksForKpiAnalytics (№ статей), как карточка 2.05",
+      algorithmMatches205,
+    });
+  }, [
+    fullTaskList,
+    gprReportAsOf,
+    aggregateStageBreakdown,
+    projectAggTotalPercent,
+    aggregatePlannedPercent,
+    aggregateDeviationDeltaPp,
+  ]);
 
   const pdfReportPeriodLabel = useMemo(
     () => `по состоянию на ${gprReportDateLabel}`,
@@ -3816,10 +3991,14 @@ export function GPRAnalytics({
           <div className="min-w-0 h-full">{partAggregateCard}</div>
         ) : null}
 
-        {stageCardRoots.map((task) => {
-          const stageInsight = computeGprStageCompletionInsight(flatStageTasks, task, gprReportAsOf);
+        {stageCardsForRender.map(({ task, cardPartKey, cardFlatStageTasks }) => {
+          const stageInsight = computeGprStageCompletionInsight(
+            cardFlatStageTasks,
+            task,
+            gprReportAsOf,
+          );
           const statusBreakdown = computeGprStageStatusBreakdown(
-            flatStageTasks,
+            cardFlatStageTasks,
             task,
             gprReportAsOf,
             stageInsight,
@@ -3864,6 +4043,11 @@ export function GPRAnalytics({
           const isBuildingConstructionStageCard =
             stageCodeNorm === "2.05" ||
             task.name.trim() === "Строительство зданий и сооружений";
+          /** Dashboard-компоновка и KPI «Не начаты в срок» — только 2.05 жилого дома. */
+          const isResidentialBuildingConstructionStageCard =
+            isBuildingConstructionStageCard && cardPartKey === "residential";
+          const isParkingBuildingConstructionStageCard =
+            isBuildingConstructionStageCard && cardPartKey === "parking";
           // Этапы автостоянки (2.06 «Устройство сетей» и 2.07 «Благоустройство»)
           // приводим к тому же компактному шаблону, что и 2.04 / 2.05 жилого дома:
           // позиционная аналогия — первый этап части использует donut workItem
@@ -3884,11 +4068,14 @@ export function GPRAnalytics({
           // (жилого дома или автостоянки), чтобы карточки одной вкладки были
           // сопоставимы между собой. Если общее число этапов части равно 0
           // (нет данных) — откатываемся к доле внутри собственного этапа.
-          const partStageTotal = isParkingNetworksStageCard || isParkingLandscapingStageCard
-            ? parkingAvtoGprStageTotal
-            : isPrepTerritoryStageCard || isBuildingConstructionStageCard
-              ? residentialZhDomGprStageTotal
-              : 0;
+          const partStageTotal =
+            isParkingNetworksStageCard ||
+            isParkingLandscapingStageCard ||
+            isParkingBuildingConstructionStageCard
+              ? parkingAvtoGprStageTotal
+              : isPrepTerritoryStageCard || isResidentialBuildingConstructionStageCard
+                ? residentialZhDomGprStageTotal
+                : 0;
           const completedShareNumerator = statusBreakdown.completedStages;
           const completedShareDenominator =
             isCompactStageCard && partStageTotal > 0
@@ -3898,14 +4085,23 @@ export function GPRAnalytics({
             completedShareDenominator > 0
               ? Math.round((completedShareNumerator / completedShareDenominator) * 1000) / 10
               : 0;
+          const stage205NotStartedKpi = isResidentialBuildingConstructionStageCard
+            ? computeGprStageNotStartedOnTimeKpi(
+                getGprKpiWorkItems(cardFlatStageTasks, task),
+                gprReportAsOf,
+              )
+            : null;
           return (
-            <div key={task.globalTaskId ?? task.id} className="min-w-0 h-full">
+            <div
+              key={`${cardPartKey}-${task.globalTaskId ?? task.id}`}
+              className="min-w-0 h-full"
+            >
             <GprStageKpiCard
               title={task.name}
               code={stageCodeNorm}
               status={status}
               metricsVariant={isCompactStageCard ? "compact" : "full"}
-              layoutVariant={isBuildingConstructionStageCard ? "dashboard" : "default"}
+              layoutVariant={isResidentialBuildingConstructionStageCard ? "dashboard" : "default"}
               donutStatusVariant={useBusinessDonut ? "businessKpi" : "workItem"}
               factLabel="Факт выполнения"
               factValue={formatGprStageKpiFactDisplay(stageInsight)}
@@ -3934,6 +4130,14 @@ export function GPRAnalytics({
               businessOverdueCount={statusBreakdown.businessOverdueCount}
               businessNotStartedCount={statusBreakdown.businessNotStartedCount}
               problematicSharePct={statusBreakdown.problematicSharePct}
+              dashboardBottomKpi={
+                stage205NotStartedKpi
+                  ? {
+                      label: "Не начаты в срок",
+                      primaryText: formatGprStageNotStartedOnTimeKpiDisplay(stage205NotStartedKpi),
+                    }
+                  : undefined
+              }
             />
             </div>
           );

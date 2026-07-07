@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, type ReactNode } from "react";
-import { Check, Circle, Clock, HardHat, RefreshCw } from "lucide-react";
+import { Check, Circle, HardHat, RefreshCw } from "lucide-react";
 import { KpiDonutChart, type KpiDonutSegment } from "@/components/tmc/KpiDonutChart";
 
 const COLORS = {
@@ -547,29 +547,113 @@ function GprKpiStatusListRow({
   );
 }
 
-function GprKpiStatusList({
-  items,
+function GprKpiStatusListChildRow({
+  label,
+  value,
+  color,
 }: {
-  items: Array<{
-    label: string;
-    value: number;
-    color: string;
-    icon: ReactNode;
-  }>;
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="relative grid h-[34px] grid-cols-[1fr_auto] items-center gap-x-2 pl-3">
+      <div
+        className="absolute left-0 top-1/2 h-px w-2.5 -translate-y-1/2"
+        style={{ backgroundColor: "rgba(255,255,255,0.14)" }}
+        aria-hidden
+      />
+      <div className="min-w-0 truncate text-[10px] font-medium leading-tight text-slate-400">
+        <span className="mr-1.5" style={{ color }}>
+          •
+        </span>
+        {label}
+      </div>
+      <div className="shrink-0 text-sm font-semibold tabular-nums leading-none text-white">{value}</div>
+    </div>
+  );
+}
+
+function GprKpiStatusListGroup({
+  label,
+  value,
+  color,
+  icon,
+  subItems,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  icon: ReactNode;
+  subItems: Array<{ label: string; value: number; color: string }>;
 }) {
   return (
     <div>
-      {items.map((item, index) => (
-        <div key={item.label}>
-          {index > 0 ? <div className="border-t border-white/[0.18]" aria-hidden /> : null}
-          <GprKpiStatusListRow
-            label={item.label}
-            value={item.value}
-            color={item.color}
-            icon={item.icon}
+      <GprKpiStatusListRow label={label} value={value} color={color} icon={icon} />
+      <div
+        className="relative ml-5 border-l pl-4"
+        style={{ borderColor: "rgba(255,255,255,0.12)" }}
+      >
+        {subItems.map((child) => (
+          <GprKpiStatusListChildRow
+            key={child.label}
+            label={child.label}
+            value={child.value}
+            color={child.color}
           />
-        </div>
-      ))}
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GprKpiDashboardStatusList({
+  completedOnTime,
+  completedLate,
+  inProgress,
+  notStarted,
+}: {
+  completedOnTime: number;
+  completedLate: number;
+  inProgress: number;
+  notStarted: number;
+}) {
+  const completedTotal = completedOnTime + completedLate;
+
+  return (
+    <div>
+      <GprKpiStatusListGroup
+        label="Завершено"
+        value={completedTotal}
+        color={DASHBOARD_RING_COLORS.green}
+        icon={<Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />}
+        subItems={[
+          {
+            label: "Завершено в срок",
+            value: completedOnTime,
+            color: DASHBOARD_RING_COLORS.green,
+          },
+          {
+            label: "Завершено с опозданием",
+            value: completedLate,
+            color: DASHBOARD_RING_COLORS.orange,
+          },
+        ]}
+      />
+      <div className="border-t border-white/[0.18]" aria-hidden />
+      <GprKpiStatusListRow
+        label="В процессе"
+        value={inProgress}
+        color={DASHBOARD_RING_COLORS.cyan}
+        icon={<RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />}
+      />
+      <div className="border-t border-white/[0.18]" aria-hidden />
+      <GprKpiStatusListRow
+        label="Не начато"
+        value={notStarted}
+        color={COLORS.gray}
+        icon={<Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
+      />
     </div>
   );
 }
@@ -585,11 +669,9 @@ function GprStageKpiDashboardBody({
   deviationValue,
   deviationDeltaPp,
   deviationLagWorkCount,
+  dashboardBottomKpi,
   completedStages,
   totalStages,
-  completedSharePct,
-  completedShareNumerator,
-  completedShareDenominator,
   businessCompletedCount,
   businessInProgressCount,
   businessLateCount,
@@ -606,44 +688,15 @@ function GprStageKpiDashboardBody({
   deviationDeltaPp: number | null;
   /** Количество работ со статусом «Отставание» (statusBreakdown.overdueCount). */
   deviationLagWorkCount: number;
+  /** Переопределение нижнего KPI (карточка 2.05). */
+  dashboardBottomKpi?: { label: string; primaryText: string };
   completedStages: number;
   totalStages: number;
-  completedSharePct: number;
-  completedShareNumerator: number;
-  completedShareDenominator: number;
   businessCompletedCount: number;
   businessInProgressCount: number;
   businessLateCount: number;
   businessNotStartedCount: number;
 }) {
-  const completedShareLabel = "Доля выполненных работ";
-  const statusCards = [
-    {
-      label: "Завершено в срок",
-      value: businessCompletedCount,
-      color: DASHBOARD_RING_COLORS.green,
-      icon: <Check className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
-    },
-    {
-      label: "В процессе",
-      value: businessInProgressCount,
-      color: DASHBOARD_RING_COLORS.cyan,
-      icon: <RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
-    },
-    {
-      label: "Завершено с опозданием",
-      value: businessLateCount,
-      color: DASHBOARD_RING_COLORS.orange,
-      icon: <Clock className="h-3 w-3" strokeWidth={2.5} aria-hidden />,
-    },
-    {
-      label: "Не начато",
-      value: businessNotStartedCount,
-      color: COLORS.gray,
-      icon: <Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />,
-    },
-  ];
-
   return (
     <div
       className="grid h-full min-h-0 overflow-hidden"
@@ -689,37 +742,43 @@ function GprStageKpiDashboardBody({
 
       {/* Правая колонка: список статусов */}
       <div className="grid min-h-0 content-center self-center overflow-hidden pl-1">
-        <GprKpiStatusList items={statusCards} />
+        <GprKpiDashboardStatusList
+          completedOnTime={businessCompletedCount}
+          completedLate={businessLateCount}
+          inProgress={businessInProgressCount}
+          notStarted={businessNotStartedCount}
+        />
       </div>
 
       {/* Нижняя панель KPI */}
-      <div
-        className="grid shrink-0 grid-cols-2 border-t border-slate-600/20"
-        style={{ gridColumn: "1 / -1" }}
-      >
-        <div className="flex min-h-0 flex-col gap-0 border-r border-slate-600/20 px-2 pt-2 pb-2">
-          <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
-            {deviationLabel.replace(/,\s*%$/, "")}
-          </div>
-          <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
-            <span
-              className={`${GPR_KPI_COMPACT_VALUE_CLASS} ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
-            >
-              {deviationValue}
-            </span>
-            <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
-              ({deviationLagWorkCount} из {totalStages})
-            </span>
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-col gap-0 px-2 pt-2 pb-2">
-          <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{completedShareLabel}</div>
-          <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
-            <span className={GPR_KPI_COMPACT_VALUE_CLASS}>{pct1(completedSharePct)}</span>
-            <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
-              ({completedShareNumerator} из {completedShareDenominator})
-            </span>
-          </div>
+      <div className="shrink-0 border-t border-slate-600/20" style={{ gridColumn: "1 / -1" }}>
+        <div className="flex min-h-0 w-full flex-col gap-0 px-2 pt-2 pb-2">
+          {dashboardBottomKpi ? (
+            <>
+              <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{dashboardBottomKpi.label}</div>
+              <div
+                className={`${GPR_KPI_COMPACT_VALUE_CLASS} whitespace-nowrap text-white`}
+              >
+                {dashboardBottomKpi.primaryText}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
+                {deviationLabel.replace(/,\s*%$/, "")}
+              </div>
+              <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
+                <span
+                  className={`${GPR_KPI_COMPACT_VALUE_CLASS} ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+                >
+                  {deviationValue}
+                </span>
+                <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
+                  ({deviationLagWorkCount} из {totalStages})
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -783,6 +842,8 @@ export type GprStageKpiCardProps = {
   businessOverdueCount?: number;
   businessNotStartedCount?: number;
   problematicSharePct: number;
+  /** Нижний KPI dashboard-карточки 2.05 («Не начаты в срок»). */
+  dashboardBottomKpi?: { label: string; primaryText: string };
 };
 
 export function GprStageKpiCard({
@@ -818,6 +879,7 @@ export function GprStageKpiCard({
   businessLateCount = 0,
   businessOverdueCount = 0,
   businessNotStartedCount = 0,
+  dashboardBottomKpi,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
@@ -982,11 +1044,9 @@ export function GprStageKpiCard({
             deviationValue={deviationValue}
             deviationDeltaPp={deviationDeltaPp}
             deviationLagWorkCount={overdueCount}
+            dashboardBottomKpi={dashboardBottomKpi}
             completedStages={completedStages}
             totalStages={totalStages}
-            completedSharePct={completedSharePct}
-            completedShareNumerator={completedShareNumerator}
-            completedShareDenominator={completedShareDenominator}
             businessCompletedCount={businessCompletedCount}
             businessInProgressCount={businessInProgressCount}
             businessLateCount={businessLateCount}

@@ -24,6 +24,7 @@ import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import {
   TenderConductDynamicsChart,
 } from "@/components/tenders/TenderConductDynamicsChart";
+import { TenderContractDeviationChart } from "@/components/tenders/TenderContractDeviationChart";
 import { TenderContractDynamicsChart } from "@/components/tenders/TenderContractDynamicsChart";
 import { TenderCostDynamicsChart } from "@/components/tenders/TenderCostDynamicsChart";
 import { useTenderKpiDonutSegments } from "@/components/tenders/useTenderKpiDonutSegments";
@@ -452,13 +453,6 @@ function filterTendersForScope(list: Tender[], scope: ConstructionObjectScope): 
   return list.filter((t) => t.partId === scope);
 }
 
-function deviationZoneColor(d: number): string {
-  if (d === 0) return COLORS.gray;
-  if (d < 0) return COLORS.green;
-  if (d <= 14) return COLORS.yellow;
-  return COLORS.red;
-}
-
 type ContractDeviationZone = "green" | "gray" | "yellow" | "red";
 
 function contractDeviationZone(d: number): ContractDeviationZone {
@@ -508,12 +502,6 @@ function formatDaysSignedRu(n: number | null): string {
   return `${sign}${abs} ${daysWordRu(abs)}`;
 }
 
-function formatRuDateDDMMYYYY(iso: string): string {
-  const d = parseIsoDate(iso);
-  if (!d) return iso;
-  return d.toLocaleDateString("ru-RU");
-}
-
 type ContractDeviationPoint = {
   id: string;
   code: string;
@@ -552,44 +540,6 @@ function DeviationKpiTile({
       </div>
       <div className="mt-1.5 text-lg font-bold tabular-nums" style={{ color: valueColor }}>
         {value}
-      </div>
-    </div>
-  );
-}
-
-function ContractDeviationTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload?: ContractDeviationPoint }>;
-}) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
-  const color = deviationZoneColor(row.deviation);
-  return (
-    <div
-      className="rounded-lg border px-3 py-2 text-xs shadow-lg"
-      style={{
-        background: COLORS.card,
-        borderColor: "rgba(148,163,184,0.35)",
-        color: "#e2e8f0",
-      }}
-    >
-      <div className="font-semibold text-slate-100">Тендер {row.code}</div>
-      <div className="mt-0.5 max-w-[260px] text-slate-300">{row.name}</div>
-      <div className="mt-2 tabular-nums text-slate-300">
-        План:{" "}
-        <span className="font-medium text-white">{formatRuDateDDMMYYYY(row.planIso)}</span>
-      </div>
-      <div className="tabular-nums text-slate-300">
-        Факт:{" "}
-        <span className="font-medium text-white">{formatRuDateDDMMYYYY(row.factIso)}</span>
-      </div>
-      <div className="mt-1 tabular-nums" style={{ color }}>
-        Отклонение:{" "}
-        <span className="font-semibold">{formatDaysSignedRu(row.deviation)}</span>
       </div>
     </div>
   );
@@ -950,24 +900,6 @@ export function TendersPresentation({
       statusCounts: countContractDeviationZones(contractDeviationItems),
     };
   }, [tenders, contractDeviationItems]);
-
-  const contractDeviationXTicks = useMemo<number[]>(() => {
-    if (contractDeviationItems.length === 0) return [];
-    const minTs = contractDeviationItems[0]!.ts;
-    const maxTs = contractDeviationItems[contractDeviationItems.length - 1]!.ts;
-    const ticks: number[] = [];
-    let cursor = monthStart(new Date(minTs));
-    const end = monthStart(new Date(maxTs));
-    while (cursor.getTime() <= end.getTime()) {
-      ticks.push(cursor.getTime());
-      cursor = addMonths(cursor, 1);
-    }
-    if (ticks.length > 12) {
-      const step = Math.ceil(ticks.length / 12);
-      return ticks.filter((_, i) => i % step === 0);
-    }
-    return ticks;
-  }, [contractDeviationItems]);
 
   const pdfKpiLines = useMemo(
     () => [
@@ -1546,86 +1478,7 @@ export function TendersPresentation({
               Недостаточно пар «план / факт» по датам договоров для построения отклонений
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={contractDeviationItems}
-                margin={{ top: 16, right: 28, left: 4, bottom: 8 }}
-              >
-                <CartesianGrid stroke="rgba(148,163,184,0.12)" strokeDasharray="4 4" />
-                <XAxis
-                  dataKey="ts"
-                  type="number"
-                  domain={["dataMin", "dataMax"]}
-                  ticks={contractDeviationXTicks}
-                  tick={{ fill: "#94a3b8", fontSize: 11 }}
-                  tickFormatter={(v) => monthLabel(new Date(Number(v)))}
-                />
-                <YAxis
-                  tick={{ fill: "#94a3b8", fontSize: 11 }}
-                  tickFormatter={(v) => `${v} дн.`}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<ContractDeviationTooltip />} />
-                <ReferenceLine
-                  y={0}
-                  stroke="rgba(148,163,184,0.55)"
-                  strokeDasharray="4 4"
-                  label={{
-                    value: "0 дней",
-                    fill: "#94a3b8",
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="deviation"
-                  stroke="rgba(148,163,184,0.45)"
-                  strokeWidth={2}
-                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
-                    const idx = props.index ?? 0;
-                    const row = contractDeviationItems[idx];
-                    if (props.cx == null || props.cy == null || !row) {
-                      return <g key={`dev-dot-${idx}`} />;
-                    }
-                    const color = deviationZoneColor(row.deviation);
-                    return (
-                      <circle
-                        key={`dev-dot-${idx}`}
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={5}
-                        fill={color}
-                        stroke="#0f172a"
-                        strokeWidth={1.5}
-                      />
-                    );
-                  }}
-                  activeDot={(props: { cx?: number; cy?: number; index?: number }) => {
-                    const idx = props.index ?? 0;
-                    const row = contractDeviationItems[idx];
-                    if (props.cx == null || props.cy == null || !row) {
-                      return <g key={`dev-adot-${idx}`} />;
-                    }
-                    const color = deviationZoneColor(row.deviation);
-                    return (
-                      <circle
-                        key={`dev-adot-${idx}`}
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={7}
-                        fill={color}
-                        stroke="#ffffff"
-                        strokeWidth={2}
-                        style={{ filter: `drop-shadow(0 0 6px ${color}aa)` }}
-                      />
-                    );
-                  }}
-                  connectNulls={false}
-                  name="deviation"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <TenderContractDeviationChart items={contractDeviationItems} />
           )}
         </div>
 

@@ -3,9 +3,11 @@ import {
   getCalendarFactProgressPercent,
   getPlannedProgressPercent,
   gprTaskFactCompletionPercent,
+  getStatusByDeviation,
   isGprWorkItemNotStarted,
   matchesGprCodeBranch,
   normalizeGprCodeFinal,
+  parseDateSafe,
   partIdToProjectPartKey,
   planFactEndDeviationDays,
   sortGprTasksByCsvArticleNumber,
@@ -226,6 +228,327 @@ export function gprStageWorkItemBusinessStatus(
   if (!completed && endDelay !== null && endDelay > 0) return "overdue";
   if (completed) return "completed";
   return "in_progress";
+}
+
+/** Плановая дата начала работы наступила или прошла на дату отчёта. */
+export function isGprWorkPlanStartDue(task: GPRTask, asOf: Date): boolean {
+  const planStart = parseDateSafe(task.planStart);
+  if (!planStart) return false;
+  const asOfYmd = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}-${String(asOf.getDate()).padStart(2, "0")}`;
+  return planStart <= asOfYmd;
+}
+
+export type GprStageNotStartedOnTimeKpi = {
+  workTotal: number;
+  workCompleted: number;
+  workUncompleted: number;
+  shouldHaveStartedCount: number;
+  notStartedOnTimeCount: number;
+  displayNumerator: number;
+  displayDenominator: number;
+};
+
+/**
+ * KPI «Не начаты в срок» для карточки 2.05:
+ * числитель — невыполненные работы с наступившим planStart и статусом «Не начато»;
+ * знаменатель — все невыполненные работы этапа.
+ */
+export function computeGprStageNotStartedOnTimeKpi(
+  workItems: GPRTask[],
+  asOf: Date = new Date(),
+): GprStageNotStartedOnTimeKpi {
+  let workCompleted = 0;
+  let workUncompleted = 0;
+  let shouldHaveStartedCount = 0;
+  let notStartedOnTimeCount = 0;
+
+  for (const task of workItems) {
+    if (isGprWorkPlanStartDue(task, asOf)) {
+      shouldHaveStartedCount += 1;
+    }
+
+    if (isGprTaskFactCompleted(task, asOf)) {
+      workCompleted += 1;
+      continue;
+    }
+
+    workUncompleted += 1;
+
+    if (isGprWorkPlanStartDue(task, asOf) && isGprWorkItemNotStarted(task)) {
+      notStartedOnTimeCount += 1;
+    }
+  }
+
+  return {
+    workTotal: workItems.length,
+    workCompleted,
+    workUncompleted,
+    shouldHaveStartedCount,
+    notStartedOnTimeCount,
+    displayNumerator: notStartedOnTimeCount,
+    displayDenominator: workUncompleted,
+  };
+}
+
+export function formatGprStageNotStartedOnTimeKpiDisplay(kpi: GprStageNotStartedOnTimeKpi): string {
+  return `${kpi.displayNumerator} из ${kpi.displayDenominator}`;
+}
+
+/** Диагностика KPI «Не начаты в срок» (dev). */
+export function logGprStageNotStartedOnTimeKpiToConsole(input: {
+  scopeLabel: string;
+  kpi: GprStageNotStartedOnTimeKpi;
+}): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  const k = input.kpi;
+  console.log("=== NOT STARTED KPI ===");
+  console.log(`Объект: ${input.scopeLabel}`);
+  console.log("Всего работ:", k.workTotal);
+  console.log("Выполнено:", k.workCompleted);
+  console.log("Невыполнено:", k.workUncompleted);
+  console.log("Должны были начаться:", k.shouldHaveStartedCount);
+  console.log("Не начаты вовремя:", k.notStartedOnTimeCount);
+  console.log("Отображается:", formatGprStageNotStartedOnTimeKpiDisplay(k));
+}
+
+export type GprKpiDonutStatusKey =
+  | "on_time"
+  | "risk"
+  | "overdue"
+  | "completed_late"
+  | "not_started";
+
+export type GprKpiTrafficStatusKey = "green" | "yellow" | "red" | "gray";
+
+/** Donut-категория работы (тот же алгоритм, что у карточки этапа 2.05). */
+export function gprKpiWorkItemDonutStatus(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): GprKpiDonutStatusKey {
+  if (isGprWorkItemNotStarted(task)) return "not_started";
+  if (!task.planStart?.trim() || !task.planEnd?.trim()) return "not_started";
+
+  if (isGprTaskFactCompleted(task, asOf)) {
+    const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+    if (endDelay === null) return "not_started";
+    if (endDelay > 0) return "completed_late";
+    return "on_time";
+  }
+
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  if (endDelay === null) return "not_started";
+  const st = getStatusByDeviation(endDelay);
+  if (st === "green") return "on_time";
+  if (st === "yellow") return "risk";
+  return "overdue";
+}
+
+/** Светофор отклонения по работе (тот же алгоритм, что у карточки этапа). */
+export function gprKpiWorkItemTrafficStatus(
+  task: GPRTask,
+  asOf: Date = new Date(),
+): GprKpiTrafficStatusKey {
+  if (!task.planStart?.trim() || !task.planEnd?.trim()) return "gray";
+  const endDelay = planFactEndDeviationDays(task.planEnd, task.factEnd, asOf);
+  if (endDelay === null) return "gray";
+  return getStatusByDeviation(endDelay);
+}
+
+export type GprKpiArticleWorksBreakdown = {
+  completedStages: number;
+  totalStages: number;
+  onTimeCount: number;
+  atRiskCount: number;
+  overdueCount: number;
+  notStartedCount: number;
+  completedSharePct: number;
+  donutOnTimeCount: number;
+  donutRiskCount: number;
+  donutOverdueCount: number;
+  donutCompletedLateCount: number;
+  donutNotStartedCount: number;
+  businessCompletedCount: number;
+  businessInProgressCount: number;
+  businessLateCount: number;
+  businessOverdueCount: number;
+  businessNotStartedCount: number;
+  problematicSharePct: number;
+};
+
+/**
+ * KPI по набору работ CSV («№ статей») — единый алгоритм для этапа 2.05 и агрегата «Проект».
+ */
+export function computeGprKpiArticleWorksBreakdown(
+  workItems: GPRTask[],
+  asOf: Date = new Date(),
+): GprKpiArticleWorksBreakdown {
+  const trafficCounts = { green: 0, yellow: 0, red: 0, gray: 0 };
+  const donutCounts = {
+    on_time: 0,
+    risk: 0,
+    overdue: 0,
+    completed_late: 0,
+    not_started: 0,
+  };
+  const businessCounts = {
+    completed: 0,
+    in_progress: 0,
+    late: 0,
+    overdue: 0,
+    not_started: 0,
+  };
+  let completedStages = 0;
+
+  for (const task of workItems) {
+    if (isGprTaskFactCompleted(task, asOf)) completedStages += 1;
+    const traffic = gprKpiWorkItemTrafficStatus(task, asOf);
+    trafficCounts[traffic] += 1;
+    donutCounts[gprKpiWorkItemDonutStatus(task, asOf)] += 1;
+    businessCounts[gprStageWorkItemBusinessStatus(task, asOf)] += 1;
+  }
+
+  const totalStages = workItems.length;
+  const problematic =
+    donutCounts.risk + donutCounts.overdue + donutCounts.completed_late;
+  const withStatus =
+    donutCounts.on_time +
+    donutCounts.risk +
+    donutCounts.overdue +
+    donutCounts.completed_late;
+
+  return {
+    completedStages,
+    totalStages,
+    onTimeCount: trafficCounts.green,
+    atRiskCount: trafficCounts.yellow,
+    overdueCount: trafficCounts.red,
+    notStartedCount: trafficCounts.gray,
+    completedSharePct:
+      totalStages > 0 ? Math.round((completedStages / totalStages) * 1000) / 10 : 0,
+    donutOnTimeCount: donutCounts.on_time,
+    donutRiskCount: donutCounts.risk,
+    donutOverdueCount: donutCounts.overdue,
+    donutCompletedLateCount: donutCounts.completed_late,
+    donutNotStartedCount: donutCounts.not_started,
+    businessCompletedCount: businessCounts.completed,
+    businessInProgressCount: businessCounts.in_progress,
+    businessLateCount: businessCounts.late,
+    businessOverdueCount: businessCounts.overdue,
+    businessNotStartedCount: businessCounts.not_started,
+    problematicSharePct:
+      withStatus > 0 ? Math.round((problematic / withStatus) * 1000) / 10 : 0,
+  };
+}
+
+/** Все KPI-работы проекта: строки CSV с «№ статей» (без WBS-разделов и групп). */
+export function collectGprProjectKpiArticleWorks(projectScopedTasks: GPRTask[]): GPRTask[] {
+  return filterGprTasksForKpiAnalytics(projectScopedTasks);
+}
+
+/** Диагностика KPI карточки «Проект» (dev). */
+export function logGprProjectKpiValidationToConsole(input: {
+  workTotal: number;
+  workCompleted: number;
+  completedOnTime: number;
+  completedLate: number;
+  notStarted: number;
+  completionPct: number;
+  factPercent: number | null;
+  planPercent: number | null;
+  deviationPp: number | null;
+  dataSource: string;
+  algorithmMatches205: boolean;
+}): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  console.group("Project KPI validation");
+  console.log("Всего работ:", input.workTotal);
+  console.log("Выполнено:", input.workCompleted);
+  console.log("В срок:", input.completedOnTime);
+  console.log("С опозданием:", input.completedLate);
+  console.log("Не начато:", input.notStarted);
+  console.log("Процент выполнения:", `${input.completionPct}%`);
+  if (input.factPercent !== null) {
+    console.log("Фактическая готовность:", `${input.factPercent}%`);
+  }
+  if (input.planPercent !== null) {
+    console.log("Плановая готовность:", `${input.planPercent}%`);
+  }
+  if (input.deviationPp !== null) {
+    console.log("Отклонение готовности:", `${input.deviationPp}%`);
+  }
+  console.log("Источник данных:", input.dataSource);
+  console.log(
+    "Алгоритм совпадает с карточкой 2.05:",
+    input.algorithmMatches205 ? "YES" : "NO",
+  );
+  console.groupEnd();
+}
+
+export type GprParkingStageValidationRow = {
+  rootCode: string;
+  workTotal: number;
+  workCompleted: number;
+};
+
+/** Диагностика KPI автостоянки (dev). */
+export function logGprParkingValidationToConsole(input: {
+  stageRootCodes: readonly string[];
+  stageRows: readonly GprParkingStageValidationRow[];
+  parkingTotals: {
+    workTotal: number;
+    workCompleted: number;
+    onTime: number;
+    late: number;
+    inProgress: number;
+    notStarted: number;
+    completionPct: number;
+    factPercent: number | null;
+    planPercent: number | null;
+    deviationPp: number | null;
+  };
+  projectKpi: {
+    workTotal: number;
+    workCompleted: number;
+    completionPct: number;
+  };
+}): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+
+  console.log("=== PARKING VALIDATION ===");
+  console.log("Этапы, найденные для автостоянки:", input.stageRootCodes.join(", ") || "—");
+  console.log();
+
+  for (const row of input.stageRows) {
+    console.log(`${row.rootCode}:`);
+    console.log(`работ — ${row.workTotal}`);
+    console.log(`выполнено — ${row.workCompleted}`);
+    console.log();
+  }
+
+  const t = input.parkingTotals;
+  console.log("Итого по автостоянке:");
+  console.log("Всего работ:", t.workTotal);
+  console.log("Выполнено:", t.workCompleted);
+  console.log("В срок:", t.onTime);
+  console.log("С опозданием:", t.late);
+  console.log("В процессе:", t.inProgress);
+  console.log("Не начато:", t.notStarted);
+  if (t.factPercent !== null) {
+    console.log("Фактическая готовность:", `${t.factPercent}%`);
+  }
+  if (t.planPercent !== null) {
+    console.log("Плановая готовность:", `${t.planPercent}%`);
+  }
+  if (t.deviationPp !== null) {
+    console.log("Отклонение готовности:", `${t.deviationPp}%`);
+  }
+  console.log();
+  console.log("Project KPI:");
+  console.log("Всего работ:", input.projectKpi.workTotal);
+  console.log("Выполнено:", input.projectKpi.workCompleted);
+  console.log("Процент выполнения:", `${input.projectKpi.completionPct}%`);
 }
 
 export type GprStage205BusinessKpiConsistencyRow = {

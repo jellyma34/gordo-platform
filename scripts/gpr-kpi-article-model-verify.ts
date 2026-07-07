@@ -7,6 +7,7 @@ import path from "path";
 
 import {
   aggregateRootCodesForPart,
+  discoverGprAggregateRootCodesFromTasks,
   findGprCsvRootTask,
   resolveStageCardRootTasks,
 } from "../lib/gprAggregateRoots";
@@ -48,6 +49,8 @@ for (const [label, scoped] of [
 ] as const) {
   console.log(`--- ${label} ---`);
   const partKey = label.includes("Авто") ? "parking" : "residential";
+  const discovered = discoverGprAggregateRootCodesFromTasks(scoped);
+  console.log(`  Этапы (из CSV объекта): ${discovered.join(", ") || "—"}`);
   const roots = resolveStageCardRootTasks(
     scoped,
     aggregateRootCodesForPart(partKey as "residential" | "parking", scoped),

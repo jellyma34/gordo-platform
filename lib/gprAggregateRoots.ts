@@ -163,41 +163,82 @@ export function resolveAggregateRootTask(taskList: GPRTask[], codeStr: string): 
   };
 }
 
+function compareGprRootCodes(a: string, b: string): number {
+  const pa = a.split(".").map((s) => Number(s));
+  const pb = b.split(".").map((s) => Number(s));
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
+}
+
+function rootHasKpiArticleWorksInScope(tasks: GPRTask[], rootCode: string): boolean {
+  const root = normalizeGprCodeFinal(rootCode);
+  return tasks.some((t) => {
+    const c = normalizeGprCodeFinal(t.code);
+    if (c !== root && !c.startsWith(`${root}.`)) return false;
+    const n = t.articleNumber;
+    return n != null && Number.isFinite(n) && n > 0;
+  });
+}
+
+/**
+ * Корневые этапы WBS (шифр вида 2.XX), присутствующие в наборе задач объекта.
+ * Источник — строки CSV, уже отфильтрованные по partId / projectPart / objectType.
+ * В список попадают только этапы с KPI-работами («№ статей») внутри объекта.
+ */
+export function discoverGprAggregateRootCodesFromTasks(tasks: GPRTask[]): string[] {
+  if (tasks.length === 0) return [];
+
+  const roots = new Set<string>();
+
+  for (const t of tasks) {
+    const code = normalizeGprCodeFinal(t.code);
+    if (!code) continue;
+    if (gprWbsLevelFromCode(code, t.level) === 1) {
+      roots.add(code);
+    }
+  }
+
+  for (const t of tasks) {
+    const code = normalizeGprCodeFinal(t.code);
+    const match = code.match(/^(2\.\d+)(?:\.|$)/);
+    if (match?.[1]) roots.add(match[1]);
+  }
+
+  return [...roots]
+    .filter((code) => rootHasKpiArticleWorksInScope(tasks, code))
+    .sort(compareGprRootCodes);
+}
+
 /**
  * Актуальные корневые шифры для агрегата по части проекта.
- * Для автостоянки: если нет 2.06/2.07 (типично CSV-импорт), используем 2.04/2.05.
+ * Определяются автоматически из CSV-задач объекта (без жёсткого перечня этапов).
  */
 export function aggregateRootCodesForPart(
   partKey: ProjectPartKey | "project",
   tasks: GPRTask[],
 ): readonly string[] {
+  const discovered = discoverGprAggregateRootCodesFromTasks(tasks);
+  if (discovered.length > 0) return discovered;
+
   if (partKey === "project") return DEFAULT_AGGREGATE_ROOT_CODES_PROJECT;
-  if (partKey === "residential") return DEFAULT_AGGREGATE_ROOT_CODES_BY_PART.residential;
-
-  const has206 = hasTasksUnderGprRoot(tasks, "2.06");
-  const has207 = hasTasksUnderGprRoot(tasks, "2.07");
-  if (has206 || has207) {
-    const codes: string[] = [];
-    if (has206) codes.push("2.06");
-    if (has207) codes.push("2.07");
-    return codes;
-  }
-
-  const fallback: string[] = [];
-  if (hasTasksUnderGprRoot(tasks, "2.04")) fallback.push("2.04");
-  if (hasTasksUnderGprRoot(tasks, "2.05")) fallback.push("2.05");
-  if (fallback.length > 0) return fallback;
-
-  return DEFAULT_AGGREGATE_ROOT_CODES_BY_PART.parking;
+  return DEFAULT_AGGREGATE_ROOT_CODES_BY_PART[partKey];
 }
 
-/** Карточки верхнего уровня — только корни level 1 из CSV (2.04 / 2.05 и т.д.). */
+/** Карточки верхнего уровня — корни level 1 из CSV; при отсутствии — синтетический корень по дочерним. */
 export function resolveStageCardRootTasks(
   taskList: GPRTask[],
   rootCodes: readonly string[],
 ): GPRTask[] {
   return rootCodes
-    .map((code) => findGprCsvRootTask(taskList, code))
+    .map(
+      (code) =>
+        findGprCsvRootTask(taskList, code) ?? resolveAggregateRootTask(taskList, code),
+    )
     .filter((t): t is GPRTask => t != null);
 }
 
