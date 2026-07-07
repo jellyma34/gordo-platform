@@ -65,35 +65,29 @@ type FactPathSegment = {
   d: string;
 };
 
-/** Сокращённый формат стоимости для подписей точек и Y-оси: 1,25 млн / 25,3 млн / 1,25 млрд. */
+/**
+ * Число в миллионах рублей для блока «Аналитика стоимости (руб.)»:
+ * без суффиксов «млн» / «тыс.»; ось Y и подписи задают масштаб.
+ */
+function formatTenderCostMillionsRub(rub: number): string {
+  if (!Number.isFinite(rub)) return "";
+  if (rub === 0) return "0";
+  const sign = rub < 0 ? "−" : "";
+  const mln = Math.abs(rub) / 1_000_000;
+  const core =
+    mln < 10 ? mln.toFixed(2).replace(".", ",") : mln.toFixed(1).replace(".", ",");
+  return `${sign}${core}`;
+}
+
+/** Подписи точек и ось Y: пустая строка для нуля (не показывать подпись). */
 export function formatTenderCostCompact(rub: number): string {
   if (!Number.isFinite(rub) || rub === 0) return "";
-  const sign = rub < 0 ? "−" : "";
-  const abs = Math.abs(rub);
-
-  if (abs >= 1_000_000_000) {
-    return `${sign}${formatCompactScalar(abs / 1_000_000_000)} млрд`;
-  }
-  if (abs >= 1_000_000) {
-    return `${sign}${formatCompactScalar(abs / 1_000_000)} млн`;
-  }
-  if (abs >= 1_000) {
-    return `${sign}${formatCompactScalar(abs / 1_000)} тыс`;
-  }
-  return `${sign}${Math.round(abs).toLocaleString("ru-RU")}`;
+  return formatTenderCostMillionsRub(rub);
 }
 
-function formatCompactScalar(v: number): string {
-  const abs = Math.abs(v);
-  if (abs >= 100) return Math.round(v).toLocaleString("ru-RU");
-  if (abs >= 10) return v.toFixed(1).replace(".", ",");
-  return v.toFixed(2).replace(".", ",");
-}
-
-/** Полная сумма в рублях с разделителями разрядов для tooltip-а. */
+/** Tooltip: те же миллионы рублей, без суффиксов «млн» / «тыс.». */
 export function formatTenderCostFullRub(rub: number): string {
-  const rounded = Math.round(rub);
-  return `${new Intl.NumberFormat("ru-RU").format(rounded)} ₽`;
+  return formatTenderCostMillionsRub(rub);
 }
 
 function computeMonotoneTangents(points: MonotonePoint[]): number[] {
