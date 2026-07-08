@@ -1147,7 +1147,7 @@ export function TendersPresentation({
               <CalendarDays className="h-5 w-5" strokeWidth={2} />
             </TenderKpiIconBadge>
             <div className="min-w-0 flex-1">
-              <TenderKpiLabel>ПРОСРОЧЕНЫ</TenderKpiLabel>
+              <TenderKpiLabel>В ПРОЦЕССЕ</TenderKpiLabel>
               <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
                 <span className="text-4xl font-extrabold text-white">{kpi.overdueCount}</span>
               </div>
