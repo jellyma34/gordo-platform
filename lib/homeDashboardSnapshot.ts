@@ -9,6 +9,11 @@ import {
   filterGprTasksForKpiAnalytics,
 } from "@/lib/gprStageCompletion";
 import {
+  computeTenderBudgetFinancialResult,
+  computeTenderKpiDonutDistributions,
+} from "@/lib/tenderPresentationAnalytics";
+import type { Tender } from "@/lib/tenderData";
+import {
   getProjectStats,
   getStatusByGprProgressDelta,
 } from "@/lib/gprUtils";
@@ -83,6 +88,21 @@ export type HomeConstructionProjectKpi = {
   dashboardBottomKpi?: { label: string; primaryText: string };
 };
 
+export type HomeTenderBudgetKpi = {
+  title: string;
+  mainRub: number;
+  economyRub: number;
+  overrunRub: number;
+  deviationPct: number;
+  concludedPlanRub: number;
+  budgetDeviationSegments: ReturnType<typeof computeTenderKpiDonutDistributions>["budgetDeviation"];
+  budgetBlockTenderCount: number;
+  glowColor: string;
+  waveColor: string;
+  gradient: string;
+  badgeTone: "green" | "yellow" | "red";
+};
+
 function formatGprPercentValue(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
   const rounded = Math.round(value * 10) / 10;
@@ -153,6 +173,7 @@ export type HomeDashboardSnapshot = {
   asOfIso: string;
   project: HomeProjectStatus;
   constructionProjectKpi: HomeConstructionProjectKpi;
+  tenderBudgetKpi: HomeTenderBudgetKpi;
   cards: {
     construction: HomeCardKpi;
     marketing: HomeCardKpi;
@@ -201,6 +222,7 @@ function buildMarketingFootnote(params: {
 export function getHomeDashboardSnapshot(
   asOf: Date = new Date(),
   gprTasks: GPRTask[] = gprMockData,
+  tenders: Tender[] = [],
 ): HomeDashboardSnapshot {
   const planRows = marketingMockData.salesPlan.month;
   const factRows = marketingMockData.salesFact.month;
@@ -328,10 +350,53 @@ export function getHomeDashboardSnapshot(
     },
   };
 
+  const tenderFinancial = computeTenderBudgetFinancialResult(tenders);
+  const tenderDonut = computeTenderKpiDonutDistributions(tenders, asOf);
+  const tenderBudgetCardTone =
+    tenderFinancial.deviationRub < 0 ? "green" : tenderFinancial.deviationRub > 0 ? "red" : "yellow";
+  const tenderBudgetCardVisual = (() => {
+    if (tenderBudgetCardTone === "green") {
+      return {
+        glowColor: "#22c55e",
+        waveColor: "#22c55e",
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(21,128,61,0.14) 100%)",
+      };
+    }
+    if (tenderBudgetCardTone === "red") {
+      return {
+        glowColor: "#ef4444",
+        waveColor: "#ef4444",
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(127,29,29,0.16) 100%)",
+      };
+    }
+    return {
+      glowColor: "#f59e0b",
+      waveColor: "#f59e0b",
+      gradient:
+        "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(146,64,14,0.16) 100%)",
+    };
+  })();
+
   return {
     asOfIso: asOf.toISOString(),
     project,
     constructionProjectKpi: buildHomeConstructionProjectKpi(asOf, gprTasks),
+    tenderBudgetKpi: {
+      title: "ОТКЛОНЕНИЕ ОТ ТЕНДЕРНОГО БЮДЖЕТА",
+      mainRub: tenderFinancial.deviationRub,
+      economyRub: tenderFinancial.economyRub,
+      overrunRub: tenderFinancial.overrunRub,
+      deviationPct: tenderFinancial.deviationPct,
+      concludedPlanRub: tenderFinancial.concludedPlanRub,
+      budgetDeviationSegments: tenderDonut.budgetDeviation,
+      budgetBlockTenderCount: tenderDonut.budgetBlockTenderCount,
+      glowColor: tenderBudgetCardVisual.glowColor,
+      waveColor: tenderBudgetCardVisual.waveColor,
+      gradient: tenderBudgetCardVisual.gradient,
+      badgeTone: tenderBudgetCardTone,
+    },
     cards,
   };
 }

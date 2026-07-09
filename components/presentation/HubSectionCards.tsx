@@ -5,8 +5,9 @@ import { useId } from "react";
 import { ArrowRight, HardHat, LineChart, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
+import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 
-import type { HomeConstructionProjectKpi, StatusTone } from "@/lib/homeDashboardSnapshot";
+import type { HomeConstructionProjectKpi, HomeTenderBudgetKpi, StatusTone } from "@/lib/homeDashboardSnapshot";
 
 const statusDotClass: Record<StatusTone, string> = {
   green: "bg-emerald-400",
@@ -29,6 +30,7 @@ export type HubBlock = {
   /** Расширенная карточка (только «Строительство» на хабе). */
   wide?: boolean;
   constructionProjectKpi?: HomeConstructionProjectKpi;
+  tenderBudgetKpi?: HomeTenderBudgetKpi;
 };
 
 type SectionTheme = {
@@ -123,6 +125,22 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
   const { Icon, glowColor, waveColor, gradient } = theme;
   const isWideConstruction = Boolean(block.wide && block.constructionProjectKpi);
 
+  const rubKpiAmount = (value: number): string => {
+    const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
+    if (value < 0) return `−${formatted}`;
+    return formatted;
+  };
+  const rubKpiSignedAmount = (value: number): string => {
+    if (value === 0) return "0";
+    const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
+    return value < 0 ? `−${formatted}` : `+${formatted}`;
+  };
+  const pctSigned1 = (n: number): string => {
+    const formatted = Math.abs(n).toFixed(1).replace(".", ",");
+    if (n < 0) return `−${formatted}%`;
+    if (n > 0) return `+${formatted}%`;
+    return `${formatted}%`;
+  };
   return (
     <Link
       href={block.href}
@@ -130,8 +148,8 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
       className={[
         "hub-premium-card group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-[22px] border no-underline backdrop-blur-[18px] transition-[transform,box-shadow,border-color] duration-300 ease-out will-change-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400/50",
         isWideConstruction
-          ? "hub-premium-card--construction-wide min-h-[300px]"
-          : "min-h-[300px] max-w-[460px]",
+          ? "hub-premium-card--construction-wide min-h-[280px]"
+          : "min-h-[250px] max-w-[460px]",
       ].join(" ")}
       style={{
         background: gradient,
@@ -145,8 +163,8 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
 
       <div
         className={[
-          "relative z-[1] flex h-full min-h-[300px] p-6 md:min-h-[340px] md:p-7",
-          isWideConstruction ? "flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6" : "flex-col",
+          "relative z-[1] flex h-full p-5 md:min-h-[300px] md:p-6",
+          isWideConstruction ? "flex-col gap-5" : "flex-col",
         ].join(" ")}
       >
         <div className={isWideConstruction ? "flex min-w-0 flex-1 flex-col" : "flex h-full min-h-[300px] flex-col"}>
@@ -173,9 +191,6 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     />
                     <h2 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">{block.title}</h2>
                   </div>
-                  <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
-                    {block.description}
-                  </p>
                 </div>
               ) : null}
             </div>
@@ -191,7 +206,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
             </span>
           </div>
 
-          <div className={isWideConstruction ? "mt-auto pt-6 lg:pt-8" : "mt-auto pt-6"}>
+          <div className={isWideConstruction ? "pt-4" : "mt-auto pt-6"}>
             <div className="flex items-center gap-2.5">
               {!isWideConstruction ? (
                 <>
@@ -210,52 +225,123 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
               </p>
             ) : null}
           </div>
-        </div>
 
-        {isWideConstruction ? (
-          <div
-            className="min-w-0 shrink-0 lg:w-[min(100%,360px)] lg:self-center"
-            aria-label="Мини-версия KPI Проект"
-          >
-            <GprStageKpiCard
-              title="Проект"
-              status={block.constructionProjectKpi!.status}
-              metricsVariant="compact"
-              layoutVariant="dashboard"
-              donutStatusVariant="trafficKpi"
-              factLabel="Факт выполнения"
-              factValue={block.constructionProjectKpi!.factValue}
-              planLabel="Плановая готовность"
-              planValue={block.constructionProjectKpi!.planValue}
-              deviationLabel="Отклонение готовности, %"
-              deviationValue={block.constructionProjectKpi!.deviationValue}
-              deviationDeltaPp={block.constructionProjectKpi!.deviationDeltaPp}
-              completedStages={block.constructionProjectKpi!.completedStages}
-              totalStages={block.constructionProjectKpi!.totalStages}
-              onTimeCount={block.constructionProjectKpi!.onTimeCount}
-              atRiskCount={block.constructionProjectKpi!.atRiskCount}
-              overdueCount={block.constructionProjectKpi!.overdueCount}
-              completedSharePct={block.constructionProjectKpi!.completedSharePct}
-              completedShareNumerator={block.constructionProjectKpi!.completedShareNumerator}
-              completedShareDenominator={block.constructionProjectKpi!.completedShareDenominator}
-              donutOnTimeCount={block.constructionProjectKpi!.donutOnTimeCount}
-              donutRiskCount={block.constructionProjectKpi!.donutRiskCount}
-              donutOverdueCount={block.constructionProjectKpi!.donutOverdueCount}
-              donutCompletedLateCount={block.constructionProjectKpi!.donutCompletedLateCount}
-              donutNotStartedCount={block.constructionProjectKpi!.donutNotStartedCount}
-              businessCompletedCount={block.constructionProjectKpi!.businessCompletedCount}
-              businessInProgressCount={block.constructionProjectKpi!.businessInProgressCount}
-              businessLateCount={block.constructionProjectKpi!.businessLateCount}
-              businessOverdueCount={block.constructionProjectKpi!.businessOverdueCount}
-              businessNotStartedCount={block.constructionProjectKpi!.businessNotStartedCount}
-              problematicSharePct={0}
-              dashboardBottomKpi={block.constructionProjectKpi!.dashboardBottomKpi}
-              dashboardStatusNotStartedOnTimeCount={
-                block.constructionProjectKpi!.dashboardStatusNotStartedOnTimeCount
-              }
-            />
-          </div>
-        ) : null}
+          {isWideConstruction ? (
+            <div className="min-w-0 pt-2">
+              <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="min-w-0 h-full" aria-label="Мини-версия KPI Проект">
+                  <GprStageKpiCard
+                    title="Проект"
+                    status={block.constructionProjectKpi!.status}
+                    metricsVariant="compact"
+                    layoutVariant="dashboard"
+                    donutStatusVariant="trafficKpi"
+                    factLabel="Факт выполнения"
+                    factValue={block.constructionProjectKpi!.factValue}
+                    planLabel="Плановая готовность"
+                    planValue={block.constructionProjectKpi!.planValue}
+                    deviationLabel="Отклонение готовности, %"
+                    deviationValue={block.constructionProjectKpi!.deviationValue}
+                    deviationDeltaPp={block.constructionProjectKpi!.deviationDeltaPp}
+                    completedStages={block.constructionProjectKpi!.completedStages}
+                    totalStages={block.constructionProjectKpi!.totalStages}
+                    onTimeCount={block.constructionProjectKpi!.onTimeCount}
+                    atRiskCount={block.constructionProjectKpi!.atRiskCount}
+                    overdueCount={block.constructionProjectKpi!.overdueCount}
+                    completedSharePct={block.constructionProjectKpi!.completedSharePct}
+                    completedShareNumerator={block.constructionProjectKpi!.completedShareNumerator}
+                    completedShareDenominator={block.constructionProjectKpi!.completedShareDenominator}
+                    donutOnTimeCount={block.constructionProjectKpi!.donutOnTimeCount}
+                    donutRiskCount={block.constructionProjectKpi!.donutRiskCount}
+                    donutOverdueCount={block.constructionProjectKpi!.donutOverdueCount}
+                    donutCompletedLateCount={block.constructionProjectKpi!.donutCompletedLateCount}
+                    donutNotStartedCount={block.constructionProjectKpi!.donutNotStartedCount}
+                    businessCompletedCount={block.constructionProjectKpi!.businessCompletedCount}
+                    businessInProgressCount={block.constructionProjectKpi!.businessInProgressCount}
+                    businessLateCount={block.constructionProjectKpi!.businessLateCount}
+                    businessOverdueCount={block.constructionProjectKpi!.businessOverdueCount}
+                    businessNotStartedCount={block.constructionProjectKpi!.businessNotStartedCount}
+                    problematicSharePct={0}
+                    dashboardBottomKpi={block.constructionProjectKpi!.dashboardBottomKpi}
+                    dashboardStatusNotStartedOnTimeCount={
+                      block.constructionProjectKpi!.dashboardStatusNotStartedOnTimeCount
+                    }
+                    dashboardTopDeviationKpi={{
+                      label: "Отклонение готовности ГПР",
+                      value: block.constructionProjectKpi!.deviationValue,
+                      delta: block.constructionProjectKpi!.deviationDeltaPp,
+                    }}
+                    hideDashboardBottomKpi
+                    hideDashboardHeader
+                    hideHeaderBadge
+                  />
+                </div>
+                {block.tenderBudgetKpi ? (
+                  <div
+                    className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] border p-6"
+                    style={{
+                      background: block.tenderBudgetKpi.gradient,
+                      borderColor: `${block.tenderBudgetKpi.glowColor}40`,
+                      boxShadow:
+                        `0 18px 52px rgba(0,0,0,0.48), 0 0 36px ${block.tenderBudgetKpi.glowColor}16, inset 0 1px 0 rgba(255,255,255,0.1)`,
+                    }}
+                    aria-label="KPI Отклонение от тендерного бюджета"
+                  >
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                      {block.tenderBudgetKpi.title}
+                    </div>
+                    <div className="mt-1.5 tabular-nums tracking-tight">
+                      <span
+                        className={`text-4xl font-extrabold ${
+                          block.tenderBudgetKpi.mainRub < 0
+                            ? "text-emerald-400"
+                            : block.tenderBudgetKpi.mainRub > 0
+                              ? "text-[#ff5b6b]"
+                              : "text-white"
+                        }`}
+                      >
+                        {rubKpiSignedAmount(block.tenderBudgetKpi.mainRub)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-1 flex-col gap-4">
+                      <div className="border-t border-slate-600/35 pt-4">
+                        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                          ЭКОНОМИЯ
+                        </div>
+                        <div className="mt-1 flex items-baseline gap-1 tabular-nums tracking-tight">
+                          <span className="text-2xl font-extrabold text-white">
+                            {rubKpiAmount(block.tenderBudgetKpi.economyRub)}
+                          </span>
+                          <span className="text-xl font-medium text-slate-300/65">
+                            из {rubKpiAmount(block.tenderBudgetKpi.concludedPlanRub)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-600/35 pt-4">
+                        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                          ПЕРЕРАСХОД
+                        </div>
+                        <div className="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
+                          {rubKpiAmount(block.tenderBudgetKpi.overrunRub)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-auto space-y-1.5">
+                      <div className="border-t border-slate-600/35" />
+                      <div className="pt-3">
+                        <KpiDonutChart
+                          segments={block.tenderBudgetKpi.budgetDeviationSegments}
+                          percentBase={block.tenderBudgetKpi.budgetBlockTenderCount}
+                          chartHeight={100}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </Link>
   );

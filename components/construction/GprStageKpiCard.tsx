@@ -362,21 +362,25 @@ function GprKpiCardHeader({
   code,
   title,
   badgeTone,
+  hideBadge = false,
   nowrap = false,
   titleContainerClassName,
 }: {
   code?: string;
   title: string;
   badgeTone: "green" | "yellow" | "red" | "gray";
+  hideBadge?: boolean;
   nowrap?: boolean;
   /** Смещение только текстового блока заголовка (иконка не затрагивается). */
   titleContainerClassName?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
-      <GprKpiIconBadge tone={badgeTone}>
-        <HardHat className="h-5 w-5" strokeWidth={2} />
-      </GprKpiIconBadge>
+      {!hideBadge ? (
+        <GprKpiIconBadge tone={badgeTone}>
+          <HardHat className="h-5 w-5" strokeWidth={2} />
+        </GprKpiIconBadge>
+      ) : null}
       <div className={`min-w-0 flex-1 ${titleContainerClassName ?? ""}`}>
         <GprKpiCardTitle code={code} title={title} nowrap={nowrap} />
       </div>
@@ -454,6 +458,13 @@ function deviationValueColorClass(deltaPp: number | null): string {
   if (deltaPp > 0) return "text-emerald-400";
   if (deltaPp < 0) return "text-rose-400";
   return "";
+}
+
+function dashboardDeviationValueColorClass(deltaPp: number | null): string {
+  if (deltaPp === null) return "text-white";
+  if (deltaPp > 0) return "text-emerald-400";
+  if (deltaPp < 0) return "text-[#ff5b6b]";
+  return "text-white";
 }
 
 function GprKpiLargeProgressRing({
@@ -753,6 +764,10 @@ function GprStageKpiDashboardBody({
   businessLateCount,
   businessNotStartedCount,
   dashboardStatusNotStartedOnTimeCount,
+  dashboardTopDeviationKpi,
+  hideDashboardBottomKpi = false,
+  hideDashboardHeader = false,
+  hideHeaderBadge = false,
 }: {
   title: string;
   code?: string;
@@ -775,6 +790,13 @@ function GprStageKpiDashboardBody({
   businessNotStartedCount: number;
   /** Счётчик «Не начаты в срок» для блока распределения статусов (2.05). */
   dashboardStatusNotStartedOnTimeCount?: number;
+  /** KPI, который показывается сверху под заголовком (хаб главной страницы). */
+  dashboardTopDeviationKpi?: { label: string; value: string; delta: number | null };
+  /** Скрыть нижнюю KPI-плашку, если показатель перенесён вверх. */
+  hideDashboardBottomKpi?: boolean;
+  /** Скрыть заголовок dashboard-карточки. */
+  hideDashboardHeader?: boolean;
+  hideHeaderBadge?: boolean;
 }) {
   const criticalBottomKpi = isGprStage205NotStartedOnTimeBottomKpi(dashboardBottomKpi);
 
@@ -787,15 +809,31 @@ function GprStageKpiDashboardBody({
       }}
     >
       {/* Заголовок: текст на одной линии с карточкой «Проект» (p-6 − py-2 = 16px). */}
-      <div className="mb-0.5 shrink-0" style={{ gridColumn: "1 / -1" }}>
-        <GprKpiCardHeader
-          code={code}
-          title={title}
-          badgeTone={theme.badgeTone}
-          nowrap
-          titleContainerClassName="relative top-4"
-        />
-      </div>
+      {!hideDashboardHeader ? (
+        <div className="mb-0.5 shrink-0" style={{ gridColumn: "1 / -1" }}>
+          <GprKpiCardHeader
+            code={code}
+            title={title}
+            badgeTone={theme.badgeTone}
+            hideBadge={hideHeaderBadge}
+            nowrap
+            titleContainerClassName="relative top-4"
+          />
+        </div>
+      ) : null}
+      {dashboardTopDeviationKpi ? (
+        <div
+          className={`shrink-0 border-b border-slate-600/20 px-2 ${hideDashboardHeader ? "pt-1 pb-4" : "pb-3"}`}
+          style={{ gridColumn: "1 / -1" }}
+        >
+          <div className={GPR_KPI_COMPACT_LABEL_CLASS}>{dashboardTopDeviationKpi.label}</div>
+          <div
+            className={`mt-1.5 text-4xl font-extrabold tabular-nums tracking-tight ${dashboardDeviationValueColorClass(dashboardTopDeviationKpi.delta)}`}
+          >
+            {dashboardTopDeviationKpi.value}
+          </div>
+        </div>
+      ) : null}
 
       {/* Левая колонка: кольцо + работы */}
       <div className="grid min-h-0 grid-rows-[auto_auto] content-center justify-items-center gap-0.5 self-center overflow-hidden pr-1">
@@ -834,44 +872,46 @@ function GprStageKpiDashboardBody({
       </div>
 
       {/* Нижняя панель KPI */}
-      <div className="shrink-0 border-t border-slate-600/20" style={{ gridColumn: "1 / -1" }}>
-        <div className="flex min-h-0 w-full flex-col gap-0 px-2 pt-2 pb-2">
-          {dashboardBottomKpi ? (
-            <>
-              <div
-                className={
-                  criticalBottomKpi ? GPR_KPI_CRITICAL_LABEL_CLASS : GPR_KPI_COMPACT_LABEL_CLASS
-                }
-              >
-                {dashboardBottomKpi.label}
-              </div>
-              <div
-                className={`${
-                  criticalBottomKpi ? GPR_KPI_CRITICAL_VALUE_CLASS : GPR_KPI_COMPACT_VALUE_CLASS
-                } whitespace-nowrap ${criticalBottomKpi ? "" : "text-white"}`}
-              >
-                {dashboardBottomKpi.primaryText}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
-                {deviationLabel.replace(/,\s*%$/, "")}
-              </div>
-              <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
-                <span
-                  className={`${GPR_KPI_COMPACT_VALUE_CLASS} ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+      {!hideDashboardBottomKpi ? (
+        <div className="shrink-0 border-t border-slate-600/20" style={{ gridColumn: "1 / -1" }}>
+          <div className="flex min-h-0 w-full flex-col gap-0 px-2 pt-2 pb-2">
+            {dashboardBottomKpi ? (
+              <>
+                <div
+                  className={
+                    criticalBottomKpi ? GPR_KPI_CRITICAL_LABEL_CLASS : GPR_KPI_COMPACT_LABEL_CLASS
+                  }
                 >
-                  {deviationValue}
-                </span>
-                <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
-                  ({deviationLagWorkCount} из {totalStages})
-                </span>
-              </div>
-            </>
-          )}
+                  {dashboardBottomKpi.label}
+                </div>
+                <div
+                  className={`${
+                    criticalBottomKpi ? GPR_KPI_CRITICAL_VALUE_CLASS : GPR_KPI_COMPACT_VALUE_CLASS
+                  } whitespace-nowrap ${criticalBottomKpi ? "" : "text-white"}`}
+                >
+                  {dashboardBottomKpi.primaryText}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={GPR_KPI_COMPACT_LABEL_CLASS}>
+                  {deviationLabel.replace(/,\s*%$/, "")}
+                </div>
+                <div className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap leading-tight">
+                  <span
+                    className={`${GPR_KPI_COMPACT_VALUE_CLASS} ${deviationValueColorClass(deviationDeltaPp) || "text-white"}`}
+                  >
+                    {deviationValue}
+                  </span>
+                  <span className="text-sm font-medium tabular-nums tracking-tight text-slate-300/65">
+                    ({deviationLagWorkCount} из {totalStages})
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -940,6 +980,14 @@ export type GprStageKpiCardProps = {
    * Берётся из GprStageNotStartedOnTimeKpi.notStartedOnTimeCount без пересчёта.
    */
   dashboardStatusNotStartedOnTimeCount?: number;
+  /** KPI для верхнего блока (под заголовком) в dashboard-компоновке. */
+  dashboardTopDeviationKpi?: { label: string; value: string; delta: number | null };
+  /** Скрыть нижний KPI-блок dashboard-компоновки. */
+  hideDashboardBottomKpi?: boolean;
+  /** Скрыть заголовок dashboard-компоновки. */
+  hideDashboardHeader?: boolean;
+  /** Скрыть иконку в заголовке карточки (используется на хабе). */
+  hideHeaderBadge?: boolean;
 };
 
 export function GprStageKpiCard({
@@ -977,6 +1025,10 @@ export function GprStageKpiCard({
   businessNotStartedCount = 0,
   dashboardBottomKpi,
   dashboardStatusNotStartedOnTimeCount,
+  dashboardTopDeviationKpi,
+  hideDashboardBottomKpi = false,
+  hideDashboardHeader = false,
+  hideHeaderBadge = false,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
   const compactMetrics = metricsVariant === "compact";
@@ -1166,10 +1218,19 @@ export function GprStageKpiCard({
             businessLateCount={businessLateCount}
             businessNotStartedCount={businessNotStartedCount}
             dashboardStatusNotStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
+            dashboardTopDeviationKpi={dashboardTopDeviationKpi}
+            hideDashboardBottomKpi={hideDashboardBottomKpi}
+            hideDashboardHeader={hideDashboardHeader}
+            hideHeaderBadge={hideHeaderBadge}
           />
         ) : (
           <>
-            <GprKpiCardHeader code={code} title={title} badgeTone={theme.badgeTone} />
+            <GprKpiCardHeader
+              code={code}
+              title={title}
+              badgeTone={theme.badgeTone}
+              hideBadge={hideHeaderBadge}
+            />
 
             <div className={compactMetrics ? "mt-3" : "mt-4"}>
               {compactMetrics ? (

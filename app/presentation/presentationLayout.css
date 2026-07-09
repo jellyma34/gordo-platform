@@ -16,10 +16,10 @@ body.presentation-active {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 100%;
   overflow: hidden;
-  padding: 1.5rem 1rem 2rem;
+  padding: 1rem 1rem 1.25rem;
   position: relative;
   width: 100%;
 }
@@ -44,7 +44,7 @@ body.presentation-active {
 }
 
 .presentation-hero {
-  margin-bottom: clamp(1.75rem, 4vw, 2.75rem);
+  margin-bottom: clamp(1rem, 2.2vw, 1.5rem);
   text-align: center;
 }
 
@@ -152,12 +152,14 @@ body.presentation-active {
 }
 
 .presentation-cards-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
 }
 
 .presentation-section-grid {
   display: grid;
-  gap: clamp(1rem, 2.4vw, 1.75rem);
+  gap: clamp(0.75rem, 1.8vw, 1.25rem);
   grid-template-columns: minmax(0, 1fr);
   justify-content: center;
   justify-items: center;
@@ -180,27 +182,42 @@ body.presentation-active {
 }
 
 .presentation-section-grid > a {
-  height: clamp(300px, 34vw, 360px);
+  height: clamp(250px, 29vw, 320px);
   max-width: 460px;
-  min-height: 300px;
+  min-height: 250px;
   width: 100%;
 }
 
 .presentation-section-grid > a.hub-premium-card--construction-wide {
   height: auto;
   max-width: none;
-  min-height: clamp(320px, 36vw, 400px);
+  min-height: clamp(280px, 32vw, 350px);
 }
 
 @media (min-width: 900px) {
   .presentation-section-grid > a.hub-premium-card--construction-wide {
     grid-column: 1;
     grid-row: 1 / span 2;
-    min-height: clamp(340px, 38vw, 420px);
+    min-height: clamp(300px, 33vw, 370px);
   }
 
   .presentation-section-grid > a:not(.hub-premium-card--construction-wide) {
     max-width: none;
+  }
+}
+
+@media (min-width: 1600px) and (min-height: 900px) {
+  .presentation-hub {
+    padding-top: 0.75rem;
+    padding-bottom: 0.9rem;
+  }
+
+  .presentation-hero {
+    margin-bottom: 0.85rem;
+  }
+
+  .presentation-section-grid {
+    gap: 0.9rem;
   }
 }
 
