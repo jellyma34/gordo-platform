@@ -44,8 +44,13 @@ body.presentation-active {
 }
 
 .presentation-hero {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
   margin-bottom: clamp(1rem, 2.2vw, 1.5rem);
-  text-align: center;
+  text-align: left;
 }
 
 .presentation-hero-title {
@@ -66,8 +71,9 @@ body.presentation-active {
 
 .presentation-period-wrap {
   display: flex;
-  justify-content: center;
-  margin-top: clamp(0.85rem, 2vw, 1.15rem);
+  justify-content: flex-end;
+  margin-left: auto;
+  margin-top: 0;
 }
 
 .presentation-period-selector {

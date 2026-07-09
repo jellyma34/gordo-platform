@@ -222,6 +222,7 @@ function GprPremiumKpiCard({
   paddingClass = "p-6",
   waveHeightClass,
   visualTone = "default",
+  premiumSurface = false,
   children,
 }: {
   glowColor: string;
@@ -241,18 +242,26 @@ function GprPremiumKpiCard({
   waveHeightClass?: string;
   /** Спокойная подача без ярких цветовых ореолов (dashboard 2.05). */
   visualTone?: "default" | "calm";
+  /** Surface-стиль как у dashboard KPI-карточек Hub (тендер/ТМЦ). */
+  premiumSurface?: boolean;
   children: ReactNode;
 }) {
   const calm = visualTone === "calm";
   return (
     <div
-      className={`relative flex h-full flex-col rounded-[20px] border ${paddingClass} ${calm ? "" : "backdrop-blur-[16px]"}`}
+      className={`relative flex h-full flex-col ${premiumSurface ? "rounded-[22px]" : "rounded-[20px]"} border ${paddingClass} ${calm ? "" : "backdrop-blur-[16px]"}`}
       style={{
         background: gradient,
-        borderColor: calm ? "rgba(148,163,184,0.18)" : `${glowColor}55`,
-        boxShadow: calm
-          ? "none"
-          : `0 22px 56px rgba(0,0,0,0.52), 0 0 36px ${glowColor}28, inset 0 1px 0 rgba(255,255,255,0.1)`,
+        borderColor: premiumSurface
+          ? `${glowColor}40`
+          : calm
+            ? "rgba(148,163,184,0.18)"
+            : `${glowColor}55`,
+        boxShadow: premiumSurface
+          ? `0 18px 52px rgba(0,0,0,0.48), 0 0 36px ${glowColor}16, inset 0 1px 0 rgba(255,255,255,0.1)`
+          : calm
+            ? "none"
+            : `0 22px 56px rgba(0,0,0,0.52), 0 0 36px ${glowColor}28, inset 0 1px 0 rgba(255,255,255,0.1)`,
       }}
     >
       {waveColor ? (
@@ -1101,6 +1110,8 @@ export type GprStageKpiCardProps = {
   dashboardLegendBelowChart?: boolean;
   /** Компактные размеры внутренних элементов dashboard-карточки. */
   dashboardCompact?: boolean;
+  /** Использовать премиальный surface-стиль dashboard-карточки (для Dashboard Hub). */
+  dashboardPremiumSurface?: boolean;
   /** Скрыть иконку в заголовке карточки (используется на хабе). */
   hideHeaderBadge?: boolean;
 };
@@ -1145,6 +1156,7 @@ export function GprStageKpiCard({
   hideDashboardHeader = false,
   dashboardLegendBelowChart = false,
   dashboardCompact = false,
+  dashboardPremiumSurface = false,
   hideHeaderBadge = false,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
@@ -1307,12 +1319,15 @@ export function GprStageKpiCard({
         glowColor={theme.glowColor}
         gradient={
           layoutVariant === "dashboard"
-            ? calmDashboardCardTheme(theme).gradient
+            ? dashboardPremiumSurface
+              ? theme.gradient
+              : calmDashboardCardTheme(theme).gradient
             : theme.gradient
         }
         waveColor={layoutVariant === "dashboard" ? undefined : theme.waveColor}
         waveOpacity={layoutVariant === "dashboard" ? undefined : theme.waveOpacity}
-        visualTone={layoutVariant === "dashboard" ? "calm" : "default"}
+        visualTone={layoutVariant === "dashboard" && !dashboardPremiumSurface ? "calm" : "default"}
+        premiumSurface={layoutVariant === "dashboard" && dashboardPremiumSurface}
         paddingClass={layoutVariant === "dashboard" ? "px-2.5 py-2" : "p-6"}
       >
         {layoutVariant === "dashboard" ? (

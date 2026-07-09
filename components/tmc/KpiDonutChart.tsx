@@ -191,13 +191,13 @@ export function KpiDonutChart({
                 large
                   ? compactLegend
                     ? fullLegendLabels
-                      ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                      ? "text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
                       : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
                     : fullLegendLabels
-                      ? "text-[11px] font-semibold uppercase tracking-wider text-slate-300"
+                      ? "text-[11px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
                       : "truncate text-[11px] font-semibold uppercase tracking-wider text-slate-300"
                   : fullLegendLabels
-                    ? "text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                    ? "text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
                     : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
               }
             >

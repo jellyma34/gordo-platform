@@ -290,6 +290,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     hideDashboardHeader
                     dashboardLegendBelowChart
                     dashboardCompact
+                    dashboardPremiumSurface
                     hideHeaderBadge
                   />
                 </div>
@@ -353,6 +354,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                           legendPosition="bottom"
                           legendColumns={2}
                           compactLegend
+                          fullLegendLabels
                         />
                       </div>
                     </div>
@@ -417,6 +419,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                           legendPosition="bottom"
                           legendColumns={2}
                           compactLegend
+                          fullLegendLabels
                         />
                       </div>
                     </div>
