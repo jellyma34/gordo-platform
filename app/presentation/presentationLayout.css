@@ -166,13 +166,16 @@ body.presentation-active {
 
 @media (min-width: 900px) {
   .presentation-section-grid {
-    grid-template-columns: repeat(2, minmax(320px, 440px));
+    grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr);
+    grid-template-rows: auto auto;
+    justify-items: stretch;
+    align-items: stretch;
   }
 }
 
 @media (min-width: 1320px) {
   .presentation-section-grid {
-    grid-template-columns: repeat(3, minmax(380px, 440px));
+    grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
   }
 }
 
@@ -181,6 +184,24 @@ body.presentation-active {
   max-width: 460px;
   min-height: 300px;
   width: 100%;
+}
+
+.presentation-section-grid > a.hub-premium-card--construction-wide {
+  height: auto;
+  max-width: none;
+  min-height: clamp(320px, 36vw, 400px);
+}
+
+@media (min-width: 900px) {
+  .presentation-section-grid > a.hub-premium-card--construction-wide {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    min-height: clamp(340px, 38vw, 420px);
+  }
+
+  .presentation-section-grid > a:not(.hub-premium-card--construction-wide) {
+    max-width: none;
+  }
 }
 
 .hub-premium-card:hover {

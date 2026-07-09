@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useId } from "react";
 import { ArrowRight, HardHat, LineChart, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
 
-import type { StatusTone } from "@/lib/homeDashboardSnapshot";
+import type { HomeConstructionProjectKpi, StatusTone } from "@/lib/homeDashboardSnapshot";
 
 const statusDotClass: Record<StatusTone, string> = {
   green: "bg-emerald-400",
@@ -25,6 +26,9 @@ export type HubBlock = {
   description: string;
   href: string;
   status: StatusTone;
+  /** Расширенная карточка (только «Строительство» на хабе). */
+  wide?: boolean;
+  constructionProjectKpi?: HomeConstructionProjectKpi;
 };
 
 type SectionTheme = {
@@ -117,12 +121,18 @@ function HubCardWaveGrid({ color }: { color: string }) {
 function PremiumHubCard({ block }: { block: HubBlock }) {
   const theme = PREMIUM_THEMES[block.title] ?? DEFAULT_THEME;
   const { Icon, glowColor, waveColor, gradient } = theme;
+  const isWideConstruction = Boolean(block.wide && block.constructionProjectKpi);
 
   return (
     <Link
       href={block.href}
       scroll
-      className="hub-premium-card group relative flex min-h-[300px] w-full max-w-[460px] cursor-pointer flex-col overflow-hidden rounded-[22px] border no-underline backdrop-blur-[18px] transition-[transform,box-shadow,border-color] duration-300 ease-out will-change-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400/50"
+      className={[
+        "hub-premium-card group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-[22px] border no-underline backdrop-blur-[18px] transition-[transform,box-shadow,border-color] duration-300 ease-out will-change-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400/50",
+        isWideConstruction
+          ? "hub-premium-card--construction-wide min-h-[300px]"
+          : "min-h-[300px] max-w-[460px]",
+      ].join(" ")}
       style={{
         background: gradient,
         borderColor: `${glowColor}40`,
@@ -133,41 +143,119 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
     >
       <HubCardWaveGrid color={waveColor} />
 
-      <div className="relative z-[1] flex h-full min-h-[300px] flex-col p-6 md:min-h-[340px] md:p-7">
-        <div className="flex items-start justify-between gap-4">
-          <div
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 backdrop-blur-sm"
-            style={{
-              background: `${glowColor}1a`,
-              color: glowColor,
-              boxShadow: `0 0 24px ${glowColor}22`,
-              borderColor: `${glowColor}30`,
-            }}
-          >
-            <Icon className="h-7 w-7" strokeWidth={1.75} aria-hidden />
-          </div>
+      <div
+        className={[
+          "relative z-[1] flex h-full min-h-[300px] p-6 md:min-h-[340px] md:p-7",
+          isWideConstruction ? "flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6" : "flex-col",
+        ].join(" ")}
+      >
+        <div className={isWideConstruction ? "flex min-w-0 flex-1 flex-col" : "flex h-full min-h-[300px] flex-col"}>
+          <div className="flex items-start justify-between gap-4">
+            <div className={isWideConstruction ? "flex min-w-0 items-start gap-3" : undefined}>
+              <div
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 backdrop-blur-sm"
+                style={{
+                  background: `${glowColor}1a`,
+                  color: glowColor,
+                  boxShadow: `0 0 24px ${glowColor}22`,
+                  borderColor: `${glowColor}30`,
+                }}
+              >
+                <Icon className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+              </div>
+              {isWideConstruction ? (
+                <div className="min-w-0 pt-0.5">
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass[block.status]}`}
+                      title={statusTitle[block.status]}
+                      aria-hidden
+                    />
+                    <h2 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">{block.title}</h2>
+                  </div>
+                  <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
+                    {block.description}
+                  </p>
+                </div>
+              ) : null}
+            </div>
 
-          <span
-            className="hub-premium-arrow flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition-[transform,background-color,box-shadow] duration-300 ease-out group-hover:border-white/20 group-hover:bg-white/[0.14]"
-            aria-hidden
-          >
-            <ArrowRight className="h-5 w-5" strokeWidth={2} />
-          </span>
-        </div>
-
-        <div className="mt-auto pt-6">
-          <div className="flex items-center gap-2.5">
             <span
-              className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass[block.status]}`}
-              title={statusTitle[block.status]}
+              className={[
+                "hub-premium-arrow flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition-[transform,background-color,box-shadow] duration-300 ease-out group-hover:border-white/20 group-hover:bg-white/[0.14]",
+                isWideConstruction ? "absolute right-6 top-6 z-[2] md:right-7 md:top-7" : "",
+              ].join(" ")}
               aria-hidden
-            />
-            <h2 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">{block.title}</h2>
+            >
+              <ArrowRight className="h-5 w-5" strokeWidth={2} />
+            </span>
           </div>
-          <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
-            {block.description}
-          </p>
+
+          <div className={isWideConstruction ? "mt-auto pt-6 lg:pt-8" : "mt-auto pt-6"}>
+            <div className="flex items-center gap-2.5">
+              {!isWideConstruction ? (
+                <>
+                  <span
+                    className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass[block.status]}`}
+                    title={statusTitle[block.status]}
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">{block.title}</h2>
+                </>
+              ) : null}
+            </div>
+            {!isWideConstruction ? (
+              <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
+                {block.description}
+              </p>
+            ) : null}
+          </div>
         </div>
+
+        {isWideConstruction ? (
+          <div
+            className="min-w-0 shrink-0 lg:w-[min(100%,360px)] lg:self-center"
+            aria-label="Мини-версия KPI Проект"
+          >
+            <GprStageKpiCard
+              title="Проект"
+              status={block.constructionProjectKpi!.status}
+              metricsVariant="compact"
+              layoutVariant="dashboard"
+              donutStatusVariant="trafficKpi"
+              factLabel="Факт выполнения"
+              factValue={block.constructionProjectKpi!.factValue}
+              planLabel="Плановая готовность"
+              planValue={block.constructionProjectKpi!.planValue}
+              deviationLabel="Отклонение готовности, %"
+              deviationValue={block.constructionProjectKpi!.deviationValue}
+              deviationDeltaPp={block.constructionProjectKpi!.deviationDeltaPp}
+              completedStages={block.constructionProjectKpi!.completedStages}
+              totalStages={block.constructionProjectKpi!.totalStages}
+              onTimeCount={block.constructionProjectKpi!.onTimeCount}
+              atRiskCount={block.constructionProjectKpi!.atRiskCount}
+              overdueCount={block.constructionProjectKpi!.overdueCount}
+              completedSharePct={block.constructionProjectKpi!.completedSharePct}
+              completedShareNumerator={block.constructionProjectKpi!.completedShareNumerator}
+              completedShareDenominator={block.constructionProjectKpi!.completedShareDenominator}
+              donutOnTimeCount={block.constructionProjectKpi!.donutOnTimeCount}
+              donutRiskCount={block.constructionProjectKpi!.donutRiskCount}
+              donutOverdueCount={block.constructionProjectKpi!.donutOverdueCount}
+              donutCompletedLateCount={block.constructionProjectKpi!.donutCompletedLateCount}
+              donutNotStartedCount={block.constructionProjectKpi!.donutNotStartedCount}
+              businessCompletedCount={block.constructionProjectKpi!.businessCompletedCount}
+              businessInProgressCount={block.constructionProjectKpi!.businessInProgressCount}
+              businessLateCount={block.constructionProjectKpi!.businessLateCount}
+              businessOverdueCount={block.constructionProjectKpi!.businessOverdueCount}
+              businessNotStartedCount={block.constructionProjectKpi!.businessNotStartedCount}
+              problematicSharePct={0}
+              dashboardBottomKpi={block.constructionProjectKpi!.dashboardBottomKpi}
+              dashboardStatusNotStartedOnTimeCount={
+                block.constructionProjectKpi!.dashboardStatusNotStartedOnTimeCount
+              }
+            />
+          </div>
+        ) : null}
       </div>
     </Link>
   );

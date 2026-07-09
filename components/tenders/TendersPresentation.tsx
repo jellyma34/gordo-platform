@@ -1109,15 +1109,6 @@ export function TendersPresentation({
             </div>
           </div>
 
-          <div className="mt-2">
-            <TenderKpiSplitMoneyBlock
-              label="ЗАКЛЮЧЕНО ДОГОВОРОВ НА СУММУ"
-              factRub={kpi.conductedFactRub}
-              planRub={kpi.conductedPlanRub}
-              accentColor={COLORS.green}
-            />
-          </div>
-
           <div className="mt-2 flex flex-1 items-center py-2">
             <div className="w-full">
               <KpiDonutChart
@@ -1133,6 +1124,15 @@ export function TendersPresentation({
                 large
               />
             </div>
+          </div>
+
+          <div className="mt-2">
+            <TenderKpiSplitMoneyBlock
+              label="ЗАКЛЮЧЕНО ДОГОВОРОВ НА СУММУ"
+              factRub={kpi.conductedFactRub}
+              planRub={kpi.conductedPlanRub}
+              accentColor={COLORS.green}
+            />
           </div>
         </TenderPremiumKpiCard>
 

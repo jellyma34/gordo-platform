@@ -1,7 +1,19 @@
 import { gprMockData } from "@/lib/gprMockData";
-import { filterGprTasksForKpiAnalytics } from "@/lib/gprStageCompletion";
-import { getProjectStats, getStatusByGprProgressDelta } from "@/lib/gprUtils";
+import {
+  collectGprProjectKpiArticleWorks,
+  computeGprKpiArticleWorksBreakdown,
+  computeGprStageNotStartedOnTimeKpi,
+  computeGprTasksCompletionDeviation,
+  computeGprTasksFactCompletionPercent,
+  computeGprTasksPlanCompletionPercent,
+  filterGprTasksForKpiAnalytics,
+} from "@/lib/gprStageCompletion";
+import {
+  getProjectStats,
+  getStatusByGprProgressDelta,
+} from "@/lib/gprUtils";
 import { marketingMockData } from "@/lib/marketingMockData";
+import type { GPRTask } from "@/lib/gprUtils";
 
 export type StatusTone = "green" | "yellow" | "red";
 
@@ -43,9 +55,104 @@ export type HomeCardKpi = {
   footnote?: string;
 };
 
+export type HomeConstructionProjectKpi = {
+  status: StatusTone;
+  factValue: string;
+  planValue: string;
+  deviationValue: string;
+  deviationDeltaPp: number | null;
+  completedStages: number;
+  totalStages: number;
+  onTimeCount: number;
+  atRiskCount: number;
+  overdueCount: number;
+  completedSharePct: number;
+  completedShareNumerator: number;
+  completedShareDenominator: number;
+  donutOnTimeCount: number;
+  donutRiskCount: number;
+  donutOverdueCount: number;
+  donutCompletedLateCount: number;
+  donutNotStartedCount: number;
+  businessCompletedCount: number;
+  businessInProgressCount: number;
+  businessLateCount: number;
+  businessOverdueCount: number;
+  businessNotStartedCount: number;
+  dashboardStatusNotStartedOnTimeCount: number;
+  dashboardBottomKpi?: { label: string; primaryText: string };
+};
+
+function formatGprPercentValue(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  const body = Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(1).replace(".", ",");
+  return `${body}%`;
+}
+
+function formatGprDeviationPercentValue(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  const absBody = Math.abs(rounded)
+    .toFixed(1)
+    .replace(".", ",")
+    .replace(/,0$/, "");
+  if (rounded > 0) return `+${absBody}%`;
+  if (rounded < 0) return `−${absBody}%`;
+  return "0%";
+}
+
+/** Данные мини-версии KPI «Проект» (ГПР) для карточки «Строительство» на хабе. */
+export function buildHomeConstructionProjectKpi(
+  asOf: Date = new Date(),
+  gprTasks: GPRTask[] = gprMockData,
+): HomeConstructionProjectKpi {
+  const projectWorks = collectGprProjectKpiArticleWorks(filterGprTasksForKpiAnalytics(gprTasks));
+  const breakdown = computeGprKpiArticleWorksBreakdown(projectWorks, asOf);
+  const factPercent = computeGprTasksFactCompletionPercent(projectWorks, asOf);
+  const planPercent = computeGprTasksPlanCompletionPercent(projectWorks, asOf);
+  const deviationPp = computeGprTasksCompletionDeviation(projectWorks, asOf);
+  const status: StatusTone = getStatusByGprProgressDelta(deviationPp ?? 0);
+  const notStartedOnTimeKpi = computeGprStageNotStartedOnTimeKpi(projectWorks, asOf);
+
+  return {
+    status,
+    factValue: formatGprPercentValue(factPercent),
+    planValue: formatGprPercentValue(planPercent),
+    deviationValue: formatGprDeviationPercentValue(deviationPp),
+    deviationDeltaPp: deviationPp,
+    completedStages: breakdown.completedStages,
+    totalStages: breakdown.totalStages,
+    onTimeCount: breakdown.onTimeCount,
+    atRiskCount: breakdown.atRiskCount,
+    overdueCount: breakdown.overdueCount,
+    completedSharePct: breakdown.completedSharePct,
+    completedShareNumerator: breakdown.completedStages,
+    completedShareDenominator: breakdown.totalStages,
+    donutOnTimeCount: breakdown.donutOnTimeCount,
+    donutRiskCount: breakdown.donutRiskCount,
+    donutOverdueCount: breakdown.donutOverdueCount,
+    donutCompletedLateCount: breakdown.donutCompletedLateCount,
+    donutNotStartedCount: breakdown.donutNotStartedCount,
+    businessCompletedCount: breakdown.businessCompletedCount,
+    businessInProgressCount: breakdown.businessInProgressCount,
+    businessLateCount: breakdown.businessLateCount,
+    businessOverdueCount: breakdown.businessOverdueCount,
+    businessNotStartedCount: breakdown.businessNotStartedCount,
+    dashboardStatusNotStartedOnTimeCount: notStartedOnTimeKpi.notStartedOnTimeCount,
+    dashboardBottomKpi: {
+      label: "Отклонение готовности",
+      primaryText: formatGprDeviationPercentValue(deviationPp),
+    },
+  };
+}
+
 export type HomeDashboardSnapshot = {
   asOfIso: string;
   project: HomeProjectStatus;
+  constructionProjectKpi: HomeConstructionProjectKpi;
   cards: {
     construction: HomeCardKpi;
     marketing: HomeCardKpi;
@@ -91,7 +198,10 @@ function buildMarketingFootnote(params: {
  * Сводка для хаба: мок-данные маркетинга + ГПР, без сети.
  * Заменяем на API, когда бэкенд готов.
  */
-export function getHomeDashboardSnapshot(asOf: Date = new Date()): HomeDashboardSnapshot {
+export function getHomeDashboardSnapshot(
+  asOf: Date = new Date(),
+  gprTasks: GPRTask[] = gprMockData,
+): HomeDashboardSnapshot {
   const planRows = marketingMockData.salesPlan.month;
   const factRows = marketingMockData.salesFact.month;
   const revRows = marketingMockData.salesRevenue.month;
@@ -134,7 +244,7 @@ export function getHomeDashboardSnapshot(asOf: Date = new Date()): HomeDashboard
   const marketingFootnote = buildMarketingFootnote({ monthDeltas, worst, best });
   const marketingRiskFromMonth = (worst?.delta ?? 0) < -3;
 
-  const stats = getProjectStats(filterGprTasksForKpiAnalytics(gprMockData));
+  const stats = getProjectStats(filterGprTasksForKpiAnalytics(gprTasks));
   const progressDeltaPp = Number.isFinite(stats.avgDeviation) ? stats.avgDeviation : 0;
   const plannedPercentAtDate = stats.avgPlannedPercent ?? 0;
   const factPercent = stats.avgFactPercent ?? 0;
@@ -221,6 +331,7 @@ export function getHomeDashboardSnapshot(asOf: Date = new Date()): HomeDashboard
   return {
     asOfIso: asOf.toISOString(),
     project,
+    constructionProjectKpi: buildHomeConstructionProjectKpi(asOf, gprTasks),
     cards,
   };
 }
