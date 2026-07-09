@@ -320,7 +320,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         {rubKpiSignedAmount(block.tenderBudgetKpi.mainRub)}
                       </span>
                     </div>
-                    <div className="mt-2 flex flex-1 flex-col gap-2.5">
+                    <div className="mt-2 flex flex-col gap-2.5">
                       <div className="border-t border-slate-600/35 pt-3">
                         <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
                           ЭКОНОМИЯ
@@ -343,13 +343,15 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-auto space-y-1.5">
+                    <div className="mt-3 space-y-1">
                       <div className="border-t border-slate-600/35" />
                       <div className="pt-2">
                         <KpiDonutChart
                           segments={block.tenderBudgetKpi.budgetDeviationSegments}
                           percentBase={block.tenderBudgetKpi.budgetBlockTenderCount}
-                          chartHeight={76}
+                          chartHeight={188}
+                          legendPosition="bottom"
+                          legendColumns={2}
                           compactLegend
                         />
                       </div>
@@ -406,12 +408,14 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-auto space-y-1.5">
+                    <div className="mt-3 space-y-1">
                       <div className="border-t border-slate-600/35" />
-                      <div className="pt-2">
+                      <div className="pt-1.5">
                         <KpiDonutChart
                           segments={block.tmcPurchasedDeviationKpi.budgetDeviationSegments}
-                          chartHeight={76}
+                          chartHeight={188}
+                          legendPosition="bottom"
+                          legendColumns={2}
                           compactLegend
                         />
                       </div>
