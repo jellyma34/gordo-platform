@@ -7,7 +7,13 @@ import type { LucideIcon } from "lucide-react";
 import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
 import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 
-import type { HomeConstructionProjectKpi, HomeTenderBudgetKpi, StatusTone } from "@/lib/homeDashboardSnapshot";
+import type {
+  HomeConstructionProjectKpi,
+  HomeMarketingProjectKpi,
+  HomeTenderBudgetKpi,
+  HomeTmcPurchasedDeviationKpi,
+  StatusTone,
+} from "@/lib/homeDashboardSnapshot";
 
 const statusDotClass: Record<StatusTone, string> = {
   green: "bg-emerald-400",
@@ -30,7 +36,9 @@ export type HubBlock = {
   /** Расширенная карточка (только «Строительство» на хабе). */
   wide?: boolean;
   constructionProjectKpi?: HomeConstructionProjectKpi;
+  marketingProjectKpi?: HomeMarketingProjectKpi;
   tenderBudgetKpi?: HomeTenderBudgetKpi;
+  tmcPurchasedDeviationKpi?: HomeTmcPurchasedDeviationKpi;
 };
 
 type SectionTheme = {
@@ -124,6 +132,8 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
   const theme = PREMIUM_THEMES[block.title] ?? DEFAULT_THEME;
   const { Icon, glowColor, waveColor, gradient } = theme;
   const isWideConstruction = Boolean(block.wide && block.constructionProjectKpi);
+  const isMarketingCompactKpi = block.title === "Маркетинг" && Boolean(block.marketingProjectKpi);
+  const useTopHeaderLayout = isWideConstruction || isMarketingCompactKpi;
 
   const rubKpiAmount = (value: number): string => {
     const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
@@ -140,6 +150,11 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
     if (n < 0) return `−${formatted}%`;
     if (n > 0) return `+${formatted}%`;
     return `${formatted}%`;
+  };
+  const rub = (value: number): string => new Intl.NumberFormat("ru-RU").format(Math.round(value));
+  const rubCompactMln = (value: number): string => {
+    const mln = Math.round(value / 1_000_000);
+    return `${new Intl.NumberFormat("ru-RU").format(mln)} млн ₽`;
   };
   return (
     <Link
@@ -169,7 +184,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
       >
         <div className={isWideConstruction ? "flex min-w-0 flex-1 flex-col" : "flex h-full min-h-[300px] flex-col"}>
           <div className="flex items-start justify-between gap-4">
-            <div className={isWideConstruction ? "flex min-w-0 items-start gap-3" : undefined}>
+            <div className={useTopHeaderLayout ? "flex min-w-0 items-start gap-3" : undefined}>
               <div
                 className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 backdrop-blur-sm"
                 style={{
@@ -181,11 +196,11 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
               >
                 <Icon className="h-7 w-7" strokeWidth={1.75} aria-hidden />
               </div>
-              {isWideConstruction ? (
+              {useTopHeaderLayout ? (
                 <div className="min-w-0 pt-0.5">
                   <div className="flex items-center gap-2.5">
                     <span
-                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass[block.status]}`}
+                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${isMarketingCompactKpi ? statusDotClass.red : statusDotClass[block.status]}`}
                       title={statusTitle[block.status]}
                       aria-hidden
                     />
@@ -206,9 +221,9 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
             </span>
           </div>
 
-          <div className={isWideConstruction ? "pt-4" : "mt-auto pt-6"}>
+          <div className={isWideConstruction ? "pt-4" : isMarketingCompactKpi ? "pt-2" : "mt-auto pt-6"}>
             <div className="flex items-center gap-2.5">
-              {!isWideConstruction ? (
+              {!useTopHeaderLayout ? (
                 <>
                   <span
                     className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass[block.status]}`}
@@ -219,7 +234,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                 </>
               ) : null}
             </div>
-            {!isWideConstruction ? (
+            {!useTopHeaderLayout ? (
               <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
                 {block.description}
               </p>
@@ -228,7 +243,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
 
           {isWideConstruction ? (
             <div className="min-w-0 pt-2">
-              <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3">
                 <div className="min-w-0 h-full" aria-label="Мини-версия KPI Проект">
                   <GprStageKpiCard
                     title="Проект"
@@ -273,12 +288,14 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     }}
                     hideDashboardBottomKpi
                     hideDashboardHeader
+                    dashboardLegendBelowChart
+                    dashboardCompact
                     hideHeaderBadge
                   />
                 </div>
                 {block.tenderBudgetKpi ? (
                   <div
-                    className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] border p-6"
+                    className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] border p-4"
                     style={{
                       background: block.tenderBudgetKpi.gradient,
                       borderColor: `${block.tenderBudgetKpi.glowColor}40`,
@@ -287,7 +304,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     }}
                     aria-label="KPI Отклонение от тендерного бюджета"
                   >
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                    <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
                       {block.tenderBudgetKpi.title}
                     </div>
                     <div className="mt-1.5 tabular-nums tracking-tight">
@@ -303,41 +320,142 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         {rubKpiSignedAmount(block.tenderBudgetKpi.mainRub)}
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-1 flex-col gap-4">
-                      <div className="border-t border-slate-600/35 pt-4">
-                        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                    <div className="mt-2 flex flex-1 flex-col gap-2.5">
+                      <div className="border-t border-slate-600/35 pt-3">
+                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
                           ЭКОНОМИЯ
                         </div>
                         <div className="mt-1 flex items-baseline gap-1 tabular-nums tracking-tight">
-                          <span className="text-2xl font-extrabold text-white">
+                          <span className="text-[19px] font-extrabold text-white">
                             {rubKpiAmount(block.tenderBudgetKpi.economyRub)}
                           </span>
-                          <span className="text-xl font-medium text-slate-300/65">
+                          <span className="text-[15px] font-medium text-slate-300/65">
                             из {rubKpiAmount(block.tenderBudgetKpi.concludedPlanRub)}
                           </span>
                         </div>
                       </div>
-                      <div className="border-t border-slate-600/35 pt-4">
-                        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                      <div className="border-t border-slate-600/35 pt-3">
+                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
                           ПЕРЕРАСХОД
                         </div>
-                        <div className="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
+                        <div className="mt-0.5 text-[19px] font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
                           {rubKpiAmount(block.tenderBudgetKpi.overrunRub)}
                         </div>
                       </div>
                     </div>
                     <div className="mt-auto space-y-1.5">
                       <div className="border-t border-slate-600/35" />
-                      <div className="pt-3">
+                      <div className="pt-2">
                         <KpiDonutChart
                           segments={block.tenderBudgetKpi.budgetDeviationSegments}
                           percentBase={block.tenderBudgetKpi.budgetBlockTenderCount}
-                          chartHeight={100}
+                          chartHeight={76}
+                          compactLegend
                         />
                       </div>
                     </div>
                   </div>
                 ) : null}
+                {block.tmcPurchasedDeviationKpi ? (
+                  <div
+                    className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] border p-4"
+                    style={{
+                      background: block.tmcPurchasedDeviationKpi.gradient,
+                      borderColor: `${block.tmcPurchasedDeviationKpi.glowColor}40`,
+                      boxShadow:
+                        `0 18px 52px rgba(0,0,0,0.48), 0 0 36px ${block.tmcPurchasedDeviationKpi.glowColor}16, inset 0 1px 0 rgba(255,255,255,0.1)`,
+                    }}
+                    aria-label="KPI Отклонение от закупленного"
+                  >
+                    <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                      {block.tmcPurchasedDeviationKpi.title}
+                    </div>
+                    <div className="mt-1.5 tabular-nums tracking-tight">
+                      <span
+                        className={`text-4xl font-extrabold ${
+                          block.tmcPurchasedDeviationKpi.mainRub < 0
+                            ? "text-emerald-400"
+                            : block.tmcPurchasedDeviationKpi.mainRub > 0
+                              ? "text-[#ff5b6b]"
+                              : "text-white"
+                        }`}
+                      >
+                        {rubKpiSignedAmount(block.tmcPurchasedDeviationKpi.mainRub)} ₽
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex flex-1 flex-col gap-3">
+                      <div className="border-t border-slate-600/35 pt-3">
+                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                          ПОТРАЧЕНО
+                        </div>
+                        <div className="mt-1 flex items-baseline gap-1 tabular-nums tracking-tight">
+                          <span className="text-[19px] font-extrabold text-white">
+                            {rubKpiAmount(block.tmcPurchasedDeviationKpi.mainRub + block.tmcPurchasedDeviationKpi.purchasedPlanRub)}
+                          </span>
+                          <span className="text-[15px] font-medium text-slate-300/65">
+                            из {rubKpiAmount(block.tmcPurchasedDeviationKpi.purchasedPlanRub)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-600/35 pt-3">
+                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                          ПЕРЕРАСХОД
+                        </div>
+                        <div className="mt-0.5 text-[19px] font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
+                          {rubKpiAmount(block.tmcPurchasedDeviationKpi.overrunRub)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-auto space-y-1.5">
+                      <div className="border-t border-slate-600/35" />
+                      <div className="pt-2">
+                        <KpiDonutChart
+                          segments={block.tmcPurchasedDeviationKpi.budgetDeviationSegments}
+                          chartHeight={76}
+                          compactLegend
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : isMarketingCompactKpi ? (
+            <div className="mt-3 min-h-0">
+              <div className="relative flex h-full min-h-[182px] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/10 bg-slate-950/30 p-4">
+                <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_1px_minmax(0,0.95fr)] gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold text-slate-300">{block.marketingProjectKpi!.title}</div>
+                    <div className="mt-2 tabular-nums leading-none tracking-tight text-white">
+                      <span className="text-3xl font-extrabold">{rub(block.marketingProjectKpi!.soldUnits)}</span>
+                      <span className="ml-1 text-[20px] font-medium text-slate-300/70">
+                        из {rub(block.marketingProjectKpi!.totalUnits)} шт
+                      </span>
+                    </div>
+                    <div className="mt-3 text-2xl font-bold tabular-nums tracking-tight text-slate-100">
+                      {rubCompactMln(block.marketingProjectKpi!.projectRevenueRub)}
+                    </div>
+                  </div>
+                  <div className="h-full w-px bg-white/10" aria-hidden />
+                  <div className="min-w-0 space-y-3.5 pl-1">
+                    <div>
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                        Факт поступлений
+                      </div>
+                      <div className="mt-1 text-[19px] font-bold tabular-nums tracking-tight text-white">
+                        {rub(block.marketingProjectKpi!.factReceiptsRub)} ₽
+                      </div>
+                    </div>
+                    <div className="border-t border-white/10 pt-3">
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                        Средняя стоимость м²
+                      </div>
+                      <div className="mt-1 text-[19px] font-bold tabular-nums tracking-tight text-white">
+                        {rub(block.marketingProjectKpi!.avgPricePerSqmRub)} ₽/м²
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}

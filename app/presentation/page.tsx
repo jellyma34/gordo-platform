@@ -6,14 +6,16 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubReportingPeriodSelector } from "@/components/presentation/HubReportingPeriodSelector";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
-import { listGprTasksFromDb, listTendersFromDb } from "@/lib/constructionApi";
+import { listGprTasksFromDb, listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { getGprProjectId, loadPersistedGprTasks } from "@/lib/gprImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import { loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 import type { GPRTask } from "@/lib/gprUtils";
 import type { Tender } from "@/lib/tenderData";
+import type { TMCItem } from "@/lib/tmcData";
 
 const gprLocalMode = isGprLocalStorageMode();
 
@@ -30,6 +32,7 @@ export default function PresentationEntry() {
     return cloneTasks(Array.isArray(gprMockData) ? gprMockData : []);
   });
   const [tenders, setTenders] = useState<Tender[]>([]);
+  const [tmcItems, setTmcItems] = useState<TMCItem[]>([]);
 
   useEffect(() => {
     if (!gprLocalMode) return;
@@ -112,9 +115,47 @@ export default function PresentationEntry() {
     };
   }, [projectId, hydrated, token]);
 
+  useEffect(() => {
+    if (gprLocalMode) {
+      let cancelled = false;
+      const load = async () => {
+        const r = await loadPersistedTmcItems(projectId);
+        if (!cancelled) setTmcItems(r.items);
+      };
+      void load();
+      const bump = () => {
+        void load();
+      };
+      window.addEventListener("gordo-tmc-saved", bump);
+      const onStorage = (event: StorageEvent) => {
+        if (!event.key || !event.key.includes(`tmc_import_${projectId}`)) return;
+        void load();
+      };
+      window.addEventListener("storage", onStorage);
+      return () => {
+        cancelled = true;
+        window.removeEventListener("gordo-tmc-saved", bump);
+        window.removeEventListener("storage", onStorage);
+      };
+    }
+    if (!hydrated || !token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listTmcFromDb(token);
+        if (!cancelled) setTmcItems(list);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, hydrated, token]);
+
   const snapshot = useMemo(
-    () => getHomeDashboardSnapshot(new Date(), gprTasks, tenders),
-    [gprTasks, tenders],
+    () => getHomeDashboardSnapshot(new Date(), gprTasks, tenders, tmcItems),
+    [gprTasks, tenders, tmcItems],
   );
 
   useEffect(() => {
@@ -130,12 +171,14 @@ export default function PresentationEntry() {
       wide: true,
       constructionProjectKpi: snapshot.constructionProjectKpi,
       tenderBudgetKpi: snapshot.tenderBudgetKpi,
+      tmcPurchasedDeviationKpi: snapshot.tmcPurchasedDeviationKpi,
     },
     {
       title: "Маркетинг",
       description: "План продаж, воронка и рассрочка по ДДУ.",
       href: "/presentation/marketing/sales-plan",
       status: getHubNavStatusTone(snapshot, "marketing"),
+      marketingProjectKpi: snapshot.marketingProjectKpi,
     },
     {
       title: "Финансы",

@@ -12,7 +12,13 @@ import {
   computeTenderBudgetFinancialResult,
   computeTenderKpiDonutDistributions,
 } from "@/lib/tenderPresentationAnalytics";
+import {
+  computeTmcKpiDonutDistributions,
+  computeTmcProcurementFinancialResult,
+  enrichTmcItems,
+} from "@/lib/tmcPresentationAnalytics";
 import type { Tender } from "@/lib/tenderData";
+import type { TMCItem } from "@/lib/tmcData";
 import {
   getProjectStats,
   getStatusByGprProgressDelta,
@@ -103,6 +109,29 @@ export type HomeTenderBudgetKpi = {
   badgeTone: "green" | "yellow" | "red";
 };
 
+export type HomeTmcPurchasedDeviationKpi = {
+  title: string;
+  mainRub: number;
+  economyRub: number;
+  overrunRub: number;
+  purchasedPlanRub: number;
+  deviationPct: number;
+  budgetDeviationSegments: ReturnType<typeof computeTmcKpiDonutDistributions>["budgetDeviation"];
+  glowColor: string;
+  waveColor: string;
+  gradient: string;
+  badgeTone: "green" | "amber" | "red";
+};
+
+export type HomeMarketingProjectKpi = {
+  title: string;
+  soldUnits: number;
+  totalUnits: number;
+  projectRevenueRub: number;
+  factReceiptsRub: number;
+  avgPricePerSqmRub: number;
+};
+
 function formatGprPercentValue(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
   const rounded = Math.round(value * 10) / 10;
@@ -174,6 +203,8 @@ export type HomeDashboardSnapshot = {
   project: HomeProjectStatus;
   constructionProjectKpi: HomeConstructionProjectKpi;
   tenderBudgetKpi: HomeTenderBudgetKpi;
+  tmcPurchasedDeviationKpi: HomeTmcPurchasedDeviationKpi;
+  marketingProjectKpi: HomeMarketingProjectKpi;
   cards: {
     construction: HomeCardKpi;
     marketing: HomeCardKpi;
@@ -223,6 +254,7 @@ export function getHomeDashboardSnapshot(
   asOf: Date = new Date(),
   gprTasks: GPRTask[] = gprMockData,
   tenders: Tender[] = [],
+  tmcItems: TMCItem[] = [],
 ): HomeDashboardSnapshot {
   const planRows = marketingMockData.salesPlan.month;
   const factRows = marketingMockData.salesFact.month;
@@ -378,6 +410,41 @@ export function getHomeDashboardSnapshot(
         "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(146,64,14,0.16) 100%)",
     };
   })();
+  const enrichedTmcItems = enrichTmcItems(tmcItems, asOf);
+  const tmcFinancial = computeTmcProcurementFinancialResult(enrichedTmcItems);
+  const tmcDonut = computeTmcKpiDonutDistributions(enrichedTmcItems, undefined, asOf, tenders);
+  const tmcPurchasedCardTone =
+    tmcFinancial.deviationRub < 0 ? "green" : tmcFinancial.deviationRub > 0 ? "red" : "amber";
+  const tmcPurchasedCardVisual = (() => {
+    if (tmcPurchasedCardTone === "green") {
+      return {
+        glowColor: "#22c55e",
+        waveColor: "#22c55e",
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(21,128,61,0.14) 100%)",
+      };
+    }
+    if (tmcPurchasedCardTone === "red") {
+      return {
+        glowColor: "#ef4444",
+        waveColor: "#ef4444",
+        gradient:
+          "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(127,29,29,0.16) 100%)",
+      };
+    }
+    return {
+      glowColor: "#f59e0b",
+      waveColor: "#f59e0b",
+      gradient:
+        "linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(180,83,9,0.12) 100%)",
+    };
+  })();
+  // Dashboard uses the same "По проекту" KPI values as marketing presentation card.
+  const soldUnits = 30;
+  const totalUnits = 169;
+  const projectRevenueRub = 350_000_000;
+  const factReceiptsRub = 100_447_641;
+  const avgPricePerSqmRub = 231_037;
 
   return {
     asOfIso: asOf.toISOString(),
@@ -396,6 +463,27 @@ export function getHomeDashboardSnapshot(
       waveColor: tenderBudgetCardVisual.waveColor,
       gradient: tenderBudgetCardVisual.gradient,
       badgeTone: tenderBudgetCardTone,
+    },
+    tmcPurchasedDeviationKpi: {
+      title: "ОТКЛОНЕНИЕ ОТ ЗАКУПЛЕННОГО",
+      mainRub: tmcFinancial.deviationRub,
+      economyRub: tmcFinancial.economyRub,
+      overrunRub: tmcFinancial.overrunRub,
+      purchasedPlanRub: tmcFinancial.purchasedPlanRub,
+      deviationPct: tmcFinancial.deviationPct,
+      budgetDeviationSegments: tmcDonut.budgetDeviation,
+      glowColor: tmcPurchasedCardVisual.glowColor,
+      waveColor: tmcPurchasedCardVisual.waveColor,
+      gradient: tmcPurchasedCardVisual.gradient,
+      badgeTone: tmcPurchasedCardTone,
+    },
+    marketingProjectKpi: {
+      title: "По проекту",
+      soldUnits,
+      totalUnits,
+      projectRevenueRub,
+      factReceiptsRub,
+      avgPricePerSqmRub,
     },
     cards,
   };

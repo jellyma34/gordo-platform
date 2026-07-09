@@ -476,6 +476,7 @@ function GprKpiLargeProgressRing({
   notStartedCount,
   notStartedOnTimeCount,
   className = "w-full max-w-[288px]",
+  compact = false,
 }: {
   factValue: string;
   planValue: string;
@@ -489,9 +490,10 @@ function GprKpiLargeProgressRing({
   /** Не начаты в срок (подмножество notStartedCount, KPI notStartedOnTimeCount). */
   notStartedOnTimeCount?: number;
   className?: string;
+  compact?: boolean;
 }) {
   const size = 100;
-  const strokeWidth = 8;
+  const strokeWidth = compact ? 7 : 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -592,14 +594,16 @@ function GprKpiStatusListRow({
   value,
   color,
   icon,
+  compact = false,
 }: {
   label: string;
   value: number;
   color: string;
   icon: ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="relative grid h-[48px] grid-cols-[20px_1fr_auto] items-center gap-x-2.5 pl-2 pr-1">
+    <div className={`relative grid ${compact ? "h-[42px]" : "h-[48px]"} grid-cols-[20px_1fr_auto] items-center gap-x-2.5 pl-2 pr-1`}>
       <div
         className="absolute bottom-2 left-0 top-2 w-px"
         style={{ backgroundColor: color }}
@@ -608,13 +612,13 @@ function GprKpiStatusListRow({
       <div className="grid place-items-center" style={{ color }}>
         {icon}
       </div>
-      <div className="min-w-0 truncate pl-2 pr-1.5 text-xs font-medium text-slate-400">{label}</div>
-      <div className="shrink-0 text-lg font-bold tabular-nums leading-none text-white">{value}</div>
+      <div className={`min-w-0 truncate pl-2 pr-1.5 ${compact ? "text-[11px]" : "text-xs"} font-medium text-slate-400`}>{label}</div>
+      <div className={`shrink-0 ${compact ? "text-base" : "text-lg"} font-bold tabular-nums leading-none text-white`}>{value}</div>
     </div>
   );
 }
 
-function GprKpiStatusListChildRow({
+function GprKpiCompactLegendItem({
   label,
   value,
   color,
@@ -624,19 +628,41 @@ function GprKpiStatusListChildRow({
   color: string;
 }) {
   return (
-    <div className="relative grid h-[34px] grid-cols-[1fr_auto] items-center gap-x-2 pl-3">
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-600/20 bg-slate-900/30 px-2 py-1">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+        <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-300">{label}</span>
+      </span>
+      <span className="shrink-0 text-sm font-semibold tabular-nums text-white">{value}</span>
+    </div>
+  );
+}
+
+function GprKpiStatusListChildRow({
+  label,
+  value,
+  color,
+  compact = false,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`relative grid ${compact ? "h-[30px]" : "h-[34px]"} grid-cols-[1fr_auto] items-center gap-x-2 pl-3`}>
       <div
         className="absolute left-0 top-1/2 h-px w-2.5 -translate-y-1/2"
         style={{ backgroundColor: "rgba(255,255,255,0.14)" }}
         aria-hidden
       />
-      <div className="min-w-0 truncate text-[10px] font-medium leading-tight text-slate-400">
+      <div className={`min-w-0 truncate ${compact ? "text-[9px]" : "text-[10px]"} font-medium leading-tight text-slate-400`}>
         <span className="mr-1.5" style={{ color }}>
           •
         </span>
         {label}
       </div>
-      <div className="shrink-0 text-sm font-semibold tabular-nums leading-none text-white">{value}</div>
+      <div className={`shrink-0 ${compact ? "text-xs" : "text-sm"} font-semibold tabular-nums leading-none text-white`}>{value}</div>
     </div>
   );
 }
@@ -647,16 +673,18 @@ function GprKpiStatusListGroup({
   color,
   icon,
   subItems,
+  compact = false,
 }: {
   label: string;
   value: number;
   color: string;
   icon: ReactNode;
   subItems: Array<{ label: string; value: number; color: string }>;
+  compact?: boolean;
 }) {
   return (
     <div>
-      <GprKpiStatusListRow label={label} value={value} color={color} icon={icon} />
+      <GprKpiStatusListRow label={label} value={value} color={color} icon={icon} compact={compact} />
       <div
         className="relative ml-5 border-l pl-4"
         style={{ borderColor: "rgba(255,255,255,0.12)" }}
@@ -667,6 +695,7 @@ function GprKpiStatusListGroup({
             label={child.label}
             value={child.value}
             color={child.color}
+            compact={compact}
           />
         ))}
       </div>
@@ -680,6 +709,7 @@ function GprKpiDashboardStatusList({
   inProgress,
   notStarted,
   notStartedOnTime,
+  compact = false,
 }: {
   completedOnTime: number;
   completedLate: number;
@@ -687,6 +717,7 @@ function GprKpiDashboardStatusList({
   notStarted: number;
   /** Счётчик из KPI «Не начаты в срок» (поле notStartedOnTimeCount). */
   notStartedOnTime?: number;
+  compact?: boolean;
 }) {
   const completedTotal = completedOnTime + completedLate;
   const showNotStartedOnTime = notStartedOnTime !== undefined;
@@ -710,6 +741,7 @@ function GprKpiDashboardStatusList({
             color: GPR_KPI_STATUS_COLORS.completedLate,
           },
         ]}
+        compact={compact}
       />
       <div className="border-t border-white/[0.18]" aria-hidden />
       <GprKpiStatusListRow
@@ -717,6 +749,7 @@ function GprKpiDashboardStatusList({
         value={inProgress}
         color={GPR_KPI_STATUS_COLORS.inProgress}
         icon={<RefreshCw className="h-3 w-3" strokeWidth={2.5} aria-hidden />}
+        compact={compact}
       />
       <div className="border-t border-white/[0.18]" aria-hidden />
       {showNotStartedOnTime ? (
@@ -732,6 +765,7 @@ function GprKpiDashboardStatusList({
               color: GPR_KPI_STATUS_COLORS.notStartedOnTime,
             },
           ]}
+          compact={compact}
         />
       ) : (
         <GprKpiStatusListRow
@@ -739,6 +773,7 @@ function GprKpiDashboardStatusList({
           value={notStarted}
           color={GPR_KPI_STATUS_COLORS.notStarted}
           icon={<Circle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
+          compact={compact}
         />
       )}
     </div>
@@ -767,6 +802,8 @@ function GprStageKpiDashboardBody({
   dashboardTopDeviationKpi,
   hideDashboardBottomKpi = false,
   hideDashboardHeader = false,
+  dashboardLegendBelowChart = false,
+  dashboardCompact = false,
   hideHeaderBadge = false,
 }: {
   title: string;
@@ -796,6 +833,10 @@ function GprStageKpiDashboardBody({
   hideDashboardBottomKpi?: boolean;
   /** Скрыть заголовок dashboard-карточки. */
   hideDashboardHeader?: boolean;
+  /** Перенести легенду под диаграмму (для hub-компоновки). */
+  dashboardLegendBelowChart?: boolean;
+  /** Компактные размеры внутренних элементов dashboard-карточки. */
+  dashboardCompact?: boolean;
   hideHeaderBadge?: boolean;
 }) {
   const criticalBottomKpi = isGprStage205NotStartedOnTimeBottomKpi(dashboardBottomKpi);
@@ -835,41 +876,111 @@ function GprStageKpiDashboardBody({
         </div>
       ) : null}
 
-      {/* Левая колонка: кольцо + работы */}
-      <div className="grid min-h-0 grid-rows-[auto_auto] content-center justify-items-center gap-0.5 self-center overflow-hidden pr-1">
-        <div className="w-full" title={factTitle}>
-          <GprKpiLargeProgressRing
-            factValue={factValue}
-            planValue={planValue}
-            completedCount={businessCompletedCount}
-            inProgressCount={businessInProgressCount}
-            lateCount={businessLateCount}
-            notStartedCount={businessNotStartedCount}
-            notStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
-            className="mx-auto w-full max-w-[288px]"
-          />
-        </div>
-        <div className="grid justify-items-center gap-0.5 text-center">
-          <div className="tabular-nums leading-none tracking-tight">
-            <span className="text-[22px] font-extrabold text-white">{completedStages}</span>
-            <span className="text-[17px] font-medium text-slate-400"> / {totalStages}</span>
+      {dashboardLegendBelowChart ? (
+        <div className={`grid min-h-0 content-start ${dashboardCompact ? "gap-1.5" : "gap-2"} pr-0`} style={{ gridColumn: "1 / -1" }}>
+          <div className={`grid min-h-0 grid-rows-[auto_auto] justify-items-center ${dashboardCompact ? "gap-0.5" : "gap-1"} self-center overflow-hidden`}>
+            <div className="w-full" title={factTitle}>
+              <GprKpiLargeProgressRing
+                factValue={factValue}
+                planValue={planValue}
+                completedCount={businessCompletedCount}
+                inProgressCount={businessInProgressCount}
+                lateCount={businessLateCount}
+                notStartedCount={businessNotStartedCount}
+                notStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
+                className={`mx-auto w-full ${dashboardCompact ? "max-w-[266px]" : "max-w-[288px]"}`}
+                compact={dashboardCompact}
+              />
+            </div>
+            <div className={`grid justify-items-center ${dashboardCompact ? "gap-0" : "gap-0.5"} text-center`}>
+              <div className="tabular-nums leading-none tracking-tight">
+                <span className={`${dashboardCompact ? "text-[20px]" : "text-[22px]"} font-extrabold text-white`}>{completedStages}</span>
+                <span className={`${dashboardCompact ? "text-[15px]" : "text-[17px]"} font-medium text-slate-400`}> / {totalStages}</span>
+              </div>
+              <div className={`${dashboardCompact ? "text-[8px]" : "text-[9px]"} font-semibold uppercase tracking-[0.12em] text-slate-500`}>
+                РАБОТ
+              </div>
+            </div>
           </div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-            РАБОТ
-          </div>
+          {dashboardCompact ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              <GprKpiCompactLegendItem
+                label="Завершено"
+                value={businessCompletedCount + businessLateCount}
+                color={GPR_KPI_STATUS_COLORS.completedOnTime}
+              />
+              <GprKpiCompactLegendItem
+                label="В процессе"
+                value={businessInProgressCount}
+                color={GPR_KPI_STATUS_COLORS.inProgress}
+              />
+              <GprKpiCompactLegendItem
+                label="Не начато"
+                value={businessNotStartedCount}
+                color={GPR_KPI_STATUS_COLORS.notStarted}
+              />
+              {dashboardStatusNotStartedOnTimeCount !== undefined ? (
+                <GprKpiCompactLegendItem
+                  label="Не начаты в срок"
+                  value={dashboardStatusNotStartedOnTimeCount}
+                  color={GPR_KPI_STATUS_COLORS.notStartedOnTime}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="border-t border-slate-600/20 pt-2">
+              <GprKpiDashboardStatusList
+                completedOnTime={businessCompletedCount}
+                completedLate={businessLateCount}
+                inProgress={businessInProgressCount}
+                notStarted={businessNotStartedCount}
+                notStartedOnTime={dashboardStatusNotStartedOnTimeCount}
+                compact={dashboardCompact}
+              />
+            </div>
+          )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Левая колонка: кольцо + работы */}
+          <div className="grid min-h-0 grid-rows-[auto_auto] content-center justify-items-center gap-0.5 self-center overflow-hidden pr-1">
+            <div className="w-full" title={factTitle}>
+              <GprKpiLargeProgressRing
+                factValue={factValue}
+                planValue={planValue}
+                completedCount={businessCompletedCount}
+                inProgressCount={businessInProgressCount}
+                lateCount={businessLateCount}
+                notStartedCount={businessNotStartedCount}
+                notStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
+                className={`mx-auto w-full ${dashboardCompact ? "max-w-[248px]" : "max-w-[288px]"}`}
+                compact={dashboardCompact}
+              />
+            </div>
+            <div className="grid justify-items-center gap-0.5 text-center">
+              <div className="tabular-nums leading-none tracking-tight">
+                <span className="text-[22px] font-extrabold text-white">{completedStages}</span>
+                <span className="text-[17px] font-medium text-slate-400"> / {totalStages}</span>
+              </div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                РАБОТ
+              </div>
+            </div>
+          </div>
 
-      {/* Правая колонка: список статусов */}
-      <div className="grid min-h-0 content-center self-center overflow-hidden pl-1">
-        <GprKpiDashboardStatusList
-          completedOnTime={businessCompletedCount}
-          completedLate={businessLateCount}
-          inProgress={businessInProgressCount}
-          notStarted={businessNotStartedCount}
-          notStartedOnTime={dashboardStatusNotStartedOnTimeCount}
-        />
-      </div>
+          {/* Правая колонка: список статусов */}
+          <div className="grid min-h-0 content-center self-center overflow-hidden pl-1">
+            <GprKpiDashboardStatusList
+              completedOnTime={businessCompletedCount}
+              completedLate={businessLateCount}
+              inProgress={businessInProgressCount}
+              notStarted={businessNotStartedCount}
+              notStartedOnTime={dashboardStatusNotStartedOnTimeCount}
+              compact={dashboardCompact}
+            />
+          </div>
+        </>
+      )}
 
       {/* Нижняя панель KPI */}
       {!hideDashboardBottomKpi ? (
@@ -986,6 +1097,10 @@ export type GprStageKpiCardProps = {
   hideDashboardBottomKpi?: boolean;
   /** Скрыть заголовок dashboard-компоновки. */
   hideDashboardHeader?: boolean;
+  /** Перенести легенду под диаграмму в dashboard-компоновке. */
+  dashboardLegendBelowChart?: boolean;
+  /** Компактные размеры внутренних элементов dashboard-карточки. */
+  dashboardCompact?: boolean;
   /** Скрыть иконку в заголовке карточки (используется на хабе). */
   hideHeaderBadge?: boolean;
 };
@@ -1028,6 +1143,8 @@ export function GprStageKpiCard({
   dashboardTopDeviationKpi,
   hideDashboardBottomKpi = false,
   hideDashboardHeader = false,
+  dashboardLegendBelowChart = false,
+  dashboardCompact = false,
   hideHeaderBadge = false,
 }: GprStageKpiCardProps) {
   const theme = cardThemeForTraffic(status);
@@ -1221,6 +1338,8 @@ export function GprStageKpiCard({
             dashboardTopDeviationKpi={dashboardTopDeviationKpi}
             hideDashboardBottomKpi={hideDashboardBottomKpi}
             hideDashboardHeader={hideDashboardHeader}
+            dashboardLegendBelowChart={dashboardLegendBelowChart}
+            dashboardCompact={dashboardCompact}
             hideHeaderBadge={hideHeaderBadge}
           />
         ) : (
