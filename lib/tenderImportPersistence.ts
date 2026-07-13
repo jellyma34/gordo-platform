@@ -9,7 +9,6 @@ import {
 } from "@/lib/tenderData";
 
 export { getGprProjectId };
-
 export { tendersStorageKey };
 
 function parseStoredTendersJson(raw: string): Tender[] | null {
@@ -102,8 +101,90 @@ function cloneFallback(fallback: Tender[]): Tender[] {
   return fallback.map((t) => ({ ...t }));
 }
 
+function coerceTenderList(raw: unknown): Tender[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) =>
+      typeof item === "object" && item !== null
+        ? coerceTender(item as Record<string, unknown>)
+        : null,
+    )
+    .filter((item): item is Tender => item !== null);
+}
+
 function seedFallback(): Tender[] {
   return mergeTenderSnapshotWithSeed(undefined);
+}
+
+export type TenderAnalyticsSource = "localStorage" | "apiSnapshot" | "database" | "seed";
+
+export type TenderAnalyticsLoadResult = {
+  tenders: Tender[];
+  source: TenderAnalyticsSource;
+};
+
+const tenderImportCountStorageKey = (projectId: string): string =>
+  `gordo_tender_import_count_${projectId}`;
+
+/** Запоминает размер последнего успешного импорта/сохранения реестра (для диагностики презентации). */
+export function markTenderImportSnapshotCount(projectId: string, count: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(tenderImportCountStorageKey(projectId), String(count));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readTenderImportSnapshotCount(projectId: string): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(tenderImportCountStorageKey(projectId));
+    if (!raw) return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Сохраняет полный снимок тендеров после импорта (localStorage + API JSON). */
+export function persistTenderImportSnapshot(projectId: string, tenders: Tender[]): void {
+  saveTendersToLocalStorage(projectId, tenders);
+  markTenderImportSnapshotCount(projectId, tenders.length);
+  void postTenderImportToApi(projectId, tenders);
+}
+
+/**
+ * Источник для KPI/диаграмм презентации: полный Tender[] без mock/seed,
+ * если есть снимок после импорта.
+ */
+export async function loadTenderRecordsForAnalytics(
+  projectId: string,
+  options?: { token?: string | null },
+): Promise<TenderAnalyticsLoadResult> {
+  const ls = loadTendersFromLocalStorage(projectId);
+  if (ls && ls.length > 0) {
+    return { tenders: cloneFallback(ls), source: "localStorage" };
+  }
+
+  const apiTenders = await fetchTenderImportFromApi(projectId);
+  if (apiTenders && apiTenders.length > 0) {
+    const coerced = coerceTenderList(apiTenders);
+    if (coerced.length > 0) {
+      return { tenders: cloneFallback(coerced), source: "apiSnapshot" };
+    }
+  }
+
+  if (options?.token) {
+    const { listTendersFromDb } = await import("@/lib/constructionApi");
+    const dbRows = await listTendersFromDb(options.token);
+    if (dbRows.length > 0) {
+      return { tenders: dbRows, source: "database" };
+    }
+  }
+
+  return { tenders: seedFallback(), source: "seed" };
 }
 
 /**

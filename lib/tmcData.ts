@@ -28,6 +28,75 @@ export function computeTmcTotalsFromVolumes(
   };
 }
 
+/** Статус закупки по плану снабжения (объём заказан vs план). */
+export type TmcSupplyPlanProcurementStatus = "notPurchased" | "partial" | "full";
+
+/** Объём (заказан) из CSV плана снабжения — хранится в `volumeFact`. */
+export function tmcOrderedVolume(item: TMCItem): number {
+  return Math.max(0, item.volumeFact);
+}
+
+export function deriveTmcSupplyPlanProcurementStatus(
+  volumePlan: number,
+  volumeOrdered: number,
+): TmcSupplyPlanProcurementStatus {
+  if (volumeOrdered <= 0) return "notPurchased";
+  if (volumePlan > 0 && volumeOrdered < volumePlan) return "partial";
+  return "full";
+}
+
+export function classifyTmcSupplyPlanProcurementStatus(
+  item: TMCItem,
+): TmcSupplyPlanProcurementStatus {
+  return deriveTmcSupplyPlanProcurementStatus(item.volumePlan, tmcOrderedVolume(item));
+}
+
+export function supplyPlanProcurementStatusToSupplyStatus(
+  status: TmcSupplyPlanProcurementStatus,
+): TmcSupplyStatus {
+  if (status === "notPurchased") return "план";
+  if (status === "partial") return "частично";
+  return "поставлено";
+}
+
+export type SupplyPlanProcurementDiagnostics = {
+  totalMaterials: number;
+  fullyPurchased: number;
+  partiallyPurchased: number;
+  notPurchased: number;
+  totalPlanCostRub: number;
+  totalFactCostRub: number;
+};
+
+/** Сводка закупок по данным плана снабжения (для сверки с CSV). */
+export function computeSupplyPlanProcurementDiagnostics(
+  items: TMCItem[],
+): SupplyPlanProcurementDiagnostics {
+  let fullyPurchased = 0;
+  let partiallyPurchased = 0;
+  let notPurchased = 0;
+  let totalPlanCostRub = 0;
+  let totalFactCostRub = 0;
+
+  for (const item of items) {
+    const status = classifyTmcSupplyPlanProcurementStatus(item);
+    if (status === "full") fullyPurchased += 1;
+    else if (status === "partial") partiallyPurchased += 1;
+    else notPurchased += 1;
+    totalPlanCostRub += item.planCost > 0 ? item.planCost : 0;
+    totalFactCostRub += item.factCost ?? 0;
+  }
+
+  return {
+    totalMaterials: items.length,
+    fullyPurchased,
+    partiallyPurchased,
+    notPurchased,
+    totalPlanCostRub,
+    totalFactCostRub,
+  };
+}
+
 export type TMCItem = {
   id: string;
   /** Иерархический код позиции (как шифр ГПР). */

@@ -154,19 +154,12 @@ function statusOf(item: TMCItem): Traffic {
 }
 
 /**
- * Риск закупки: только volumeFact / volumePlan и factCost (не supplier, не contract).
+ * Риск закупки по плану снабжения: объём (заказан) vs объём (план).
  */
 export function procurementRiskFromVolumes(item: TMCItem): ProcurementRisk {
-  const hasFact =
-    (item.volumeFact > 0) || (item.factCost != null && item.factCost > 0);
-  const hasPlan = item.volumePlan > 0;
-
-  if (!hasFact) return "red";
-
-  if (hasFact && hasPlan && item.volumeFact < item.volumePlan) {
-    return "yellow";
-  }
-
+  const ordered = Math.max(0, item.volumeFact);
+  if (ordered <= 0) return "red";
+  if (item.volumePlan > 0 && ordered < item.volumePlan) return "yellow";
   return "green";
 }
 
@@ -565,6 +558,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         console.group("[TMC supply plan] sync chain");
         console.log("file:", file.name);
         console.log("sync stats:", stats);
+        console.table(stats.procurementDiagnostics);
         console.groupEnd();
 
         if (stats.materialRows === 0) {
@@ -773,11 +767,36 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
           </p>
         ) : null}
         {supplyPlanSyncStats ? (
-          <p className="mt-2 text-xs leading-snug text-slate-600">
-            План снабжения: обработано строк {supplyPlanSyncStats.materialRows}. Обновлено:{" "}
-            {supplyPlanSyncStats.updated}. Создано новых: {supplyPlanSyncStats.created}. Не удалось
-            сопоставить этап ГПР: {supplyPlanSyncStats.stageMatchFailed}.
-          </p>
+          <div className="mt-2 space-y-1 text-xs leading-snug text-slate-600">
+            <p>
+              План снабжения: обработано строк {supplyPlanSyncStats.materialRows}. Обновлено:{" "}
+              {supplyPlanSyncStats.updated}. Создано новых: {supplyPlanSyncStats.created}. Не удалось
+              сопоставить этап ГПР: {supplyPlanSyncStats.stageMatchFailed}.
+            </p>
+            <p className="font-medium text-slate-700">Диагностика закупок (сверка с CSV):</p>
+            <ul className="list-inside list-disc text-slate-600">
+              <li>Всего материалов: {supplyPlanSyncStats.procurementDiagnostics.totalMaterials}</li>
+              <li>Закуплено полностью: {supplyPlanSyncStats.procurementDiagnostics.fullyPurchased}</li>
+              <li>
+                Закуплено частично: {supplyPlanSyncStats.procurementDiagnostics.partiallyPurchased}
+              </li>
+              <li>Не закуплено: {supplyPlanSyncStats.procurementDiagnostics.notPurchased}</li>
+              <li>
+                Общая плановая стоимость:{" "}
+                {Math.round(supplyPlanSyncStats.procurementDiagnostics.totalPlanCostRub).toLocaleString(
+                  "ru-RU",
+                )}{" "}
+                ₽
+              </li>
+              <li>
+                Общая фактическая стоимость:{" "}
+                {Math.round(supplyPlanSyncStats.procurementDiagnostics.totalFactCostRub).toLocaleString(
+                  "ru-RU",
+                )}{" "}
+                ₽
+              </li>
+            </ul>
+          </div>
         ) : null}
       </div>
 
@@ -909,9 +928,9 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
               const procurementColor = COLORS[row.procurementRisk];
               const procurementLabel =
                 row.procurementRisk === "green"
-                  ? "Закуплено"
+                  ? "Закуплено полностью"
                   : row.procurementRisk === "yellow"
-                    ? "Частично"
+                    ? "Закуплено частично"
                     : "Не закуплено";
               const rowIssues = tmcRowIssues.get(row.id);
               const statusTitle = gprIssueStatusTitle(rowIssues);

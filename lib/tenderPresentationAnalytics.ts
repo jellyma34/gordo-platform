@@ -877,3 +877,69 @@ export function logTenderConductedKpiDiagnostics(tenders: Tender[]): void {
   );
   console.groupEnd();
 }
+
+export type TenderPresentationKpiDiagnostic = {
+  total: number;
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  notAnnounced: number;
+  conductedPlanRub: number;
+  conductedFactRub: number;
+};
+
+/** Диагностика источника данных и KPI презентации тендеров. */
+export function logTenderPresentationSourceDiagnostics(
+  tenderRecords: Tender[],
+  options: {
+    source: string;
+    importedRecordsLength?: number | null;
+    expectedRecordsLength?: number | null;
+  },
+  today: Date = new Date(),
+): TenderPresentationKpiDiagnostic {
+  const kpi = computeTenderProcurementKpi(tenderRecords, today);
+  const donut = computeTenderKpiDonutDistributions(tenderRecords, today);
+
+  const pipelineValue = (label: string): number =>
+    donut.conductedPipeline.find((segment) => segment.label === label)?.value ?? 0;
+
+  const importedLength = options.importedRecordsLength ?? tenderRecords.length;
+  const diagnostic: TenderPresentationKpiDiagnostic = {
+    total: kpi.totalCount,
+    completed: kpi.conductedCount,
+    inProgress: pipelineValue("В процессе подписания"),
+    notStarted: pipelineValue("Не начато"),
+    notAnnounced: pipelineValue("Не объявлен тендер"),
+    conductedPlanRub: kpi.conductedPlanRub,
+    conductedFactRub: kpi.conductedFactRub,
+  };
+
+  console.log("Presentation source:", tenderRecords.length, `(${options.source})`);
+  console.log("Imported dataset:", importedLength);
+  console.log("Presentation KPI:", {
+    total: diagnostic.total,
+    completed: diagnostic.completed,
+    inProgress: diagnostic.inProgress,
+    notStarted: diagnostic.notStarted,
+    notAnnounced: diagnostic.notAnnounced,
+    conductedPlanRub: diagnostic.conductedPlanRub,
+    conductedFactRub: diagnostic.conductedFactRub,
+  });
+
+  const expected = options.expectedRecordsLength;
+
+  if (options.source === "seed" && expected != null && expected > 0) {
+    console.warn(
+      `[Tenders Presentation] KPI строятся из seed/mock (${tenderRecords.length} записей), хотя ожидается импортированный реестр (${expected}).`,
+    );
+  }
+
+  if (expected != null && expected > 0 && tenderRecords.length < expected) {
+    console.warn(
+      `[Tenders Presentation] Количество записей в презентации (${tenderRecords.length}) меньше ожидаемого реестра (${expected}). Проверьте источник данных и повторный импорт.`,
+    );
+  }
+
+  return diagnostic;
+}

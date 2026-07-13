@@ -723,8 +723,8 @@ export function TmcPresentation({
     [enriched, scopedTenders, today],
   );
   const averageDeliveryLateDays = useMemo(
-    () => computeTmcAverageDeliveryLateDays(enriched),
-    [enriched],
+    () => computeTmcAverageDeliveryLateDays(enriched, today),
+    [enriched, today],
   );
   const monthlySeries = useMemo(
     () => buildTmcMonthlyProcurementSeries(enriched, today, procurementValueMode),
@@ -919,10 +919,7 @@ export function TmcPresentation({
     console.groupEnd();
   }, [enriched, scopedGprTasks, today, volumeDynamics.rows.length]);
 
-  const receiptCostExecutionPct =
-    kpi.receiptsPlanRub > 0
-      ? Math.round((kpi.receiptsFactRub / kpi.receiptsPlanRub) * 1000) / 10
-      : 0;
+  const receiptCostExecutionPct = kpi.actualExecutionPct;
 
   const overdueFactCostRub = useMemo(
     () =>
@@ -1326,7 +1323,12 @@ export function TmcPresentation({
           <div className="mt-auto space-y-1.5">
             <TmcKpiDivider />
             <div className="pt-3">
-              <KpiDonutChart segments={kpiDonutSegments.deliveryStatus} chartHeight={100} />
+              <KpiDonutChart
+                segments={kpiDonutSegments.deliveryStatus}
+                percentBase={kpi.totalItemCount}
+                chartHeight={100}
+                reasonTooltip
+              />
             </div>
           </div>
         </TmcPremiumKpiCard>

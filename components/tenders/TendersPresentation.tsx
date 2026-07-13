@@ -11,9 +11,8 @@ import {
   PDF_REPORT_PERIOD_ATTR,
   PDF_SUMMARY_JSON_ATTR,
 } from "@/lib/pdf/constructionPdfConstants";
-import { listTendersFromDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
-import { getGprProjectId, loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import { getGprProjectId, loadTenderRecordsForAnalytics, readTenderImportSnapshotCount, type TenderAnalyticsSource } from "@/lib/tenderImportPersistence";
 import type { Tender } from "@/lib/tenderData";
 import { partIdToProjectPartKey, type ConstructionObjectScope } from "@/lib/gprUtils";
 import { gprMockData } from "@/lib/gprMockData";
@@ -39,6 +38,7 @@ import {
   logTenderConductedKpiDiagnostics,
   logTenderContractDynamicsDiagnostics,
   logTenderCostDynamicsDiagnostics,
+  logTenderPresentationSourceDiagnostics,
 } from "@/lib/tenderPresentationAnalytics";
 import {
   buildGprTenderDependencySeries,
@@ -563,35 +563,26 @@ export function TendersPresentation({
   const { token, hydrated } = useAuth();
   const projectId = useMemo(() => getGprProjectId(), []);
   const [allTenders, setAllTenders] = useState<Tender[]>([]);
+  const [tenderDataSource, setTenderDataSource] = useState<TenderAnalyticsSource>("seed");
   const [tick, setTick] = useState(0);
   const [conductChartMode, setConductChartMode] = useState<TmcProcurementChartMode>("monthly");
   const [costChartMode, setCostChartMode] = useState<TmcProcurementChartMode>("monthly");
   const [contractChartMode, setContractChartMode] = useState<TmcProcurementChartMode>("monthly");
 
   const reloadTenders = useCallback(async () => {
-    if (tenderLocalMode) {
-      try {
-        const r = await loadPersistedTenderItems(projectId);
-        setAllTenders(r.tenders);
-      } catch (e) {
-        console.error(e);
-      }
-      return;
-    }
-    if (!token) return;
     try {
-      setAllTenders(await listTendersFromDb(token));
+      const loaded = await loadTenderRecordsForAnalytics(projectId, {
+        token: tenderLocalMode ? null : token,
+      });
+      setAllTenders(loaded.tenders);
+      setTenderDataSource(loaded.source);
     } catch (e) {
       console.error(e);
     }
   }, [projectId, token]);
 
   useEffect(() => {
-    if (tenderLocalMode) {
-      void reloadTenders();
-      return;
-    }
-    if (!hydrated || !token) return;
+    if (!tenderLocalMode && (!hydrated || !token)) return;
     void reloadTenders();
   }, [tenderLocalMode, hydrated, token, reloadTenders, tick]);
 
@@ -602,12 +593,21 @@ export function TendersPresentation({
   }, []);
 
   const tenders = useMemo(
-    () => filterTendersForScope(allTenders, "project"),
-    [allTenders],
+    () => filterTendersForScope(allTenders, activePartScope),
+    [allTenders, activePartScope],
   );
 
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);
+
+  useEffect(() => {
+    if (tenders.length === 0 && allTenders.length === 0) return;
+    logTenderPresentationSourceDiagnostics(tenders, {
+      source: tenderDataSource,
+      importedRecordsLength: readTenderImportSnapshotCount(projectId) ?? allTenders.length,
+      expectedRecordsLength: readTenderImportSnapshotCount(projectId),
+    });
+  }, [tenders, allTenders.length, tenderDataSource, projectId]);
   const chartPart: ForecastPart = useMemo(
     () => (activePartScope === "project" ? "project" : partIdToProjectPartKey(activePartScope)),
     [activePartScope],

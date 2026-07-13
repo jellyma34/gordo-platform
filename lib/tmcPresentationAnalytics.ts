@@ -25,7 +25,9 @@ import {
 } from "@/lib/tenderData";
 import {
   TMC_GPR_STAGE_ROOT_CODE,
+  classifyTmcSupplyPlanProcurementStatus,
   tmcFactReferenceDate,
+  tmcOrderedVolume,
   tmcPlanReferenceDate,
   type TMCItem,
   type TmcSupplyStatus,
@@ -141,9 +143,14 @@ export function tmcItemCsvFactCostRub(item: TMCItem): number {
   return item.factCost ?? 0;
 }
 
-/** Позиции со статусом CSV «поставлено» / «поставлено частично». */
+/** Позиции со статусом «закуплено полностью» по плану снабжения. */
 export function isTmcDeliveredSupplyStatus(item: TMCItem): boolean {
-  return item.status === "поставлено" || item.status === "частично";
+  return classifyTmcSupplyPlanProcurementStatus(item) === "full";
+}
+
+/** Позиция с начатой закупкой (объём заказан > 0). */
+export function isTmcProcurementStarted(item: TMCItem): boolean {
+  return tmcOrderedVolume(item) > 0;
 }
 
 /** Номер договора заполнен (не пустой / «0» / «-»). */
@@ -164,10 +171,10 @@ export function hasTmcContractEvidence(item: TMCItem): boolean {
 
 /**
  * Закупленная позиция для KPI «Отклонение от закупленного»:
- * договор (номер или дата) или фактическая поставка (статус CSV «поставлено» / «частично»).
+ * объём (заказан) > 0 по данным плана снабжения.
  */
 export function isTmcPurchasedForDeviation(item: TMCItem): boolean {
-  return hasTmcContractEvidence(item) || isTmcDeliveredSupplyStatus(item);
+  return isTmcProcurementStarted(item);
 }
 
 /** Плановая цена за единицу из CSV (колонка «Цена → План»). */
@@ -177,36 +184,27 @@ export function tmcItemCsvPlanPriceRub(item: TMCItem): number {
   return 0;
 }
 
-/** Фактически закупленный объём: «Объём → Факт»; при 0 — оценка из факта / плановой цены. */
+/** Фактически закупленный объём: «Объём (заказан)» из плана снабжения. */
 export function tmcItemPurchasedVolume(item: TMCItem): number {
-  if (item.volumeFact > 0) return item.volumeFact;
-  const factCost = tmcItemCsvFactCostRub(item);
-  const pricePlan = tmcItemCsvPlanPriceRub(item);
-  if (factCost > 0 && pricePlan > 0) return factCost / pricePlan;
-  return 0;
+  return tmcOrderedVolume(item);
 }
 
 /**
- * Плановая стоимость фактически закупленного объёма =
- * плановая цена за ед. × фактически закупленный объём.
+ * Плановая стоимость для сравнения с фактом закупки =
+ * «Плановая стоимость ВСЕГО по СМЕТЕ» из плана снабжения.
  */
 export function tmcItemVolumeAdjustedPlanCostRub(item: TMCItem): number {
-  const pricePlan = tmcItemCsvPlanPriceRub(item);
-  const volume = tmcItemPurchasedVolume(item);
-  return pricePlan > 0 && volume > 0 ? pricePlan * volume : 0;
+  return tmcItemCsvPlanCostRub(item);
 }
 
-/** Позиция с зафиксированной фактической стоимостью закупки. */
+/** Позиция с начатой закупкой: объём (заказан) > 0. */
 export function hasTmcPurchaseFact(item: TMCItem): boolean {
-  return tmcItemFactCostRub(item) > 0;
+  return isTmcProcurementStarted(item);
 }
 
-/** Позиция с фактической поставкой: есть costFact и признак поступления (дата или объём). */
+/** Позиция «закуплено полностью» по плану снабжения. */
 export function isTmcDeliveryFact(item: TMCItem): boolean {
-  const cost = tmcItemFactCostRub(item);
-  if (cost <= 0) return false;
-  if (item.supplyFactDate?.trim()) return true;
-  return item.volumeFact > 0;
+  return classifyTmcSupplyPlanProcurementStatus(item) === "full";
 }
 
 /** Невыполненный остаток поставки (база средней KPI-карточки «Просрочено»). */
@@ -223,11 +221,10 @@ export function isTmcOverduePosition(item: TmcEnrichedItem): boolean {
 }
 
 /**
- * Закупленная позиция — есть факт закупки/поставки и срок оценивается по отклонению:
- * green, yellow или red (согласовано с суммой статусов кроме «Ожидается» и «не начато просрочено»).
+ * Закупленная позиция — объём (заказан) > 0 по плану снабжения.
  */
 export function isTmcPurchasedPosition(item: TmcEnrichedItem): boolean {
-  return item.traffic === "green" || item.traffic === "yellow" || item.traffic === "red";
+  return isTmcProcurementStarted(item);
 }
 
 /** Взаимоисключающий статус позиции в невыполненном остатке (donut «Просрочено»). */
@@ -640,17 +637,22 @@ export function computeTmcProcurementKpi(
   items: TmcEnrichedItem[],
   today: Date = new Date(),
   tenders: Tender[] = [],
+  options?: { logMaterialStatusDiagnostic?: boolean },
 ): TmcProcurementKpi {
-  const planRub = items.reduce((s, i) => s + i.planCost, 0);
-  const procurementFactRub = items.reduce((s, i) => s + tmcItemFactCostRub(i), 0);
-  const deliveredSupplyItems = items.filter(isTmcDeliveredSupplyStatus);
-  const receiptsFactRub = deliveredSupplyItems.reduce((s, i) => s + tmcItemCsvFactCostRub(i), 0);
-  const receiptsPlanRub = deliveredSupplyItems.reduce((s, i) => s + tmcItemCsvPlanCostRub(i), 0);
+  const planRub = items.reduce((s, i) => s + tmcItemCsvPlanCostRub(i), 0);
+  const procurementFactRub = items.reduce((s, i) => s + tmcItemCsvFactCostRub(i), 0);
+  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(items, today, {
+    logDiagnostic: options?.logMaterialStatusDiagnostic,
+  });
+  const receiptsFactRub = procurementFactRub;
+  const receiptsPlanRub = planRub;
   const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
-  const deliveryCount = pipelineDist.deliveredCount;
-  const totalItemCount = items.length;
-  const purchasedItems = items.filter(isTmcPurchasedPosition);
-  const purchasedItemCount = purchasedItems.length;
+  const deliveryCount = materialStatus.deliveredCount;
+  const totalItemCount = materialStatus.totalMaterials;
+  const purchasedItemCount =
+    materialStatus.partiallyPurchased +
+    materialStatus.fullyPurchased +
+    materialStatus.purchasedLate;
   const purchasedItemPct =
     totalItemCount > 0
       ? Math.round((purchasedItemCount / totalItemCount) * 1000) / 10
@@ -4335,6 +4337,194 @@ export function computeTmcContractDeliveryDonutCounts(
   };
 }
 
+/** Сегмент donut карточки «Поставлено» — единый статус материала по плану снабжения. */
+export type TmcSupplyPlanMaterialStatus =
+  | "notPurchased"
+  | "partiallyPurchased"
+  | "fullyPurchased"
+  | "purchasedLate";
+
+/** @deprecated Используйте TmcSupplyPlanMaterialStatus */
+export type TmcSupplyPlanDeliveredDonutBucket = Exclude<
+  TmcSupplyPlanMaterialStatus,
+  "notPurchased"
+>;
+
+export type TmcSupplyPlanMaterialStatusDistribution = {
+  totalMaterials: number;
+  notPurchased: number;
+  partiallyPurchased: number;
+  fullyPurchased: number;
+  purchasedLate: number;
+  /** KPI «Поставлено» = закуплено полностью (без просрочки). */
+  deliveredCount: number;
+  statusSum: number;
+};
+
+/** @deprecated Используйте TmcSupplyPlanMaterialStatusDistribution */
+export type TmcSupplyPlanDeliveredDonutCounts = Pick<
+  TmcSupplyPlanMaterialStatusDistribution,
+  | "fullyPurchased"
+  | "partiallyPurchased"
+  | "purchasedLate"
+  | "totalMaterials"
+> & {
+  purchasedTotal: number;
+  donutSum: number;
+};
+
+/**
+ * Закуплено с опозданием: объём (заказан) > 0 и
+ * (факт поставки позже плана или просрочка по плановой дате без факта поставки).
+ */
+export function isTmcSupplyPlanPurchasedLate(
+  item: TmcEnrichedItem,
+  today: Date = new Date(),
+): boolean {
+  if (!isTmcProcurementStarted(item)) return false;
+
+  const supplyDeviation = tmcSupplyDeliveryDeviationDays(item);
+  if (supplyDeviation !== null) {
+    return supplyDeviation > 0;
+  }
+
+  if (item.supplyFactDate?.trim()) {
+    return false;
+  }
+
+  return tmcSupplyPlanOverdueDays(item, today) > 0;
+}
+
+/**
+ * Единый итоговый статус материала (single source of truth для карточки «Поставлено»).
+ * Приоритет: просрочено → частично → полностью → не закуплено.
+ */
+export function classifyTmcSupplyPlanMaterialStatus(
+  item: TmcEnrichedItem,
+  today: Date = new Date(),
+): TmcSupplyPlanMaterialStatus {
+  if (!isTmcProcurementStarted(item)) return "notPurchased";
+  if (isTmcSupplyPlanPurchasedLate(item, today)) return "purchasedLate";
+
+  const ordered = tmcOrderedVolume(item);
+  const plan = item.volumePlan;
+  if (plan > 0 && ordered < plan) return "partiallyPurchased";
+
+  return "fullyPurchased";
+}
+
+/** Распределение материалов по единому статусу — база KPI и donut «Поставлено». */
+export function computeTmcSupplyPlanMaterialStatusDistribution(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+  options?: { logDiagnostic?: boolean },
+): TmcSupplyPlanMaterialStatusDistribution {
+  const counts: Record<TmcSupplyPlanMaterialStatus, number> = {
+    notPurchased: 0,
+    partiallyPurchased: 0,
+    fullyPurchased: 0,
+    purchasedLate: 0,
+  };
+
+  for (const item of items) {
+    counts[classifyTmcSupplyPlanMaterialStatus(item, today)] += 1;
+  }
+
+  const totalMaterials = items.length;
+  const statusSum =
+    counts.notPurchased +
+    counts.partiallyPurchased +
+    counts.fullyPurchased +
+    counts.purchasedLate;
+  const deliveredCount = counts.fullyPurchased;
+
+  const distribution: TmcSupplyPlanMaterialStatusDistribution = {
+    totalMaterials,
+    notPurchased: counts.notPurchased,
+    partiallyPurchased: counts.partiallyPurchased,
+    fullyPurchased: counts.fullyPurchased,
+    purchasedLate: counts.purchasedLate,
+    deliveredCount,
+    statusSum,
+  };
+
+  if (options?.logDiagnostic) {
+    logTmcSupplyPlanMaterialStatusDiagnostic(distribution);
+  }
+
+  return distribution;
+}
+
+/** Диагностика карточки «Поставлено»: сверка KPI и donut. */
+export function logTmcSupplyPlanMaterialStatusDiagnostic(
+  distribution: TmcSupplyPlanMaterialStatusDistribution,
+): void {
+  if (typeof console === "undefined") return;
+
+  console.group("[TMC] Статусы материалов (карточка «Поставлено»)");
+  console.table({
+    "Всего материалов": distribution.totalMaterials,
+    "Не закуплено": distribution.notPurchased,
+    "Закуплено частично": distribution.partiallyPurchased,
+    "Закуплено полностью": distribution.fullyPurchased,
+    "Закуплено с опозданием": distribution.purchasedLate,
+    "Поставлено (итог)": distribution.deliveredCount,
+    "Σ статусов": distribution.statusSum,
+  });
+  if (distribution.statusSum !== distribution.totalMaterials) {
+    console.warn("[TMC] Σ статусов ≠ всего материалов", {
+      statusSum: distribution.statusSum,
+      totalMaterials: distribution.totalMaterials,
+    });
+  }
+  const purchasedSum =
+    distribution.partiallyPurchased +
+    distribution.fullyPurchased +
+    distribution.purchasedLate;
+  console.log(
+    "Закуплено (частично + полностью + с опозданием):",
+    purchasedSum,
+    "= частично",
+    distribution.partiallyPurchased,
+    "+ полностью",
+    distribution.fullyPurchased,
+    "+ с опозданием",
+    distribution.purchasedLate,
+  );
+  console.groupEnd();
+}
+
+/** @deprecated Используйте classifyTmcSupplyPlanMaterialStatus */
+export function classifyTmcSupplyPlanDeliveredDonutBucket(
+  item: TmcEnrichedItem,
+  today: Date = new Date(),
+): TmcSupplyPlanDeliveredDonutBucket | null {
+  const status = classifyTmcSupplyPlanMaterialStatus(item, today);
+  if (status === "notPurchased") return null;
+  return status;
+}
+
+/** @deprecated Используйте computeTmcSupplyPlanMaterialStatusDistribution */
+export function computeTmcSupplyPlanDeliveredDonutCounts(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+  options?: { logDiagnostic?: boolean },
+): TmcSupplyPlanDeliveredDonutCounts {
+  const distribution = computeTmcSupplyPlanMaterialStatusDistribution(items, today, options);
+  const purchasedTotal =
+    distribution.partiallyPurchased + distribution.fullyPurchased + distribution.purchasedLate;
+  const donutSum = purchasedTotal;
+
+  return {
+    fullyPurchased: distribution.fullyPurchased,
+    partiallyPurchased: distribution.partiallyPurchased,
+    purchasedLate: distribution.purchasedLate,
+    purchasedTotal,
+    donutSum,
+    totalMaterials: distribution.totalMaterials,
+  };
+}
+
 /** Сегмент donut карточки «В работе» — остаток после поставки. */
 export type TmcRemainderCardDonutBucket =
   | "overdueNotPurchased"
@@ -4598,15 +4788,19 @@ export function computeTmcPurchasedDeliveryDonutCounts(
   };
 }
 
-/** Средняя просрочка поставки (дни) — только deliveredLate (donut «Поставлено»). */
-export function computeTmcAverageDeliveryLateDays(items: TmcEnrichedItem[]): number {
+/** Средняя просрочка поставки (дни) — только «Закуплено с опозданием» (donut «Поставлено»). */
+export function computeTmcAverageDeliveryLateDays(
+  items: TmcEnrichedItem[],
+  today: Date = new Date(),
+): number {
   const lateItems = items.filter(
-    (item) => classifyTmcPurchasedDeliveryBucket(item) === "deliveredLate",
+    (item) => classifyTmcSupplyPlanMaterialStatus(item, today) === "purchasedLate",
   );
   if (lateItems.length === 0) return 0;
   const totalDays = lateItems.reduce((sum, item) => {
-    const days = tmcSupplyDeliveryDeviationDays(item);
-    return sum + (days !== null && days > 0 ? days : 0);
+    const deviation = tmcSupplyDeliveryDeviationDays(item);
+    if (deviation !== null && deviation > 0) return sum + deviation;
+    return sum + tmcSupplyPlanOverdueDays(item, today);
   }, 0);
   return Math.round(totalDays / lateItems.length);
 }
@@ -4815,11 +5009,11 @@ export type TmcPurchasedBudgetDonutCounts = {
   donutSum: number;
 };
 
-/** Отклонение факт − план по стоимости фактического объёма, %. null — нет факта закупки. */
+/** Отклонение факт − план по стоимости из плана снабжения, %. null — закупка не начата. */
 export function tmcItemBudgetDeviationPct(item: TMCItem): number | null {
-  if (!hasTmcPurchaseFact(item)) return null;
-  const plan = tmcItemVolumeAdjustedPlanCostRub(item);
-  const fact = tmcItemFactCostRub(item);
+  if (!isTmcProcurementStarted(item)) return null;
+  const plan = tmcItemCsvPlanCostRub(item);
+  const fact = tmcItemCsvFactCostRub(item);
   if (plan <= 0) return fact > 0 ? 100 : 0;
   return Math.round(((fact - plan) / plan) * 1000) / 10;
 }
@@ -4833,7 +5027,8 @@ export function classifyTmcPurchasedBudgetBucket(
 ): TmcPurchasedBudgetBucket | null {
   if (!isTmcPurchasedForDeviation(item)) return null;
 
-  if (!hasTmcPurchaseFact(item)) return "noFact";
+  const fact = tmcItemCsvFactCostRub(item);
+  if (fact <= 0) return "noFact";
 
   const deviationPct = tmcItemBudgetDeviationPct(item);
   if (deviationPct === null) return "noFact";
@@ -5128,6 +5323,59 @@ const PURCHASED_DELIVERY_COLORS: Record<TmcPurchasedDeliveryBucket, string> = {
   cancelled: TMC_KPI_DONUT_COLORS.notPurchased,
 };
 
+const SUPPLY_PLAN_MATERIAL_STATUS_LABELS: Record<TmcSupplyPlanMaterialStatus, string> = {
+  fullyPurchased: "Закуплено полностью",
+  partiallyPurchased: "Закуплено частично",
+  purchasedLate: "Закуплено с опозданием",
+  notPurchased: "Не закуплено",
+};
+
+const SUPPLY_PLAN_MATERIAL_STATUS_COLORS: Record<TmcSupplyPlanMaterialStatus, string> = {
+  fullyPurchased: TMC_KPI_DONUT_COLORS.deliveredOnTime,
+  partiallyPurchased: TMC_KPI_DONUT_COLORS.risk,
+  purchasedLate: TMC_KPI_DONUT_COLORS.deliveredLate,
+  notPurchased: TMC_KPI_DONUT_COLORS.notPurchased,
+};
+
+function buildSupplyPlanMaterialStatusDonutSegments(
+  distribution: Pick<
+    TmcSupplyPlanMaterialStatusDistribution,
+    "notPurchased" | "partiallyPurchased" | "fullyPurchased" | "purchasedLate"
+  >,
+): TmcKpiDonutSegment[] {
+  const order: TmcSupplyPlanMaterialStatus[] = [
+    "fullyPurchased",
+    "partiallyPurchased",
+    "purchasedLate",
+    "notPurchased",
+  ];
+  const values: Record<TmcSupplyPlanMaterialStatus, number> = {
+    fullyPurchased: distribution.fullyPurchased,
+    partiallyPurchased: distribution.partiallyPurchased,
+    purchasedLate: distribution.purchasedLate,
+    notPurchased: distribution.notPurchased,
+  };
+  return order
+    .filter((key) => values[key] > 0)
+    .map((key) => ({
+      label: SUPPLY_PLAN_MATERIAL_STATUS_LABELS[key],
+      value: values[key],
+      color: SUPPLY_PLAN_MATERIAL_STATUS_COLORS[key],
+    }));
+}
+
+/** @deprecated Используйте buildSupplyPlanMaterialStatusDonutSegments */
+function buildSupplyPlanDeliveredDonutSegments(
+  counts: Record<TmcSupplyPlanDeliveredDonutBucket, number>,
+): TmcKpiDonutSegment[] {
+  return buildSupplyPlanMaterialStatusDonutSegments({
+    notPurchased: 0,
+    fullyPurchased: counts.fullyPurchased,
+    partiallyPurchased: counts.partiallyPurchased,
+    purchasedLate: counts.purchasedLate,
+  });
+}
+
 const CONTRACT_DELIVERY_LABELS: Record<TmcContractDeliveryDonutBucket, string> = {
   deliveredOnTime: "Поставлено вовремя",
   deliveredLate: "Поставлено с опозданием",
@@ -5301,7 +5549,7 @@ export function computeTmcKpiDonutDistributions(
   today: Date = new Date(),
   tenders: Tender[] = [],
 ): TmcKpiDonutDistributions {
-  const contractDeliveryDonut = computeTmcContractDeliveryDonutCounts(items, today, {
+  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(items, today, {
     logDiagnostic: options?.logDeliveryDiagnostic,
   });
 
@@ -5312,12 +5560,6 @@ export function computeTmcKpiDonutDistributions(
   const purchasedBudgetDonut = computeTmcPurchasedBudgetDonutCounts(items, {
     logDiagnostic: options?.logBudgetDiagnostic,
   });
-
-  const contractDeliveryCounts: Record<TmcContractDeliveryDonutBucket, number> = {
-    deliveredOnTime: contractDeliveryDonut.deliveredOnTime,
-    deliveredLate: contractDeliveryDonut.deliveredLate,
-    inTransit: contractDeliveryDonut.inTransit,
-  };
 
   const remainingStatusCounts: Record<TmcRemainingStatusBucket, number> = {
     overdue: remainderCard.overdueNotPurchasedCount,
@@ -5350,7 +5592,7 @@ export function computeTmcKpiDonutDistributions(
   const overdueReasons = buildRemainderCardDonutSegments(remainderCard);
 
   return {
-    deliveryStatus: buildContractDeliveryDonutSegments(contractDeliveryCounts),
+    deliveryStatus: buildSupplyPlanMaterialStatusDonutSegments(materialStatus),
     overdueStructure: buildRemainingStatusDonutSegments(remainingStatusCounts),
     overdueReasons,
     budgetDeviation: buildPurchasedBudgetDonutSegments(budgetCounts),

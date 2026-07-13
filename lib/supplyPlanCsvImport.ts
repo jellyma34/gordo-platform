@@ -6,6 +6,8 @@ import type { ProjectPartKey } from "@/lib/gprUtils";
 import {
   syncTmcFinancials,
   TMC_GPR_STAGE_ROOT_CODE,
+  supplyPlanProcurementStatusToSupplyStatus,
+  deriveTmcSupplyPlanProcurementStatus,
   type TMCItem,
   type TmcSupplyStatus,
 } from "@/lib/tmcData";
@@ -205,9 +207,9 @@ function inferGprStageFromItemCode(code: string, workGroup: string): string {
 }
 
 function deriveSupplyStatus(volumePlan: number, volumeOrdered: number): TmcSupplyStatus {
-  if (volumeOrdered <= 0) return "план";
-  if (volumePlan > 0 && volumeOrdered >= volumePlan) return "поставлено";
-  return "частично";
+  return supplyPlanProcurementStatusToSupplyStatus(
+    deriveTmcSupplyPlanProcurementStatus(volumePlan, volumeOrdered),
+  );
 }
 
 function supplyPlanItemId(itemCode: string, index: number): string {

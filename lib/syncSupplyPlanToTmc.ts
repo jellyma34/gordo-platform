@@ -5,7 +5,7 @@ import {
   type SupplyPlanColumnMap,
   type SupplyPlanCsvParsed,
 } from "@/lib/supplyPlanCsvImport";
-import { syncTmcFinancials, type TMCItem } from "@/lib/tmcData";
+import { syncTmcFinancials, computeSupplyPlanProcurementDiagnostics, supplyPlanProcurementStatusToSupplyStatus, deriveTmcSupplyPlanProcurementStatus, type SupplyPlanProcurementDiagnostics, type TMCItem } from "@/lib/tmcData";
 
 /** Строка материала из CSV плана снабжения (после разбора). */
 export type SupplyPlanMaterialRow = {
@@ -39,6 +39,7 @@ export type SupplyPlanSyncStats = {
   updated: number;
   created: number;
   stageMatchFailed: number;
+  procurementDiagnostics: SupplyPlanProcurementDiagnostics;
 };
 
 function normalizeStageKey(value: string): string {
@@ -192,6 +193,7 @@ function findTmcMatchIndex(scope: TMCItem[], row: SupplyPlanMaterialRow): number
 
 function applySupplyPlanRowToTmcItem(item: TMCItem, row: SupplyPlanMaterialRow): TMCItem {
   const factCost = row.factCost;
+  const procurementStatus = deriveTmcSupplyPlanProcurementStatus(row.volumePlan, row.volumeOrdered);
 
   return syncTmcFinancials({
     ...item,
@@ -207,9 +209,10 @@ function applySupplyPlanRowToTmcItem(item: TMCItem, row: SupplyPlanMaterialRow):
     factCost,
     totalPlan: row.costPlan,
     totalFact: factCost ?? 0,
+    status: supplyPlanProcurementStatusToSupplyStatus(procurementStatus),
     supplyPlanDate: row.gprEndDate ?? item.supplyPlanDate,
     contractPlanDate: row.gprStartDate ?? item.contractPlanDate,
-    // Сохраняем из основного ТМЦ: status, supplier, contract, supplyFactDate, contractFactDate
+    // Сохраняем из основного ТМЦ: supplier, contract, supplyFactDate, contractFactDate
   });
 }
 
@@ -220,6 +223,7 @@ function createTmcItemFromSupplyPlanRow(
 ): TMCItem {
   const factCost = row.factCost;
   const itemCode = row.itemCode || `2.05.99.${String(index).padStart(3, "0")}`;
+  const procurementStatus = deriveTmcSupplyPlanProcurementStatus(row.volumePlan, row.volumeOrdered);
 
   return syncTmcFinancials({
     id: row.itemCode ? `tmc-sp-${row.itemCode.replace(/\s+/g, "")}` : newTmcId(index),
@@ -235,7 +239,7 @@ function createTmcItemFromSupplyPlanRow(
     totalFact: 0,
     supplier: "",
     contract: "",
-    status: "план",
+    status: supplyPlanProcurementStatusToSupplyStatus(procurementStatus),
     planCost: row.costPlan,
     factCost,
     supplyPlanDate: row.gprEndDate,
@@ -252,13 +256,16 @@ function buildSyncStats(
   updated: number,
   created: number,
   stageMatchFailed: number,
+  scope: TMCItem[],
 ): SupplyPlanSyncStats {
+  const procurementDiagnostics = computeSupplyPlanProcurementDiagnostics(scope);
   return {
     parsedRows: parsed.rows.length,
     materialRows: materialRows.length,
     updated,
     created,
     stageMatchFailed,
+    procurementDiagnostics,
     updatedItems: updated,
     aggregatedStages: 0,
     unmatchedStageRows: stageMatchFailed,
@@ -310,7 +317,7 @@ export function syncSupplyPlanToTmc(
 
   return {
     items: projectPart != null ? [...otherParts, ...scope] : scope,
-    stats: buildSyncStats(parsed, materialRows, updated, created, stageMatchFailed),
+    stats: buildSyncStats(parsed, materialRows, updated, created, stageMatchFailed, scope),
   };
 }
 

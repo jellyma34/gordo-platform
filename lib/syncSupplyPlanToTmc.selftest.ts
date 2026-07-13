@@ -74,9 +74,15 @@ const emptyBase = syncSupplyPlanToTmc([], parsed, "residential");
 if (emptyBase.stats.created !== 2) {
   throw new Error(`Expected 2 created from empty base, got ${emptyBase.stats.created}`);
 }
+if (emptyBase.stats.procurementDiagnostics.totalMaterials !== 2) {
+  throw new Error(
+    `Expected diagnostics totalMaterials=2, got ${emptyBase.stats.procurementDiagnostics.totalMaterials}`,
+  );
+}
 
 console.log("syncSupplyPlanToTmc.selftest: OK", {
   updated: stats.updated,
   created: stats.created,
   total: upserted.length,
+  diagnostics: stats.procurementDiagnostics,
 });

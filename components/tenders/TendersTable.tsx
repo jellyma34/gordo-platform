@@ -11,11 +11,13 @@ import {
   type ChangeEvent,
 } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { bulkImportTendersToDb, listTendersFromDb } from "@/lib/constructionApi";
+import { bulkImportTendersToDb } from "@/lib/constructionApi";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import {
   getGprProjectId,
   loadPersistedTenderItems,
+  loadTenderRecordsForAnalytics,
+  persistTenderImportSnapshot,
   postTenderImportToApi,
   saveTendersToLocalStorage,
 } from "@/lib/tenderImportPersistence";
@@ -33,6 +35,11 @@ import {
   importTenderCsvFile,
   type TenderCsvImportAudit,
 } from "@/lib/tenderCsvImportUi";
+import { parseTenderProcurementCsvFile } from "@/lib/tenderProcurementCsvImport";
+import {
+  syncTenderProcurementData,
+  type TenderProcurementSyncStats,
+} from "@/lib/syncTenderProcurementData";
 import { diffTendersImportScoped, type TenderImportDiffStats } from "@/lib/tenderImportDiff";
 import {
   logPipelineAfterDiff,
@@ -144,6 +151,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const procurementCsvInputRef = useRef<HTMLInputElement>(null);
   /** Поколение активного импорта (инкремент при каждом выборе файла). */
   const importGenerationRef = useRef(0);
   /** Счётчик попыток импорта (для гонки с bootstrap-load). */
@@ -152,6 +160,9 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
   const importCommittedAttemptRef = useRef(0);
   const [importStats, setImportStats] = useState<TenderImportDiffStats | null>(null);
   const [importAudit, setImportAudit] = useState<TenderCsvImportAudit | null>(null);
+  const [procurementSyncStats, setProcurementSyncStats] = useState<TenderProcurementSyncStats | null>(
+    null,
+  );
 
   type ImportUiSnapshot = {
     items: Tender[];
@@ -321,15 +332,16 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
     const loadAttemptAtStart = importAttemptRef.current;
     (async () => {
       try {
-        const rows = await listTendersFromDb(token);
+        const loaded = await loadTenderRecordsForAnalytics(projectId, { token });
         if (cancelled) return;
-        if (shouldSkipBootstrapLoad(loadAttemptAtStart, "listTendersFromDb")) return;
-        auditTrace("listTendersFromDb → setItems", {
+        if (shouldSkipBootstrapLoad(loadAttemptAtStart, "loadTenderRecordsForAnalytics")) return;
+        auditTrace("loadTenderRecordsForAnalytics → setItems", {
           generation: importGenerationRef.current,
           attemptId: importAttemptRef.current,
-          registryLength: rows.length,
+          registryLength: loaded.tenders.length,
+          source: loaded.source,
         });
-        setItems(rows);
+        setItems(loaded.tenders);
         setLoadError(null);
       } catch (e) {
         if (!cancelled) {
@@ -515,10 +527,11 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
         return;
       }
     }
+    persistTenderImportSnapshot(projectId, items);
     if (tenderLocalMode) {
-      saveTendersToLocalStorage(projectId, items);
-      void postTenderImportToApi(projectId, items);
-      window.dispatchEvent(new Event("gordo-tenders-saved"));
+      window.dispatchEvent(
+        new CustomEvent("gordo-tenders-saved", { detail: { count: items.length } }),
+      );
       return;
     }
     if (!token) {
@@ -526,9 +539,10 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       return;
     }
     try {
-      const saved = await bulkImportTendersToDb(token, items);
-      setItems(saved);
-      window.dispatchEvent(new Event("gordo-tenders-saved"));
+      await bulkImportTendersToDb(token, items);
+      window.dispatchEvent(
+        new CustomEvent("gordo-tenders-saved", { detail: { count: items.length } }),
+      );
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Не удалось сохранить тендеры");
     }
@@ -658,17 +672,17 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
 
         let finalItems = result;
 
+        persistTenderImportSnapshot(projectId, result);
+
         if (tenderLocalMode) {
           logPipelineBeforeSave(
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 424 },
             { mode: "localStorage", recordsToSave: result.length, firstRecord: result[0] ?? null },
           );
-          saveTendersToLocalStorage(projectId, result);
           logPipelineAfterSave(
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 429 },
             { mode: "localStorage", savedCount: result.length, firstCode: result[0]?.code ?? null },
           );
-          void postTenderImportToApi(projectId, result);
         } else if (token) {
           logPipelineBeforeSave(
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 435 },
@@ -682,14 +696,14 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             skipped: audit.skipped,
             total: stats.total,
             itemsLength: saved.length,
-            registryLength: saved.length,
+            registryLength: result.length,
           });
           if (isImportGenerationStale(generation, "after bulkImportTendersToDb")) return;
           logPipelineAfterSave(
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 440 },
             { mode: "bulkImport", savedCount: saved.length, firstCode: saved[0]?.code ?? null },
           );
-          finalItems = saved;
+          finalItems = result;
         } else {
           logPipelineBeforeSave(
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 446 },
@@ -704,13 +718,75 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
           { items: finalItems, audit, stats },
           "success",
         );
-        window.dispatchEvent(new Event("gordo-tenders-saved"));
+        window.dispatchEvent(
+          new CustomEvent("gordo-tenders-saved", { detail: { count: finalItems.length } }),
+        );
       } catch (err) {
         console.error(err);
         window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
       }
     },
     [token, items, projectId],
+  );
+
+  const handleProcurementCsvImport = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const { tenders: incoming, audit } = await parseTenderProcurementCsvFile(file);
+        const { tenders: merged, stats } = syncTenderProcurementData(
+          items,
+          incoming,
+          activePartId,
+          audit,
+        );
+
+        console.group("[Tenders procurement] sync chain");
+        console.log("file:", file.name);
+        console.log("sync stats:", stats);
+        console.groupEnd();
+
+        if (stats.loadedRows === 0) {
+          setProcurementSyncStats(stats);
+          window.alert(
+            "В файле данных закупки нет распознаваемых строк (или некорректный формат). Смотрите консоль.",
+          );
+          return;
+        }
+
+        setImportStats(null);
+        setImportAudit(null);
+        setProcurementSyncStats(stats);
+        setItems(merged);
+        persistTenderImportSnapshot(projectId, merged);
+
+        if (!tenderLocalMode && token) {
+          try {
+            await bulkImportTendersToDb(token, merged);
+          } catch (dbError) {
+            console.error(dbError);
+            window.alert(
+              dbError instanceof Error
+                ? dbError.message
+                : "Данные закупки сохранены локально, но не удалось записать в БД.",
+            );
+          }
+        } else if (!tenderLocalMode && !token) {
+          window.alert("Синхронизация отображена локально, но без авторизации не сохранена в БД");
+        }
+        window.dispatchEvent(
+          new CustomEvent("gordo-tenders-saved", { detail: { count: merged.length } }),
+        );
+      } catch (err) {
+        console.error(err);
+        window.alert(
+          err instanceof Error ? err.message : "Не удалось синхронизировать данные закупки с тендерами.",
+        );
+      }
+    },
+    [token, items, activePartId, projectId],
   );
 
   const resetToSeed = useCallback(() => {
@@ -863,12 +939,26 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             className="hidden"
             onChange={(ev) => void handleTenderCsvImport(ev)}
           />
+          <input
+            ref={procurementCsvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(ev) => void handleProcurementCsvImport(ev)}
+          />
           <button
             type="button"
             onClick={() => csvInputRef.current?.click()}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
           >
             Импорт CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => procurementCsvInputRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Импорт данных закупки
           </button>
           <button
             type="button"
@@ -907,6 +997,33 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             <option value="gray">Нет договора</option>
           </select>
         </div>
+        {procurementSyncStats ? (
+          <div className="mt-2 space-y-1 text-xs leading-snug text-slate-600">
+            <p className="font-medium text-slate-700">Данные закупки (сверка с CSV):</p>
+            <ul className="list-inside list-disc text-slate-600">
+              <li>Строк прочитано: {procurementSyncStats.parsedRows}</li>
+              <li>Загружено из CSV: {procurementSyncStats.loadedRows}</li>
+              <li>Найдено совпадений: {procurementSyncStats.matched}</li>
+              <li>Обновлено записей: {procurementSyncStats.updated}</li>
+              <li>Создано новых: {procurementSyncStats.created}</li>
+              <li>
+                Пропущено: {procurementSyncStats.skippedRows + procurementSyncStats.matchFailed}
+              </li>
+              {procurementSyncStats.matchFailed > 0 ? (
+                <li>Ошибки сопоставления: {procurementSyncStats.matchFailed}</li>
+              ) : null}
+              {procurementSyncStats.errors.length > 0 ? (
+                <li className="list-none text-amber-800">
+                  Причины пропуска (см. консоль):{" "}
+                  {procurementSyncStats.errors.slice(0, 5).join("; ")}
+                  {procurementSyncStats.errors.length > 5
+                    ? ` …ещё ${procurementSyncStats.errors.length - 5}`
+                    : ""}
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
         {importStats || importAudit ? (
           <p className="mt-2 text-xs leading-snug text-slate-600">
             {importAudit ? (

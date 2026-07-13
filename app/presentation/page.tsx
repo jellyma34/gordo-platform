@@ -6,11 +6,11 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubReportingPeriodSelector } from "@/components/presentation/HubReportingPeriodSelector";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
-import { listGprTasksFromDb, listTendersFromDb, listTmcFromDb } from "@/lib/constructionApi";
+import { listGprTasksFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { getGprProjectId, loadPersistedGprTasks } from "@/lib/gprImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
 import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
-import { loadPersistedTenderItems } from "@/lib/tenderImportPersistence";
+import { loadTenderRecordsForAnalytics } from "@/lib/tenderImportPersistence";
 import { loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 import type { GPRTask } from "@/lib/gprUtils";
@@ -78,40 +78,29 @@ export default function PresentationEntry() {
   }, [hydrated, token]);
 
   useEffect(() => {
-    if (gprLocalMode) {
-      let cancelled = false;
-      const load = async () => {
-        const r = await loadPersistedTenderItems(projectId);
-        if (!cancelled) setTenders(r.tenders);
-      };
-      void load();
-      const bump = () => {
-        void load();
-      };
-      window.addEventListener("gordo-tenders-saved", bump);
-      const onStorage = (event: StorageEvent) => {
-        if (!event.key || !event.key.includes(`tender_import_${projectId}`)) return;
-        void load();
-      };
-      window.addEventListener("storage", onStorage);
-      return () => {
-        cancelled = true;
-        window.removeEventListener("gordo-tenders-saved", bump);
-        window.removeEventListener("storage", onStorage);
-      };
-    }
-    if (!hydrated || !token) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const list = await listTendersFromDb(token);
-        if (!cancelled) setTenders(list);
-      } catch (e) {
-        console.error(e);
-      }
-    })();
+    const load = async () => {
+      const loaded = await loadTenderRecordsForAnalytics(projectId, {
+        token: gprLocalMode ? null : token,
+      });
+      if (!cancelled) setTenders(loaded.tenders);
+    };
+    if (!gprLocalMode && (!hydrated || !token)) return;
+
+    void load();
+    const bump = () => {
+      void load();
+    };
+    window.addEventListener("gordo-tenders-saved", bump);
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || !event.key.includes(`tender_import_${projectId}`)) return;
+      void load();
+    };
+    window.addEventListener("storage", onStorage);
     return () => {
       cancelled = true;
+      window.removeEventListener("gordo-tenders-saved", bump);
+      window.removeEventListener("storage", onStorage);
     };
   }, [projectId, hydrated, token]);
 
