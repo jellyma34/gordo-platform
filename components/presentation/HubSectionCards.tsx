@@ -140,7 +140,8 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
   const { Icon, glowColor, waveColor, gradient } = theme;
   const isWideConstruction = Boolean(block.wide && block.constructionProjectKpi);
   const isMarketingCompactKpi = block.title === "Маркетинг" && Boolean(block.marketingProjectKpi);
-  const useTopHeaderLayout = isWideConstruction || isMarketingCompactKpi;
+  const isFinanceHub = block.title === "Финансы";
+  const useTopHeaderLayout = isWideConstruction || isMarketingCompactKpi || isFinanceHub;
 
   const rubKpiAmount = (value: number): string => {
     const formatted = new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(value)));
@@ -228,7 +229,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
             </span>
           </div>
 
-          <div className={isWideConstruction ? "pt-4" : isMarketingCompactKpi ? "pt-2" : "mt-auto pt-6"}>
+          <div className={isWideConstruction ? "pt-4" : isMarketingCompactKpi || isFinanceHub ? "pt-2" : "mt-auto pt-6"}>
             <div className="flex items-center gap-2.5">
               {!useTopHeaderLayout ? (
                 <>
@@ -241,7 +242,11 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                 </>
               ) : null}
             </div>
-            {!useTopHeaderLayout ? (
+            {isFinanceHub ? (
+              <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
+                {block.description}
+              </p>
+            ) : !useTopHeaderLayout ? (
               <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-slate-300/85 md:text-[15px]">
                 {block.description}
               </p>
