@@ -27,6 +27,13 @@ const statusTitle: Record<StatusTone, string> = {
   red: "Требует внимания",
 };
 
+/** Единая внутренняя сетка KPI «Строительство» на Dashboard. */
+const HUB_CONSTRUCTION_KPI_TITLE_CLASS =
+  "text-[9px] font-medium uppercase tracking-wider text-slate-500";
+const HUB_CONSTRUCTION_KPI_MAIN_CLASS = "mt-1.5 tabular-nums tracking-tight";
+const HUB_CONSTRUCTION_KPI_MIDDLE_CLASS = "mt-2 flex flex-col gap-2.5";
+const HUB_CONSTRUCTION_KPI_CHART_BLOCK_CLASS = "mt-3 space-y-1";
+
 export type HubBlock = {
   title: string;
   /** Одна строка */
@@ -305,10 +312,10 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     }}
                     aria-label="KPI Отклонение от тендерного бюджета"
                   >
-                    <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                    <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                       {block.tenderBudgetKpi.title}
                     </div>
-                    <div className="mt-1.5 tabular-nums tracking-tight">
+                    <div className={HUB_CONSTRUCTION_KPI_MAIN_CLASS}>
                       <span
                         className={`text-4xl font-extrabold ${
                           block.tenderBudgetKpi.mainRub < 0
@@ -321,9 +328,9 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         {rubKpiSignedAmount(block.tenderBudgetKpi.mainRub)}
                       </span>
                     </div>
-                    <div className="mt-2 flex flex-col gap-2.5">
+                    <div className={HUB_CONSTRUCTION_KPI_MIDDLE_CLASS}>
                       <div className="border-t border-slate-600/35 pt-3">
-                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                        <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                           ЭКОНОМИЯ
                         </div>
                         <div className="mt-1 flex items-baseline gap-1 tabular-nums tracking-tight">
@@ -336,7 +343,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                       <div className="border-t border-slate-600/35 pt-3">
-                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                        <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                           ПЕРЕРАСХОД
                         </div>
                         <div className="mt-0.5 text-[19px] font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
@@ -344,7 +351,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 space-y-1">
+                    <div className={HUB_CONSTRUCTION_KPI_CHART_BLOCK_CLASS}>
                       <div className="border-t border-slate-600/35" />
                       <div className="pt-2">
                         <KpiDonutChart
@@ -371,10 +378,10 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                     }}
                     aria-label="KPI Отклонение от закупленного"
                   >
-                    <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                    <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                       {block.tmcPurchasedDeviationKpi.title}
                     </div>
-                    <div className="mt-1.5 tabular-nums tracking-tight">
+                    <div className={HUB_CONSTRUCTION_KPI_MAIN_CLASS}>
                       <span
                         className={`text-4xl font-extrabold ${
                           block.tmcPurchasedDeviationKpi.mainRub < 0
@@ -387,9 +394,9 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         {rubKpiSignedAmount(block.tmcPurchasedDeviationKpi.mainRub)} ₽
                       </span>
                     </div>
-                    <div className="mt-1.5 flex flex-1 flex-col gap-3">
+                    <div className={HUB_CONSTRUCTION_KPI_MIDDLE_CLASS}>
                       <div className="border-t border-slate-600/35 pt-3">
-                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                        <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                           ПОТРАЧЕНО
                         </div>
                         <div className="mt-1 flex items-baseline gap-1 tabular-nums tracking-tight">
@@ -402,7 +409,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                       <div className="border-t border-slate-600/35 pt-3">
-                        <div className="text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                        <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>
                           ПЕРЕРАСХОД
                         </div>
                         <div className="mt-0.5 text-[19px] font-extrabold tabular-nums tracking-tight text-[#ff5b6b]">
@@ -410,9 +417,9 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 space-y-1">
+                    <div className={HUB_CONSTRUCTION_KPI_CHART_BLOCK_CLASS}>
                       <div className="border-t border-slate-600/35" />
-                      <div className="pt-1.5">
+                      <div className="pt-2">
                         <KpiDonutChart
                           segments={block.tmcPurchasedDeviationKpi.budgetDeviationSegments}
                           chartHeight={188}

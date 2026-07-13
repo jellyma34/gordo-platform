@@ -2,7 +2,11 @@
 
 import { useEffect, useId, type ReactNode } from "react";
 import { Check, Circle, HardHat, RefreshCw } from "lucide-react";
-import { KpiDonutChart, type KpiDonutSegment } from "@/components/tmc/KpiDonutChart";
+import {
+  getKpiDonutSvgRingGeometry,
+  KpiDonutChart,
+  type KpiDonutSegment,
+} from "@/components/tmc/KpiDonutChart";
 
 const COLORS = {
   green: "#22c55e",
@@ -327,6 +331,12 @@ const GPR_KPI_CRITICAL_LABEL_CLASS =
 const GPR_KPI_CRITICAL_VALUE_CLASS =
   "text-2xl font-extrabold tabular-nums tracking-tight text-[#ef4444]";
 
+/** Единая внутренняя сетка KPI «Строительство» на Dashboard (как в HubSectionCards). */
+const HUB_CONSTRUCTION_KPI_TITLE_CLASS =
+  "text-[9px] font-medium uppercase tracking-wider text-slate-500";
+const HUB_CONSTRUCTION_KPI_MAIN_CLASS = "mt-1.5 tabular-nums tracking-tight";
+const HUB_CONSTRUCTION_KPI_CHART_BLOCK_CLASS = "mt-3 space-y-1";
+
 function isGprStage205NotStartedOnTimeBottomKpi(
   dashboardBottomKpi?: { label: string; primaryText: string },
 ): boolean {
@@ -502,8 +512,9 @@ function GprKpiLargeProgressRing({
   compact?: boolean;
 }) {
   const size = 100;
-  const strokeWidth = compact ? 7 : 8;
-  const radius = (size - strokeWidth) / 2;
+  const { radius, strokeWidth } = compact
+    ? getKpiDonutSvgRingGeometry(size)
+    : { radius: (size - 8) / 2, strokeWidth: 8 };
   const circumference = 2 * Math.PI * radius;
 
   const notStartedOverdueCount = Math.max(
@@ -623,6 +634,45 @@ function GprKpiStatusListRow({
       </div>
       <div className={`min-w-0 truncate pl-2 pr-1.5 ${compact ? "text-[11px]" : "text-xs"} font-medium text-slate-400`}>{label}</div>
       <div className={`shrink-0 ${compact ? "text-base" : "text-lg"} font-bold tabular-nums leading-none text-white`}>{value}</div>
+    </div>
+  );
+}
+
+function GprKpiDonutStyleLegend({
+  items,
+}: {
+  items: Array<{ label: string; value: number; color: string }>;
+}) {
+  const leftLegend = items.slice(0, Math.ceil(items.length / 2));
+  const rightLegend = items.slice(Math.ceil(items.length / 2));
+
+  const renderList = (list: typeof items) => (
+    <ul className="min-w-0 flex-1 space-y-1.5">
+      {list.map((item) => (
+        <li key={item.label} className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{
+                backgroundColor: item.color,
+                boxShadow: `0 0 10px ${item.color}cc`,
+              }}
+              aria-hidden
+            />
+            <span className="text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300">
+              {item.label}
+            </span>
+          </span>
+          <span className="shrink-0 tabular-nums text-base font-semibold text-white">{item.value}</span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  return (
+    <div className="grid grid-cols-2 gap-x-5">
+      {renderList(leftLegend)}
+      {rightLegend.length > 0 ? renderList(rightLegend) : <div />}
     </div>
   );
 }
@@ -849,6 +899,89 @@ function GprStageKpiDashboardBody({
   hideHeaderBadge?: boolean;
 }) {
   const criticalBottomKpi = isGprStage205NotStartedOnTimeBottomKpi(dashboardBottomKpi);
+  const isHubConstructionKpi =
+    hideDashboardHeader && dashboardLegendBelowChart && dashboardTopDeviationKpi !== undefined;
+
+  if (isHubConstructionKpi) {
+    const legendItems: Array<{ label: string; value: number; color: string }> = [
+      {
+        label: "Завершено",
+        value: businessCompletedCount + businessLateCount,
+        color: GPR_KPI_STATUS_COLORS.completedOnTime,
+      },
+      {
+        label: "В процессе",
+        value: businessInProgressCount,
+        color: GPR_KPI_STATUS_COLORS.inProgress,
+      },
+      {
+        label: "Не начато",
+        value: businessNotStartedCount,
+        color: GPR_KPI_STATUS_COLORS.notStarted,
+      },
+    ];
+    if (dashboardStatusNotStartedOnTimeCount !== undefined) {
+      legendItems.push({
+        label: "Не начаты в срок",
+        value: dashboardStatusNotStartedOnTimeCount,
+        color: GPR_KPI_STATUS_COLORS.notStartedOnTime,
+      });
+    }
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className={HUB_CONSTRUCTION_KPI_TITLE_CLASS}>{dashboardTopDeviationKpi.label}</div>
+        <div className={HUB_CONSTRUCTION_KPI_MAIN_CLASS}>
+          <span
+            className={`text-4xl font-extrabold ${dashboardDeviationValueColorClass(dashboardTopDeviationKpi.delta)}`}
+          >
+            {dashboardTopDeviationKpi.value}
+          </span>
+        </div>
+        <div className={`${HUB_CONSTRUCTION_KPI_CHART_BLOCK_CLASS} flex min-h-0 flex-1 flex-col`}>
+          <div className="border-t border-slate-600/35 shrink-0" />
+          <div className="flex min-h-0 flex-1 flex-col pt-2">
+            <div className="shrink-0 space-y-2">
+              <div className="flex items-center justify-center">
+                <div className="w-full" title={factTitle}>
+                  <GprKpiLargeProgressRing
+                    factValue={factValue}
+                    planValue={planValue}
+                    completedCount={businessCompletedCount}
+                    inProgressCount={businessInProgressCount}
+                    lateCount={businessLateCount}
+                    notStartedCount={businessNotStartedCount}
+                    notStartedOnTimeCount={dashboardStatusNotStartedOnTimeCount}
+                    className={`mx-auto w-full ${dashboardCompact ? "max-w-[266px]" : "max-w-[288px]"}`}
+                    compact={dashboardCompact}
+                  />
+                </div>
+              </div>
+              <div className={`grid justify-items-center ${dashboardCompact ? "gap-0" : "gap-0.5"} text-center`}>
+                <div className="tabular-nums leading-none tracking-tight">
+                  <span className={`${dashboardCompact ? "text-[20px]" : "text-[22px]"} font-extrabold text-white`}>
+                    {completedStages}
+                  </span>
+                  <span className={`${dashboardCompact ? "text-[15px]" : "text-[17px]"} font-medium text-slate-400`}>
+                    {" "}
+                    / {totalStages}
+                  </span>
+                </div>
+                <div
+                  className={`${dashboardCompact ? "text-[8px]" : "text-[9px]"} font-semibold uppercase tracking-[0.12em] text-slate-500`}
+                >
+                  РАБОТ
+                </div>
+              </div>
+            </div>
+            <div className="mt-auto shrink-0 pt-2">
+              <GprKpiDonutStyleLegend items={legendItems} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1328,7 +1461,13 @@ export function GprStageKpiCard({
         waveOpacity={layoutVariant === "dashboard" ? undefined : theme.waveOpacity}
         visualTone={layoutVariant === "dashboard" && !dashboardPremiumSurface ? "calm" : "default"}
         premiumSurface={layoutVariant === "dashboard" && dashboardPremiumSurface}
-        paddingClass={layoutVariant === "dashboard" ? "px-2.5 py-2" : "p-6"}
+        paddingClass={
+          layoutVariant === "dashboard"
+            ? dashboardPremiumSurface
+              ? "p-4"
+              : "px-2.5 py-2"
+            : "p-6"
+        }
       >
         {layoutVariant === "dashboard" ? (
           <GprStageKpiDashboardBody

@@ -15,6 +15,23 @@ export type KpiDonutSegment = {
   color: string;
 };
 
+/** Единая геометрия donut KPI: Recharts Pie innerRadius / outerRadius. */
+export const KPI_DONUT_INNER_RADIUS_RATIO = 0.58;
+export const KPI_DONUT_OUTER_RADIUS_RATIO = 0.88;
+
+/** SVG-кольцо с теми же пропорциями, что у KpiDonutChart (stroke по центру пути). */
+export function getKpiDonutSvgRingGeometry(viewBoxSize: number): {
+  radius: number;
+  strokeWidth: number;
+} {
+  const maxRadius = viewBoxSize / 2;
+  const outerRadius = KPI_DONUT_OUTER_RADIUS_RATIO * maxRadius;
+  const innerRadius = KPI_DONUT_INNER_RADIUS_RATIO * maxRadius;
+  const strokeWidth = outerRadius - innerRadius;
+  const radius = (outerRadius + innerRadius) / 2;
+  return { radius, strokeWidth };
+}
+
 type KpiDonutChartProps = {
   segments: KpiDonutSegment[];
   /**
@@ -335,8 +352,8 @@ export function KpiDonutChart({
                 nameKey="label"
                 cx="50%"
                 cy="50%"
-                innerRadius="58%"
-                outerRadius="88%"
+                innerRadius={`${KPI_DONUT_INNER_RADIUS_RATIO * 100}%`}
+                outerRadius={`${KPI_DONUT_OUTER_RADIUS_RATIO * 100}%`}
                 paddingAngle={chartData.length > 1 ? 2 : 0}
                 stroke="rgba(255,255,255,0.12)"
                 strokeWidth={1}
