@@ -33,6 +33,8 @@ import {
   saveTmcTasksToLocalStorage,
 } from "@/lib/tmcImportPersistence";
 import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
+import { parseSupplyPlanCsvFile } from "@/lib/supplyPlanCsvImport";
+import { syncSupplyPlanToTmc, type SupplyPlanSyncStats } from "@/lib/syncSupplyPlanToTmc";
 import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
   computeTmcDataDiagnostics,
@@ -259,7 +261,9 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   const [tmcPersistReady, setTmcPersistReady] = useState(!tmcLocalMode);
   const [tmcDbLoaded, setTmcDbLoaded] = useState(tmcLocalMode);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const supplyPlanCsvInputRef = useRef<HTMLInputElement>(null);
   const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
+  const [supplyPlanSyncStats, setSupplyPlanSyncStats] = useState<SupplyPlanSyncStats | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ProcurementRisk>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -507,6 +511,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         console.log("import stats:", stats);
         console.groupEnd();
         setImportStats(stats);
+        setSupplyPlanSyncStats(null);
         setItems(merged);
         if (tmcLocalMode) {
           saveTmcTasksToLocalStorage(projectId, merged);
@@ -543,6 +548,53 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       }
     },
     [token, items, activeProjectPart, projectId, tmcDbLoaded],
+  );
+
+  const handleSupplyPlanCsvImport = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (!tmcLocalMode && !tmcDbLoaded) {
+        window.alert("Дождитесь загрузки данных из БД перед импортом.");
+        return;
+      }
+      try {
+        const parsed = await parseSupplyPlanCsvFile(file);
+        const { items: merged, stats } = syncSupplyPlanToTmc(items, parsed, activeProjectPart);
+        console.group("[TMC supply plan] sync chain");
+        console.log("file:", file.name);
+        console.log("sync stats:", stats);
+        console.groupEnd();
+
+        if (stats.materialRows === 0) {
+          setSupplyPlanSyncStats(stats);
+          window.alert(
+            "В файле плана снабжения нет распознаваемых строк (или некорректный формат). Смотрите консоль.",
+          );
+          return;
+        }
+
+        setImportStats(null);
+        setSupplyPlanSyncStats(stats);
+        setItems(merged);
+        if (tmcLocalMode) {
+          saveTmcTasksToLocalStorage(projectId, merged);
+          void postTmcImportToApi(projectId, merged);
+        } else if (token) {
+          const saved = await bulkImportTmcToDb(token, merged);
+          const rowsFromDb = await listTmcFromDb(token);
+          setItems(rowsFromDb.length > 0 ? rowsFromDb : saved);
+        } else {
+          window.alert("Синхронизация отображена локально, но без авторизации не сохранена в БД");
+        }
+        window.dispatchEvent(new Event("gordo-tmc-saved"));
+      } catch (err) {
+        console.error(err);
+        window.alert(err instanceof Error ? err.message : "Не удалось синхронизировать план снабжения с ТМЦ.");
+      }
+    },
+    [token, items, activeProjectPart, projectId, tmcDbLoaded, tmcLocalMode],
   );
 
   const resetToSeed = useCallback(() => {
@@ -665,12 +717,26 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
             className="hidden"
             onChange={(ev) => void handleTmcCsvImport(ev)}
           />
+          <input
+            ref={supplyPlanCsvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(ev) => void handleSupplyPlanCsvImport(ev)}
+          />
           <button
             type="button"
             onClick={() => csvInputRef.current?.click()}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
           >
             Импорт CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => supplyPlanCsvInputRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Импорт плана снабжения (ГПР)
           </button>
           <button
             type="button"
@@ -704,6 +770,13 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
             ) : null}{" "}
             Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
             {importStats.unchanged}.
+          </p>
+        ) : null}
+        {supplyPlanSyncStats ? (
+          <p className="mt-2 text-xs leading-snug text-slate-600">
+            План снабжения: обработано строк {supplyPlanSyncStats.materialRows}. Обновлено:{" "}
+            {supplyPlanSyncStats.updated}. Создано новых: {supplyPlanSyncStats.created}. Не удалось
+            сопоставить этап ГПР: {supplyPlanSyncStats.stageMatchFailed}.
           </p>
         ) : null}
       </div>

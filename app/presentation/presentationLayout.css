@@ -36,11 +36,105 @@ body.presentation-active {
   z-index: 0;
 }
 
-.presentation-hub > .presentation-content {
+.presentation-hub > .presentation-content,
+.presentation-page-container {
+  --presentation-hub-grid-gap: clamp(0.75rem, 1.8vw, 1.25rem);
+  --presentation-hub-col-left: minmax(0, 1fr);
+  --presentation-hub-col-right: minmax(0, 1fr);
+  box-sizing: border-box;
+  margin-inline: auto;
   max-width: min(100%, 1520px);
   position: relative;
   width: 100%;
   z-index: 1;
+}
+
+.presentation-hub > .presentation-content {
+  align-self: stretch;
+}
+
+@media (min-width: 900px) {
+  .presentation-hub > .presentation-content,
+  .presentation-page-container {
+    --presentation-hub-col-left: minmax(0, 1.85fr);
+    --presentation-hub-col-right: minmax(280px, 1fr);
+  }
+}
+
+@media (min-width: 1320px) {
+  .presentation-hub > .presentation-content,
+  .presentation-page-container {
+    --presentation-hub-col-left: minmax(0, 1.9fr);
+    --presentation-hub-col-right: minmax(320px, 1fr);
+  }
+}
+
+/* Горизонтальные поля как у .presentation-hub (1rem) */
+.presentation-shell-bar {
+  box-sizing: border-box;
+  padding-inline: 1rem;
+  width: 100%;
+}
+
+.presentation-chrome-inner {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "logo actions"
+    "nav nav";
+  min-height: 3.25rem;
+  position: relative;
+}
+
+.presentation-chrome-inner--hub-home {
+  grid-template-areas: "logo actions";
+}
+
+.presentation-chrome-logo {
+  grid-area: logo;
+  justify-self: start;
+  min-width: 0;
+}
+
+.presentation-chrome-nav {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: nav;
+  justify-content: center;
+  justify-self: center;
+  min-width: 0;
+}
+
+.presentation-chrome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: actions;
+  justify-self: end;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .presentation-chrome-inner {
+    gap: var(--presentation-hub-grid-gap);
+    grid-template-areas: "logo actions";
+    grid-template-columns: var(--presentation-hub-col-left) var(--presentation-hub-col-right);
+  }
+
+  .presentation-chrome-nav {
+    justify-self: center;
+    left: 50%;
+    pointer-events: none;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+  }
+
+  .presentation-chrome-nav a {
+    pointer-events: auto;
+  }
 }
 
 .presentation-hero {
@@ -51,6 +145,28 @@ body.presentation-active {
   justify-content: space-between;
   margin-bottom: clamp(1rem, 2.2vw, 1.5rem);
   text-align: left;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .presentation-hero {
+    align-items: center;
+    display: grid;
+    gap: var(--presentation-hub-grid-gap);
+    grid-template-columns: var(--presentation-hub-col-left) var(--presentation-hub-col-right);
+  }
+
+  .presentation-hero-title {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .presentation-hero .presentation-period-wrap {
+    grid-column: 2;
+    justify-self: end;
+    margin-left: 0;
+    width: auto;
+  }
 }
 
 .presentation-hero-title {
@@ -165,7 +281,7 @@ body.presentation-active {
 
 .presentation-section-grid {
   display: grid;
-  gap: clamp(0.75rem, 1.8vw, 1.25rem);
+  gap: var(--presentation-hub-grid-gap);
   grid-template-columns: minmax(0, 1fr);
   justify-content: center;
   justify-items: center;
@@ -174,16 +290,10 @@ body.presentation-active {
 
 @media (min-width: 900px) {
   .presentation-section-grid {
-    grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr);
+    grid-template-columns: var(--presentation-hub-col-left) var(--presentation-hub-col-right);
     grid-template-rows: auto auto;
     justify-items: stretch;
     align-items: stretch;
-  }
-}
-
-@media (min-width: 1320px) {
-  .presentation-section-grid {
-    grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
   }
 }
 
@@ -218,12 +328,13 @@ body.presentation-active {
     padding-bottom: 0.9rem;
   }
 
-  .presentation-hero {
-    margin-bottom: 0.85rem;
+  .presentation-hub > .presentation-content,
+  .presentation-page-container {
+    --presentation-hub-grid-gap: 0.9rem;
   }
 
-  .presentation-section-grid {
-    gap: 0.9rem;
+  .presentation-hero {
+    margin-bottom: 0.85rem;
   }
 }
 

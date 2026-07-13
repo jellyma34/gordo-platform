@@ -140,4 +140,16 @@ console.log(
       remainderCard.inTransitCount +
       remainderCard.overdueCount,
 );
+console.log(
+  "donut = overdueNotPurchased + notPurchased + inTransit?",
+  remainderCard.donutSum ===
+    remainderCard.overdueNotPurchasedCount +
+      remainderCard.notPurchasedOnTimeCount +
+      remainderCard.inTransitDonutCount,
+);
+console.log(
+  "notStarted = overdueNotPurchased + notPurchasedOnTime?",
+  remainderCard.notStartedCount ===
+    remainderCard.overdueNotPurchasedCount + remainderCard.notPurchasedOnTimeCount,
+);
 

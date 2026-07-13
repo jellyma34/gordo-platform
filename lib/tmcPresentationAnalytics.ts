@@ -4337,22 +4337,65 @@ export function computeTmcContractDeliveryDonutCounts(
 
 /** Сегмент donut карточки «В работе» — остаток после поставки. */
 export type TmcRemainderCardDonutBucket =
-  | "notStarted"
-  | "tenderInProgress"
-  | "inTransit"
-  | "overdue";
+  | "overdueNotPurchased"
+  | "notPurchased"
+  | "inTransit";
 
 export type TmcRemainderCardCounts = {
   remainingItemCount: number;
-  /** Не объявлен тендер − в пути (процесс закупки не начат). */
+  /** Не закуплено (без закупки/договора, не в пути): просрочено + в срок. */
   notStartedCount: number;
   tenderInProgressCount: number;
   inTransitCount: number;
   overdueCount: number;
+  /** Donut: плановая дата договора/закупки прошла, закупка не начата. */
+  overdueNotPurchasedCount: number;
+  /** Donut: закупка не начата, плановая дата ещё не наступила. */
+  notPurchasedOnTimeCount: number;
+  /** Donut: закупка/договор в работе, поставка не подтверждена. */
+  inTransitDonutCount: number;
   /** Тендер в работе + в пути + просрочено. */
   activeWorkCount: number;
   donutSum: number;
 };
+
+/** Плановая дата договора или закупки для сегмента «Не закуплено». */
+export function tmcPurchaseOrContractPlanDate(item: TMCItem): string | null {
+  return item.contractPlanDate?.trim() || item.supplyPlanDate?.trim() || null;
+}
+
+/** Плановая дата договора/закупки раньше даты отчёта, факт закупки отсутствует. */
+export function isTmcNotPurchasedPlanOverdue(item: TMCItem, today: Date = new Date()): boolean {
+  const plan = tmcPurchaseOrContractPlanDate(item);
+  if (!plan) return false;
+  return plan < tmcTodayIso(today);
+}
+
+/**
+ * Donut «В работе»: взаимоисключающий сегмент среди невыполненных позиций.
+ * 1) договор на дату отчёта или закупка начата → в пути;
+ * 2) иначе без закупки/договора: план раньше даты отчёта → просрочено, иначе → не закуплено.
+ */
+export function classifyTmcRemainderCardDonutBucket(
+  item: TmcEnrichedItem,
+  today: Date = new Date(),
+): TmcRemainderCardDonutBucket | null {
+  if (isTmcDeliveryFact(item)) return null;
+
+  if (classifyTmcContractDeliveryDonutBucket(item, today) === "inTransit") {
+    return "inTransit";
+  }
+
+  if (!isTmcNotInitiatedPurchase(item)) {
+    return "inTransit";
+  }
+
+  if (isTmcNotPurchasedPlanOverdue(item, today)) {
+    return "overdueNotPurchased";
+  }
+
+  return "notPurchased";
+}
 
 /** «В пути» среди остатка: договор на дату отчёта, поставка не подтверждена. */
 export function countTmcInTransitAmongRemaining(
@@ -4371,8 +4414,8 @@ export function countTmcInTransitAmongRemaining(
 
 /**
  * KPI и donut карточки «В работе»:
- * активная работа = тендер в работе + в пути + просрочено;
- * не закуплено = не объявлен тендер − в пути.
+ * активная работа = тендер в работе + в пути + просрочено (pipeline);
+ * donut = просрочено (не закуплено) + не закуплено + в пути = остаток.
  */
 export function computeTmcRemainderCardCounts(
   items: TmcEnrichedItem[],
@@ -4382,12 +4425,26 @@ export function computeTmcRemainderCardCounts(
 ): TmcRemainderCardCounts {
   const pipeline = computeTmcPipelineStatusDistribution(items, tenders, today);
   const inTransitCount = countTmcInTransitAmongRemaining(items, today);
-  const notStartedCount = pipeline.counts.tenderNotAnnounced - inTransitCount;
   const tenderInProgressCount = pipeline.counts.tenderInProgress;
   const overdueCount = pipeline.counts.deliveryOverdue;
   const activeWorkCount = tenderInProgressCount + inTransitCount + overdueCount;
-  const donutSum =
-    notStartedCount + tenderInProgressCount + inTransitCount + overdueCount;
+
+  const donutCounts: Record<TmcRemainderCardDonutBucket, number> = {
+    overdueNotPurchased: 0,
+    notPurchased: 0,
+    inTransit: 0,
+  };
+
+  for (const item of items) {
+    const bucket = classifyTmcRemainderCardDonutBucket(item, today);
+    if (bucket) donutCounts[bucket] += 1;
+  }
+
+  const overdueNotPurchasedCount = donutCounts.overdueNotPurchased;
+  const notPurchasedOnTimeCount = donutCounts.notPurchased;
+  const inTransitDonutCount = donutCounts.inTransit;
+  const notStartedCount = overdueNotPurchasedCount + notPurchasedOnTimeCount;
+  const donutSum = overdueNotPurchasedCount + notPurchasedOnTimeCount + inTransitDonutCount;
 
   if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
     console.table({
@@ -4397,6 +4454,9 @@ export function computeTmcRemainderCardCounts(
       inTransitCount,
       overdueCount,
       activeWorkCount,
+      overdueNotPurchasedCount,
+      notPurchasedOnTimeCount,
+      inTransitDonutCount,
       donutSum,
     });
     if (donutSum !== pipeline.remainingItemCount) {
@@ -4413,6 +4473,9 @@ export function computeTmcRemainderCardCounts(
     tenderInProgressCount,
     inTransitCount,
     overdueCount,
+    overdueNotPurchasedCount,
+    notPurchasedOnTimeCount,
+    inTransitDonutCount,
     activeWorkCount,
     donutSum,
   };
@@ -5095,36 +5158,32 @@ function buildContractDeliveryDonutSegments(
 }
 
 const REMAINDER_CARD_LABELS: Record<TmcRemainderCardDonutBucket, string> = {
-  notStarted: TMC_PIPELINE_STATUS_LABELS.tenderNotAnnounced,
-  tenderInProgress: TMC_PIPELINE_STATUS_LABELS.tenderInProgress,
+  overdueNotPurchased: "Просрочено",
+  notPurchased: "Не закуплено",
   inTransit: "В пути",
-  overdue: TMC_PIPELINE_STATUS_LABELS.deliveryOverdue,
 };
 
 const REMAINDER_CARD_COLORS: Record<TmcRemainderCardDonutBucket, string> = {
-  notStarted: TMC_PIPELINE_STATUS_COLORS.tenderNotAnnounced,
-  tenderInProgress: TMC_PIPELINE_STATUS_COLORS.tenderInProgress,
+  overdueNotPurchased: TMC_KPI_DONUT_COLORS.overdue,
+  notPurchased: TMC_KPI_DONUT_COLORS.notPurchased,
   inTransit: TMC_KPI_DONUT_COLORS.inTransit,
-  overdue: TMC_PIPELINE_STATUS_COLORS.deliveryOverdue,
 };
 
 function buildRemainderCardDonutSegments(
   counts: Pick<
     TmcRemainderCardCounts,
-    "notStartedCount" | "tenderInProgressCount" | "inTransitCount" | "overdueCount"
+    "overdueNotPurchasedCount" | "notPurchasedOnTimeCount" | "inTransitDonutCount"
   >,
 ): TmcKpiDonutSegment[] {
   const order: TmcRemainderCardDonutBucket[] = [
-    "notStarted",
-    "tenderInProgress",
+    "overdueNotPurchased",
+    "notPurchased",
     "inTransit",
-    "overdue",
   ];
   const values: Record<TmcRemainderCardDonutBucket, number> = {
-    notStarted: counts.notStartedCount,
-    tenderInProgress: counts.tenderInProgressCount,
-    inTransit: counts.inTransitCount,
-    overdue: counts.overdueCount,
+    overdueNotPurchased: counts.overdueNotPurchasedCount,
+    notPurchased: counts.notPurchasedOnTimeCount,
+    inTransit: counts.inTransitDonutCount,
   };
   return order
     .filter((key) => values[key] > 0)
@@ -5261,17 +5320,20 @@ export function computeTmcKpiDonutDistributions(
   };
 
   const remainingStatusCounts: Record<TmcRemainingStatusBucket, number> = {
-    overdue: remainderCard.overdueCount,
-    notPurchased: remainderCard.notStartedCount,
-    onTime: remainderCard.tenderInProgressCount + remainderCard.inTransitCount,
+    overdue: remainderCard.overdueNotPurchasedCount,
+    notPurchased: remainderCard.notPurchasedOnTimeCount,
+    onTime: remainderCard.inTransitDonutCount,
   };
 
   if (options?.logProblemDiagnostic && process.env.NODE_ENV !== "production") {
     console.table({
-      notStarted: remainderCard.notStartedCount,
+      overdueNotPurchased: remainderCard.overdueNotPurchasedCount,
+      notPurchasedOnTime: remainderCard.notPurchasedOnTimeCount,
+      inTransitDonut: remainderCard.inTransitDonutCount,
+      notStartedTotal: remainderCard.notStartedCount,
       tenderInProgress: remainderCard.tenderInProgressCount,
-      inTransit: remainderCard.inTransitCount,
-      overdue: remainderCard.overdueCount,
+      inTransitKpi: remainderCard.inTransitCount,
+      deliveryOverdue: remainderCard.overdueCount,
       activeWork: remainderCard.activeWorkCount,
       remainingTotal: remainderCard.remainingItemCount,
       donutSum: remainderCard.donutSum,
