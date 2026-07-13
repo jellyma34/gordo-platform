@@ -19,6 +19,19 @@ export type KpiDonutSegment = {
 export const KPI_DONUT_INNER_RADIUS_RATIO = 0.58;
 export const KPI_DONUT_OUTER_RADIUS_RATIO = 0.88;
 
+/** Стили центра donut на hub Dashboard — как у GprKpiLargeProgressRing. */
+export const KPI_DONUT_HUB_CENTER_VALUE_CLASS =
+  "text-[clamp(18px,5.2vw,28px)] font-extrabold tabular-nums tracking-tight text-white";
+export const KPI_DONUT_HUB_CENTER_SUBLABEL_CLASS =
+  "mt-1 text-[clamp(9px,2.4vw,11px)] font-normal tabular-nums text-slate-500/65";
+
+/** Процент для центра donut: numerator / denominator × 100, формат «XX,X%». */
+export function formatKpiDonutCenterPercent(numerator: number, denominator: number): string {
+  if (denominator <= 0) return "—";
+  const pct = Math.round((numerator / denominator) * 1000) / 10;
+  return `${pct.toFixed(1).replace(".", ",")}%`;
+}
+
 /** SVG-кольцо с теми же пропорциями, что у KpiDonutChart (stroke по центру пути). */
 export function getKpiDonutSvgRingGeometry(viewBoxSize: number): {
   radius: number;
@@ -53,6 +66,15 @@ type KpiDonutChartProps = {
   centerSublabel?: string;
   /** Цвет центрального значения. */
   centerValueColor?: string;
+  /** Переопределить классы центрального значения (для dashboard-карточек). */
+  centerValueClassName?: string;
+  /** Переопределить классы подписи под значением (для dashboard-карточек). */
+  centerSublabelClassName?: string;
+  /**
+   * Вариант оформления центра.
+   * hubDashboard — как GprKpiLargeProgressRing на карточке «Отклонение готовности ГПР».
+   */
+  centerVariant?: "default" | "hubDashboard";
   /** Tooltip в формате «Причина / Количество ТМЦ / Доля». */
   reasonTooltip?: boolean;
   /** Увеличенный режим для акцентного KPI-блока. */
@@ -83,6 +105,9 @@ export function KpiDonutChart({
   centerValue,
   centerSublabel,
   centerValueColor = "#f8fafc",
+  centerValueClassName,
+  centerSublabelClassName,
+  centerVariant = "default",
   reasonTooltip = false,
   large = false,
   legendPosition = "right",
@@ -245,6 +270,22 @@ export function KpiDonutChart({
   const leftLegend = useTwoColumns ? legendSegments.slice(0, Math.ceil(legendSegments.length / 2)) : legendSegments;
   const rightLegend = useTwoColumns ? legendSegments.slice(Math.ceil(legendSegments.length / 2)) : [];
 
+  const resolvedCenterValueClassName =
+    centerValueClassName ??
+    (centerVariant === "hubDashboard"
+      ? KPI_DONUT_HUB_CENTER_VALUE_CLASS
+      : large
+        ? "text-xl font-extrabold tabular-nums leading-none tracking-tight"
+        : "text-lg font-extrabold tabular-nums leading-none tracking-tight");
+
+  const resolvedCenterSublabelClassName =
+    centerSublabelClassName ??
+    (centerVariant === "hubDashboard"
+      ? KPI_DONUT_HUB_CENTER_SUBLABEL_CLASS
+      : large
+        ? "mt-1.5 max-w-[5.2rem] text-[10px] font-medium uppercase leading-tight tracking-wide text-slate-400"
+        : "mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400");
+
   return (
     <div className={large ? "space-y-3" : "space-y-2"}>
       <div
@@ -257,31 +298,6 @@ export function KpiDonutChart({
         }
       >
         <div className="relative shrink-0" style={{ width: chartHeight, height: chartHeight }}>
-          {centerValue ? (
-            <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center text-center">
-              <span
-                className={
-                  large
-                    ? "text-xl font-extrabold tabular-nums leading-none tracking-tight"
-                    : "text-lg font-extrabold tabular-nums leading-none tracking-tight"
-                }
-                style={{ color: centerValueColor }}
-              >
-                {centerValue}
-              </span>
-              {centerSublabel ? (
-                <span
-                  className={
-                    large
-                      ? "mt-1.5 max-w-[5.2rem] text-[10px] font-medium uppercase leading-tight tracking-wide text-slate-400"
-                      : "mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400"
-                  }
-                >
-                  {centerSublabel}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <defs>
@@ -374,6 +390,21 @@ export function KpiDonutChart({
               </Pie>
             </PieChart>
           </ResponsiveContainer>
+          {centerValue ? (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+              <div className="text-center leading-none">
+                <div
+                  className={resolvedCenterValueClassName}
+                  style={centerVariant === "hubDashboard" ? undefined : { color: centerValueColor }}
+                >
+                  {centerValue}
+                </div>
+                {centerSublabel ? (
+                  <div className={resolvedCenterSublabelClassName}>{centerSublabel}</div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
         {!isBottomLegend ? renderLegendList(legendSegments) : null}
       </div>

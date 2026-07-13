@@ -5,7 +5,7 @@ import { useId } from "react";
 import { ArrowRight, HardHat, LineChart, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { GprStageKpiCard } from "@/components/construction/GprStageKpiCard";
-import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
+import { KpiDonutChart, formatKpiDonutCenterPercent } from "@/components/tmc/KpiDonutChart";
 
 import type {
   HomeConstructionProjectKpi,
@@ -362,6 +362,12 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                         <KpiDonutChart
                           segments={block.tenderBudgetKpi.budgetDeviationSegments}
                           percentBase={block.tenderBudgetKpi.budgetBlockTenderCount}
+                          centerValue={formatKpiDonutCenterPercent(
+                            block.tenderBudgetKpi.conductedTenderCount,
+                            block.tenderBudgetKpi.totalTenderCount,
+                          )}
+                          centerSublabel="Проведено"
+                          centerVariant="hubDashboard"
                           chartHeight={188}
                           legendPosition="bottom"
                           legendColumns={2}
@@ -396,7 +402,7 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                               : "text-white"
                         }`}
                       >
-                        {rubKpiSignedAmount(block.tmcPurchasedDeviationKpi.mainRub)} ₽
+                        {rubKpiSignedAmount(block.tmcPurchasedDeviationKpi.mainRub)}
                       </span>
                     </div>
                     <div className={HUB_CONSTRUCTION_KPI_MIDDLE_CLASS}>
@@ -427,6 +433,12 @@ function PremiumHubCard({ block }: { block: HubBlock }) {
                       <div className="pt-2">
                         <KpiDonutChart
                           segments={block.tmcPurchasedDeviationKpi.budgetDeviationSegments}
+                          centerValue={formatKpiDonutCenterPercent(
+                            block.tmcPurchasedDeviationKpi.purchasedItemCount,
+                            block.tmcPurchasedDeviationKpi.totalItemCount,
+                          )}
+                          centerSublabel="Закуплено"
+                          centerVariant="hubDashboard"
                           chartHeight={188}
                           legendPosition="bottom"
                           legendColumns={2}

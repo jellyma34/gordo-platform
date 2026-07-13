@@ -10,10 +10,12 @@ import {
 } from "@/lib/gprStageCompletion";
 import {
   computeTenderBudgetFinancialResult,
+  computeTenderProcurementKpi,
   computeTenderKpiDonutDistributions,
 } from "@/lib/tenderPresentationAnalytics";
 import {
   computeTmcKpiDonutDistributions,
+  computeTmcProcurementKpi,
   computeTmcProcurementFinancialResult,
   enrichTmcItems,
 } from "@/lib/tmcPresentationAnalytics";
@@ -103,6 +105,10 @@ export type HomeTenderBudgetKpi = {
   concludedPlanRub: number;
   budgetDeviationSegments: ReturnType<typeof computeTenderKpiDonutDistributions>["budgetDeviation"];
   budgetBlockTenderCount: number;
+  /** KPI «Проведено»: числитель. */
+  conductedTenderCount: number;
+  /** KPI «Проведено»: знаменатель. */
+  totalTenderCount: number;
   glowColor: string;
   waveColor: string;
   gradient: string;
@@ -117,6 +123,10 @@ export type HomeTmcPurchasedDeviationKpi = {
   purchasedPlanRub: number;
   deviationPct: number;
   budgetDeviationSegments: ReturnType<typeof computeTmcKpiDonutDistributions>["budgetDeviation"];
+  /** KPI «Закуплено»: числитель. */
+  purchasedItemCount: number;
+  /** KPI «Закуплено»: знаменатель. */
+  totalItemCount: number;
   glowColor: string;
   waveColor: string;
   gradient: string;
@@ -384,6 +394,7 @@ export function getHomeDashboardSnapshot(
 
   const tenderFinancial = computeTenderBudgetFinancialResult(tenders);
   const tenderDonut = computeTenderKpiDonutDistributions(tenders, asOf);
+  const tenderProcurement = computeTenderProcurementKpi(tenders, asOf);
   const tenderBudgetCardTone =
     tenderFinancial.deviationRub < 0 ? "green" : tenderFinancial.deviationRub > 0 ? "red" : "yellow";
   const tenderBudgetCardVisual = (() => {
@@ -413,6 +424,7 @@ export function getHomeDashboardSnapshot(
   const enrichedTmcItems = enrichTmcItems(tmcItems, asOf);
   const tmcFinancial = computeTmcProcurementFinancialResult(enrichedTmcItems);
   const tmcDonut = computeTmcKpiDonutDistributions(enrichedTmcItems, undefined, asOf, tenders);
+  const tmcProcurement = computeTmcProcurementKpi(enrichedTmcItems, asOf, tenders);
   const tmcPurchasedCardTone =
     tmcFinancial.deviationRub < 0 ? "green" : tmcFinancial.deviationRub > 0 ? "red" : "amber";
   const tmcPurchasedCardVisual = (() => {
@@ -459,6 +471,8 @@ export function getHomeDashboardSnapshot(
       concludedPlanRub: tenderFinancial.concludedPlanRub,
       budgetDeviationSegments: tenderDonut.budgetDeviation,
       budgetBlockTenderCount: tenderDonut.budgetBlockTenderCount,
+      conductedTenderCount: tenderProcurement.conductedCount,
+      totalTenderCount: tenderProcurement.totalCount,
       glowColor: tenderBudgetCardVisual.glowColor,
       waveColor: tenderBudgetCardVisual.waveColor,
       gradient: tenderBudgetCardVisual.gradient,
@@ -472,6 +486,8 @@ export function getHomeDashboardSnapshot(
       purchasedPlanRub: tmcFinancial.purchasedPlanRub,
       deviationPct: tmcFinancial.deviationPct,
       budgetDeviationSegments: tmcDonut.budgetDeviation,
+      purchasedItemCount: tmcProcurement.purchasedItemCount,
+      totalItemCount: tmcProcurement.totalItemCount,
       glowColor: tmcPurchasedCardVisual.glowColor,
       waveColor: tmcPurchasedCardVisual.waveColor,
       gradient: tmcPurchasedCardVisual.gradient,
