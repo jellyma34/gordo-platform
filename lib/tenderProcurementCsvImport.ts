@@ -315,7 +315,17 @@ function buildColumnRules(): ColumnRule[] {
     },
     {
       key: "status",
-      score: (h) => (h.includes("статус") && !h.includes("откл") ? 90 : 0),
+      score: (h) => {
+        if (includes(h, "статус", "тендер")) return 96;
+        if (includes(h, "статус", "закуп")) return 94;
+        if (h === "статус" || h.startsWith("статус__")) return 93;
+        if (includes(h, "стадия", "тендер")) return 90;
+        if ((includes(h, "этап", "тендер") || includes(h, "этап", "закуп")) && excludes(h, "гпр", "работ")) {
+          return 88;
+        }
+        if (h.includes("статус") && !h.includes("откл") && !h.includes("статей")) return 90;
+        return 0;
+      },
     },
     {
       key: "comment",
@@ -583,10 +593,19 @@ function parseProcurementDate(val: unknown): string | null {
 }
 
 function mapProcurementStatus(raw: string): TenderProcurementStatus | undefined {
-  const t = raw.toLowerCase();
+  const t = raw.toLowerCase().replace(/\s+/g, " ");
   if (!t) return undefined;
+  if (
+    /в\s*процессе\s*подпис|на\s*согласован|на\s*рассмотрен|объявлен|ожида.*публика|сбор.*коммерческ|подготовк.*документ/i.test(
+      t,
+    )
+  ) {
+    return undefined;
+  }
   if (/план|заплан|^planned$/i.test(t)) return "planned";
-  if (/работ|прогресс|progress|в процес|^in_progress$/i.test(t)) return "in_progress";
+  if (/^в\s*работе$/i.test(t) || /^in_progress$/i.test(t) || /прогресс|progress/i.test(t)) {
+    return "in_progress";
+  }
   if (/заверш|^completed$/i.test(t)) return "completed";
   if (/задерж|^delayed$/i.test(t)) return "delayed";
   return undefined;

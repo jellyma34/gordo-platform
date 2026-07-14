@@ -84,6 +84,11 @@ export function ConstructionAppSidebar() {
   const sectionParam = searchParams.get("section");
   const resolvedSection: UiConstructionSection =
     sectionParam === "tenders" || sectionParam === "tmc" || sectionParam === "gpr" ? sectionParam : "gpr";
+  const isFinanceRoute =
+    pathname.startsWith("/presentation/finance") || pathname.startsWith("/edit/finance");
+  const editHref = isFinanceRoute
+    ? "/edit/finance"
+    : `/edit/construction?section=${resolvedSection}&partId=${partId}`;
 
   const goSection = (ui: UiConstructionSection) => {
     router.replace(`/presentation/construction?section=${ui}&partId=${partId}`, { scroll: false });
@@ -133,7 +138,7 @@ export function ConstructionAppSidebar() {
               >
                 <span className="font-medium text-slate-300">{chrome.modeLabel}</span>
                 <span className="text-slate-600"> → </span>
-                <span className="text-slate-400">Строительство</span>
+                <span className="text-slate-400">{chrome.sectionLabel ?? "Строительство"}</span>
               </p>
             </>
           ) : (
@@ -186,7 +191,7 @@ export function ConstructionAppSidebar() {
         </div>
 
         <Link
-          href={`/edit/construction?section=${resolvedSection}&partId=${partId}`}
+          href={editHref}
           className={`flex w-full items-center rounded-lg border border-transparent text-sm font-medium text-slate-400 transition-all duration-300 hover:bg-white/[0.05] hover:text-slate-200 ${
             collapsed ? "justify-center gap-0 px-0 py-2" : "justify-start gap-2 px-3 py-2"
           }`}

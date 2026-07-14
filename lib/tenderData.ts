@@ -76,6 +76,45 @@ export function isTenderCycleStatus(value: unknown): value is TenderCycleStatus 
   return typeof value === "string" && TENDER_CYCLE_STATUS_SET.has(value);
 }
 
+const TENDER_LEGACY_PROCUREMENT_STATUS_CODES = new Set<TenderProcurementStatus>([
+  "planned",
+  "in_progress",
+  "completed",
+  "delayed",
+]);
+
+/** Legacy-код закупки (planned / in_progress / …), не подпись этапа процесса. */
+export function isTenderLegacyProcurementStatusCode(raw: string): boolean {
+  return TENDER_LEGACY_PROCUREMENT_STATUS_CODES.has(raw.trim().toLowerCase() as TenderProcurementStatus);
+}
+
+const TENDER_TECHNICAL_PROCESS_STATUS_LABELS = new Set([
+  "other",
+  "прочее",
+  "unknown",
+  "неизвестно",
+  "не определено",
+  "не определён",
+  "не определен",
+]);
+
+/** Технические/служебные подписи — не показывать в KPI «В процессе». */
+export function isTenderTechnicalProcessStatusLabel(raw: string): boolean {
+  const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!t) return true;
+  if (TENDER_TECHNICAL_PROCESS_STATUS_LABELS.has(t)) return true;
+  if (isTenderLegacyProcurementStatusCode(t)) return true;
+  if (t === TENDER_CYCLE_STATUS_LABEL.other.toLowerCase()) return true;
+  return false;
+}
+
+/** Внутренний статус тендерного процесса из импортированных данных (`statusLabel`). */
+export function resolveTenderInternalProcessStatusLabel(t: Tender): string | null {
+  const raw = t.statusLabel?.trim();
+  if (!raw || isTenderTechnicalProcessStatusLabel(raw)) return null;
+  return raw;
+}
+
 /** Нормализация подписи статуса из CSV / БД в этап тендерного цикла. */
 export function normalizeTenderCycleStatus(raw: string): TenderCycleStatus {
   const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -83,8 +122,15 @@ export function normalizeTenderCycleStatus(raw: string): TenderCycleStatus {
 
   if (/не\s*заключ/.test(t)) return "contractNotConcluded";
   if (/отмен/.test(t)) return "cancelled";
+  if (/ожида.*публика/.test(t)) return "postponed";
   if (/перенес/.test(t)) return "postponed";
-  if (/подписан/.test(t)) return "contractSigned";
+  if (/объявлен\s*тендер|^объявлен/.test(t)) return "conducted";
+  if (/в\s*процессе\s*подпис/.test(t)) return "contractPrepared";
+  if (/подготовк.*документ/.test(t)) return "contractPrepared";
+  if (/сбор.*коммерческ|коммерческ.*предлож/.test(t)) return "negotiations";
+  if ((/подписан/.test(t) || /договор\s*подпис/.test(t)) && !/в\s*процессе\s*подпис|не\s*подпис/.test(t)) {
+    return "contractSigned";
+  }
   if (/заключен\s*договор|договор\s*заключ/.test(t)) return "contractSigned";
   if (/направлен/.test(t)) return "contractSent";
   if (/подготовлен/.test(t)) return "contractPrepared";
@@ -107,9 +153,10 @@ export function normalizeTenderCycleStatus(raw: string): TenderCycleStatus {
 export function matchesTenderConductedKpiStatusLabel(raw: string): boolean {
   const t = raw.trim().toLowerCase();
   if (!t || /не\s*заключ/.test(t)) return false;
+  if (/в\s*процессе\s*подпис/.test(t)) return false;
   return (
     /^провед|проведен|проведён/.test(t) ||
-    /подписан/.test(t) ||
+    (/подписан/.test(t) && !/не\s*подпис|в\s*процессе\s*подпис/.test(t)) ||
     /заверш/.test(t) ||
     /заключен\s*договор|договор\s*заключ/.test(t)
   );

@@ -2,6 +2,7 @@ import {
   hasTenderSignedContract,
   matchesTenderConductedKpiStatusLabel,
   resolveTenderCycleStatus,
+  resolveTenderInternalProcessStatusLabel,
   TENDER_CONDUCTED_KPI_CYCLE_STATUSES,
   TENDER_CYCLE_STATUS_COLORS,
   TENDER_CYCLE_STATUS_LABEL,
@@ -78,6 +79,27 @@ export function isTenderInProgress(t: Tender, today: Date = new Date()): boolean
   return plan.getTime() >= today.getTime();
 }
 
+/** Подпись для тендеров «в процессе» без детального statusLabel. */
+export const TENDER_IN_PROGRESS_UNDETAILED_LABEL = "Без детализации";
+
+/**
+ * KPI «В процессе» (верх карточки): не зависит от statusLabel.
+ * legacy `status === in_progress` или план договора ещё не наступил.
+ */
+export function isTenderInProgressForKpi(t: Tender, today: Date = new Date()): boolean {
+  if (hasTenderSignedContract(t)) return false;
+  if (t.status === "in_progress") return true;
+  return isTenderInProgress(t, today);
+}
+
+export function countTendersInProgressForKpi(tenders: Tender[], today: Date = new Date()): number {
+  let count = 0;
+  for (const t of tenders) {
+    if (isTenderInProgressForKpi(t, today)) count += 1;
+  }
+  return count;
+}
+
 export type TenderDistribution = {
   conducted: number;
   inProgress: number;
@@ -124,6 +146,8 @@ export type TenderProcurementKpi = {
   overdueAvgCheckRub: number;
   /** Σ planCost просроченных / Σ planCost всех тендеров × 100, %. */
   overdueVolumeSharePct: number;
+  /** Тендеры «в процессе» (KPI карточки; не зависит от statusLabel). */
+  inProgressCount: number;
 };
 
 export function computeTenderProcurementKpi(
@@ -176,6 +200,7 @@ export function computeTenderProcurementKpi(
     overduePlanRub,
     overdueAvgCheckRub,
     overdueVolumeSharePct,
+    inProgressCount: countTendersInProgressForKpi(tenders, today),
   };
 }
 
@@ -280,10 +305,14 @@ export function computeTenderBudgetFinancialResult(tenders: Tender[]): TenderBud
 
 export type TenderKpiDonutDistributions = {
   conductedPipeline: KpiDonutSegment[];
+  /** Декомпозиция карточки «В процессе» по этапам тендерного цикла. */
+  inProgressPipeline: KpiDonutSegment[];
   overdueReasons: KpiDonutSegment[];
   budgetDeviation: KpiDonutSegment[];
   /** Общее количество тендеров реестра — единая база для KPI donut. */
   totalTenders: number;
+  /** Тендеры «в процессе» — совпадает с верхним KPI карточки и суммой inProgressPipeline. */
+  inProgressCount: number;
   /** Тендеры, попавшие в блок «Отклонение от тендерного бюджета». */
   budgetBlockTenderCount: number;
 };
@@ -292,13 +321,11 @@ type ConductedPipelineStatus =
   | "signedOnTime"
   | "signedLate"
   | "overdue"
-  | "inSigning"
   | "notStarted";
 
 const CONDUCTED_PIPELINE_STATUSES: ConductedPipelineStatus[] = [
   "signedOnTime",
   "signedLate",
-  "inSigning",
   "overdue",
   "notStarted",
 ];
@@ -307,7 +334,6 @@ const CONDUCTED_PIPELINE_LABELS: Record<ConductedPipelineStatus, string> = {
   signedOnTime: "Подписано в срок",
   signedLate: "Подписано с опозданием",
   overdue: "Не объявлен тендер",
-  inSigning: "В процессе подписания",
   notStarted: "Не начато",
 };
 
@@ -315,9 +341,60 @@ const CONDUCTED_PIPELINE_COLORS: Record<ConductedPipelineStatus, string> = {
   signedOnTime: TENDER_KPI_DONUT_COLORS.conductedOnTime,
   signedLate: "#38bdf8",
   overdue: TENDER_KPI_DONUT_COLORS.conductedLate,
-  inSigning: "#f59e0b",
   notStarted: TENDER_KPI_DONUT_COLORS.contractNotConcluded,
 };
+
+const IN_PROGRESS_STATUS_COLORS = [
+  "#eab308",
+  "#f59e0b",
+  "#6366f1",
+  "#f97316",
+  "#0ea5e9",
+  "#22c55e",
+  "#38bdf8",
+  "#a855f7",
+  "#14b8a6",
+  "#ec4899",
+] as const;
+
+const IN_PROGRESS_UNDETAILED_COLOR = "#64748b";
+
+function colorForInProgressStatusLabel(label: string): string {
+  if (label === TENDER_IN_PROGRESS_UNDETAILED_LABEL) return IN_PROGRESS_UNDETAILED_COLOR;
+  let hash = 0;
+  for (let i = 0; i < label.length; i += 1) {
+    hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  }
+  return IN_PROGRESS_STATUS_COLORS[hash % IN_PROGRESS_STATUS_COLORS.length]!;
+}
+
+function sortInProgressStatusEntries(a: [string, number], b: [string, number]): number {
+  if (a[0] === TENDER_IN_PROGRESS_UNDETAILED_LABEL) return 1;
+  if (b[0] === TENDER_IN_PROGRESS_UNDETAILED_LABEL) return -1;
+  return b[1] - a[1] || a[0].localeCompare(b[0], "ru");
+}
+
+/** Donut «В процессе»: statusLabel из данных; без подписи → «Без детализации». */
+function buildInProgressPipelineSegments(
+  tenders: Tender[],
+  today: Date = new Date(),
+): KpiDonutSegment[] {
+  const counts = new Map<string, number>();
+
+  for (const t of tenders) {
+    if (!isTenderInProgressForKpi(t, today)) continue;
+    const label = resolveTenderInternalProcessStatusLabel(t) ?? TENDER_IN_PROGRESS_UNDETAILED_LABEL;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort(sortInProgressStatusEntries)
+    .map(([label, value]) => ({
+      label,
+      value,
+      color: colorForInProgressStatusLabel(label),
+    }));
+}
 
 const OVERDUE_REASON_LABELS: Record<TenderOverdueReasonBucket, string> = {
   notAnnounced: "Не объявлен тендер",
@@ -365,17 +442,6 @@ function classifyConductedPipelineStatus(
 
   if (planContract && planContract.getTime() < today.getTime()) return "overdue";
 
-  const cycle = resolveTenderCycleStatus(t);
-  const inSigningCycle =
-    cycle === "conducted" ||
-    cycle === "underReview" ||
-    cycle === "negotiations" ||
-    cycle === "onApproval" ||
-    cycle === "contractPrepared" ||
-    cycle === "contractSent";
-
-  if (inSigningCycle || Boolean(t.factStart?.trim()) || Boolean(t.contractor?.trim())) return "inSigning";
-
   return "notStarted";
 }
 
@@ -384,7 +450,6 @@ function buildConductedStatusSegments(tenders: Tender[], today: Date = new Date(
     signedOnTime: 0,
     signedLate: 0,
     overdue: 0,
-    inSigning: 0,
     notStarted: 0,
   };
 
@@ -460,12 +525,16 @@ export function computeTenderKpiDonutDistributions(
   }
 
   const budgetBlockTenderCount = Object.values(budgetCounts).reduce((sum, count) => sum + count, 0);
+  const inProgressPipeline = buildInProgressPipelineSegments(tenders, today);
+  const inProgressCount = countTendersInProgressForKpi(tenders, today);
 
   return {
     conductedPipeline: buildConductedStatusSegments(tenders, today),
+    inProgressPipeline,
     overdueReasons: buildOverdueReasonSegments(overdueCounts),
     budgetDeviation: buildBudgetSegments(budgetCounts),
     totalTenders: tenders.length,
+    inProgressCount,
     budgetBlockTenderCount,
   };
 }
@@ -901,16 +970,22 @@ export function logTenderPresentationSourceDiagnostics(
   const kpi = computeTenderProcurementKpi(tenderRecords, today);
   const donut = computeTenderKpiDonutDistributions(tenderRecords, today);
 
-  const pipelineValue = (label: string): number =>
-    donut.conductedPipeline.find((segment) => segment.label === label)?.value ?? 0;
+  const inProgressTenders = tenderRecords.filter((t) => isTenderInProgressForKpi(t, today));
+  const inProgressStatusCounts = new Map<string, number>();
+  for (const t of inProgressTenders) {
+    const label = resolveTenderInternalProcessStatusLabel(t) ?? TENDER_IN_PROGRESS_UNDETAILED_LABEL;
+    inProgressStatusCounts.set(label, (inProgressStatusCounts.get(label) ?? 0) + 1);
+  }
+  const inProgressWithoutStatusLabel =
+    inProgressStatusCounts.get(TENDER_IN_PROGRESS_UNDETAILED_LABEL) ?? 0;
 
   const importedLength = options.importedRecordsLength ?? tenderRecords.length;
   const diagnostic: TenderPresentationKpiDiagnostic = {
     total: kpi.totalCount,
     completed: kpi.conductedCount,
-    inProgress: pipelineValue("В процессе подписания"),
-    notStarted: pipelineValue("Не начато"),
-    notAnnounced: pipelineValue("Не объявлен тендер"),
+    inProgress: kpi.inProgressCount,
+    notStarted: donut.conductedPipeline.find((segment) => segment.label === "Не начато")?.value ?? 0,
+    notAnnounced: donut.conductedPipeline.find((segment) => segment.label === "Не объявлен тендер")?.value ?? 0,
     conductedPlanRub: kpi.conductedPlanRub,
     conductedFactRub: kpi.conductedFactRub,
   };
@@ -926,6 +1001,12 @@ export function logTenderPresentationSourceDiagnostics(
     conductedPlanRub: diagnostic.conductedPlanRub,
     conductedFactRub: diagnostic.conductedFactRub,
   });
+  console.log("In-progress statusLabel breakdown:", Object.fromEntries(inProgressStatusCounts));
+  if (inProgressWithoutStatusLabel > 0) {
+    console.warn(
+      `[Tenders Presentation] ${inProgressWithoutStatusLabel} тендер(ов) «в процессе» без statusLabel в данных — не попали в декомпозицию KPI.`,
+    );
+  }
 
   const expected = options.expectedRecordsLength;
 

@@ -421,6 +421,7 @@ export function TmcProcurementDynamicsChart({
   valueUnit = "mln",
   labels = DEFAULT_DYNAMICS_LABELS,
   planFactDeviationTooltip = false,
+  planOnly = false,
 }: {
   chartData: TmcProcurementChartRow[];
   chartGradId: string;
@@ -429,6 +430,8 @@ export function TmcProcurementDynamicsChart({
   labels?: TmcDynamicsChartLabels;
   /** Tooltip: План / Факт / Отклонение (для «Динамика поставок»). */
   planFactDeviationTooltip?: boolean;
+  /** Только линия плана (без факта и заливки). */
+  planOnly?: boolean;
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -482,14 +485,16 @@ export function TmcProcurementDynamicsChart({
                 ]
           }
         />
-        <Area
-          type="monotone"
-          dataKey="fact"
-          fill={`url(#${chartGradId})`}
-          stroke="none"
-          connectNulls={false}
-          isAnimationActive={false}
-        />
+        {planOnly ? null : (
+          <Area
+            type="monotone"
+            dataKey="fact"
+            fill={`url(#${chartGradId})`}
+            stroke="none"
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        )}
         <Line
           type="monotone"
           dataKey="plan"
@@ -504,27 +509,29 @@ export function TmcProcurementDynamicsChart({
           }}
           name="plan"
         />
-        <Line
-          type="monotone"
-          dataKey="fact"
-          stroke={COLORS.green}
-          strokeWidth={3}
-          dot={{
-            r: 4,
-            fill: COLORS.green,
-            stroke: "#ffffff",
-            strokeWidth: 2,
-          }}
-          activeDot={{
-            r: 7,
-            fill: COLORS.green,
-            stroke: "#ffffff",
-            strokeWidth: 2,
-            style: { filter: `drop-shadow(0 0 6px ${COLORS.green})` },
-          }}
-          name="fact"
-          connectNulls={false}
-        />
+        {planOnly ? null : (
+          <Line
+            type="monotone"
+            dataKey="fact"
+            stroke={COLORS.green}
+            strokeWidth={3}
+            dot={{
+              r: 4,
+              fill: COLORS.green,
+              stroke: "#ffffff",
+              strokeWidth: 2,
+            }}
+            activeDot={{
+              r: 7,
+              fill: COLORS.green,
+              stroke: "#ffffff",
+              strokeWidth: 2,
+              style: { filter: `drop-shadow(0 0 6px ${COLORS.green})` },
+            }}
+            name="fact"
+            connectNulls={false}
+          />
+        )}
         <TmcProcurementPointLabels chartData={chartData} mode={mode} />
       </ComposedChart>
     </ResponsiveContainer>
@@ -533,13 +540,17 @@ export function TmcProcurementDynamicsChart({
 
 export function TmcDynamicsChartLegend({
   labels = DEFAULT_DYNAMICS_LABELS,
+  planOnly = false,
 }: {
   labels?: TmcDynamicsChartLabels;
+  planOnly?: boolean;
 }) {
   return (
     <AnalyticsLegendList>
       <AnalyticsLegendItem markerColor="rgba(148,163,184,0.7)" label={labels.legendPlan} />
-      <AnalyticsLegendItem markerColor={COLORS.green} label={labels.factTooltip} />
+      {planOnly ? null : (
+        <AnalyticsLegendItem markerColor={COLORS.green} label={labels.factTooltip} />
+      )}
     </AnalyticsLegendList>
   );
 }

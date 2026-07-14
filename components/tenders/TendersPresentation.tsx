@@ -915,6 +915,7 @@ export function TendersPresentation({
       `Объём проведённых тендеров: ${rubKpiAmount(kpi.conductedFactRub)} ₽`,
       `Средний чек тендера: ${rubKpiAmount(kpi.conductedAvgCheckRub)} ₽`,
       `Выполнение общего объёма: ${pct1(kpi.totalVolumeExecutionPct)}`,
+      `В процессе: ${kpi.inProgressCount} из ${kpi.totalCount} шт`,
       `Просрочены: ${kpi.overdueCount} из ${kpi.totalCount} шт`,
       `Объём просроченных тендеров: ${rubKpiAmount(kpi.overduePlanRub)} ₽`,
       `Средний чек просроченного тендера: ${rubKpiAmount(kpi.overdueAvgCheckRub)} ₽`,
@@ -1149,8 +1150,26 @@ export function TendersPresentation({
             <div className="min-w-0 flex-1">
               <TenderKpiLabel>В ПРОЦЕССЕ</TenderKpiLabel>
               <div className="mt-1.5 flex items-baseline gap-1 tabular-nums tracking-tight">
-                <span className="text-4xl font-extrabold text-white">{kpi.overdueCount}</span>
+                <span className="text-4xl font-extrabold text-white">{kpi.inProgressCount}</span>
+                <span className="text-xl font-medium text-slate-300/65">{tenderCountLabel(kpi.inProgressCount)}</span>
               </div>
+              {kpiDonutSegments.inProgressPipeline.length > 0 ? (
+                <ul className="mt-2 space-y-0.5 text-[11px] leading-snug text-slate-400/90">
+                  {kpiDonutSegments.inProgressPipeline.map((segment) => (
+                    <li key={segment.label} className="flex items-baseline justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: segment.color }}
+                          aria-hidden
+                        />
+                        <span className="truncate">{segment.label}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums font-medium text-slate-300/80">{segment.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </div>
 
@@ -1179,8 +1198,8 @@ export function TendersPresentation({
             <TenderKpiDivider />
             <div className="pt-3">
               <KpiDonutChart
-                segments={kpiDonutSegments.overdueReasons}
-                percentBase={kpiDonutSegments.totalTenders}
+                segments={kpiDonutSegments.inProgressPipeline}
+                percentBase={kpiDonutSegments.inProgressCount}
                 chartHeight={100}
               />
             </div>

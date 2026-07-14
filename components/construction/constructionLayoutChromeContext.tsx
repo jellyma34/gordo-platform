@@ -5,6 +5,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 export type ConstructionLayoutChrome = {
   modeLabel: string;
   onBackToBlocks: () => void;
+  /** Второй сегмент крошек в сайдбаре. По умолчанию «Строительство». */
+  sectionLabel?: string;
 };
 
 const Ctx = createContext<{

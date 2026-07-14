@@ -70,9 +70,10 @@ export type TenderApiItem = {
 
 export function tenderFromApiItem(row: TenderApiItem): Tender {
   const st = (row.status ?? "").trim();
-  const status: TenderProcurementStatus | undefined =
-    st === "planned" || st === "in_progress" || st === "completed" || st === "delayed" ? st : undefined;
-  const statusLabel = st || undefined;
+  const isLegacy =
+    st === "planned" || st === "in_progress" || st === "completed" || st === "delayed";
+  const status: TenderProcurementStatus | undefined = isLegacy ? st : undefined;
+  const statusLabel = !isLegacy && st ? st : undefined;
   const cycleStatus = statusLabel ? normalizeTenderCycleStatus(statusLabel) : undefined;
   return {
     id: String(row.id),
@@ -88,12 +89,13 @@ export function tenderFromApiItem(row: TenderApiItem): Tender {
     contractor: row.contractor ?? undefined,
     status,
     statusLabel,
-    cycleStatus,
+    cycleStatus: cycleStatus !== "other" ? cycleStatus : undefined,
     comment: row.comment ?? undefined,
   };
 }
 
 export function tenderToApiPayload(t: Tender) {
+  const statusForDb = t.statusLabel?.trim() || t.status || null;
   return {
     part_id: t.partId,
     code: t.code,
@@ -105,7 +107,7 @@ export function tenderToApiPayload(t: Tender) {
     fact_contract_date: t.factContractDate?.trim() || null,
     cost: t.cost ?? null,
     contractor: t.contractor ?? null,
-    status: t.status ?? null,
+    status: statusForDb,
     comment: t.comment ?? null,
   };
 }
