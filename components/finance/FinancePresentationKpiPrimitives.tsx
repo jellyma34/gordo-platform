@@ -8,6 +8,7 @@ const COLORS = {
   red: "#ef4444",
   plan: "#94a3b8",
   blue: "#3b82f6",
+  teal: "#14b8a6",
 } as const;
 
 export { COLORS as FINANCE_KPI_COLORS };
@@ -58,8 +59,17 @@ export function FinanceKpiMetricBlock({
         ? "text-[10px] font-medium uppercase tracking-wider text-slate-500"
         : "text-[10px] font-medium uppercase tracking-wider text-slate-500/70";
 
-  const valueClass =
-    tier === "primary"
+  const valueClass = valueClassName
+    ? tier === "primary"
+      ? "mt-1.5 text-2xl font-extrabold tabular-nums tracking-tight"
+      : tier === "supporting"
+        ? "mt-1 text-base font-semibold tabular-nums"
+        : tier === "secondary"
+          ? "mt-1 text-base font-semibold tabular-nums"
+          : tier === "tertiary"
+            ? "mt-1 text-sm font-medium tabular-nums"
+            : "mt-1 text-base font-bold tabular-nums"
+    : tier === "primary"
       ? "mt-1.5 text-2xl font-extrabold tabular-nums tracking-tight text-white"
       : tier === "supporting"
         ? "mt-1 text-base font-semibold tabular-nums text-white"
@@ -161,15 +171,21 @@ export function FinanceKpiSplitMoneyBlock({
   planRub,
   accentColor,
   showRubSuffix = false,
+  completionPct,
+  completionLabel = "Выполнение",
 }: {
   label: string;
-  factRub: number;
-  planRub: number;
+  factRub: number | null;
+  planRub: number | null;
   accentColor: string;
   showRubSuffix?: boolean;
+  completionPct?: number | null;
+  completionLabel?: string;
 }) {
   const primaryGlow = { textShadow: "0 0 22px rgba(59,130,246,0.42)" };
   const suffix = showRubSuffix ? " ₽" : "";
+  const hasFact = factRub != null;
+  const hasPlan = planRub != null;
 
   return (
     <div className="space-y-1.5">
@@ -188,14 +204,20 @@ export function FinanceKpiSplitMoneyBlock({
         </div>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 tabular-nums tracking-tight">
           <span className="text-2xl font-extrabold text-white" style={primaryGlow}>
-            {financeRubKpiAmount(factRub)}
+            {hasFact ? financeRubKpiAmount(factRub) : "—"}
             {suffix}
           </span>
           <span className="text-xl font-medium text-slate-300/65">
-            из {financeRubKpiAmount(planRub)}
+            из {hasPlan ? financeRubKpiAmount(planRub) : "—"}
             {suffix}
           </span>
         </div>
+        {completionPct != null ? (
+          <div className="mt-1.5 text-sm font-semibold uppercase tracking-wider text-slate-500">
+            {completionLabel}{" "}
+            <span className="text-base font-extrabold text-sky-400">{financePct1(completionPct)}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -261,7 +283,7 @@ export function FinanceKpiIconBadge({
   tone,
 }: {
   children: ReactNode;
-  tone: "blue" | "red" | "amber" | "green";
+  tone: "blue" | "red" | "amber" | "green" | "teal";
 }) {
   const toneClass =
     tone === "blue"
@@ -270,7 +292,9 @@ export function FinanceKpiIconBadge({
         ? "bg-rose-500/15 text-rose-400 ring-rose-400/20"
         : tone === "green"
           ? "bg-emerald-500/15 text-emerald-400 ring-emerald-400/20"
-          : "bg-amber-500/15 text-amber-400 ring-amber-400/20";
+          : tone === "teal"
+            ? "bg-teal-500/15 text-teal-400 ring-teal-400/20"
+            : "bg-amber-500/15 text-amber-400 ring-amber-400/20";
   return (
     <div
       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ${toneClass}`}

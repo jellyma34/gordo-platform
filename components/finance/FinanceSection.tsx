@@ -18,7 +18,7 @@ export function FinanceSection() {
   return (
     <EditLayout
       title="Экономика и финансы"
-      subtitle="Бюджет проекта — источник данных для финансового контура платформы."
+      subtitle="Бюджет проекта и исполнение бюджета — два независимых CSV-импорта."
       onSave={() => tableRef.current?.save()}
       onCancel={() => tableRef.current?.cancel()}
     >

@@ -1,6 +1,4 @@
-import Papa from "papaparse";
-
-import { readCsvFileTextSmart } from "@/lib/csvTextEncoding";
+import { readFinanceCsvRawRows } from "@/lib/financeCsvFormat";
 import {
   cloneFinanceBudgetLines,
   logFinanceBudgetImportCodeDiagnostics,
@@ -11,11 +9,11 @@ import { normalizeForecastMonth } from "@/lib/normalizeForecastMonth";
 
 export const FINANCE_BUDGET_CSV_DELIMITER = ";";
 
-export const FINANCE_BUDGET_CSV_HEADER_SCAN_LIMIT = 30;
+export const FINANCE_BUDGET_CSV_HEADER_SCAN_LIMIT = 120;
 
 export const FINANCE_BUDGET_CSV_HEADER_MIN_SIGNATURES = 2;
 
-export type FinanceBudgetColumnKey = "code" | "name" | "category" | "unit" | "totalPlan";
+export type FinanceBudgetColumnKey = "code" | "name" | "category" | "unit" | "totalPlan" | "versionOn";
 
 export type FinanceBudgetColumnMap = Record<FinanceBudgetColumnKey, number>;
 
@@ -38,9 +36,10 @@ export type FinanceBudgetCsvImportAudit = {
 };
 
 const COLUMN_DEFINITIONS: { key: FinanceBudgetColumnKey; patterns: string[] }[] = [
-  { key: "name", patterns: ["наименование статьи", "наименование", "статья", "название", "показатель"] },
+  { key: "name", patterns: ["статьи бюджета", "статья бюджета", "наименование статьи", "наименование"] },
   { key: "category", patterns: ["раздел", "группа", "блок", "тип"] },
   { key: "unit", patterns: ["ед. изм", "ед изм", "единица измерения"] },
+  { key: "versionOn", patterns: ["версия на"] },
   { key: "totalPlan", patterns: ["итого", "всего", "сумма", "total"] },
 ];
 
@@ -84,23 +83,18 @@ export function findFinanceBudgetCodeColumnIndex(headers: string[]): number {
   return -1;
 }
 
-/** Колонка «Наименование» — точное совпадение в приоритете. */
+/** Колонка «Наименование» — fallback, если нет «Статьи бюджета». */
 export function findFinanceBudgetNameColumnIndex(headers: string[]): number {
+  const articleIdx = findFinanceBudgetArticleColumnIndex(headers);
+  if (articleIdx >= 0) return articleIdx;
+
   const normalized = headers.map((h) => normalizeHeader(h));
 
   const exactIdx = normalized.findIndex((h) => h === "наименование");
   if (exactIdx >= 0) return exactIdx;
 
-  const articleIdx = normalized.findIndex((h) => h === "наименование статьи");
-  if (articleIdx >= 0) return articleIdx;
-
-  for (const { patterns } of [{ patterns: ["наименование", "статья", "название", "показатель"] }]) {
-    const sorted = [...patterns].sort((a, b) => b.length - a.length);
-    for (const pattern of sorted) {
-      const idx = normalized.findIndex((h) => h.includes(pattern));
-      if (idx >= 0) return idx;
-    }
-  }
+  const articleNameIdx = normalized.findIndex((h) => h === "наименование статьи");
+  if (articleNameIdx >= 0) return articleNameIdx;
 
   return -1;
 }
@@ -159,6 +153,11 @@ export function buildFinanceBudgetColumnMap(headers: string[]): FinanceBudgetCol
     }
   }
 
+  if (map.versionOn < 0) {
+    const versionOnIdx = normalized.findIndex((h) => h === "версия на" || h.startsWith("версия на"));
+    if (versionOnIdx >= 0) map.versionOn = versionOnIdx;
+  }
+
   return map;
 }
 
@@ -213,40 +212,129 @@ export function detectFinanceBudgetMonthColumns(headers: string[]): FinanceBudge
   return result;
 }
 
-function scoreFinanceBudgetHeaderRow(row: unknown[]): number {
-  const cells = row.map((c) => normalizeHeader(String(c ?? "")));
-  let score = 0;
+/** Технические подписи — не импортировать как статьи бюджета. */
+const TECHNICAL_BUDGET_CODE_LABELS = new Set([
+  "вне банка",
+  "разные",
+  "ebit",
+  "прибыль до но",
+]);
 
-  if (cells.some((h) => h === "код")) score += 4;
-  else if (cells.some((h) => h === "код бюджета")) score += 3;
-  else if (cells.some((h) => h.includes("код") && !isExcludedFinanceBudgetCodeHeader(h))) score += 1;
-
-  if (cells.some((h) => h === "наименование")) score += 3;
-  else if (cells.some((h) => h.includes("наименован") || h.includes("статья"))) score += 1;
-
-  const monthLike = cells.filter((h) => extractPeriodKeyFromHeader(h) != null).length;
-  if (monthLike >= 2) score += 2;
-  else if (monthLike >= 1) score += 1;
-
-  return score;
+function forwardFillHeaderCells(cells: string[]): string[] {
+  let last = "";
+  return cells.map((cell) => {
+    const trimmed = cell.trim();
+    if (trimmed) last = trimmed;
+    return last;
+  });
 }
 
+/** Ячейка заголовка «Код» (без «код вне банка» и прочих служебных колонок). */
+function cellMatchesBudgetCodeHeader(cell: string): boolean {
+  const h = normalizeHeader(cell);
+  if (!h || isExcludedFinanceBudgetCodeHeader(h)) return false;
+  return h === "код" || h === "код бюджета";
+}
+
+/** Ячейка заголовка «Статьи бюджета». */
+function cellMatchesBudgetArticleHeader(cell: string): boolean {
+  const h = normalizeHeader(cell);
+  if (!h) return false;
+  return (
+    h === "статьи бюджета" ||
+    h === "статья бюджета" ||
+    h.includes("статьи бюджета") ||
+    h.includes("статья бюджета")
+  );
+}
+
+/**
+ * Первая строка, где одновременно есть колонки «Код» и «Статьи бюджета».
+ * Строки выше не используются.
+ */
 export function detectFinanceBudgetHeaderRowIndex(rawRows: unknown[][]): number {
   const limit = Math.min(FINANCE_BUDGET_CSV_HEADER_SCAN_LIMIT, rawRows.length);
-  let bestIndex = -1;
-  let bestScore = 0;
 
   for (let i = 0; i < limit; i += 1) {
     const row = rawRows[i];
     if (!Array.isArray(row) || !row.some((c) => String(c ?? "").trim() !== "")) continue;
-    const score = scoreFinanceBudgetHeaderRow(row);
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
+
+    const cells = row.map((c) => String(c ?? "").trim());
+    const filled = forwardFillHeaderCells(cells);
+
+    const hasCode = filled.some((c) => cellMatchesBudgetCodeHeader(c));
+    const hasArticles = filled.some((c) => cellMatchesBudgetArticleHeader(c));
+    if (hasCode && hasArticles) return i;
   }
 
-  return bestScore >= 4 ? bestIndex : -1;
+  return -1;
+}
+
+/** Колонка «Статьи бюджета» — приоритет над общими «статья» / «наименование». */
+export function findFinanceBudgetArticleColumnIndex(headers: string[]): number {
+  const normalized = headers.map((h) => normalizeHeader(h));
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    if (cellMatchesBudgetArticleHeader(headers[index] ?? "")) return index;
+  }
+
+  return -1;
+}
+
+export function isTechnicalFinanceBudgetCode(code: string): boolean {
+  const n = normalizeHeader(code);
+  if (!n) return true;
+  return TECHNICAL_BUDGET_CODE_LABELS.has(n);
+}
+
+/** Код статьи бюджета: 1., 1.01., 2.05.10.1. и т.п. */
+export function isValidFinanceBudgetArticleCode(code: string): boolean {
+  const trimmed = code.trim().replace(/\s+/g, "");
+  if (!trimmed || isTechnicalFinanceBudgetCode(trimmed)) return false;
+  return /^\d+(\.\d+)*\.?$/.test(trimmed);
+}
+
+function resolveFinanceBudgetHeaderCells(rawRows: unknown[][], headerRowIndex: number): {
+  headers: string[];
+  dataStartRowIndex: number;
+} {
+  const primary = (rawRows[headerRowIndex] ?? []).map((c) => String(c ?? ""));
+  const primaryMonths = detectFinanceBudgetMonthColumns(primary).length;
+  if (primaryMonths >= 2) {
+    return { headers: primary, dataStartRowIndex: headerRowIndex + 1 };
+  }
+
+  const secondary = (rawRows[headerRowIndex + 1] ?? []).map((c) => String(c ?? ""));
+  if (!secondary.some((c) => c.trim())) {
+    return { headers: primary, dataStartRowIndex: headerRowIndex + 1 };
+  }
+
+  const secondaryMonths = detectFinanceBudgetMonthColumns(secondary).length;
+  const secondaryHasCode = secondary.some((c) => cellMatchesBudgetCodeHeader(c));
+  const secondaryHasArticles = secondary.some((c) => cellMatchesBudgetArticleHeader(c));
+
+  if (secondaryMonths >= 2 && !secondaryHasCode && !secondaryHasArticles) {
+    const width = Math.max(primary.length, secondary.length);
+    const merged: string[] = [];
+    for (let i = 0; i < width; i += 1) {
+      const top = primary[i]?.trim() ?? "";
+      const bottom = secondary[i]?.trim() ?? "";
+      merged.push(top && bottom ? `${top} ${bottom}`.trim() : top || bottom);
+    }
+    return { headers: merged, dataStartRowIndex: headerRowIndex + 2 };
+  }
+
+  return { headers: primary, dataStartRowIndex: headerRowIndex + 1 };
+}
+
+function logFinanceBudgetImportSummary(headerRowIndex: number, lines: FinanceBudgetLine[]): void {
+  const codes = lines.map((line) => line.code.trim());
+  console.group("[finance-budget-csv] Результат импорта");
+  console.log("headerRowIndex:", headerRowIndex);
+  console.log("количество найденных строк:", lines.length);
+  console.log("первые 10 кодов:", codes.slice(0, 10));
+  console.log("последние 10 кодов:", codes.slice(-10));
+  console.groupEnd();
 }
 
 function stableBudgetLineId(code: string, name: string, rowIndex: number): string {
@@ -260,10 +348,19 @@ function rowToBudgetLine(
   columnMap: FinanceBudgetColumnMap,
   monthColumns: FinanceBudgetMonthColumn[],
   rowIndex: number,
-): FinanceBudgetLine | null {
+): { line: FinanceBudgetLine | null; skipReason: string | null } {
   const code = columnMap.code >= 0 ? String(row[`col_${columnMap.code}`] ?? "").trim() : "";
   const name = columnMap.name >= 0 ? String(row[`col_${columnMap.name}`] ?? "").trim() : "";
-  if (!code && !name) return null;
+
+  if (!code) {
+    return { line: null, skipReason: "Отсутствует код" };
+  }
+  if (isTechnicalFinanceBudgetCode(code)) {
+    return { line: null, skipReason: `Техническая строка: ${code}` };
+  }
+  if (!isValidFinanceBudgetArticleCode(code)) {
+    return { line: null, skipReason: `Некорректный код бюджета: ${code}` };
+  }
 
   const monthlyPlanRub: Record<string, number> = {};
   const monthlyFactRub: Record<string, number> = {};
@@ -279,45 +376,55 @@ function rowToBudgetLine(
     }
   }
 
+  const versionOnTotal =
+    columnMap.versionOn >= 0 ? parseBudgetNumber(row[`col_${columnMap.versionOn}`]) : null;
   const totalFromColumn =
     columnMap.totalPlan >= 0 ? parseBudgetNumber(row[`col_${columnMap.totalPlan}`]) : null;
   const totalFromMonths = Object.values(monthlyPlanRub).reduce((sum, value) => sum + value, 0);
-  const totalPlanRub = totalFromColumn ?? (totalFromMonths > 0 ? totalFromMonths : undefined);
+  const totalPlanRub = versionOnTotal ?? totalFromColumn ?? (totalFromMonths > 0 ? totalFromMonths : undefined);
 
   const category =
     columnMap.category >= 0 ? String(row[`col_${columnMap.category}`] ?? "").trim() : "";
   const unit = columnMap.unit >= 0 ? String(row[`col_${columnMap.unit}`] ?? "").trim() : "";
 
   return {
-    id: stableBudgetLineId(code, name, rowIndex),
-    code: code || name,
-    name: name || code,
-    category: category || undefined,
-    unit: unit || undefined,
-    totalPlanRub: totalPlanRub ?? undefined,
-    monthlyPlanRub,
-    monthlyFactRub: Object.keys(monthlyFactRub).length > 0 ? monthlyFactRub : undefined,
+    line: {
+      id: stableBudgetLineId(code, name, rowIndex),
+      code,
+      name: name || code,
+      category: category || undefined,
+      unit: unit || undefined,
+      totalPlanRub: totalPlanRub ?? undefined,
+      monthlyPlanRub,
+      monthlyFactRub: Object.keys(monthlyFactRub).length > 0 ? monthlyFactRub : undefined,
+    },
+    skipReason: null,
   };
+}
+
+function detectBudgetVersionFromRows(rawRows: unknown[][], headerRowIndex: number): string | undefined {
+  const limit = Math.min(headerRowIndex, rawRows.length);
+  for (let i = 0; i < limit; i += 1) {
+    const row = rawRows[i];
+    if (!Array.isArray(row)) continue;
+    const joined = row.map((c) => String(c ?? "").trim()).filter(Boolean).join(" ");
+    const match = joined.match(/версия\s*(?:бюджета|на)?\s*[:№]?\s*([^\s;]+(?:\s+[^\s;]+)?)/i);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
 }
 
 export type FinanceBudgetCsvImportResult = {
   lines: FinanceBudgetLine[];
   audit: FinanceBudgetCsvImportAudit;
+  budgetVersion?: string;
 };
 
-/** Разбор CSV бюджета проекта (standalone ETL). */
-export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetCsvImportResult> {
-  const text = await readCsvFileTextSmart(file);
-  const parsed = Papa.parse<string[]>(text, {
-    delimiter: FINANCE_BUDGET_CSV_DELIMITER,
-    skipEmptyLines: false,
-  });
-
-  if (parsed.errors.length > 0) {
-    console.warn("[finance-budget-csv] Papa errors:", parsed.errors.slice(0, 5));
-  }
-
-  const rawRows = (parsed.data ?? []) as unknown[][];
+/** Разбор CSV бюджета проекта (только формат «Бюджет проекта»). */
+export function importFinanceBudgetCsvFromRawRows(
+  rawRows: unknown[][],
+  sourceFileName?: string,
+): FinanceBudgetCsvImportResult {
   const headerRowIndex = detectFinanceBudgetHeaderRowIndex(rawRows);
 
   const emptyAudit = (reason: string): FinanceBudgetCsvImportAudit => ({
@@ -333,18 +440,18 @@ export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetC
   });
 
   if (headerRowIndex < 0) {
-    return { lines: [], audit: emptyAudit("Не найдена строка заголовков бюджета") };
+    return { lines: [], audit: emptyAudit("Не найдена строка заголовков с колонками «Код» и «Статьи бюджета»") };
   }
 
-  const headerRaw = (rawRows[headerRowIndex] ?? []).map((c) => String(c ?? ""));
+  const { headers: headerRaw, dataStartRowIndex } = resolveFinanceBudgetHeaderCells(rawRows, headerRowIndex);
   const columnMap = buildFinanceBudgetColumnMap(headerRaw);
   const monthColumns = detectFinanceBudgetMonthColumns(headerRaw);
 
-  if (columnMap.code < 0 && columnMap.name < 0) {
+  if (columnMap.code < 0 || columnMap.name < 0) {
     return {
       lines: [],
       audit: {
-        ...emptyAudit("Не найдены колонки «Код» и «Наименование»"),
+        ...emptyAudit("Не найдены колонки «Код» и «Статьи бюджета»"),
         headers: headerRaw,
         headerRowIndex,
         columnMap,
@@ -353,14 +460,17 @@ export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetC
     };
   }
 
-  const dataRows = rawRows.slice(headerRowIndex + 1);
+  const dataRows = rawRows.slice(dataStartRowIndex);
   const lines: FinanceBudgetLine[] = [];
   const skippedRows: { rowIndex: number; reason: string }[] = [];
   let parsedRows = 0;
 
   for (let i = 0; i < dataRows.length; i += 1) {
     const raw = dataRows[i];
-    if (!Array.isArray(raw) || !raw.some((c) => String(c ?? "").trim() !== "")) continue;
+    if (!Array.isArray(raw) || !raw.some((c) => String(c ?? "").trim() !== "")) {
+      skippedRows.push({ rowIndex: dataStartRowIndex + i, reason: "Пустая строка" });
+      continue;
+    }
 
     parsedRows += 1;
     const row: Record<string, string> = {};
@@ -369,15 +479,18 @@ export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetC
     }
 
     try {
-      const line = rowToBudgetLine(row, columnMap, monthColumns, headerRowIndex + 1 + i);
+      const { line, skipReason } = rowToBudgetLine(row, columnMap, monthColumns, dataStartRowIndex + i);
       if (!line) {
-        skippedRows.push({ rowIndex: headerRowIndex + 1 + i, reason: "Пустой код и наименование" });
+        skippedRows.push({
+          rowIndex: dataStartRowIndex + i,
+          reason: skipReason ?? "Строка пропущена",
+        });
         continue;
       }
       lines.push(line);
     } catch (e) {
       skippedRows.push({
-        rowIndex: headerRowIndex + 1 + i,
+        rowIndex: dataStartRowIndex + i,
         reason: e instanceof Error ? e.message : "Ошибка разбора строки",
       });
     }
@@ -397,19 +510,33 @@ export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetC
 
   console.log("[finance-budget-csv] import audit", {
     headerRowIndex,
+    dataStartRowIndex,
     columnMap,
     codeColumnHeader: columnMap.code >= 0 ? headerRaw[columnMap.code] : null,
     nameColumnHeader: columnMap.name >= 0 ? headerRaw[columnMap.name] : null,
+    versionOnColumnHeader: columnMap.versionOn >= 0 ? headerRaw[columnMap.versionOn] : null,
     monthColumns: monthColumns.map((c) => `${c.periodKey}:${c.kind}`),
     parsedRows,
     loaded: lines.length,
     skipped: skippedRows.length,
   });
 
+  logFinanceBudgetImportSummary(headerRowIndex, lines);
+
   const planMonthColumnCount = monthColumns.filter((c) => c.kind === "plan").length;
   logFinanceBudgetImportCodeDiagnostics(lines, { planMonthColumnCount });
 
-  return { lines: cloneFinanceBudgetLines(lines), audit };
+  const budgetVersion =
+    detectBudgetVersionFromRows(rawRows, headerRowIndex) ??
+    sourceFileName?.replace(/\.csv$/i, "");
+
+  return { lines: cloneFinanceBudgetLines(lines), audit, budgetVersion };
+}
+
+/** Разбор CSV бюджета проекта (standalone ETL). */
+export async function importFinanceBudgetCsv(file: File): Promise<FinanceBudgetCsvImportResult> {
+  const rawRows = await readFinanceCsvRawRows(file);
+  return importFinanceBudgetCsvFromRawRows(rawRows, file.name);
 }
 
 export function mergeFinanceBudgetImport(

@@ -77,6 +77,10 @@ type KpiDonutChartProps = {
   centerVariant?: "default" | "hubDashboard";
   /** Tooltip в формате «Причина / Количество ТМЦ / Доля». */
   reasonTooltip?: boolean;
+  /** Подпись значения в tooltip (по умолчанию «Количество»). */
+  tooltipValueLabel?: string;
+  /** Формат значения в легенде и tooltip. */
+  formatValue?: (value: number) => string;
   /** Увеличенный режим для акцентного KPI-блока. */
   large?: boolean;
   /** Позиция легенды относительно donut. */
@@ -109,6 +113,8 @@ export function KpiDonutChart({
   centerSublabelClassName,
   centerVariant = "default",
   reasonTooltip = false,
+  tooltipValueLabel = "Количество",
+  formatValue,
   large = false,
   legendPosition = "right",
   legendColumns = 1,
@@ -116,6 +122,8 @@ export function KpiDonutChart({
   fullLegendLabels = false,
 }: KpiDonutChartProps) {
   const gradPrefix = useId().replace(/:/g, "");
+
+  const formatSegmentValue = formatValue ?? ((value: number) => String(value));
 
   const activeSegments = useMemo(
     () => segments.filter((seg) => seg.value > 0),
@@ -253,7 +261,7 @@ export function KpiDonutChart({
                 : "shrink-0 tabular-nums text-base font-semibold text-white"
             }
           >
-            {seg.value}
+            {formatSegmentValue(seg.value)}
             {showLegendPercent ? (
               <span className="ml-1.5 text-sm font-medium text-slate-300/65">
                 {pct1(seg.value, labelBase)}
@@ -349,8 +357,10 @@ export function KpiDonutChart({
                         <>
                           <div className="font-semibold text-slate-100">{row.label}</div>
                           <div className="mt-1 tabular-nums text-slate-300">
-                            Количество:{" "}
-                            <span className="font-medium text-white">{row.value}</span>
+                            {tooltipValueLabel}:{" "}
+                            <span className="font-medium text-white">
+                              {formatSegmentValue(row.value)}
+                            </span>
                           </div>
                           <div className="tabular-nums text-slate-300">
                             Доля:{" "}

@@ -1,18 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { Wallet } from "lucide-react";
 
-import {
-  FINANCE_KPI_COLORS,
-  FinanceKpiAmountBlock,
-  FinanceKpiIconBadge,
-  FinanceKpiLabel,
-  FinanceKpiMetricBlock,
-  FinancePremiumKpiCard,
-  financePct1,
-  financeRubKpiAmount,
-} from "@/components/finance/FinancePresentationKpiPrimitives";
+import { FinanceExecutionKpiCards } from "@/components/finance/FinanceExecutionKpiCards";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import {
   TmcDynamicsChartLegend,
@@ -20,21 +10,23 @@ import {
   type TmcDynamicsChartLabels,
   type TmcProcurementChartMode,
 } from "@/components/tmc/TmcProcurementDynamicsChart";
+import {
+  FINANCE_OPERATING_PAYMENTS_MISSING_MESSAGE,
+  getPaymentChart,
+} from "@/lib/financeBudgetAnalytics";
 import type { FinanceBudgetImportMeta, FinanceBudgetLine } from "@/lib/financeBudgetData";
 import {
+  emptyFinanceExecutionImport,
+  type FinanceExecutionImport,
+} from "@/lib/financeBudgetExecutionData";
+import { getFinanceExecutionPresentation } from "@/lib/financeExecutionAnalytics";
+import {
+  FINANCE_BUDGET_EXECUTION_SAVED_EVENT,
   FINANCE_BUDGET_SAVED_EVENT,
   getGprProjectId,
   loadPersistedFinanceBudget,
+  loadPersistedFinanceBudgetExecution,
 } from "@/lib/financeImportPersistence";
-import {
-  buildFinanceOperatingPaymentsMonthlySeries,
-  computeFinanceProjectBudgetKpi,
-  FINANCE_OPERATING_PAYMENTS_MISSING_MESSAGE,
-  financeOperatingPaymentsChartStartMonth,
-  hasFinanceOperatingPaymentsFactSeries,
-  hasFinanceOperatingPaymentsLine,
-  logFinanceBudgetSourceDiagnostics,
-} from "@/lib/financePresentationAnalytics";
 import { fillTmcMonthlyProcurementTimeline } from "@/lib/tmcPresentationAnalytics";
 
 const FINANCE_OPERATING_PAYMENTS_LABELS: TmcDynamicsChartLabels = {
@@ -51,15 +43,20 @@ export function FinancePresentation() {
 
   const [lines, setLines] = useState<FinanceBudgetLine[]>([]);
   const [importMeta, setImportMeta] = useState<FinanceBudgetImportMeta | undefined>(undefined);
+  const [executionSnapshot, setExecutionSnapshot] = useState<FinanceExecutionImport>(
+    emptyFinanceExecutionImport(),
+  );
   const [chartMode, setChartMode] = useState<TmcProcurementChartMode>("monthly");
   const [reloadToken, setReloadToken] = useState(0);
 
   const reload = useCallback(async () => {
-    const loaded = await loadPersistedFinanceBudget(projectId);
-    setLines(loaded.snapshot.lines);
-    setImportMeta(loaded.snapshot.importMeta);
-    const source = loaded.snapshot.lines.length === 0 ? "empty" : "localStorage";
-    logFinanceBudgetSourceDiagnostics(loaded.snapshot.lines, source, loaded.snapshot.importMeta);
+    const [budgetLoaded, executionLoaded] = await Promise.all([
+      loadPersistedFinanceBudget(projectId),
+      loadPersistedFinanceBudgetExecution(projectId),
+    ]);
+    setLines(budgetLoaded.snapshot.lines);
+    setImportMeta(budgetLoaded.snapshot.importMeta);
+    setExecutionSnapshot(executionLoaded.snapshot);
   }, [projectId]);
 
   useEffect(() => {
@@ -67,45 +64,53 @@ export function FinancePresentation() {
   }, [reload, reloadToken]);
 
   useEffect(() => {
-    const onSaved = () => setReloadToken((t) => t + 1);
-    window.addEventListener(FINANCE_BUDGET_SAVED_EVENT, onSaved);
-    return () => window.removeEventListener(FINANCE_BUDGET_SAVED_EVENT, onSaved);
+    const onBudgetSaved = () => setReloadToken((t) => t + 1);
+    const onExecutionSaved = () => setReloadToken((t) => t + 1);
+    window.addEventListener(FINANCE_BUDGET_SAVED_EVENT, onBudgetSaved);
+    window.addEventListener(FINANCE_BUDGET_EXECUTION_SAVED_EVENT, onExecutionSaved);
+    return () => {
+      window.removeEventListener(FINANCE_BUDGET_SAVED_EVENT, onBudgetSaved);
+      window.removeEventListener(FINANCE_BUDGET_EXECUTION_SAVED_EVENT, onExecutionSaved);
+    };
   }, []);
 
-  const kpi = useMemo(() => computeFinanceProjectBudgetKpi(lines), [lines]);
-  const hasOperatingLine = useMemo(() => hasFinanceOperatingPaymentsLine(lines), [lines]);
-  const hasFactSeries = useMemo(() => hasFinanceOperatingPaymentsFactSeries(lines), [lines]);
-
-  const monthlySeries = useMemo(
-    () => buildFinanceOperatingPaymentsMonthlySeries(lines, today, importMeta),
-    [lines, today, importMeta],
+  const budgetInput = useMemo(() => ({ lines, importMeta }), [lines, importMeta]);
+  const executionPresentation = useMemo(
+    () => getFinanceExecutionPresentation({ snapshot: executionSnapshot }),
+    [executionSnapshot],
   );
-
-  const chartStartMonth = useMemo(
-    () => financeOperatingPaymentsChartStartMonth(lines, importMeta),
-    [lines, importMeta],
-  );
+  const paymentChart = useMemo(() => getPaymentChart(budgetInput, today), [budgetInput, today]);
 
   const chartTimeline = useMemo(() => {
-    if (!hasOperatingLine || monthlySeries.length === 0 || !chartStartMonth) return [];
-    return fillTmcMonthlyProcurementTimeline(monthlySeries, today, chartStartMonth);
-  }, [monthlySeries, today, chartStartMonth, hasOperatingLine]);
+    if (
+      !paymentChart.hasOperatingPaymentsLine ||
+      paymentChart.monthlySeries.length === 0 ||
+      !paymentChart.chartStartMonth
+    ) {
+      return [];
+    }
+    return fillTmcMonthlyProcurementTimeline(
+      paymentChart.monthlySeries,
+      today,
+      paymentChart.chartStartMonth,
+    );
+  }, [paymentChart, today]);
 
   const chartData = useMemo(
     () =>
       chartTimeline.map((point) => ({
         label: point.label,
         plan: chartMode === "monthly" ? point.planMln : point.planCumMln,
-        fact: hasFactSeries
+        fact: paymentChart.hasFactSeries
           ? chartMode === "monthly"
             ? point.factMln
             : point.factCumMln
           : null,
       })),
-    [chartTimeline, chartMode, hasFactSeries],
+    [chartTimeline, chartMode, paymentChart.hasFactSeries],
   );
 
-  const planOnlyChart = !hasFactSeries;
+  const planOnlyChart = !paymentChart.hasFactSeries;
 
   return (
     <section className="space-y-4">
@@ -113,54 +118,7 @@ export function FinancePresentation() {
         <h2 className="text-xl font-semibold text-slate-50">Экономика и финансы</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-5">
-        <FinancePremiumKpiCard
-          glowColor={FINANCE_KPI_COLORS.blue}
-          gradient="linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(30,58,138,0.14) 100%)"
-          waveColor={FINANCE_KPI_COLORS.blue}
-        >
-          <div className="flex items-start gap-3">
-            <FinanceKpiIconBadge tone="blue">
-              <Wallet className="h-5 w-5" strokeWidth={2} />
-            </FinanceKpiIconBadge>
-            <div className="min-w-0 flex-1">
-              <FinanceKpiLabel>БЮДЖЕТ ПРОЕКТА</FinanceKpiLabel>
-              <div className="mt-1.5 tabular-nums tracking-tight">
-                <span className="text-4xl font-extrabold text-white">
-                  {financeRubKpiAmount(kpi.totalBudgetRub)} ₽
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <FinanceKpiAmountBlock
-              label="ПЛАН ПОСТУПЛЕНИЙ"
-              amountRub={kpi.operatingPaymentsPlanRub}
-              accentColor={FINANCE_KPI_COLORS.blue}
-              showRubSuffix
-            />
-            <FinanceKpiMetricBlock
-              label="ФАКТ ПОСТУПЛЕНИЙ"
-              value={
-                kpi.operatingPaymentsFactRub != null
-                  ? `${financeRubKpiAmount(kpi.operatingPaymentsFactRub)} ₽`
-                  : "—"
-              }
-              tier="primary"
-              accentColor={FINANCE_KPI_COLORS.blue}
-              sectionPt="pt-5"
-            />
-            <FinanceKpiMetricBlock
-              label="ВЫПОЛНЕНИЕ БЮДЖЕТА"
-              value={financePct1(kpi.budgetExecutionPct)}
-              tier="primary"
-              accentColor={FINANCE_KPI_COLORS.blue}
-              sectionPt="pt-5"
-            />
-          </div>
-        </FinancePremiumKpiCard>
-      </div>
+      <FinanceExecutionKpiCards presentation={executionPresentation} />
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
@@ -190,7 +148,7 @@ export function FinancePresentation() {
         </div>
 
         <div className="mt-4 h-[320px] w-full">
-          {!hasOperatingLine ? (
+          {!paymentChart.hasOperatingPaymentsLine ? (
             <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-500">
               {FINANCE_OPERATING_PAYMENTS_MISSING_MESSAGE}
             </div>

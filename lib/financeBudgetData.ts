@@ -22,6 +22,8 @@ export type FinanceBudgetImportMeta = {
   periodKeys?: string[];
   factPeriodKeys?: string[];
   lastImportAt?: string;
+  /** Версия бюджета из CSV или имени файла. */
+  budgetVersion?: string;
 };
 
 export type FinanceBudgetSnapshot = {
@@ -29,6 +31,12 @@ export type FinanceBudgetSnapshot = {
   updatedAt?: string;
   importMeta?: FinanceBudgetImportMeta;
 };
+
+/** Импорт CSV «Бюджет проекта» — график, статьи бюджета. */
+export type FinanceBudgetImport = FinanceBudgetSnapshot;
+
+/** Код родительской статьи «Поступления по основным видам деятельности». */
+export const FINANCE_OPERATING_RECEIPTS_BUDGET_CODE = "1.";
 
 /** Код родительской статьи «Платежи по основным видам деятельности». */
 export const FINANCE_OPERATING_PAYMENTS_BUDGET_CODE = "2.";
@@ -69,6 +77,20 @@ export function logFinanceBudgetImportCodeDiagnostics(
   console.log("[finance-budget-csv] Все коды бюджета после импорта:", allCodes);
 
   const operating = findFinanceBudgetLineByCode(lines, FINANCE_OPERATING_PAYMENTS_BUDGET_CODE);
+  const receipts = findFinanceBudgetLineByCode(lines, FINANCE_OPERATING_RECEIPTS_BUDGET_CODE);
+  if (!receipts) {
+    console.warn(
+      "[finance-budget-csv] Статья с кодом 1. не найдена. Все коды бюджета:",
+      allCodes,
+    );
+  } else {
+    console.log("[finance-budget-csv] Статья код 1. найдена:", {
+      исходныйКод: receipts.code,
+      нормализованныйКод: normalizeFinanceBudgetCode(receipts.code),
+      название: receipts.name,
+      версияНа: receipts.totalPlanRub ?? null,
+    });
+  }
   if (!operating) {
     console.warn(
       "[finance-budget-csv] Статья с кодом 2. не найдена. Все коды бюджета:",
