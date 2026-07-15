@@ -208,7 +208,9 @@ function parseChartSegment(raw: unknown): FinanceExecutionChartSegment | null {
   return {
     id: body.id,
     label: body.label,
+    legendLabel: typeof body.legendLabel === "string" ? body.legendLabel : undefined,
     valueRub: body.valueRub,
+    planRub: typeof body.planRub === "number" ? body.planRub : null,
     color: body.color,
   };
 }

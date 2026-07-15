@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { CircleDollarSign, TrendingDown, TrendingUp } from "lucide-react";
+import { CircleDollarSign, TrendingDown } from "lucide-react";
 
+import {
+  FinanceExecutionDonutChart,
+  type FinanceDonutSegment,
+} from "@/components/finance/FinanceExecutionDonutChart";
+import { FinanceRevenueProgressCard } from "@/components/finance/FinanceRevenueProgressCard";
 import {
   FINANCE_KPI_COLORS,
   FinanceKpiDivider,
@@ -14,19 +18,15 @@ import {
   financePct1,
   financeRubKpiAmount,
 } from "@/components/finance/FinancePresentationKpiPrimitives";
-import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import type { FinanceExecutionPresentationSnapshot } from "@/lib/financeExecutionAnalytics";
 
 const MONEY_VALUE_CLASS = "text-emerald-400";
 const PERCENT_VALUE_CLASS = "text-sky-400";
 const MISSING_VALUE_CLASS = "text-slate-400";
 
-const formatRubValue = (value: number) => financeRubKpiAmount(value);
-const LOG_PREFIX = "[finance-execution-charts]";
-
 function formatMoney(value: number | null): string {
   if (value == null) return "—";
-  return `${financeRubKpiAmount(value)} ₽`;
+  return financeRubKpiAmount(value);
 }
 
 function formatPercent(value: number | null): string {
@@ -69,33 +69,66 @@ function FinanceExecutionMainKpi({
   );
 }
 
+type FinanceExecutionChartCardSectionProps = {
+  segments: FinanceDonutSegment[];
+  centerPercent: number | null;
+  centerSublabelTop: string;
+  centerSublabelBottom: string;
+  centerValueColor: string;
+  splitLabel?: string;
+  factRub?: number | null;
+  planRub?: number | null;
+  accentColor?: string;
+  completionPct?: number | null;
+  completionLabel?: string;
+  showCompletionLine?: boolean;
+};
+
+function FinanceExecutionChartCardSection({
+  segments,
+  centerPercent,
+  centerSublabelTop,
+  centerSublabelBottom,
+  centerValueColor,
+  splitLabel = "Факт",
+  factRub,
+  planRub,
+  accentColor = FINANCE_KPI_COLORS.red,
+  completionPct,
+  completionLabel = "Выполнение",
+  showCompletionLine = true,
+}: FinanceExecutionChartCardSectionProps) {
+  return (
+    <div className="mt-auto">
+      <FinanceKpiDivider />
+      <div className="pt-2">
+        <FinanceExecutionDonutChart
+          segments={segments}
+          centerPercent={centerPercent}
+          centerSublabelTop={centerSublabelTop}
+          centerSublabelBottom={centerSublabelBottom}
+          centerValueColor={centerValueColor}
+        />
+      </div>
+      <FinanceKpiSplitMoneyBlock
+        label={splitLabel}
+        factRub={factRub ?? null}
+        planRub={planRub ?? null}
+        accentColor={accentColor}
+        completionPct={showCompletionLine ? completionPct : undefined}
+        completionLabel={completionLabel}
+        compact
+      />
+    </div>
+  );
+}
+
 type Props = {
   presentation: FinanceExecutionPresentationSnapshot;
 };
 
 export function FinanceExecutionKpiCards({ presentation }: Props) {
-  const hasSalesDonut = presentation.salesDonutSegments.some((segment) => segment.value > 0);
   const hasExpenseDonut = presentation.expenseDonutSegments.some((segment) => segment.value > 0);
-
-  useEffect(() => {
-    if (!presentation.hasData) return;
-    console.log(`${LOG_PREFIX} KpiDonutChart props (Доходы):`, {
-      hasSalesDonut,
-      segments: presentation.salesDonutSegments,
-      chartHeight: 108,
-    });
-    console.log(`${LOG_PREFIX} KpiDonutChart props (Расходы):`, {
-      hasExpenseDonut,
-      segments: presentation.expenseDonutSegments,
-      chartHeight: 108,
-    });
-  }, [
-    hasExpenseDonut,
-    hasSalesDonut,
-    presentation.expenseDonutSegments,
-    presentation.hasData,
-    presentation.salesDonutSegments,
-  ]);
 
   if (!presentation.hasData) {
     return (
@@ -112,44 +145,7 @@ export function FinanceExecutionKpiCards({ presentation }: Props) {
         gradient="linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(21,128,61,0.14) 100%)"
         waveColor={FINANCE_KPI_COLORS.green}
       >
-        <div className="flex items-start gap-3">
-          <FinanceKpiIconBadge tone="green">
-            <TrendingUp className="h-5 w-5" strokeWidth={2} />
-          </FinanceKpiIconBadge>
-          <div className="min-w-0 flex-1">
-            <FinanceKpiLabel>ДОХОДЫ</FinanceKpiLabel>
-            <FinanceExecutionMainKpi
-              caption="Итого (Доход)"
-              value={formatMoney(presentation.revenue)}
-              valueClassName={valueClassForMoney(presentation.revenue)}
-              glowColor={FINANCE_KPI_COLORS.green}
-            />
-          </div>
-        </div>
-
-        {hasSalesDonut ? (
-          <div className="mt-auto space-y-1.5">
-            <FinanceKpiDivider />
-            <div className="pt-3">
-              <KpiDonutChart
-                segments={presentation.salesDonutSegments}
-                chartHeight={108}
-                large
-                fullLegendLabels
-                formatValue={formatRubValue}
-                tooltipValueLabel="Сумма"
-              />
-            </div>
-            <FinanceKpiSplitMoneyBlock
-              label="Факт"
-              factRub={presentation.revenuePlanExecution.factRub}
-              planRub={presentation.revenuePlanExecution.planRub}
-              accentColor={FINANCE_KPI_COLORS.green}
-              completionPct={presentation.revenuePlanExecution.completionPct}
-              completionLabel="Выполнение плана"
-            />
-          </div>
-        ) : null}
+        <FinanceRevenueProgressCard presentation={presentation} />
       </FinancePremiumKpiCard>
 
       <FinancePremiumKpiCard
@@ -174,27 +170,19 @@ export function FinanceExecutionKpiCards({ presentation }: Props) {
         </div>
 
         {hasExpenseDonut ? (
-          <div className="mt-auto space-y-1.5">
-            <FinanceKpiDivider />
-            <div className="pt-3">
-              <KpiDonutChart
-                segments={presentation.expenseDonutSegments}
-                chartHeight={108}
-                large
-                fullLegendLabels
-                formatValue={formatRubValue}
-                tooltipValueLabel="Сумма"
-              />
-            </div>
-            <FinanceKpiSplitMoneyBlock
-              label="Законтрактовано"
-              factRub={presentation.expenseBudgetUtilization.contractedRub}
-              planRub={presentation.expenseBudgetUtilization.projectTotalRub}
-              accentColor={FINANCE_KPI_COLORS.red}
-              completionPct={presentation.expenseBudgetUtilization.utilizationPct}
-              completionLabel="Освоение бюджета"
-            />
-          </div>
+          <FinanceExecutionChartCardSection
+            segments={presentation.expenseDonutSegments}
+            centerPercent={presentation.expenseBudgetUtilization.utilizationPct}
+            centerSublabelTop="Освоение"
+            centerSublabelBottom="бюджета"
+            centerValueColor="#f8fafc"
+            splitLabel="Законтрактовано"
+            factRub={presentation.expenseBudgetUtilization.contractedRub}
+            planRub={presentation.expenseBudgetUtilization.projectTotalRub}
+            accentColor={FINANCE_KPI_COLORS.red}
+            completionPct={presentation.expenseBudgetUtilization.utilizationPct}
+            completionLabel="Освоение бюджета"
+          />
         ) : null}
       </FinancePremiumKpiCard>
 

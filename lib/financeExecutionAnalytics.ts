@@ -69,8 +69,8 @@ export type FinanceExecutionBudgetUtilization = {
 export type FinanceExecutionPresentationSnapshot = FinanceExecutionKpiSnapshot & {
   salesChart: FinanceExecutionSalesChart | null;
   expenseChart: FinanceExecutionExpenseChart | null;
-  salesDonutSegments: KpiDonutSegment[];
-  expenseDonutSegments: KpiDonutSegment[];
+  salesDonutSegments: Array<KpiDonutSegment & { legendLabel?: string }>;
+  expenseDonutSegments: Array<KpiDonutSegment & { legendLabel?: string }>;
   revenuePlanExecution: FinanceExecutionPlanExecution;
   expenseBudgetUtilization: FinanceExecutionBudgetUtilization;
 };
@@ -85,10 +85,11 @@ function readExpenseChart(input: FinanceExecutionAnalyticsInput): FinanceExecuti
 
 function toDonutSegments(
   chart: FinanceExecutionSalesChart | FinanceExecutionExpenseChart | null,
-): KpiDonutSegment[] {
+): Array<KpiDonutSegment & { legendLabel?: string }> {
   if (!chart?.segments?.length) return [];
   return chart.segments.map((segment) => ({
     label: segment.label,
+    legendLabel: segment.legendLabel ?? segment.label,
     value: segment.valueRub,
     color: segment.color,
   }));
@@ -98,8 +99,6 @@ function completionPercent(numerator: number | null, denominator: number | null)
   if (numerator == null || denominator == null || denominator <= 0) return null;
   return Math.round((numerator / denominator) * 1000) / 10;
 }
-
-const LOG_PREFIX = "[finance-execution-charts]";
 
 export function getFinanceExecutionKpi(input: FinanceExecutionAnalyticsInput): FinanceExecutionKpiSnapshot {
   const kpi = readKpi(input);
@@ -119,11 +118,6 @@ export function getFinanceExecutionPresentation(
   const expenseChart = readExpenseChart(input);
   const salesDonutSegments = toDonutSegments(salesChart);
   const expenseDonutSegments = toDonutSegments(expenseChart);
-
-  console.log(`${LOG_PREFIX} FinanceExecutionPresentation salesChart:`, salesChart);
-  console.log(`${LOG_PREFIX} FinanceExecutionPresentation expenseChart:`, expenseChart);
-  console.log(`${LOG_PREFIX} FinanceExecutionPresentation salesDonutSegments:`, salesDonutSegments);
-  console.log(`${LOG_PREFIX} FinanceExecutionPresentation expenseDonutSegments:`, expenseDonutSegments);
 
   return {
     ...kpi,

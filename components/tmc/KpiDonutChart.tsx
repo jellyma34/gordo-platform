@@ -91,6 +91,8 @@ type KpiDonutChartProps = {
   compactLegend?: boolean;
   /** Показывать подписи легенды без усечения. */
   fullLegendLabels?: boolean;
+  /** Финансовая KPI-карточка: крупный donut, компактная легенда справа. */
+  financeLegend?: boolean;
 };
 
 function pct1(value: number, total: number): string {
@@ -120,6 +122,7 @@ export function KpiDonutChart({
   legendColumns = 1,
   compactLegend = false,
   fullLegendLabels = false,
+  financeLegend = false,
 }: KpiDonutChartProps) {
   const gradPrefix = useId().replace(/:/g, "");
 
@@ -201,35 +204,47 @@ export function KpiDonutChart({
   const renderLegendList = (items: typeof legendSegments) => (
     <ul
       className={
-        large
-          ? compactLegend
-            ? "min-w-0 flex-1 space-y-1.5"
-            : "min-w-0 flex-1 space-y-2"
-          : "min-w-0 flex-1 space-y-1.5"
+        financeLegend
+          ? "min-w-0 max-w-[11.5rem] flex-1 space-y-1"
+          : large
+            ? compactLegend
+              ? "min-w-0 flex-1 space-y-1.5"
+              : "min-w-0 flex-1 space-y-2"
+            : "min-w-0 flex-1 space-y-1.5"
       }
     >
       {items.map((seg) => (
         <li
           key={seg.label}
           className={
-            large
-              ? compactLegend
-                ? "flex items-center justify-between gap-2"
-                : "flex items-center justify-between gap-2.5"
-              : "flex items-center justify-between gap-2"
+            financeLegend
+              ? "flex items-start justify-between gap-1.5"
+              : large
+                ? compactLegend
+                  ? "flex items-center justify-between gap-2"
+                  : "flex items-center justify-between gap-2.5"
+                : "flex items-center justify-between gap-2"
           }
         >
           <span
             className={
-              large
-                ? compactLegend
-                  ? "flex min-w-0 items-center gap-2"
-                  : "flex min-w-0 items-center gap-2.5"
-                : "flex min-w-0 items-center gap-2"
+              financeLegend
+                ? "flex min-w-0 items-start gap-1.5"
+                : large
+                  ? compactLegend
+                    ? "flex min-w-0 items-center gap-2"
+                    : "flex min-w-0 items-center gap-2.5"
+                  : "flex min-w-0 items-center gap-2"
             }
           >
             <span
-              className={large ? "h-2.5 w-2.5 shrink-0 rounded-full" : "h-2 w-2 shrink-0 rounded-full"}
+              className={
+                financeLegend
+                  ? "mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                  : large
+                    ? "h-2.5 w-2.5 shrink-0 rounded-full"
+                    : "h-2 w-2 shrink-0 rounded-full"
+              }
               style={{
                 backgroundColor: seg.color,
                 boxShadow: `0 0 10px ${seg.color}cc`,
@@ -238,27 +253,34 @@ export function KpiDonutChart({
             />
             <span
               className={
-                large
-                  ? compactLegend
-                    ? fullLegendLabels
+                financeLegend
+                  ? fullLegendLabels
+                    ? "text-[9px] font-medium uppercase leading-[1.2] tracking-wide text-slate-400"
+                    : "truncate text-[9px] font-medium uppercase leading-[1.2] tracking-wide text-slate-400"
+                  : large
+                    ? compactLegend
+                      ? fullLegendLabels
+                        ? "text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
+                        : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
+                      : fullLegendLabels
+                        ? "text-[11px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
+                        : "truncate text-[11px] font-semibold uppercase tracking-wider text-slate-300"
+                    : fullLegendLabels
                       ? "text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
                       : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
-                    : fullLegendLabels
-                      ? "text-[11px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
-                      : "truncate text-[11px] font-semibold uppercase tracking-wider text-slate-300"
-                  : fullLegendLabels
-                    ? "text-[10px] font-semibold uppercase leading-[1.15] tracking-wider text-slate-300"
-                    : "truncate text-[10px] font-semibold uppercase tracking-wider text-slate-300"
               }
+              title={financeLegend ? seg.label : undefined}
             >
               {seg.label}
             </span>
           </span>
           <span
             className={
-              large
-                ? "shrink-0 tabular-nums text-lg font-semibold text-white"
-                : "shrink-0 tabular-nums text-base font-semibold text-white"
+              financeLegend
+                ? "shrink-0 tabular-nums text-[11px] font-semibold leading-tight text-white"
+                : large
+                  ? "shrink-0 tabular-nums text-lg font-semibold text-white"
+                  : "shrink-0 tabular-nums text-base font-semibold text-white"
             }
           >
             {formatSegmentValue(seg.value)}
@@ -295,17 +317,26 @@ export function KpiDonutChart({
         : "mt-1 max-w-[4.5rem] text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-400");
 
   return (
-    <div className={large ? "space-y-3" : "space-y-2"}>
+    <div className={financeLegend ? "space-y-1.5" : large ? "space-y-3" : "space-y-2"}>
       <div
         className={
           isBottomLegend
             ? "flex items-center justify-center"
-            : large
-              ? "flex items-center gap-4"
-              : "flex items-center gap-3"
+            : financeLegend
+              ? "flex items-center gap-2.5"
+              : large
+                ? "flex items-center gap-4"
+                : "flex items-center gap-3"
         }
       >
-        <div className="relative shrink-0" style={{ width: chartHeight, height: chartHeight }}>
+        <div
+          className="relative shrink-0"
+          style={{
+            width: chartHeight,
+            height: chartHeight,
+            minWidth: chartHeight,
+          }}
+        >
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <defs>

@@ -20,6 +20,14 @@ export function financeRubKpiAmount(value: number): string {
   return formatted;
 }
 
+/** Компактная сумма для легенды donut: «261,1 млн». */
+export function financeRubKpiAmountMln(value: number): string {
+  const sign = value < 0 ? "−" : "";
+  const mln = Math.abs(value) / 1_000_000;
+  const rounded = Math.round(mln * 10) / 10;
+  return `${sign}${rounded.toFixed(1).replace(".", ",")} млн`;
+}
+
 export function financePct1(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${n.toFixed(1).replace(".", ",")}%`;
@@ -173,6 +181,7 @@ export function FinanceKpiSplitMoneyBlock({
   showRubSuffix = false,
   completionPct,
   completionLabel = "Выполнение",
+  compact = false,
 }: {
   label: string;
   factRub: number | null;
@@ -181,6 +190,7 @@ export function FinanceKpiSplitMoneyBlock({
   showRubSuffix?: boolean;
   completionPct?: number | null;
   completionLabel?: string;
+  compact?: boolean;
 }) {
   const primaryGlow = { textShadow: "0 0 22px rgba(59,130,246,0.42)" };
   const suffix = showRubSuffix ? " ₽" : "";
@@ -188,9 +198,9 @@ export function FinanceKpiSplitMoneyBlock({
   const hasPlan = planRub != null;
 
   return (
-    <div className="space-y-1.5">
+    <div className={compact ? "space-y-1" : "space-y-1.5"}>
       <FinanceKpiDivider />
-      <div className="pt-5 pl-0.5">
+      <div className={`${compact ? "pt-3" : "pt-5"} pl-0.5`}>
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
           <span
             className="h-2 w-2 shrink-0 rounded-full"

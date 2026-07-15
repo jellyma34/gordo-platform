@@ -1,7 +1,11 @@
 export type FinanceExecutionChartSegment = {
   id: string;
   label: string;
+  /** Короткая подпись для легенды под диаграммой. */
+  legendLabel?: string;
   valueRub: number;
+  /** План по строке объекта продажи (колонка «План» / «Устав»). */
+  planRub?: number | null;
   color: string;
 };
 

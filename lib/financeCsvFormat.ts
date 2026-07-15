@@ -28,14 +28,32 @@ function cellMatchesBudgetExecutionMarker(cell: string): boolean {
   );
 }
 
+function detectFinanceCsvDelimiter(text: string): string {
+  const sampleLines = text.split(/\r?\n/).slice(0, 40);
+  let semicolonCount = 0;
+  let commaCount = 0;
+
+  for (const line of sampleLines) {
+    semicolonCount += (line.match(/;/g) ?? []).length;
+    commaCount += (line.match(/,/g) ?? []).length;
+  }
+
+  return semicolonCount >= commaCount ? ";" : ",";
+}
+
 export function parseFinanceCsvTextToRawRows(text: string): unknown[][] {
+  const delimiter = detectFinanceCsvDelimiter(text);
   const parsed = Papa.parse<string[]>(text, {
-    delimiter: FINANCE_CSV_DELIMITER,
+    delimiter,
     skipEmptyLines: false,
   });
 
   if (parsed.errors.length > 0) {
     console.warn("[finance-csv] Papa errors:", parsed.errors.slice(0, 5));
+  }
+
+  if (delimiter !== FINANCE_CSV_DELIMITER) {
+    console.warn(`[finance-csv] автоматически выбран разделитель «${delimiter}»`);
   }
 
   return (parsed.data ?? []) as unknown[][];
