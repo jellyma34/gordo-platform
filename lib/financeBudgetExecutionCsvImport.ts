@@ -336,6 +336,12 @@ export function importFinanceBudgetExecutionCsvFromRawRows(
     missingMetrics,
   };
 
+  console.log("[expense-diag] ENTER importFinanceBudgetExecutionCsvFromRawRows", {
+    sourceFileName,
+    rawRowCount: rawRows.length,
+  });
+  console.trace("[expense-diag] importFinanceBudgetExecutionCsvFromRawRows");
+
   const salesChart = parseFinanceExecutionSalesChart(rawRows);
   const expenseChart = parseFinanceExecutionExpenseChart(rawRows);
   logFinanceExecutionChartsSnapshot(salesChart, expenseChart);

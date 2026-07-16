@@ -328,6 +328,33 @@ function testCategoryPlanExecutionPercents() {
   assert.equal(pct(admin!.valueRub, admin!.planRub!), 82.7);
 }
 
+function testRevenueCategoryProgressFromPresentation() {
+  const rawRows = [
+    ["Объекты продажи"],
+    ["Наименование", "План", "Факт на тек дату"],
+    ["Квартиры", "1242221080", "261066059"],
+    ["Парковки", "181408900", "18937554"],
+    ["Кладовые", "24441250", "2248900"],
+    ["Адм.помещения", "82034400", "67858100"],
+    ["Итого (доход)", "1530105630", "350110613"],
+  ];
+  const { snapshot } = importFinanceBudgetExecutionCsvFromRawRows(rawRows, "category-progress.csv");
+  const presentation = getFinanceExecutionPresentation({ snapshot });
+
+  assert.equal(presentation.revenueCategories.length, 4);
+
+  const apartments = presentation.revenueCategories.find((c) => c.id === "apartments");
+  const parking = presentation.revenueCategories.find((c) => c.id === "parking");
+  const storage = presentation.revenueCategories.find((c) => c.id === "storage");
+  const admin = presentation.revenueCategories.find((c) => c.id === "admin");
+
+  assert.equal(apartments?.progressPct, 21);
+  assert.equal(parking?.progressPct, 10.4);
+  assert.equal(storage?.progressPct, 9.2);
+  assert.equal(admin?.progressPct, 82.7);
+  assert.equal(apartments?.planRub, 1_242_221_080);
+}
+
 function testDynamicSalesCategoryFromCsv() {
   const rawRows = [
     ["Исполнение бюджета"],
@@ -365,6 +392,95 @@ function testProjectCostExpenseTable() {
   assert.equal(snapshot.expenseChart?.projectTotalCostRub, 300);
 }
 
+function testExpenseTopLevelCodeAggregation() {
+  const rawRows = [
+    ["Исполнение бюджета"],
+    ["Общая стоимость проекта (планируем потратить)"],
+    ["Наименование", "План", "Законтрактовано", "Освоено"],
+    ["2. Общая стоимость проекта (планируем потратить)", "1341356313", "577888241", "465000000"],
+    ["2.01 Приобретение земельного участка", "100", "90", "40"],
+    ["2.04 Организация строительства", "200", "100", "50"],
+    ["2.04.01 Подготовка площадки", "50", "30", "10"],
+    ["2.04.02 Временные здания", "40", "20", "5"],
+    ["2.04.03 Охрана труда", "10", "10", "2"],
+    ["2.05 Строительство зданий", "200", "150", "80"],
+    ["2.05.01 Каркас", "120", "80", "40"],
+    ["2.90 Общехозяйственные", "80", "40", "20"],
+    ["4.01 Приобретение активов", "30", "25", "10"],
+    ["6.03 Проценты", "20", "15", "5"],
+    ["Итого", "1341356313", "577888241", "465000000"],
+  ];
+  const { snapshot } = importFinanceBudgetExecutionCsvFromRawRows(
+    rawRows,
+    "expense-top-level.csv",
+  );
+
+  // Только статьи 1-го уровня: 2.01, 2.04, 2.05, 2.90, 4.01, 6.03
+  assert.equal(snapshot.expenseChart?.segments.length, 6);
+
+  // Итог «2. Общая стоимость…» не в диаграмме
+  assert.equal(
+    snapshot.expenseChart?.segments.some((segment) =>
+      segment.label.toLowerCase().includes("общая стоимость"),
+    ),
+    false,
+  );
+  assert.equal(snapshot.expenseChart?.projectTotalCostRub, 1_341_356_313);
+
+  // Вложенные 2.04.01… не в презентации; берётся сумма строки 2.04
+  const org = snapshot.expenseChart?.segments.find(
+    (segment) => segment.label === "Организация строительства",
+  );
+  assert.ok(org);
+  assert.equal(org?.valueRub, 100);
+
+  assert.equal(
+    snapshot.expenseChart?.segments.find(
+      (segment) => segment.label === "Приобретение и обслуживание земельного участка",
+    )?.valueRub,
+    90,
+  );
+  assert.equal(
+    snapshot.expenseChart?.segments.find(
+      (segment) => segment.label === "Строительство зданий и сооружений",
+    )?.valueRub,
+    150,
+  );
+  assert.equal(
+    snapshot.expenseChart?.segments.find(
+      (segment) => segment.label === "Общехозяйственные расходы",
+    )?.valueRub,
+    40,
+  );
+  assert.equal(
+    snapshot.expenseChart?.segments.find(
+      (segment) => segment.label === "Приобретение долгосрочных активов",
+    )?.valueRub,
+    25,
+  );
+  assert.equal(
+    snapshot.expenseChart?.segments.find(
+      (segment) => segment.label === "Проценты по кредитам и займам",
+    )?.valueRub,
+    15,
+  );
+
+  assert.equal(snapshot.expenseChart?.contractedTotalRub, 420);
+
+  // Детализация (включая 2.04.01) остаётся в detailSegments
+  assert.ok(
+    snapshot.expenseChart?.detailSegments?.some((segment) =>
+      segment.label.includes("Подготовка"),
+    ),
+  );
+  assert.equal(
+    snapshot.expenseChart?.detailSegments?.some((segment) =>
+      segment.label.toLowerCase().includes("общая стоимость"),
+    ),
+    false,
+  );
+}
+
 function main() {
   testExecutionKpiFromCsv();
   testExecutionChartsFromCsv();
@@ -377,8 +493,10 @@ function main() {
   testAdminSalesLabelVariants();
   testPlanFactSalesTableLayout();
   testCategoryPlanExecutionPercents();
+  testRevenueCategoryProgressFromPresentation();
   testDynamicSalesCategoryFromCsv();
   testProjectCostExpenseTable();
+  testExpenseTopLevelCodeAggregation();
   testExpensesSkipsLeadingZero();
   testBankPercentIgnoresAbsoluteSum();
   testPartialImportKeepsOtherKpi();

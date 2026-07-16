@@ -5,7 +5,7 @@ export type FinanceExecutionChartSegment = {
   legendLabel?: string;
   valueRub: number;
   /** План по строке объекта продажи (колонка «План» / «Устав»). */
-  planRub?: number | null;
+  planRub: number | null;
   color: string;
 };
 
@@ -18,7 +18,16 @@ export type FinanceExecutionSalesChart = {
 
 /** Структура расходов — «Наименование статей» / «Законтрактовано». */
 export type FinanceExecutionExpenseChart = {
+  /**
+   * Сегменты для презентационной диаграммы:
+   * только разделы верхнего уровня (2.01, 2.04, …) с суммой вложенных статей.
+   */
   segments: FinanceExecutionChartSegment[];
+  /**
+   * Полный список статей из CSV (включая вложенные) —
+   * для рабочего режима / детального просмотра.
+   */
+  detailSegments?: FinanceExecutionChartSegment[];
   /** Сумма «Законтрактовано» по статьям верхнего уровня. */
   contractedTotalRub: number | null;
   /** «Общая стоимость проекта». */

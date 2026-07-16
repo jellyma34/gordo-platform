@@ -82,6 +82,7 @@ type FinanceExecutionChartCardSectionProps = {
   completionPct?: number | null;
   completionLabel?: string;
   showCompletionLine?: boolean;
+  chartSize?: number;
 };
 
 function FinanceExecutionChartCardSection({
@@ -97,17 +98,19 @@ function FinanceExecutionChartCardSection({
   completionPct,
   completionLabel = "Выполнение",
   showCompletionLine = true,
+  chartSize = 190,
 }: FinanceExecutionChartCardSectionProps) {
   return (
-    <div className="mt-auto">
+    <div className="mt-auto flex flex-1 flex-col">
       <FinanceKpiDivider />
-      <div className="pt-2">
+      <div className="flex flex-1 flex-col justify-center pt-2">
         <FinanceExecutionDonutChart
           segments={segments}
           centerPercent={centerPercent}
           centerSublabelTop={centerSublabelTop}
           centerSublabelBottom={centerSublabelBottom}
           centerValueColor={centerValueColor}
+          chartSize={chartSize}
         />
       </div>
       <FinanceKpiSplitMoneyBlock
@@ -154,36 +157,38 @@ export function FinanceExecutionKpiCards({ presentation }: Props) {
         waveColor={FINANCE_KPI_COLORS.red}
         waveOpacity={0.25}
       >
-        <div className="flex items-start gap-3">
-          <FinanceKpiIconBadge tone="red">
-            <TrendingDown className="h-5 w-5" strokeWidth={2} />
-          </FinanceKpiIconBadge>
-          <div className="min-w-0 flex-1">
-            <FinanceKpiLabel>РАСХОДЫ</FinanceKpiLabel>
-            <FinanceExecutionMainKpi
-              caption="Затраты"
-              value={formatMoney(presentation.expenses)}
-              valueClassName={valueClassForMoney(presentation.expenses)}
-              glowColor={FINANCE_KPI_COLORS.red}
-            />
+        <div className="flex flex-1 flex-col">
+          <div className="flex items-start gap-3">
+            <FinanceKpiIconBadge tone="red">
+              <TrendingDown className="h-5 w-5" strokeWidth={2} />
+            </FinanceKpiIconBadge>
+            <div className="min-w-0 flex-1">
+              <FinanceKpiLabel>РАСХОДЫ</FinanceKpiLabel>
+              <FinanceExecutionMainKpi
+                caption="Затраты"
+                value={formatMoney(presentation.expenses)}
+                valueClassName={valueClassForMoney(presentation.expenses)}
+                glowColor={FINANCE_KPI_COLORS.red}
+              />
+            </div>
           </div>
-        </div>
 
-        {hasExpenseDonut ? (
-          <FinanceExecutionChartCardSection
-            segments={presentation.expenseDonutSegments}
-            centerPercent={presentation.expenseBudgetUtilization.utilizationPct}
-            centerSublabelTop="Освоение"
-            centerSublabelBottom="бюджета"
-            centerValueColor="#f8fafc"
-            splitLabel="Законтрактовано"
-            factRub={presentation.expenseBudgetUtilization.contractedRub}
-            planRub={presentation.expenseBudgetUtilization.projectTotalRub}
-            accentColor={FINANCE_KPI_COLORS.red}
-            completionPct={presentation.expenseBudgetUtilization.utilizationPct}
-            completionLabel="Освоение бюджета"
-          />
-        ) : null}
+          {hasExpenseDonut ? (
+            <FinanceExecutionChartCardSection
+              segments={presentation.expenseDonutSegments}
+              centerPercent={presentation.expenseBudgetUtilization.utilizationPct}
+              centerSublabelTop="Освоение"
+              centerSublabelBottom="бюджета"
+              centerValueColor="#f8fafc"
+              splitLabel="Законтрактовано"
+              factRub={presentation.expenseBudgetUtilization.contractedRub}
+              planRub={presentation.expenseBudgetUtilization.projectTotalRub}
+              accentColor={FINANCE_KPI_COLORS.red}
+              showCompletionLine={false}
+              chartSize={190}
+            />
+          ) : null}
+        </div>
       </FinancePremiumKpiCard>
 
       <FinancePremiumKpiCard

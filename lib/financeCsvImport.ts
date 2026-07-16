@@ -40,6 +40,10 @@ export type FinanceCsvImportResult =
 export async function importFinanceCsv(file: File): Promise<FinanceCsvImportResult> {
   const rawRows = await readFinanceCsvRawRows(file);
   const format = detectFinanceCsvFormat(rawRows);
+  console.log("[expense-diag] importFinanceCsv format detected:", format, {
+    fileName: file.name,
+    rawRowCount: rawRows.length,
+  });
 
   if (format === "budget") {
     const budgetResult = importFinanceBudgetCsvFromRawRows(rawRows, file.name);

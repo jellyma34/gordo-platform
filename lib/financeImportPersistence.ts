@@ -236,9 +236,14 @@ function parseExpenseChart(raw: unknown): FinanceExecutionExpenseChart | null {
   const segments = segmentsRaw
     .map((segment) => parseChartSegment(segment))
     .filter((segment): segment is FinanceExecutionChartSegment => segment != null);
+  const detailRaw = Array.isArray(body.detailSegments) ? body.detailSegments : [];
+  const detailSegments = detailRaw
+    .map((segment) => parseChartSegment(segment))
+    .filter((segment): segment is FinanceExecutionChartSegment => segment != null);
   if (segments.length === 0 && typeof body.projectTotalCostRub !== "number") return null;
   return {
     segments,
+    detailSegments: detailSegments.length > 0 ? detailSegments : undefined,
     contractedTotalRub:
       typeof body.contractedTotalRub === "number" ? body.contractedTotalRub : null,
     projectTotalCostRub:

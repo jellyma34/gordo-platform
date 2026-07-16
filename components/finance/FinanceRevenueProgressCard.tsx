@@ -11,22 +11,15 @@ import {
   financeRubKpiAmount,
   financeRubKpiAmountMln,
 } from "@/components/finance/FinancePresentationKpiPrimitives";
-import type { FinanceExecutionPresentationSnapshot } from "@/lib/financeExecutionAnalytics";
+import type {
+  FinanceExecutionPresentationSnapshot,
+  FinanceExecutionRevenueCategory,
+} from "@/lib/financeExecutionAnalytics";
 
 const MONEY_VALUE_CLASS = "text-emerald-400";
 const MISSING_VALUE_CLASS = "text-slate-400";
 
 const REVENUE_CATEGORY_ORDER = ["apartments", "parking", "storage", "admin"] as const;
-
-function clampProgressWidth(percent: number | null): number {
-  if (percent == null || !Number.isFinite(percent)) return 0;
-  return Math.max(0, Math.min(100, percent));
-}
-
-function categoryPlanExecutionPercent(factRub: number, planRub: number | null | undefined): number | null {
-  if (planRub == null || planRub <= 0) return null;
-  return Math.round((factRub / planRub) * 1000) / 10;
-}
 
 function categoryShareOfTotalPlanPercent(factRub: number, totalPlanRub: number | null): number {
   if (totalPlanRub == null || totalPlanRub <= 0) return 0;
@@ -43,11 +36,113 @@ function sortRevenueSegments<T extends { id: string }>(segments: T[]): T[] {
   });
 }
 
-function formatFactPlanMln(factRub: number, planRub: number | null | undefined): string {
+function clampProgressWidth(percent: number | null): number {
+  if (percent == null || !Number.isFinite(percent)) return 0;
+  return Math.max(0, Math.min(100, percent));
+}
+
+function categoryProgressWidthPercent(factRub: number, planRub: number): number {
+  return Math.max(0, Math.min(100, (factRub / planRub) * 100));
+}
+
+function formatCategoryExecutionPct(percent: number | null): string {
+  if (percent == null || !Number.isFinite(percent)) return "—";
+  const rounded = Math.round(percent * 10) / 10;
+  if (rounded === Math.round(rounded)) {
+    return `${Math.round(rounded)}%`;
+  }
+  return financePct1(rounded);
+}
+
+function formatFactPlanMln(factRub: number, planRub: number | null): string {
   if (planRub != null && planRub > 0) {
     return `${financeRubKpiAmountMln(factRub)} / ${financeRubKpiAmountMln(planRub)}`;
   }
   return financeRubKpiAmountMln(factRub);
+}
+
+type FinanceCategoryPlanProgressTrackProps = {
+  factRub: number;
+  planRub: number | null;
+  fillColor: string;
+  heightClass?: string;
+  animate?: boolean;
+};
+
+/** Ширина полосы категории = (fact / plan) * 100 — только собственный план строки. */
+function FinanceCategoryPlanProgressTrack({
+  factRub,
+  planRub,
+  fillColor,
+  heightClass = "h-2",
+  animate = true,
+}: FinanceCategoryPlanProgressTrackProps) {
+  const width =
+    planRub != null && planRub > 0 ? categoryProgressWidthPercent(factRub, planRub) : 0;
+  const fillGlow = { boxShadow: `0 0 10px ${fillColor}88` };
+
+  return (
+    <div
+      className={`relative w-full overflow-hidden rounded-full bg-slate-900/70 ring-1 ring-inset ring-slate-600/35 ${heightClass}`}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(width * 10) / 10}
+    >
+      <div
+        className={`h-full rounded-full ${animate ? "transition-[width] duration-700 ease-out" : ""}`}
+        style={{
+          width: `${width}%`,
+          backgroundColor: fillColor,
+          ...fillGlow,
+        }}
+      />
+    </div>
+  );
+}
+
+type FinanceRevenueCategoryRowProps = {
+  category: FinanceExecutionRevenueCategory;
+};
+
+function FinanceRevenueCategoryRow({ category }: FinanceRevenueCategoryRowProps) {
+  const { factRub, planRub, progressPct, color } = category;
+  const displayLabel = category.legendLabel ?? category.label;
+
+  return (
+    <li className="space-y-1.5">
+      <div className="flex items-baseline gap-2">
+        <span
+          className="mt-1 h-2 w-2 shrink-0 rounded-full"
+          style={{
+            backgroundColor: color,
+            boxShadow: `0 0 8px ${color}aa`,
+          }}
+          aria-hidden
+        />
+        <span className="min-w-0 shrink-0 text-[10px] font-medium text-slate-300">{displayLabel}</span>
+        {progressPct != null ? (
+          <>
+            <span
+              className="mb-0.5 min-w-[8px] flex-1 border-b border-dotted border-slate-600/40"
+              aria-hidden
+            />
+            <span className="shrink-0 text-[10px] font-bold tabular-nums" style={{ color }}>
+              {formatCategoryExecutionPct(progressPct)}
+            </span>
+          </>
+        ) : (
+          <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-500">—</span>
+        )}
+      </div>
+
+      <FinanceCategoryPlanProgressTrack factRub={factRub} planRub={planRub} fillColor={color} />
+
+      <div className="pl-4 text-[10px] tabular-nums text-slate-400">
+        <span className="font-medium text-slate-300">{formatFactPlanMln(factRub, planRub)}</span>
+      </div>
+    </li>
+  );
 }
 
 type FinanceProgressTrackProps = {
@@ -156,11 +251,16 @@ function FinanceStackedPlanProgressTrack({
 
 function FinanceRevenueCategorySkeleton() {
   return (
-    <div className="space-y-2.5 animate-pulse">
+    <div className="space-y-3 animate-pulse">
       {Array.from({ length: 4 }).map((_, index) => (
         <div key={index} className="space-y-1.5">
-          <div className="h-2.5 w-24 rounded bg-slate-700/50" />
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-slate-700/50" />
+            <div className="h-2.5 w-20 rounded bg-slate-700/50" />
+            <div className="ml-auto h-2.5 w-8 rounded bg-slate-700/50" />
+          </div>
           <div className="h-2 w-full rounded-full bg-slate-800/80" />
+          <div className="h-2.5 w-36 rounded bg-slate-800/60" />
         </div>
       ))}
     </div>
@@ -174,7 +274,7 @@ type Props = {
 export function FinanceRevenueProgressCard({ presentation }: Props) {
   const { factRub, planRub, completionPct } = presentation.revenuePlanExecution;
   const salesChart = presentation.salesChart;
-  const factTotalRub = factRub ?? salesChart?.factTotalRub ?? null;
+  const revenueCategories = presentation.revenueCategories;
 
   const remainingRub =
     planRub != null && factRub != null ? Math.max(0, planRub - factRub) : null;
@@ -183,7 +283,7 @@ export function FinanceRevenueProgressCard({ presentation }: Props) {
     salesChart?.segments.filter((segment) => segment.valueRub > 0) ?? [],
   );
 
-  const hasCategoryData = activeSegments.length > 0 && factTotalRub != null && factTotalRub > 0;
+  const hasCategoryData = revenueCategories.length > 0;
   const canShowStackedPlanBar = hasCategoryData && planRub != null && planRub > 0;
 
   const mainValueClass = factRub == null ? MISSING_VALUE_CLASS : MONEY_VALUE_CLASS;
@@ -266,37 +366,10 @@ export function FinanceRevenueProgressCard({ presentation }: Props) {
         <FinanceKpiDivider />
 
         {hasCategoryData ? (
-          <ul className="space-y-2">
-            {activeSegments.map((segment) => {
-              const progressPct = categoryPlanExecutionPercent(segment.valueRub, segment.planRub);
-              const displayLabel = segment.legendLabel ?? segment.label;
-
-              return (
-                <li key={segment.id} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: segment.color,
-                        boxShadow: `0 0 8px ${segment.color}aa`,
-                      }}
-                      aria-hidden
-                    />
-                    <span className="min-w-0 truncate text-[10px] font-medium text-slate-300">
-                      {displayLabel}
-                    </span>
-                    <span className="ml-auto shrink-0 text-right tabular-nums text-[10px] font-semibold text-white">
-                      {formatFactPlanMln(segment.valueRub, segment.planRub)}
-                    </span>
-                  </div>
-                  <FinanceProgressTrack
-                    percent={progressPct}
-                    fillColor={segment.color}
-                    heightClass="h-2"
-                  />
-                </li>
-              );
-            })}
+          <ul className="space-y-3">
+            {revenueCategories.map((category) => (
+              <FinanceRevenueCategoryRow key={category.id} category={category} />
+            ))}
           </ul>
         ) : (
           <FinanceRevenueCategorySkeleton />
