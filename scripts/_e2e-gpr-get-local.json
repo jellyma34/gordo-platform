@@ -1,0 +1,44 @@
+﻿[
+    {
+        "code":  "2.05",
+        "global_task_id":  "2.05",
+        "name":  "????????????? ??????",
+        "level":  1,
+        "plan_start":  null,
+        "plan_end":  null,
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  10,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  1,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01",
+        "global_task_id":  "2.05.01",
+        "name":  "?????? 1",
+        "level":  2,
+        "plan_start":  "2025-01-01",
+        "plan_end":  "2025-06-01",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  20,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  2,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    }
+]

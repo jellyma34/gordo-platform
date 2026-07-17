@@ -1,0 +1,2480 @@
+﻿[
+    {
+        "code":  "2.04",
+        "global_task_id":  "2.04::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv6",
+        "name":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° ÑÐµÑÑÐ¸ÑÐ¾ÑÐ¸Ð¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+        "level":  1,
+        "plan_start":  "2025-07-01",
+        "plan_end":  "2026-02-28",
+        "fact_start":  "2025-07-01",
+        "fact_end":  "2026-02-28",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  69,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04",
+        "global_task_id":  "2.04",
+        "name":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° ÑÐµÑÑÐ¸ÑÐ¾ÑÐ¸Ð¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+        "level":  1,
+        "plan_start":  "2025-07-02",
+        "plan_end":  "2026-02-28",
+        "fact_start":  "2025-07-02",
+        "fact_end":  null,
+        "completion":  64,
+        "comment":  "Ð­ÑÐ°Ð¿ Ð² ÑÐ°Ð±Ð¾ÑÐµ",
+        "related_tmc_ids":  [
+                                "tmc-08"
+                            ],
+        "part_id":  1,
+        "id":  1,
+        "status":  "blocked",
+        "blocked_reasons":  [
+                                "ÐÐµÑÐ¾Ðº ÐºÐ°ÑÑÐµÑÐ½ÑÐ¹"
+                            ]
+    },
+    {
+        "code":  "2.04.01",
+        "global_task_id":  "2.04.01",
+        "name":  "Ð¡Ð½Ð¾Ñ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹, Ð²ÑÑÑÐ±ÐºÐ° Ð´ÐµÑÐµÐ²ÑÐµÐ²",
+        "level":  2,
+        "plan_start":  "2025-07-02",
+        "plan_end":  "2025-08-15",
+        "fact_start":  "2025-07-02",
+        "fact_end":  "2025-08-18",
+        "completion":  100,
+        "comment":  "ÐÐ°Ð²ÐµÑÑÐµÐ½Ð¾",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  2,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.03",
+        "global_task_id":  "2.04.03",
+        "name":  "ÐÑÐ½Ð¾Ñ ÑÐµÑÐµÐ¹",
+        "level":  2,
+        "plan_start":  "2025-08-01",
+        "plan_end":  "2025-09-20",
+        "fact_start":  "2025-08-03",
+        "fact_end":  null,
+        "completion":  76,
+        "comment":  "Ð§Ð°ÑÑÐ¸ÑÐ½Ð¾ Ð²ÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¾",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  3,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.04",
+        "global_task_id":  "2.04.04::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv7",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°, Ð¸ Ð²Ñ. Ð´Ð¾ÑÐ¾Ð³Ð¸",
+        "level":  2,
+        "plan_start":  "2025-07-01",
+        "plan_end":  "2025-11-10",
+        "fact_start":  "2025-07-01",
+        "fact_end":  "2025-11-10",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  70,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.04",
+        "global_task_id":  "2.04.04",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+        "level":  2,
+        "plan_start":  "2025-07-01",
+        "plan_end":  "2025-11-10",
+        "fact_start":  "2025-07-01",
+        "fact_end":  "2025-11-10",
+        "completion":  100,
+        "comment":  "ÐÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¾ Ð¿Ð¾ Ð³ÑÐ°ÑÐ¸ÐºÑ",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  4,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.05",
+        "global_task_id":  "2.04.05::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv8",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð²ÑÐµÐ¼ÐµÐ½Ð½ÑÑ\u0085 Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+        "level":  2,
+        "plan_start":  "2025-09-22",
+        "plan_end":  "2026-02-28",
+        "fact_start":  "2025-09-22",
+        "fact_end":  "2026-02-28",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  71,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.05",
+        "global_task_id":  "2.04.05",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð²ÑÐµÐ¼ÐµÐ½Ð½ÑÑ\u0085 Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+        "level":  2,
+        "plan_start":  "2025-09-22",
+        "plan_end":  "2026-02-28",
+        "fact_start":  "2025-09-22",
+        "fact_end":  null,
+        "completion":  58,
+        "comment":  "ÐÑÐ¾Ð´Ð¾Ð»Ð¶Ð°ÐµÑÑÑ",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  5,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.04.06",
+        "global_task_id":  "2.04.06::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv9",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¾Ð³ÑÐ°Ð¶Ð´ÐµÐ½Ð¸Ñ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸",
+        "level":  2,
+        "plan_start":  "2025-07-02",
+        "plan_end":  "2025-11-20",
+        "fact_start":  "2025-07-02",
+        "fact_end":  "2025-11-20",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  72,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05",
+        "global_task_id":  "2.05::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv7",
+        "name":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+        "level":  1,
+        "plan_start":  "2025-10-05",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  14,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05",
+        "global_task_id":  "2.05::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv11",
+        "name":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+        "level":  1,
+        "plan_start":  null,
+        "plan_end":  null,
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  73,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05",
+        "global_task_id":  "2.05",
+        "name":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+        "level":  1,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2027-09-01",
+        "fact_start":  "2025-10-14",
+        "fact_end":  null,
+        "completion":  28,
+        "comment":  "ÐÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ ÑÑÐ°Ð¿ Ð¿ÑÐ¾ÐµÐºÑÐ°",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  6,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01",
+        "global_task_id":  "2.05.01::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv12",
+        "name":  "ÐÐµÐ¼Ð»ÑÐ½ÑÐµ ÑÐ°Ð±Ð¾ÑÑ",
+        "level":  2,
+        "plan_start":  "2025-09-25",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-09-19",
+        "fact_end":  "2025-10-19",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  74,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01",
+        "global_task_id":  "2.05.01::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv8",
+        "name":  "ÐÐµÐ¼Ð»ÑÐ½ÑÐµ ÑÐ°Ð±Ð¾ÑÑ",
+        "level":  2,
+        "plan_start":  "2025-10-05",
+        "plan_end":  "2026-04-15",
+        "fact_start":  "2025-09-28",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  15,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01",
+        "global_task_id":  "2.05.01",
+        "name":  "ÐÐµÐ¼Ð»ÑÐ½ÑÐµ ÑÐ°Ð±Ð¾ÑÑ",
+        "level":  2,
+        "plan_start":  "2025-09-17",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-09-17",
+        "fact_end":  "2025-10-19",
+        "completion":  100,
+        "comment":  "ÐÐ°Ð²ÐµÑÑÐµÐ½Ð¾ Ñ Ð½ÐµÐ±Ð¾Ð»ÑÑÐ¸Ð¼ Ð¾ÑÐºÐ»Ð¾Ð½ÐµÐ½Ð¸ÐµÐ¼",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  7,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.1",
+        "global_task_id":  "2.05.01.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv13",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ¾ÑÐ»Ð¾Ð²Ð°Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2025-09-25",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-09-19",
+        "fact_end":  "2025-10-11",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  75,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.1",
+        "global_task_id":  "2.05.01.1",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ¾ÑÐ»Ð¾Ð²Ð°Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2025-09-25",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-09-19",
+        "fact_end":  "2025-10-11",
+        "completion":  100,
+        "comment":  "ÐÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¾",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  8,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.1",
+        "global_task_id":  "2.05.01.1::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv9",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ¾ÑÐ»Ð¾Ð²Ð°Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2025-10-05",
+        "plan_end":  "2026-04-15",
+        "fact_start":  "2025-09-28",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  16,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.2",
+        "global_task_id":  "2.05.01.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv14",
+        "name":  "ÐÑÑÑÐ¿ÐºÐ° Ð¸ ÑÐ¿Ð»Ð¾ÑÐ½ÐµÐ½Ð¸Ðµ Ð¾ÑÐ½Ð¾Ð²Ð°Ð½Ð¸Ñ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2025-10-09",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-10-04",
+        "fact_end":  "2025-10-19",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  76,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.2",
+        "global_task_id":  "2.05.01.2",
+        "name":  "ÐÑÑÑÐ¿ÐºÐ° Ð¸ ÑÐ¿Ð»Ð¾ÑÐ½ÐµÐ½Ð¸Ðµ Ð¾ÑÐ½Ð¾Ð²Ð°Ð½Ð¸Ñ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2025-10-09",
+        "plan_end":  "2025-10-18",
+        "fact_start":  "2025-10-04",
+        "fact_end":  "2025-10-19",
+        "completion":  100,
+        "comment":  "ÐÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¾",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  9,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.01.2",
+        "global_task_id":  "2.05.01.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv10",
+        "name":  "ÐÑÑÑÐ¿ÐºÐ° Ð¸ ÑÐ¿Ð»Ð¾ÑÐ½ÐµÐ½Ð¸Ðµ Ð¾ÑÐ½Ð¾Ð²Ð°Ð½Ð¸Ñ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2026-02-15",
+        "plan_end":  "2026-04-15",
+        "fact_start":  "2026-04-10",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  17,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02",
+        "global_task_id":  "2.05.02::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv15",
+        "name":  "ÐÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¸ Ð¶ÐµÐ»ÐµÐ·Ð¾Ð±ÐµÑÐ¾Ð½Ð½ÑÐµ Ð½Ð¸Ð¶Ðµ 0.000",
+        "level":  2,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2026-03-01",
+        "fact_start":  "2025-10-22",
+        "fact_end":  "2026-04-22",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  77,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02",
+        "global_task_id":  "2.05.02",
+        "name":  "ÐÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¸ Ð¶ÐµÐ»ÐµÐ·Ð¾Ð±ÐµÑÐ¾Ð½Ð½ÑÐµ Ð½Ð¸Ð¶Ðµ 0.000",
+        "level":  2,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2026-04-15",
+        "fact_start":  "2025-10-14",
+        "fact_end":  null,
+        "completion":  42,
+        "comment":  "Ð Ð¿ÑÐ¾ÑÐµÑÑÐµ",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  10,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02",
+        "global_task_id":  "2.05.02::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv11",
+        "name":  "ÐÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¸ Ð¶ÐµÐ»ÐµÐ·Ð¾Ð±ÐµÑÐ¾Ð½Ð½ÑÐµ Ð½Ð¸Ð¶Ðµ 0.000",
+        "level":  2,
+        "plan_start":  "2025-10-29",
+        "plan_end":  "2026-08-10",
+        "fact_start":  "2025-10-30",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  18,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.2",
+        "global_task_id":  "2.05.02.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv12",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2025-10-29",
+        "plan_end":  "2026-05-10",
+        "fact_start":  "2025-10-30",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  19,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.2",
+        "global_task_id":  "2.05.02.2",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2025-11-10",
+        "fact_start":  "2025-10-22",
+        "fact_end":  "2025-11-13",
+        "completion":  100,
+        "comment":  "ÐÐ°Ð²ÐµÑÑÐµÐ½Ð¾",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  11,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.2",
+        "global_task_id":  "2.05.02.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv16",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2025-11-10",
+        "fact_start":  "2025-10-22",
+        "fact_end":  "2025-11-13",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  78,
+        "status":  "risk",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.3",
+        "global_task_id":  "2.05.02.3::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv17",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐ¾ÐºÐ¾Ð»Ñ",
+        "level":  3,
+        "plan_start":  "2025-11-05",
+        "plan_end":  "2026-02-28",
+        "fact_start":  "2025-11-14",
+        "fact_end":  "2026-04-10",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  79,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.3",
+        "global_task_id":  "2.05.02.3::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv13",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐ¾ÐºÐ¾Ð»Ñ",
+        "level":  3,
+        "plan_start":  "2026-04-01",
+        "plan_end":  "2026-06-07",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  20,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.4",
+        "global_task_id":  "2.05.02.4::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv14",
+        "name":  "ÐÐ¸Ð´ÑÐ¾Ð¸Ð·Ð¾Ð»ÑÑÐ¸Ñ Ð¸ ÑÑÐµÐ¿Ð»ÐµÐ½Ð¸Ðµ ÑÐ¾ÐºÐ¾Ð»Ñ Ð¸ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2026-05-09",
+        "plan_end":  "2026-06-23",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  21,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.4",
+        "global_task_id":  "2.05.02.4::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv18",
+        "name":  "ÐÐ¸ÑÐ¾Ð¸Ð·Ð¾Ð»ÑÑÐ¸Ñ Ð¸ ÑÑÐµÐ¿Ð»ÐµÐ½Ð¸Ðµ ÑÐ¾ÐºÐ¾Ð»Ñ Ð¸ ÑÑÐ½Ð´Ð°Ð¼ÐµÐ½ÑÐ°",
+        "level":  3,
+        "plan_start":  "2026-02-10",
+        "plan_end":  "2026-03-01",
+        "fact_start":  "2026-03-13",
+        "fact_end":  "2026-04-20",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  80,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.5",
+        "global_task_id":  "2.05.02.5::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv15",
+        "name":  "ÐÐ±ÑÐ°ÑÐ½Ð°Ñ Ð·Ð°ÑÑÐ¿ÐºÐ° Ð±Ð¾ÐºÐ¾Ð²ÑÑ\u0085 Ð¿Ð°Ð·ÑÑ\u0085 ÐºÐ¾ÑÐ»Ð¾Ð²Ð°Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2026-06-26",
+        "plan_end":  "2026-08-10",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  22,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.02.5",
+        "global_task_id":  "2.05.02.5::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv19",
+        "name":  "ÐÐ±ÑÐ°ÑÐ½Ð°Ñ Ð·Ð°ÑÑÐ¿ÐºÐ° Ð±Ð¾ÐºÐ¾Ð²ÑÑ\u0085 Ð¿Ð°Ð·ÑÑ\u0085 ÐºÐ¾ÑÐ»Ð¾Ð²Ð°Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2026-02-10",
+        "plan_end":  "2026-03-01",
+        "fact_start":  "2026-03-24",
+        "fact_end":  "2026-04-22",
+        "completion":  100,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  81,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.03",
+        "global_task_id":  "2.05.03::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv16",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¾Ð¿Ð°Ð»ÑÐ±ÐºÐ¸",
+        "level":  2,
+        "plan_start":  "2025-10-29",
+        "plan_end":  "2026-06-03",
+        "fact_start":  "2025-10-29",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  23,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.03",
+        "global_task_id":  "2.05.03::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv20",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¾Ð¿Ð°Ð»ÑÐ±ÐºÐ¸",
+        "level":  2,
+        "plan_start":  "2025-10-22",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2025-10-22",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  82,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04",
+        "global_task_id":  "2.05.04::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv21",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ°ÑÐºÐ°ÑÐ°",
+        "level":  2,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2026-03-25",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  83,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04",
+        "global_task_id":  "2.05.04",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ°ÑÐºÐ°ÑÐ°",
+        "level":  2,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2026-03-01",
+        "fact_end":  null,
+        "completion":  18,
+        "comment":  "ÐÐ° ÑÑÐ°ÑÑÐµ",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  12,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04.2",
+        "global_task_id":  "2.05.04.2",
+        "name":  "ÐÐ¾Ð½Ð¾Ð»Ð¸ÑÐ½ÑÐµ ÐºÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¸",
+        "level":  3,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2026-03-01",
+        "fact_end":  null,
+        "completion":  18,
+        "comment":  "ÐÐ° ÑÑÐ°ÑÑÐµ",
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  13,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04.2",
+        "global_task_id":  "2.05.04.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv22",
+        "name":  "ÐÐ¾Ð½Ð¾Ð»Ð¸ÑÐ½ÑÐµ ÐºÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¸",
+        "level":  3,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2026-03-25",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  84,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04.3",
+        "global_task_id":  "2.05.04.3::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv33",
+        "name":  "ÐÑÐ¾Ð³ÑÐµÐ² Ð±ÐµÑÐ¾Ð½Ð°",
+        "level":  3,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-03-31",
+        "fact_start":  "2026-03-25",
+        "fact_end":  "2026-04-23",
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  85,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.04.4",
+        "global_task_id":  "2.05.04.4::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv34",
+        "name":  "ÐÑÐ²ÐµÑÑÑÐ¸Ñ Ð¸ Ð¿ÑÐ¾ÐµÐ¼Ñ Ð² ÐºÐ°ÑÐºÐ°ÑÐµ",
+        "level":  3,
+        "plan_start":  "2026-03-01",
+        "plan_end":  "2026-08-31",
+        "fact_start":  "2026-03-25",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  86,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05",
+        "global_task_id":  "2.05.05::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv17",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  2,
+        "plan_start":  "2027-03-01",
+        "plan_end":  "2027-03-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  24,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05",
+        "global_task_id":  "2.05.05::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv35",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  2,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2027-02-28",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  87,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05.1",
+        "global_task_id":  "2.05.05.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv36",
+        "name":  "ÐÐ±Ð»Ð¸ÑÐ¾Ð²ÐºÐ° ÑÑÐµÐ½ ÑÐ°ÑÐ°Ð´Ð° ÐºÐ¸ÑÐ¿Ð¸ÑÐ¾Ð¼",
+        "level":  3,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2026-09-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  88,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05.2",
+        "global_task_id":  "2.05.05.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv37",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð²ÐµÐ½ÑÐ¸Ð»Ð¸ÑÑÐµÐ¼Ð¾Ð³Ð¾ ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  3,
+        "plan_start":  "2026-10-01",
+        "plan_end":  "2027-02-28",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  89,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05.2",
+        "global_task_id":  "2.05.05.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv18",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð²ÐµÐ½ÑÐ¸Ð»Ð¸ÑÑÐµÐ¼Ð¾Ð³Ð¾ ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  3,
+        "plan_start":  "2027-03-01",
+        "plan_end":  "2027-03-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  25,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05.3",
+        "global_task_id":  "2.05.05.3::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv19",
+        "name":  "ÐÐ¾Ð´ÑÐ²ÐµÑÐºÐ° ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  3,
+        "plan_start":  "2027-03-01",
+        "plan_end":  "2027-03-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  26,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.05.3",
+        "global_task_id":  "2.05.05.3::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv38",
+        "name":  "ÐÐ¾Ð´ÑÐ²ÐµÑÐºÐ° ÑÐ°ÑÐ°Ð´Ð°",
+        "level":  3,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2026-12-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  90,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06",
+        "global_task_id":  "2.05.06::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv39",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´Ð¾Ðº Ð¸ Ð²ÐµÐ½ÑÑÐ°Ñ\u0085Ñ",
+        "level":  2,
+        "plan_start":  "2026-05-01",
+        "plan_end":  "2026-12-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  91,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06",
+        "global_task_id":  "2.05.06::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv20",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´Ð¾Ðº Ð¸ Ð²ÐµÐ½ÑÑÐ°Ñ\u0085Ñ",
+        "level":  2,
+        "plan_start":  "2026-09-20",
+        "plan_end":  "2026-10-19",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  27,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06.1",
+        "global_task_id":  "2.05.06.1::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv21",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ¸ÑÐ¿Ð¸ÑÐ½ÑÑ\u0085 Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´Ð¾Ðº Ð¸ Ð²ÐµÐ½Ñ.ÑÐ°Ñ\u0085Ñ",
+        "level":  3,
+        "plan_start":  "2026-09-20",
+        "plan_end":  "2026-10-19",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  28,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06.1",
+        "global_task_id":  "2.05.06.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv40",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÐ¸ÑÐ¿Ð¸ÑÐ½ÑÑ\u0085 Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´Ð¾Ðº Ð¸ Ð²ÐµÐ½Ñ.ÑÐ°Ñ\u0085Ñ",
+        "level":  3,
+        "plan_start":  "2026-05-01",
+        "plan_end":  "2026-09-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  92,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06.2",
+        "global_task_id":  "2.05.06.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv59",
+        "name":  "ÐÐ°ÑÐºÐ°ÑÐ½ÑÐµ Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´ÐºÐ¸",
+        "level":  3,
+        "plan_start":  "2026-10-01",
+        "plan_end":  "2026-12-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  93,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.06.2",
+        "global_task_id":  "2.05.06.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv22",
+        "name":  "ÐÐ°ÑÐºÐ°ÑÐ½ÑÐµ Ð¿ÐµÑÐµÐ³Ð¾ÑÐ¾Ð´ÐºÐ¸",
+        "level":  3,
+        "plan_start":  "2026-09-20",
+        "plan_end":  "2026-10-19",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  29,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.07",
+        "global_task_id":  "2.05.07::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv60",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÑÐ¾Ð²Ð»Ð¸",
+        "level":  2,
+        "plan_start":  "2026-10-01",
+        "plan_end":  "2026-10-31",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  94,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.07",
+        "global_task_id":  "2.05.07::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv23",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐºÑÐ¾Ð²Ð»Ð¸",
+        "level":  2,
+        "plan_start":  "2026-09-16",
+        "plan_end":  "2026-10-16",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  30,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.08",
+        "global_task_id":  "2.05.08::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv61",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° Ð¸ Ð¾Ð±Ð¾ÑÑÐ´Ð¾Ð²Ð°Ð½Ð¸Ðµ ÐÐÐ",
+        "level":  2,
+        "plan_start":  "2026-09-05",
+        "plan_end":  "2027-09-01",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  95,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.08.1",
+        "global_task_id":  "2.05.08.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv62",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° ÐÐÐ",
+        "level":  3,
+        "plan_start":  "2026-09-05",
+        "plan_end":  "2027-06-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  96,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.08.6",
+        "global_task_id":  "2.05.08.6::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv63",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¸Ð½ÑÐµÑÑÐµÑÐ½Ð¾Ð³Ð¾ Ð¸Ð½Ð²ÐµÐ½ÑÐ°ÑÑ, ÐÐÐ¤Ð¾Ð² ÐÐÐ",
+        "level":  3,
+        "plan_start":  "2027-07-01",
+        "plan_end":  "2027-09-01",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  97,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.09",
+        "global_task_id":  "2.05.09::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv64",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° Ð¿ÑÐ¾Ð´Ð°Ð²Ð°ÐµÐ¼ÑÑ\u0085 Ð¾Ð±ÑÐµÐºÑÐ¾Ð²",
+        "level":  2,
+        "plan_start":  "2026-09-05",
+        "plan_end":  "2026-11-11",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  98,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.09",
+        "global_task_id":  "2.05.09::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv24",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° Ð¿ÑÐ¾Ð´Ð°Ð²Ð°ÐµÐ¼ÑÑ\u0085 Ð¾Ð±ÑÐµÐºÑÐ¾Ð²",
+        "level":  2,
+        "plan_start":  "2027-06-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  31,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.09.1",
+        "global_task_id":  "2.05.09.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv65",
+        "name":  "Ð§ÐµÑÐ½Ð¾Ð²Ð°Ñ Ð¾ÑÐ´ÐµÐ»ÐºÐ°",
+        "level":  3,
+        "plan_start":  "2026-09-05",
+        "plan_end":  "2026-11-11",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  99,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.09.4",
+        "global_task_id":  "2.05.09.4::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv25",
+        "name":  "ÐÑÐ´ÐµÐ»ÐºÐ° Ð¿Ð°ÑÐºÐ¸Ð½Ð³Ð°",
+        "level":  3,
+        "plan_start":  "2027-06-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  32,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10",
+        "global_task_id":  "2.05.10::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv66",
+        "name":  "ÐÐ±Ð¾ÑÑÐ´Ð¾Ð²Ð°Ð½Ð¸Ðµ, Ð´Ð²ÐµÑÐ¸ Ð¸ Ð¾ÐºÐ½Ð°",
+        "level":  2,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2027-07-15",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  100,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10",
+        "global_task_id":  "2.05.10::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv26",
+        "name":  "ÐÐ±Ð¾ÑÑÐ´Ð¾Ð²Ð°Ð½Ð¸Ðµ, Ð´Ð²ÐµÑÐ¸ Ð¸ Ð¾ÐºÐ½Ð°",
+        "level":  2,
+        "plan_start":  "2026-11-01",
+        "plan_end":  "2026-12-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  33,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.1",
+        "global_task_id":  "2.05.10.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv67",
+        "name":  "ÐÐ¾Ð½ÑÐ°Ð¶ Ð¾ÐºÐ¾Ð½Ð½ÑÑ\u0085 Ð±Ð»Ð¾ÐºÐ¾Ð²",
+        "level":  3,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2026-10-15",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  101,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.2",
+        "global_task_id":  "2.05.10.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv68",
+        "name":  "ÐÐ¾Ð½ÑÐ°Ð¶ Ð²Ð¸ÑÑÐ°Ð¶ÐµÐ¹",
+        "level":  3,
+        "plan_start":  "2026-10-16",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  102,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.3",
+        "global_task_id":  "2.05.10.3::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv69",
+        "name":  "Ð£ÑÑÐ°Ð½Ð¾Ð²ÐºÐ° Ð´Ð²ÐµÑÐµÐ¹",
+        "level":  3,
+        "plan_start":  "2027-02-01",
+        "plan_end":  "2027-02-28",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  103,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.3",
+        "global_task_id":  "2.05.10.3::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv27",
+        "name":  "Ð£ÑÑÐ°Ð½Ð¾Ð²ÐºÐ° Ð´Ð²ÐµÑÐµÐ¹",
+        "level":  3,
+        "plan_start":  "2026-11-01",
+        "plan_end":  "2026-12-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  34,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.4",
+        "global_task_id":  "2.05.10.4::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv70",
+        "name":  "ÐÐ¾Ð½ÑÐ°Ð¶ Ð»Ð¸ÑÑÐ¾Ð²",
+        "level":  3,
+        "plan_start":  "2026-10-01",
+        "plan_end":  "2026-11-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  104,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.10.6",
+        "global_task_id":  "2.05.10.6::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv71",
+        "name":  "ÐÐ¾Ð½ÑÐ°Ð¶ Ð¾Ð³ÑÐ°Ð¶Ð´ÐµÐ½Ð¸Ð¹ Ð¸ ÐºÐ¾Ð½ÑÑÑÑÐºÑÐ¸Ð¹",
+        "level":  3,
+        "plan_start":  "2027-03-01",
+        "plan_end":  "2027-07-15",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  105,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11",
+        "global_task_id":  "2.05.11::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv28",
+        "name":  "ÐÐ½Ð¶ÐµÐ½ÐµÑÐ½ÑÐµ ÑÐ¸ÑÑÐµÐ¼Ñ Ð´Ð¾Ð¼Ð°",
+        "level":  2,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  35,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11",
+        "global_task_id":  "2.05.11::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv72",
+        "name":  "ÐÐ½Ð¶ÐµÐ½ÐµÑÐ½ÑÐµ ÑÐ¸ÑÑÐµÐ¼Ñ Ð´Ð¾Ð¼Ð°",
+        "level":  2,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  106,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.1",
+        "global_task_id":  "2.05.11.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv73",
+        "name":  "Ð­Ð»ÐµÐºÑÑÐ¾ÑÐ½Ð°Ð±Ð¶ÐµÐ½Ð¸Ðµ",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  107,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.1",
+        "global_task_id":  "2.05.11.1::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv29",
+        "name":  "Ð­Ð»ÐµÐºÑÑÐ¾ÑÐ½Ð°Ð±Ð¶ÐµÐ½Ð¸Ðµ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  36,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.2",
+        "global_task_id":  "2.05.11.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv30",
+        "name":  "ÐÐµÐ½ÑÐ¸Ð»ÑÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  37,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.2",
+        "global_task_id":  "2.05.11.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv74",
+        "name":  "ÐÐµÐ½ÑÐ¸Ð»ÑÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  108,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.3",
+        "global_task_id":  "2.05.11.3::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv75",
+        "name":  "ÐÑÐ¾Ð¿Ð»ÐµÐ½Ð¸Ðµ",
+        "level":  3,
+        "plan_start":  "2026-09-10",
+        "plan_end":  "2026-11-06",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  109,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.3",
+        "global_task_id":  "2.05.11.3::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv31",
+        "name":  "ÐÑÐ¾Ð¿Ð»ÐµÐ½Ð¸Ðµ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  38,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.4",
+        "global_task_id":  "2.05.11.4::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv76",
+        "name":  "Ð¢ÐµÐ¿Ð»Ð¾Ð²Ð¾Ð¹ Ð¿ÑÐ½ÐºÑ",
+        "level":  3,
+        "plan_start":  "2026-10-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  110,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.5",
+        "global_task_id":  "2.05.11.5::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv32",
+        "name":  "ÐÐ¾Ð´Ð¾ÑÐ½Ð°Ð±Ð¶ÐµÐ½Ð¸Ðµ Ð¸ ÐºÐ°Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  39,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.5",
+        "global_task_id":  "2.05.11.5::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv77",
+        "name":  "ÐÐ¾Ð´Ð¾ÑÐ½Ð°Ð±Ð¶ÐµÐ½Ð¸Ðµ Ð¸ ÐºÐ°Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  111,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.8",
+        "global_task_id":  "2.05.11.8::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv33",
+        "name":  "ÐÐ²ÑÐ¾Ð¼Ð°ÑÐ¸ÑÐµÑÐºÐ°Ñ ÑÑÑÐ°Ð½Ð¾Ð²ÐºÐ° Ð¿Ð¾Ð¶Ð°ÑÐ¾ÑÑÑÐµÐ½Ð¸Ñ (ÐÐ£ÐÐ¢)",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  40,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.11.9",
+        "global_task_id":  "2.05.11.9::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv34",
+        "name":  "ÐÑÐ¾ÑÐ¸Ðµ Ð¸Ð½Ð¶ÐµÐ½ÐµÑÐ½ÑÐµ ÑÐ¸ÑÑÐµÐ¼Ñ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  41,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12",
+        "global_task_id":  "2.05.12::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv78",
+        "name":  "Ð¡Ð»Ð°Ð±Ð¾ÑÐ¾ÑÐ½ÑÐµ ÑÐµÑÐ¸",
+        "level":  2,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  112,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12",
+        "global_task_id":  "2.05.12::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv35",
+        "name":  "Ð¡Ð»Ð°Ð±Ð¾ÑÐ¾ÑÐ½ÑÐµ ÑÐµÑÐ¸",
+        "level":  2,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  42,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.1",
+        "global_task_id":  "2.05.12.1::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv36",
+        "name":  "ÐÐ¾Ð¶Ð°ÑÐ½Ð°Ñ ÑÐ¸Ð³Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  43,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.1",
+        "global_task_id":  "2.05.12.1::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv79",
+        "name":  "ÐÐ¾Ð¶Ð°ÑÐ½Ð°Ñ ÑÐ¸Ð³Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ñ",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  113,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.2",
+        "global_task_id":  "2.05.12.2::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv80",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ñ ÑÐ²ÑÐ·Ð¸, ÑÐ°Ð´Ð¸Ð¾ Ð¸ Ð¢Ð",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  114,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.2",
+        "global_task_id":  "2.05.12.2::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv37",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ñ ÑÐ²ÑÐ·Ð¸, ÑÐ°Ð´Ð¸Ð¾ Ð¸ Ð¢Ð",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  44,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.4",
+        "global_task_id":  "2.05.12.4::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv38",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ð° ÑÐºÑÑÑÐµÐ½Ð½Ð¾Ð¹ ÑÐ²ÑÐ·Ð¸ Ð¸ Ð´Ð¸ÑÐ¿ÐµÑÑÐµÑÐ¸Ð·Ð°ÑÐ¸Ð¸ Ð»Ð¸ÑÑÐ¾Ð²",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  45,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.4",
+        "global_task_id":  "2.05.12.4::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv81",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ð° ÑÐºÑÑÑÐµÐ½Ð½Ð¾Ð¹ ÑÐ²ÑÐ·Ð¸ Ð¸ Ð´Ð¸ÑÐ¿ÐµÑÑÐµÑÐ¸Ð·Ð°ÑÐ¸Ð¸ Ð»Ð¸ÑÑÐ¾Ð²",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  115,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.5",
+        "global_task_id":  "2.05.12.5::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv82",
+        "name":  "ÐÐ¡ÐÐ£Ð­",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  116,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.5",
+        "global_task_id":  "2.05.12.5::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv39",
+        "name":  "ÐÐ¡ÐÐ£Ð­",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  46,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.6",
+        "global_task_id":  "2.05.12.6::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv40",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ð° Ð¾Ñ\u0085ÑÐ°Ð½Ð½Ð¾Ð³Ð¾ ÑÐµÐ»ÐµÐ²Ð¸Ð´ÐµÐ½Ð¸Ñ (Ð²Ð¸Ð´ÐµÐ¾Ð½Ð°Ð±Ð»ÑÐ´ÐµÐ½Ð¸Ðµ)",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  47,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.6",
+        "global_task_id":  "2.05.12.6::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv83",
+        "name":  "Ð¡Ð¸ÑÑÐµÐ¼Ð° Ð¾Ñ\u0085ÑÐ°Ð½Ð½Ð¾Ð³Ð¾ ÑÐµÐ»ÐµÐ²Ð¸Ð´ÐµÐ½Ð¸Ñ (Ð²Ð¸Ð´ÐµÐ¾Ð½Ð°Ð±Ð»ÑÐ´ÐµÐ½Ð¸Ðµ)",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  117,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.7",
+        "global_task_id":  "2.05.12.7::ÐÐ¸Ð»Ð¾Ð¹ Ð´Ð¾Ð¼::__csv84",
+        "name":  "ÐÐ¾Ð¼Ð¾ÑÐ¾Ð½Ð¸Ñ Ð¸ ÑÐ¸ÑÑÐµÐ¼Ð° ÐºÐ¾Ð½ÑÑÐ¾Ð»Ñ Ð´Ð¾ÑÑÑÐ¿Ð°",
+        "level":  3,
+        "plan_start":  "2026-06-01",
+        "plan_end":  "2027-05-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  118,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.7",
+        "global_task_id":  "2.05.12.7::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv41",
+        "name":  "ÐÐ¾Ð¼Ð¾ÑÐ¾Ð½Ð¸Ñ Ð¸ ÑÐ¸ÑÑÐµÐ¼Ð° ÐºÐ¾Ð½ÑÑÐ¾Ð»Ñ Ð´Ð¾ÑÑÑÐ¿Ð°",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  48,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.12.9",
+        "global_task_id":  "2.05.12.9::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv42",
+        "name":  "ÐÑÐ¾ÑÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð½Ð° ÑÐ»Ð°Ð±Ð¾ÑÐ¾ÑÐ½ÑÐµ ÑÐµÑÐ¸",
+        "level":  3,
+        "plan_start":  "2026-08-01",
+        "plan_end":  "2026-10-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  49,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.05.99",
+        "global_task_id":  "2.05.99::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv43",
+        "name":  "ÐÑÐ¾ÑÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð·Ð´Ð°Ð½Ð¸Ð¹",
+        "level":  2,
+        "plan_start":  null,
+        "plan_end":  null,
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  1,
+        "id":  50,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06",
+        "global_task_id":  "2.06::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv44",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÑÐµÐ¹",
+        "level":  1,
+        "plan_start":  "2025-09-05",
+        "plan_end":  "2027-07-30",
+        "fact_start":  "2025-09-05",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  51,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.01",
+        "global_task_id":  "2.06.01::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv45",
+        "name":  "Ð¢ÐµÐ¿Ð»Ð¾Ð²ÑÐµ ÑÐµÑÐ¸",
+        "level":  2,
+        "plan_start":  "2025-09-05",
+        "plan_end":  "2026-05-10",
+        "fact_start":  "2025-09-05",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  52,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.02",
+        "global_task_id":  "2.06.02::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv46",
+        "name":  "Ð¡ÐµÑÐ¸ Ð²Ð¾Ð´Ð¾Ð¿ÑÐ¾Ð²Ð¾Ð´Ð° Ð¸ ÐºÐ°Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ð¸",
+        "level":  2,
+        "plan_start":  "2026-05-01",
+        "plan_end":  "2026-05-30",
+        "fact_start":  "2026-03-21",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  53,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.03",
+        "global_task_id":  "2.06.03::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv47",
+        "name":  "Ð­Ð»ÐµÐºÑÑÐ¸ÑÐµÑÐºÐ¸Ðµ ÑÐµÑÐ¸",
+        "level":  2,
+        "plan_start":  "2026-01-08",
+        "plan_end":  "2026-02-06",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  54,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.04",
+        "global_task_id":  "2.06.04::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv48",
+        "name":  "ÐÐ°ÑÑÐ¶Ð½Ð¾Ðµ Ð¾ÑÐ²ÐµÑÐµÐ½Ð¸Ðµ",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  55,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.05",
+        "global_task_id":  "2.06.05::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv49",
+        "name":  "Ð¢ÑÐ°Ð½ÑÑÐ¾ÑÐ¼Ð°ÑÐ¾ÑÐ½Ð°Ñ Ð¿Ð¾Ð´ÑÑÐ°Ð½ÑÐ¸Ñ",
+        "level":  2,
+        "plan_start":  "2026-07-01",
+        "plan_end":  "2026-08-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  56,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.06",
+        "global_task_id":  "2.06.06::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv50",
+        "name":  "ÐÐ¸Ð²Ð½ÐµÐ²Ð°Ñ ÐºÐ°Ð½Ð°Ð»Ð¸Ð·Ð°ÑÐ¸Ñ",
+        "level":  2,
+        "plan_start":  "2026-05-01",
+        "plan_end":  "2026-05-30",
+        "fact_start":  "2026-03-21",
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  57,
+        "status":  "overdue",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.06.99",
+        "global_task_id":  "2.06.99::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv51",
+        "name":  "ÐÑÐ¾ÑÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð½Ð° ÑÐµÑÐ¸",
+        "level":  2,
+        "plan_start":  "2025-09-05",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  58,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07",
+        "global_task_id":  "2.07::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv52",
+        "name":  "ÐÐ»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+        "level":  1,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  59,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.01",
+        "global_task_id":  "2.07.01::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv53",
+        "name":  "ÐÐ»Ð°Ð½Ð¸ÑÐ¾Ð²ÐºÐ° Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸ Ñ Ð²ÐµÑÑÐ¸ÐºÐ°Ð»ÑÐ½Ð¾Ð¹ Ð¿Ð»Ð°Ð½Ð¸ÑÐ¾Ð²ÐºÐ¾Ð¹",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  60,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.02",
+        "global_task_id":  "2.07.02::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv54",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÑÐ¾ÑÑÐ°ÑÐ¾Ð² Ð¸ Ð¿ÑÐ¾ÐµÐ·Ð´Ð¾Ð² Ð¸Ð· Ð°ÑÑÐ°Ð»ÑÑÐ°",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  61,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.03",
+        "global_task_id":  "2.07.03::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv55",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿Ð¾ÐºÑÑÑÐ¸Ð¹ Ð¸Ð· Ð½Ð°ÑÑÐ¿Ð½ÑÑ\u0085 Ð¼Ð°ÑÐµÑÐ¸Ð°Ð»Ð¾Ð² (ÐºÑÐ¾Ð¼Ðµ ÑÐµÑÐ½Ð¾Ð·ÐµÐ¼Ð°)",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  62,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.04",
+        "global_task_id":  "2.07.04::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv56",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÐ·Ð¸Ð½Ð¾Ð¿Ð¾Ð»Ð° Ð¸ Ð¿Ñ. Ð¿Ð¾ÐºÑÑÑÐ¸Ð¹",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  63,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.05",
+        "global_task_id":  "2.07.05::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv57",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð³Ð°Ð·Ð¾Ð½Ð° Ð¸ Ð¾Ð·ÐµÐ»ÐµÐ½ÐµÐ½Ð¸Ðµ",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  64,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.06",
+        "global_task_id":  "2.07.06::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv58",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÐÐÐ¤Ð¾Ð²",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  65,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.07",
+        "global_task_id":  "2.07.07::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv59",
+        "name":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ Ð¿Ð¾Ð´Ð¿Ð¾ÑÐ½ÑÑ\u0085 ÑÑÐµÐ½Ð¾Ðº",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  66,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.08",
+        "global_task_id":  "2.07.08::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv60",
+        "name":  "ÐÑÐ²ÐµÑÐµÐ½Ð¸Ðµ",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  67,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    },
+    {
+        "code":  "2.07.99",
+        "global_task_id":  "2.07.99::ÐÑÑÑÐ¾ÐµÐ½Ð½Ð¾-Ð¿ÑÐ¸ÑÑÑÐ¾ÐµÐ½Ð½Ð°Ñ Ð¿Ð¾Ð´Ð·ÐµÐ¼Ð½Ð°Ñ Ð°Ð²ÑÐ¾ÑÑÐ¾ÑÐ½ÐºÐ°::__csv61",
+        "name":  "ÐÑÐ¾ÑÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð½Ð° Ð±Ð»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+        "level":  2,
+        "plan_start":  "2027-05-01",
+        "plan_end":  "2027-07-30",
+        "fact_start":  null,
+        "fact_end":  null,
+        "completion":  0,
+        "comment":  null,
+        "related_tmc_ids":  [
+
+                            ],
+        "part_id":  2,
+        "id":  68,
+        "status":  "on_time",
+        "blocked_reasons":  [
+
+                            ]
+    }
+]

@@ -2,7 +2,9 @@ import {
   compareGprCodesByNumericPath,
   getCalendarFactProgressPercent,
   getPlannedProgressPercent,
+  gprCodeSegmentCount,
   gprTaskFactCompletionPercent,
+  gprWbsLevelFromCode,
   getStatusByDeviation,
   isGprWorkItemNotStarted,
   matchesGprCodeBranch,
@@ -149,10 +151,30 @@ function isUnderMonolithKpiBranch(code: string, monolithCode: string): boolean {
   return c === root || c.startsWith(`${root}.`);
 }
 
-/** Строка CSV с порядковым номером работы («№ статей») — единственная сущность KPI. */
+/** Строка CSV с порядковым номером работы («№ статей») — для plan/fact и legacy CSV. */
 export function isGprCsvArticleWork(task: GPRTask): boolean {
   const n = task.articleNumber;
   return n != null && Number.isFinite(n) && n > 0;
+}
+
+/**
+ * KPI-работа по полям API/PostgreSQL (code, level, part_id): лист WBS, не группирующий узел.
+ * Глубокие работы (2.05.04.02) и короткие ветки (2.06.01 на parking).
+ */
+export function isGprKpiWorkItem(task: GPRTask, allTasks: GPRTask[]): boolean {
+  if (task.missingFromImport) return false;
+
+  const code = normalizeGprCodeFinal(task.code);
+  if (!code || !/^2\.\d+(?:\.\d+)*$/.test(code)) return false;
+  if (!isLeafAmong(task, allTasks)) return false;
+
+  const wbsLevel = gprWbsLevelFromCode(task.code, task.level);
+  const segCount = gprCodeSegmentCount(task.code);
+
+  if (wbsLevel >= 3 || segCount >= 4) return true;
+  if (wbsLevel >= 2 && segCount >= 3) return true;
+
+  return false;
 }
 
 /**
@@ -176,11 +198,11 @@ export function collapseMonolithBranchForKpi(allTasks: GPRTask[], workItems: GPR
 }
 
 /**
- * Задачи для аналитики KPI: только строки CSV с «№ статей».
- * WBS-узлы без номера статьи исключаются из всех расчётов KPI.
+ * Задачи для аналитики KPI: листья WBS с глубиной работ (без группирующих узлов 2.04 / 2.05).
+ * Не использует articleNumber — только code, level и структуру дерева.
  */
 export function filterGprTasksForKpiAnalytics(tasks: GPRTask[]): GPRTask[] {
-  return tasks.filter(isGprCsvArticleWork);
+  return tasks.filter((t) => isGprKpiWorkItem(t, tasks));
 }
 
 export function isGprTaskProgressPercent100(task: GPRTask, asOf: Date = new Date()): boolean {
@@ -850,11 +872,11 @@ export function getGprStageWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GP
   return [rootTask];
 }
 
-/** Набор работ для KPI: строки CSV с «№ статей» в ветке этапа. */
+/** Набор работ для KPI: листья WBS в ветке этапа (PostgreSQL/API или CSV). */
 export function getGprKpiWorkItems(allTasks: GPRTask[], rootTask: GPRTask): GPRTask[] {
   const rootCode = normalizeGprCodeFinal(rootTask.code) || rootTask.code;
   const items = allTasks.filter(
-    (t) => isGprCsvArticleWork(t) && matchesGprCodeBranch(t.code, rootCode),
+    (t) => isGprKpiWorkItem(t, allTasks) && matchesGprCodeBranch(t.code, rootCode),
   );
   return sortGprTasksByCsvArticleNumber(items);
 }
