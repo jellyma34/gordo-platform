@@ -2,8 +2,7 @@
 
 ## Status
 
-Partially implemented. No dedicated Python backend router found.
-Frontend pages exist but business logic is minimal.
+Partially implemented. Budget and execution CSV imports persist to **PostgreSQL** via FastAPI; Next file API and localStorage remain as secondary cache / migration fallback.
 
 ## Routes
 
@@ -12,20 +11,26 @@ Frontend pages exist but business logic is minimal.
 | `/edit/finance` | Finance edit page |
 | `/presentation/finance` | Finance presentation |
 
+## Persistence (source of truth)
+
+| Kind | PostgreSQL table | FastAPI |
+|---|---|---|
+| Budget | `finance_budget_imports` | `GET/PUT /finance/budget-imports` |
+| Execution | `finance_execution_imports` | `GET/PUT /finance/execution-imports` |
+
+**Load:** PostgreSQL only (localStorage = write-through cache; one-shot LS→DB migration if DB empty).  
+**Save:** PostgreSQL required; on failure import fails. Next file routes are **not** used.
+
 ## Components
 
-`components/finance/` — directory exists but contents not analysed (TBD).
+`components/finance/` — edit table, presentation KPI cards, charts.
 
 ## Known logic
 
-- Cashflow chart series built via `lib/buildCashflowSeries.ts`
+- Cashflow chart series: `lib/buildCashflowSeries.ts`
 - Shared with marketing cashflow inflow: `lib/cashflowInflowChartSeries.ts`
-- Payment plan data (from marketing upload) used in finance views
 
-## Missing / TBD
+## Related modules
 
-- No backend router for finance data persistence
-- No financial models / forecasts implementation found
-- Budget / estimate analytics: TBD
-- Plan/fact financial analytics: TBD
-- Payment schedules (beyond CSV upload): TBD
+- Marketing shared imports: Next `data/` + `/api/marketing/*` (not Postgres yet)
+- GPR / TMC: FastAPI entity tables + Next snapshot APIs

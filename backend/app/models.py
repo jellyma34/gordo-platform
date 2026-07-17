@@ -141,3 +141,37 @@ class Tmc(Base):
     plan_date: Mapped[str] = mapped_column(String(10), nullable=False)
     fact_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     details: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+
+
+class FinanceBudgetImport(Base):
+    """Распарсенный снимок CSV «Бюджет проекта» — один актуальный импорт на project_id."""
+
+    __tablename__ = "finance_budget_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    payload: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+
+class FinanceExecutionImport(Base):
+    """Распарсенный снимок CSV «Исполнение бюджета» — один актуальный импорт на project_id."""
+
+    __tablename__ = "finance_execution_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    payload: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by_email: Mapped[str | None] = mapped_column(String(320), nullable=True)

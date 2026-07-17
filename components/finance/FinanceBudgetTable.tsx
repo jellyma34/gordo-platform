@@ -132,7 +132,12 @@ export const FinanceBudgetTable = forwardRef<FinanceBudgetTableHandle, Props>(fu
     }
 
     if (result.format === "budget_execution") {
-      await persistFinanceBudgetExecutionSnapshot(projectId, result.snapshot);
+      try {
+        await persistFinanceBudgetExecutionSnapshot(projectId, result.snapshot);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "Не удалось сохранить исполнение в БД.");
+        return;
+      }
       executionBootstrapRef.current = JSON.stringify(result.snapshot);
       setExecutionImport(result.snapshot);
       setActivePanel("execution");
@@ -174,7 +179,12 @@ export const FinanceBudgetTable = forwardRef<FinanceBudgetTableHandle, Props>(fu
     };
 
     setBudgetImport(nextSnapshot);
-    await persistFinanceBudgetSnapshot(projectId, nextSnapshot);
+    try {
+      await persistFinanceBudgetSnapshot(projectId, nextSnapshot);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Не удалось сохранить бюджет в БД.");
+      return;
+    }
     budgetBootstrapRef.current = {
       snapshot: nextSnapshot,
       bootstrapJson: JSON.stringify(nextSnapshot),

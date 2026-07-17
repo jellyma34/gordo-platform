@@ -1,8 +1,13 @@
 import { getGprProjectId } from "@/lib/gprImportPersistence";
 import {
+  fetchFinanceBudgetFromDb,
+  fetchFinanceExecutionFromDb,
+  putFinanceBudgetToDb,
+  putFinanceExecutionToDb,
+} from "@/lib/financeApi";
+import {
   cloneFinanceExecutionKpi,
   emptyFinanceExecutionImport,
-  emptyFinanceExecutionKpi,
   financeExecutionKpiHasData,
   type FinanceExecutionChartSegment,
   type FinanceExecutionExpenseChart,
@@ -22,12 +27,12 @@ export { getGprProjectId };
 export const FINANCE_BUDGET_SAVED_EVENT = "gordo-finance-budget-saved";
 export const FINANCE_BUDGET_EXECUTION_SAVED_EVENT = "gordo-finance-budget-execution-saved";
 
-/** Ключ localStorage для снимка financeBudgetImport. */
+/** Ключ localStorage для снимка financeBudgetImport (кэш). */
 export function financeBudgetImportStorageKey(projectId: string): string {
   return `financeBudgetImport_${projectId}`;
 }
 
-/** Ключ localStorage для снимка «Исполнение бюджета». */
+/** Ключ localStorage для снимка «Исполнение бюджета» (кэш). */
 export function financeBudgetExecutionImportStorageKey(projectId: string): string {
   return `financeBudgetExecutionImport_${projectId}`;
 }
@@ -90,12 +95,16 @@ export function loadFinanceBudgetFromLocalStorage(projectId: string): FinanceBud
 export function saveFinanceBudgetToLocalStorage(
   projectId: string,
   snapshot: FinanceBudgetSnapshot,
+  options?: { emitEvent?: boolean },
 ): void {
   if (typeof window === "undefined") return;
   try {
     const key = financeBudgetImportStorageKey(projectId);
     window.localStorage.setItem(key, JSON.stringify(snapshot));
-    window.dispatchEvent(new CustomEvent(FINANCE_BUDGET_SAVED_EVENT));
+    // Не эмитить при кэше после чтения из БД — иначе reload ↔ event зациклится.
+    if (options?.emitEvent !== false) {
+      window.dispatchEvent(new CustomEvent(FINANCE_BUDGET_SAVED_EVENT));
+    }
   } catch (e) {
     console.warn("[finance] Не удалось сохранить бюджет в localStorage:", e);
   }
@@ -107,6 +116,7 @@ export type FinanceBudgetImportApiPayload = {
   importMeta?: FinanceBudgetImportMeta;
 };
 
+/** Файловый Next API — запасной общий store (не Postgres). */
 export async function fetchFinanceBudgetImportFromApi(
   projectId: string,
 ): Promise<FinanceBudgetSnapshot | null> {
@@ -157,30 +167,36 @@ function emptySnapshot(): FinanceBudgetSnapshot {
   return { lines: [], updatedAt: undefined, importMeta: undefined };
 }
 
+function cloneBudgetSnapshot(src: FinanceBudgetSnapshot): FinanceBudgetSnapshot {
+  return {
+    lines: cloneFinanceBudgetLines(src.lines),
+    updatedAt: src.updatedAt,
+    importMeta: src.importMeta,
+  };
+}
+
 /**
- * Цепочка при старте: localStorage → GET Next API (JSON snapshot) → пустой снимок.
+ * Цепочка при старте: PostgreSQL — единственный источник истины.
+ * localStorage — только кэш после успешного чтения из БД.
+ * Одноразовая миграция: если БД пуста, а в LS есть данные — заливаем в БД.
  */
 export async function loadPersistedFinanceBudget(
   projectId: string,
 ): Promise<BootstrapFinanceBudgetResult> {
-  const ls = loadFinanceBudgetFromLocalStorage(projectId);
-  if (ls && ls.lines.length > 0) {
-    const snapshot = {
-      lines: cloneFinanceBudgetLines(ls.lines),
-      updatedAt: ls.updatedAt,
-      importMeta: ls.importMeta,
-    };
+  const fromDb = await fetchFinanceBudgetFromDb(projectId);
+  if (fromDb && fromDb.lines.length > 0) {
+    const snapshot = cloneBudgetSnapshot(fromDb);
+    saveFinanceBudgetToLocalStorage(projectId, snapshot, { emitEvent: false });
     return { snapshot, bootstrapJson: JSON.stringify(snapshot) };
   }
 
-  const api = await fetchFinanceBudgetImportFromApi(projectId);
-  if (api && api.lines.length > 0) {
-    const snapshot = {
-      lines: cloneFinanceBudgetLines(api.lines),
-      updatedAt: api.updatedAt,
-      importMeta: api.importMeta,
-    };
-    return { snapshot, bootstrapJson: JSON.stringify(snapshot) };
+  const ls = loadFinanceBudgetFromLocalStorage(projectId);
+  if (ls && ls.lines.length > 0) {
+    const snapshot = cloneBudgetSnapshot(ls);
+    const migrated = await putFinanceBudgetToDb(projectId, snapshot);
+    if (migrated) {
+      return { snapshot, bootstrapJson: JSON.stringify(snapshot) };
+    }
   }
 
   const snapshot = emptySnapshot();
@@ -196,8 +212,13 @@ export async function persistFinanceBudgetSnapshot(
     updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
     importMeta: snapshot.importMeta,
   };
+  const dbOk = await putFinanceBudgetToDb(projectId, payload);
+  if (!dbOk) {
+    throw new Error(
+      "Не удалось сохранить бюджет в PostgreSQL. Проверьте авторизацию и доступность API.",
+    );
+  }
   saveFinanceBudgetToLocalStorage(projectId, payload);
-  await postFinanceBudgetImportToApi(projectId, payload);
 }
 
 function parseChartSegment(raw: unknown): FinanceExecutionChartSegment | null {
@@ -251,9 +272,10 @@ function parseExpenseChart(raw: unknown): FinanceExecutionExpenseChart | null {
   };
 }
 
-function parseStoredExecutionSnapshot(raw: string): FinanceExecutionImport | null {
+function parseStoredExecutionSnapshot(raw: unknown): FinanceExecutionImport | null {
   try {
-    const data = JSON.parse(raw) as unknown;
+    const data =
+      typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
     if (!data || typeof data !== "object") return null;
 
     const body = data as Record<string, unknown>;
@@ -293,6 +315,18 @@ function parseStoredExecutionSnapshot(raw: string): FinanceExecutionImport | nul
   }
 }
 
+function cloneExecutionSnapshot(src: FinanceExecutionImport): FinanceExecutionImport {
+  return {
+    title: src.title,
+    reportingDate: src.reportingDate,
+    kpi: cloneFinanceExecutionKpi(src.kpi),
+    salesChart: src.salesChart ?? null,
+    expenseChart: src.expenseChart ?? null,
+    updatedAt: src.updatedAt,
+    importMeta: src.importMeta,
+  };
+}
+
 export function loadFinanceBudgetExecutionFromLocalStorage(
   projectId: string,
 ): FinanceExecutionImport | null {
@@ -309,14 +343,52 @@ export function loadFinanceBudgetExecutionFromLocalStorage(
 export function saveFinanceBudgetExecutionToLocalStorage(
   projectId: string,
   snapshot: FinanceExecutionImport,
+  options?: { emitEvent?: boolean },
 ): void {
   if (typeof window === "undefined") return;
   try {
     const key = financeBudgetExecutionImportStorageKey(projectId);
     window.localStorage.setItem(key, JSON.stringify(snapshot));
-    window.dispatchEvent(new CustomEvent(FINANCE_BUDGET_EXECUTION_SAVED_EVENT));
+    // Не эмитить при кэше после чтения из БД — иначе reload ↔ event зациклится.
+    if (options?.emitEvent !== false) {
+      window.dispatchEvent(new CustomEvent(FINANCE_BUDGET_EXECUTION_SAVED_EVENT));
+    }
   } catch (e) {
     console.warn("[finance] Не удалось сохранить исполнение бюджета в localStorage:", e);
+  }
+}
+
+export async function fetchFinanceBudgetExecutionFromApi(
+  projectId: string,
+): Promise<FinanceExecutionImport | null> {
+  try {
+    const q = encodeURIComponent(projectId);
+    const res = await fetch(`/api/finance/execution/import?projectId=${q}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as unknown;
+    return parseStoredExecutionSnapshot(body);
+  } catch {
+    return null;
+  }
+}
+
+export async function postFinanceBudgetExecutionToApi(
+  projectId: string,
+  snapshot: FinanceExecutionImport,
+): Promise<boolean> {
+  try {
+    const res = await fetch("/api/finance/execution/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId,
+        ...snapshot,
+        updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -324,15 +396,16 @@ export async function persistFinanceBudgetExecutionSnapshot(
   projectId: string,
   snapshot: FinanceExecutionImport,
 ): Promise<void> {
-  const payload: FinanceExecutionImport = {
-    title: snapshot.title,
-    reportingDate: snapshot.reportingDate,
-    kpi: cloneFinanceExecutionKpi(snapshot.kpi),
-    salesChart: snapshot.salesChart ?? null,
-    expenseChart: snapshot.expenseChart ?? null,
+  const payload = cloneExecutionSnapshot({
+    ...snapshot,
     updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
-    importMeta: snapshot.importMeta,
-  };
+  });
+  const dbOk = await putFinanceExecutionToDb(projectId, payload);
+  if (!dbOk) {
+    throw new Error(
+      "Не удалось сохранить исполнение бюджета в PostgreSQL. Проверьте авторизацию и доступность API.",
+    );
+  }
   saveFinanceBudgetExecutionToLocalStorage(projectId, payload);
 }
 
@@ -344,22 +417,28 @@ function emptyExecutionSnapshot(): FinanceExecutionImport {
   return emptyFinanceExecutionImport();
 }
 
+/**
+ * PostgreSQL — единственный источник истины.
+ * localStorage — кэш; одноразовая миграция LS → DB, если БД пуста.
+ */
 export async function loadPersistedFinanceBudgetExecution(
   projectId: string,
 ): Promise<BootstrapFinanceBudgetExecutionResult> {
+  const fromDb = await fetchFinanceExecutionFromDb(projectId);
+  const dbParsed = fromDb ? parseStoredExecutionSnapshot(fromDb) : null;
+  if (dbParsed && financeExecutionKpiHasData(dbParsed.kpi)) {
+    const snapshot = cloneExecutionSnapshot(dbParsed);
+    saveFinanceBudgetExecutionToLocalStorage(projectId, snapshot, { emitEvent: false });
+    return { snapshot };
+  }
+
   const ls = loadFinanceBudgetExecutionFromLocalStorage(projectId);
   if (ls && financeExecutionKpiHasData(ls.kpi)) {
-    return {
-      snapshot: {
-        title: ls.title,
-        reportingDate: ls.reportingDate,
-        kpi: cloneFinanceExecutionKpi(ls.kpi),
-        salesChart: ls.salesChart ?? null,
-        expenseChart: ls.expenseChart ?? null,
-        updatedAt: ls.updatedAt,
-        importMeta: ls.importMeta,
-      },
-    };
+    const snapshot = cloneExecutionSnapshot(ls);
+    const migrated = await putFinanceExecutionToDb(projectId, snapshot);
+    if (migrated) {
+      return { snapshot };
+    }
   }
 
   return { snapshot: emptyExecutionSnapshot() };

@@ -1,0 +1,808 @@
+﻿{
+    "projectId":  "default",
+    "payload":  {
+                    "title":  "ÐÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ðµ Ð±ÑÐ´Ð¶ÐµÑÐ°",
+                    "reportingDate":  "Ð¾ÑÑÐµÑÐ½Ð°Ñ Ð´Ð°ÑÐ°:",
+                    "kpi":  {
+                                "revenue":  1530105630,
+                                "turnover":  null,
+                                "expenses":  1341356313,
+                                "expenseBankPercent":  null,
+                                "ebit":  246567310,
+                                "ebitMargin":  16.11,
+                                "profitBeforeTax":  188749317,
+                                "profitMargin":  12.34
+                            },
+                    "salesChart":  {
+                                       "segments":  [
+                                                        {
+                                                            "id":  "apartments",
+                                                            "label":  "ÐÐ²Ð°ÑÑÐ¸ÑÑ",
+                                                            "valueRub":  261066059,
+                                                            "planRub":  1242221080,
+                                                            "color":  "#22c55e"
+                                                        },
+                                                        {
+                                                            "id":  "parking",
+                                                            "label":  "ÐÐ°ÑÐºÐ¾Ð²ÐºÐ¸",
+                                                            "valueRub":  18937554,
+                                                            "planRub":  181408900,
+                                                            "color":  "#3b82f6"
+                                                        },
+                                                        {
+                                                            "id":  "storage",
+                                                            "label":  "ÐÐ»Ð°Ð´Ð¾Ð²ÑÐµ",
+                                                            "valueRub":  2248900,
+                                                            "planRub":  24441250,
+                                                            "color":  "#f59e0b"
+                                                        },
+                                                        {
+                                                            "id":  "admin",
+                                                            "label":  "ÐÐ´Ð¼Ð¸Ð½Ð¸ÑÑÑÐ°ÑÐ¸Ð²Ð½ÑÐµ Ð¿Ð¾Ð¼ÐµÑÐµÐ½Ð¸Ñ",
+                                                            "legendLabel":  "ÐÐ´Ð¼. Ð¿Ð¾Ð¼ÐµÑÐµÐ½Ð¸Ñ",
+                                                            "valueRub":  67858100,
+                                                            "planRub":  82034400,
+                                                            "color":  "#14b8a6"
+                                                        }
+                                                    ],
+                                       "factTotalRub":  350110613
+                                   },
+                    "expenseChart":  {
+                                         "segments":  [
+                                                          {
+                                                              "id":  "budget-2.01",
+                                                              "label":  "ÐÑÐ¸Ð¾Ð±ÑÐµÑÐµÐ½Ð¸Ðµ Ð¸ Ð¾Ð±ÑÐ»ÑÐ¶Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð·ÐµÐ¼ÐµÐ»ÑÐ½Ð¾Ð³Ð¾ ÑÑÐ°ÑÑÐºÐ°",
+                                                              "legendLabel":  "ÐÑÐ¸Ð¾Ð±ÑÐµÑÐµÐ½Ð¸Ðµ Ð¸ Ð¾Ð±ÑÐ»ÑÐ¶Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð·ÐµÐ¼ÐµÐ»ÑÐ½Ð¾Ð³Ð¾ ÑÑÐ°ÑÑÐºÐ°",
+                                                              "valueRub":  176101800,
+                                                              "planRub":  null,
+                                                              "color":  "#ef4444"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.02",
+                                                              "label":  "ÐÑÐ¾ÐµÐºÑÐ½ÑÐµ Ð¸ Ð¸Ð·ÑÑÐºÐ°ÑÐµÐ»ÑÑÐºÐ¸Ðµ ÑÐ°Ð±Ð¾ÑÑ",
+                                                              "legendLabel":  "ÐÑÐ¾ÐµÐºÑÐ½ÑÐµ Ð¸ Ð¸Ð·ÑÑÐºÐ°ÑÐµÐ»ÑÑÐºÐ¸Ðµ ÑÐ°Ð±Ð¾ÑÑ",
+                                                              "valueRub":  24444911,
+                                                              "planRub":  null,
+                                                              "color":  "#f97316"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.03",
+                                                              "label":  "Ð¢ÐµÑ\u0085Ð½Ð¾Ð»Ð¾Ð³Ð¸ÑÐµÑÐºÐ¾Ðµ Ð¿ÑÐ¸ÑÐ¾ÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ Ðº ÑÐµÑÑÐ¼",
+                                                              "legendLabel":  "Ð¢ÐµÑ\u0085Ð½Ð¾Ð»Ð¾Ð³Ð¸ÑÐµÑÐºÐ¾Ðµ Ð¿ÑÐ¸ÑÐ¾ÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ Ðº ÑÐµÑÑÐ¼",
+                                                              "valueRub":  26289976,
+                                                              "planRub":  null,
+                                                              "color":  "#eab308"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.04",
+                                                              "label":  "ÐÑÐ³Ð°Ð½Ð¸Ð·Ð°ÑÐ¸Ñ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                              "legendLabel":  "ÐÑÐ³Ð°Ð½Ð¸Ð·Ð°ÑÐ¸Ñ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                              "valueRub":  6292205,
+                                                              "planRub":  null,
+                                                              "color":  "#06b6d4"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.05",
+                                                              "label":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+                                                              "legendLabel":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+                                                              "valueRub":  112209875,
+                                                              "planRub":  null,
+                                                              "color":  "#8b5cf6"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.06",
+                                                              "label":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÑÐµÐ¹",
+                                                              "legendLabel":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÑÐµÐ¹",
+                                                              "valueRub":  9140847,
+                                                              "planRub":  null,
+                                                              "color":  "#ec4899"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.07",
+                                                              "label":  "ÐÐ»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+                                                              "legendLabel":  "ÐÐ»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+                                                              "valueRub":  330000,
+                                                              "planRub":  null,
+                                                              "color":  "#64748b"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.08",
+                                                              "label":  "ÐÐ°ÐºÐ»Ð°Ð´Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸",
+                                                              "legendLabel":  "ÐÐ°ÐºÐ»Ð°Ð´Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸",
+                                                              "valueRub":  89926383,
+                                                              "planRub":  null,
+                                                              "color":  "#14b8a6"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.09",
+                                                              "label":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° Ðº Ð¿ÐµÑÐµÐ´Ð°ÑÐµ",
+                                                              "legendLabel":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° Ðº Ð¿ÐµÑÐµÐ´Ð°ÑÐµ",
+                                                              "valueRub":  9600000,
+                                                              "planRub":  null,
+                                                              "color":  "#3b82f6"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.10",
+                                                              "label":  "Ð¢ÑÐ°Ð½ÑÐ¿Ð¾ÑÑ Ð¸ ÑÐ¿ÐµÑÑÐµÑ\u0085Ð½Ð¸ÐºÐ°",
+                                                              "legendLabel":  "Ð¢ÑÐ°Ð½ÑÐ¿Ð¾ÑÑ Ð¸ ÑÐ¿ÐµÑÑÐµÑ\u0085Ð½Ð¸ÐºÐ°",
+                                                              "valueRub":  16800206,
+                                                              "planRub":  null,
+                                                              "color":  "#22c55e"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.11",
+                                                              "label":  "ÐÐ¾Ð¼Ð¼ÐµÑÑÐµÑÐºÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                              "legendLabel":  "ÐÐ¾Ð¼Ð¼ÐµÑÑÐµÑÐºÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                              "valueRub":  21894073,
+                                                              "planRub":  null,
+                                                              "color":  "#ef4444"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.12",
+                                                              "label":  "ÐÐ»Ð°ÑÐµÐ¶Ð¸ Ð² Ð±ÑÐ´Ð¶ÐµÑ",
+                                                              "legendLabel":  "ÐÐ»Ð°ÑÐµÐ¶Ð¸ Ð² Ð±ÑÐ´Ð¶ÐµÑ",
+                                                              "valueRub":  406478,
+                                                              "planRub":  null,
+                                                              "color":  "#f97316"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.90",
+                                                              "label":  "ÐÐ±ÑÐµÑ\u0085Ð¾Ð·ÑÐ¹ÑÑÐ²ÐµÐ½Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                              "legendLabel":  "ÐÐ±ÑÐµÑ\u0085Ð¾Ð·ÑÐ¹ÑÑÐ²ÐµÐ½Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                              "valueRub":  88611262,
+                                                              "planRub":  null,
+                                                              "color":  "#eab308"
+                                                          },
+                                                          {
+                                                              "id":  "budget-2.99",
+                                                              "label":  "Ð ÐµÐ·ÐµÑÐ² Ð¿ÑÐ¾ÐµÐºÑÐ°",
+                                                              "legendLabel":  "Ð ÐµÐ·ÐµÑÐ² Ð¿ÑÐ¾ÐµÐºÑÐ°",
+                                                              "valueRub":  50000000,
+                                                              "planRub":  null,
+                                                              "color":  "#06b6d4"
+                                                          },
+                                                          {
+                                                              "id":  "budget-6.03",
+                                                              "label":  "ÐÑÐ¾ÑÐµÐ½ÑÑ Ð¿Ð¾ ÐºÑÐµÐ´Ð¸ÑÐ°Ð¼ Ð¸ Ð·Ð°Ð¹Ð¼Ð°Ð¼",
+                                                              "legendLabel":  "ÐÑÐ¾ÑÐµÐ½ÑÑ Ð¿Ð¾ ÐºÑÐµÐ´Ð¸ÑÐ°Ð¼ Ð¸ Ð·Ð°Ð¹Ð¼Ð°Ð¼",
+                                                              "valueRub":  5440225,
+                                                              "planRub":  null,
+                                                              "color":  "#8b5cf6"
+                                                          }
+                                                      ],
+                                         "detailSegments":  [
+                                                                {
+                                                                    "id":  "budget-2.01",
+                                                                    "label":  "2.01 ÐÑÐ¸Ð¾Ð±ÑÐµÑÐµÐ½Ð¸Ðµ Ð¸ Ð¾Ð±ÑÐ»ÑÐ¶Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð·ÐµÐ¼ÐµÐ»ÑÐ½Ð¾Ð³Ð¾ ÑÑÐ°ÑÑÐºÐ°",
+                                                                    "legendLabel":  "ÐÑÐ¸Ð¾Ð±ÑÐµÑÐµÐ½Ð¸Ðµ Ð¸ Ð¾Ð±ÑÐ»ÑÐ¶Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð·ÐµÐ¼ÐµÐ»ÑÐ½Ð¾Ð³Ð¾ ÑÑÐ°ÑÑÐºÐ°",
+                                                                    "valueRub":  176101800,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.01.01",
+                                                                    "label":  "2.01.01.",
+                                                                    "legendLabel":  "2.01.01.",
+                                                                    "valueRub":  176095800,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.01.03",
+                                                                    "label":  "2.01.03.",
+                                                                    "legendLabel":  "2.01.03.",
+                                                                    "valueRub":  6000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02",
+                                                                    "label":  "2.02 ÐÑÐ¾ÐµÐºÑÐ½ÑÐµ Ð¸ Ð¸Ð·ÑÑÐºÐ°ÑÐµÐ»ÑÑÐºÐ¸Ðµ ÑÐ°Ð±Ð¾ÑÑ",
+                                                                    "legendLabel":  "ÐÑÐ¾ÐµÐºÑÐ½ÑÐµ Ð¸ Ð¸Ð·ÑÑÐºÐ°ÑÐµÐ»ÑÑÐºÐ¸Ðµ ÑÐ°Ð±Ð¾ÑÑ",
+                                                                    "valueRub":  24444911,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02.01",
+                                                                    "label":  "2.02.01.",
+                                                                    "legendLabel":  "2.02.01.",
+                                                                    "valueRub":  109351,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02.02",
+                                                                    "label":  "2.02.02.",
+                                                                    "legendLabel":  "2.02.02.",
+                                                                    "valueRub":  20654000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02.05",
+                                                                    "label":  "2.02.05.",
+                                                                    "legendLabel":  "2.02.05.",
+                                                                    "valueRub":  3034560,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02.06",
+                                                                    "label":  "2.02.06.",
+                                                                    "legendLabel":  "2.02.06.",
+                                                                    "valueRub":  532000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.02.99",
+                                                                    "label":  "2.02.99.",
+                                                                    "legendLabel":  "2.02.99.",
+                                                                    "valueRub":  115000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.03",
+                                                                    "label":  "2.03 Ð¢ÐµÑ\u0085Ð½Ð¾Ð»Ð¾Ð³Ð¸ÑÐµÑÐºÐ¾Ðµ Ð¿ÑÐ¸ÑÐ¾ÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ Ðº ÑÐµÑÑÐ¼",
+                                                                    "legendLabel":  "Ð¢ÐµÑ\u0085Ð½Ð¾Ð»Ð¾Ð³Ð¸ÑÐµÑÐºÐ¾Ðµ Ð¿ÑÐ¸ÑÐ¾ÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ Ðº ÑÐµÑÑÐ¼",
+                                                                    "valueRub":  26289976,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.03.02",
+                                                                    "label":  "2.03.02.",
+                                                                    "legendLabel":  "2.03.02.",
+                                                                    "valueRub":  5860925,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.03.03",
+                                                                    "label":  "2.03.03.",
+                                                                    "legendLabel":  "2.03.03.",
+                                                                    "valueRub":  20429051,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.03.99",
+                                                                    "label":  "2.03.99.",
+                                                                    "legendLabel":  "2.03.99.",
+                                                                    "valueRub":  850000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "Ð¾ÑÐ³Ð°Ð½Ð¸Ð·Ð°ÑÐ¸ÑÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                                    "label":  "ÐÑÐ³Ð°Ð½Ð¸Ð·Ð°ÑÐ¸Ñ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                                    "legendLabel":  "ÐÑÐ³Ð°Ð½Ð¸Ð·Ð°ÑÐ¸Ñ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                                    "valueRub":  234699516,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04",
+                                                                    "label":  "2.04 ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° ÑÐµÑÑÐ¸ÑÐ¾ÑÐ¸Ð¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                                    "legendLabel":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° ÑÐµÑÑÐ¸ÑÐ¾ÑÐ¸Ð¸ ÑÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð°",
+                                                                    "valueRub":  6292205,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04.03",
+                                                                    "label":  "2.04.03.",
+                                                                    "legendLabel":  "2.04.03.",
+                                                                    "valueRub":  143173,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04.04",
+                                                                    "label":  "2.04.04.",
+                                                                    "legendLabel":  "2.04.04.",
+                                                                    "valueRub":  2509460,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04.05",
+                                                                    "label":  "2.04.05.",
+                                                                    "legendLabel":  "2.04.05.",
+                                                                    "valueRub":  2255384,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04.06",
+                                                                    "label":  "2.04.06.",
+                                                                    "legendLabel":  "2.04.06.",
+                                                                    "valueRub":  888299,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.04.99",
+                                                                    "label":  "2.04.99.",
+                                                                    "legendLabel":  "2.04.99.",
+                                                                    "valueRub":  495890,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05",
+                                                                    "label":  "2.05 Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+                                                                    "legendLabel":  "Ð¡ÑÑÐ¾Ð¸ÑÐµÐ»ÑÑÑÐ²Ð¾ Ð·Ð´Ð°Ð½Ð¸Ð¹ Ð¸ ÑÐ¾Ð¾ÑÑÐ¶ÐµÐ½Ð¸Ð¹",
+                                                                    "valueRub":  112209875,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.01",
+                                                                    "label":  "2.05.01.",
+                                                                    "legendLabel":  "2.05.01.",
+                                                                    "valueRub":  16535658,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.02",
+                                                                    "label":  "2.05.02.",
+                                                                    "legendLabel":  "2.05.02.",
+                                                                    "valueRub":  77450001,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.03",
+                                                                    "label":  "2.05.03.",
+                                                                    "legendLabel":  "2.05.03.",
+                                                                    "valueRub":  4533224,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.04",
+                                                                    "label":  "2.05.04.",
+                                                                    "legendLabel":  "2.05.04.",
+                                                                    "valueRub":  12180002,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.05",
+                                                                    "label":  "2.05.05.",
+                                                                    "legendLabel":  "2.05.05.",
+                                                                    "valueRub":  780862,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.06",
+                                                                    "label":  "2.05.06.",
+                                                                    "legendLabel":  "2.05.06.",
+                                                                    "valueRub":  730128,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.07",
+                                                                    "label":  "2.05.07.",
+                                                                    "legendLabel":  "2.05.07.",
+                                                                    "valueRub":  18675598,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.08",
+                                                                    "label":  "2.05.08.",
+                                                                    "legendLabel":  "2.05.08.",
+                                                                    "valueRub":  62699660,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.09",
+                                                                    "label":  "2.05.09.",
+                                                                    "legendLabel":  "2.05.09.",
+                                                                    "valueRub":  11994228,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.10",
+                                                                    "label":  "2.05.10.",
+                                                                    "legendLabel":  "2.05.10.",
+                                                                    "valueRub":  59825116,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.11",
+                                                                    "label":  "2.05.11.",
+                                                                    "legendLabel":  "2.05.11.",
+                                                                    "valueRub":  88194204,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.05.12",
+                                                                    "label":  "2.05.12.",
+                                                                    "legendLabel":  "2.05.12.",
+                                                                    "valueRub":  16839557,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.06",
+                                                                    "label":  "2.06 Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÑÐµÐ¹",
+                                                                    "legendLabel":  "Ð£ÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾ ÑÐµÑÐµÐ¹",
+                                                                    "valueRub":  9140847,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.06.01",
+                                                                    "label":  "2.06.01.",
+                                                                    "legendLabel":  "2.06.01.",
+                                                                    "valueRub":  4809981,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.06.02",
+                                                                    "label":  "2.06.02.",
+                                                                    "legendLabel":  "2.06.02.",
+                                                                    "valueRub":  3289535,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.06.06",
+                                                                    "label":  "2.06.06.",
+                                                                    "legendLabel":  "2.06.06.",
+                                                                    "valueRub":  1041331,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.07",
+                                                                    "label":  "2.07 ÐÐ»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+                                                                    "legendLabel":  "ÐÐ»Ð°Ð³Ð¾ÑÑÑÑÐ¾Ð¹ÑÑÐ²Ð¾",
+                                                                    "valueRub":  330000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.07.01",
+                                                                    "label":  "2.07.01.",
+                                                                    "legendLabel":  "2.07.01.",
+                                                                    "valueRub":  32500000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.07.02",
+                                                                    "label":  "2.07.02.",
+                                                                    "legendLabel":  "2.07.02.",
+                                                                    "valueRub":  330000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.07.08",
+                                                                    "label":  "2.07.08.",
+                                                                    "legendLabel":  "2.07.08.",
+                                                                    "valueRub":  3750000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.07.99",
+                                                                    "label":  "2.07.99.",
+                                                                    "legendLabel":  "2.07.99.",
+                                                                    "valueRub":  1722615,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08",
+                                                                    "label":  "2.08 ÐÐ°ÐºÐ»Ð°Ð´Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸",
+                                                                    "legendLabel":  "ÐÐ°ÐºÐ»Ð°Ð´Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ Ð¿Ð»Ð¾ÑÐ°Ð´ÐºÐ¸",
+                                                                    "valueRub":  89926383,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08.01",
+                                                                    "label":  "2.08.01.",
+                                                                    "legendLabel":  "2.08.01.",
+                                                                    "valueRub":  1810729,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08.02",
+                                                                    "label":  "2.08.02.",
+                                                                    "legendLabel":  "2.08.02.",
+                                                                    "valueRub":  2721932,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08.03",
+                                                                    "label":  "2.08.03.",
+                                                                    "legendLabel":  "2.08.03.",
+                                                                    "valueRub":  3187932,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08.04",
+                                                                    "label":  "2.08.04.",
+                                                                    "legendLabel":  "2.08.04.",
+                                                                    "valueRub":  11000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.08.05",
+                                                                    "label":  "2.08.05.",
+                                                                    "legendLabel":  "2.08.05.",
+                                                                    "valueRub":  82194790,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.09",
+                                                                    "label":  "2.09 ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° Ðº Ð¿ÐµÑÐµÐ´Ð°ÑÐµ Ð¸ ÑÑÑÑÐ°Ð½ÐµÐ½Ð¸Ðµ Ð±ÑÐ°ÐºÐ°",
+                                                                    "legendLabel":  "ÐÐ¾Ð´Ð³Ð¾ÑÐ¾Ð²ÐºÐ° Ðº Ð¿ÐµÑÐµÐ´Ð°ÑÐµ Ð¸ ÑÑÑÑÐ°Ð½ÐµÐ½Ð¸Ðµ Ð±ÑÐ°ÐºÐ°",
+                                                                    "valueRub":  9600000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.09.02",
+                                                                    "label":  "2.09.02.",
+                                                                    "legendLabel":  "2.09.02.",
+                                                                    "valueRub":  600000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.09.03",
+                                                                    "label":  "2.09.03.",
+                                                                    "legendLabel":  "2.09.03.",
+                                                                    "valueRub":  9000000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.10",
+                                                                    "label":  "2.10 Ð¢ÑÐ°Ð½ÑÐ¿Ð¾ÑÑ Ð¸ ÑÐ¿ÐµÑÑÐµÑ\u0085Ð½Ð¸ÐºÐ°",
+                                                                    "legendLabel":  "Ð¢ÑÐ°Ð½ÑÐ¿Ð¾ÑÑ Ð¸ ÑÐ¿ÐµÑÑÐµÑ\u0085Ð½Ð¸ÐºÐ°",
+                                                                    "valueRub":  16800206,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.10.01",
+                                                                    "label":  "2.10.01.",
+                                                                    "legendLabel":  "2.10.01.",
+                                                                    "valueRub":  13532639,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.10.02",
+                                                                    "label":  "2.10.02.",
+                                                                    "legendLabel":  "2.10.02.",
+                                                                    "valueRub":  1247050,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.10.03",
+                                                                    "label":  "2.10.03.",
+                                                                    "legendLabel":  "2.10.03.",
+                                                                    "valueRub":  1700728,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.10.04",
+                                                                    "label":  "2.10.04.",
+                                                                    "legendLabel":  "2.10.04.",
+                                                                    "valueRub":  319790,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.11",
+                                                                    "label":  "2.11 ÐÐ¾Ð¼Ð¼ÐµÑÑÐµÑÐºÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                                    "legendLabel":  "ÐÐ¾Ð¼Ð¼ÐµÑÑÐµÑÐºÐ¸Ðµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                                    "valueRub":  21894073,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.11.01",
+                                                                    "label":  "2.11.01.",
+                                                                    "legendLabel":  "2.11.01.",
+                                                                    "valueRub":  4750267,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.11.02",
+                                                                    "label":  "2.11.02.",
+                                                                    "legendLabel":  "2.11.02.",
+                                                                    "valueRub":  1032000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.11.03",
+                                                                    "label":  "2.11.03.",
+                                                                    "legendLabel":  "2.11.03.",
+                                                                    "valueRub":  5268306,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.11.04",
+                                                                    "label":  "2.11.04.",
+                                                                    "legendLabel":  "2.11.04.",
+                                                                    "valueRub":  10843500,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.12",
+                                                                    "label":  "2.12 ÐÐ»Ð°ÑÐµÐ¶Ð¸ Ð² Ð±ÑÐ´Ð¶ÐµÑ",
+                                                                    "legendLabel":  "ÐÐ»Ð°ÑÐµÐ¶Ð¸ Ð² Ð±ÑÐ´Ð¶ÐµÑ",
+                                                                    "valueRub":  406478,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.12.4",
+                                                                    "label":  "2.12.4.",
+                                                                    "legendLabel":  "2.12.4.",
+                                                                    "valueRub":  137970,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.12.5",
+                                                                    "label":  "2.12.5.",
+                                                                    "legendLabel":  "2.12.5.",
+                                                                    "valueRub":  268508,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90",
+                                                                    "label":  "2.90 ÐÐ±ÑÐµÑ\u0085Ð¾Ð·ÑÐ¹ÑÑÐ²ÐµÐ½Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                                    "legendLabel":  "ÐÐ±ÑÐµÑ\u0085Ð¾Ð·ÑÐ¹ÑÑÐ²ÐµÐ½Ð½ÑÐµ ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ",
+                                                                    "valueRub":  88611262,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.01",
+                                                                    "label":  "2.90.01.",
+                                                                    "legendLabel":  "2.90.01.",
+                                                                    "valueRub":  6411151,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.03",
+                                                                    "label":  "2.90.03.",
+                                                                    "legendLabel":  "2.90.03.",
+                                                                    "valueRub":  1445945,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.04",
+                                                                    "label":  "2.90.04.",
+                                                                    "legendLabel":  "2.90.04.",
+                                                                    "valueRub":  218263,
+                                                                    "planRub":  null,
+                                                                    "color":  "#14b8a6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.05",
+                                                                    "label":  "2.90.05.",
+                                                                    "legendLabel":  "2.90.05.",
+                                                                    "valueRub":  84885,
+                                                                    "planRub":  null,
+                                                                    "color":  "#3b82f6"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.06",
+                                                                    "label":  "2.90.06.",
+                                                                    "legendLabel":  "2.90.06.",
+                                                                    "valueRub":  3133267,
+                                                                    "planRub":  null,
+                                                                    "color":  "#22c55e"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.90.08",
+                                                                    "label":  "2.90.08.",
+                                                                    "legendLabel":  "2.90.08.",
+                                                                    "valueRub":  77317751,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ef4444"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.99",
+                                                                    "label":  "2.99 Ð ÐµÐ·ÐµÑÐ² Ð¿ÑÐ¾ÐµÐºÑÐ°",
+                                                                    "legendLabel":  "Ð ÐµÐ·ÐµÑÐ² Ð¿ÑÐ¾ÐµÐºÑÐ°",
+                                                                    "valueRub":  50000000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#f97316"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-2.99.02",
+                                                                    "label":  "2.99.02.",
+                                                                    "legendLabel":  "2.99.02.",
+                                                                    "valueRub":  50000000,
+                                                                    "planRub":  null,
+                                                                    "color":  "#eab308"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-6.03",
+                                                                    "label":  "6.03 ÐÑÐ¾ÑÐµÐ½ÑÑ Ð¿Ð¾ ÐºÑÐµÐ´Ð¸ÑÐ°Ð¼ Ð¸ Ð·Ð°Ð¹Ð¼Ð°Ð¼",
+                                                                    "legendLabel":  "ÐÑÐ¾ÑÐµÐ½ÑÑ Ð¿Ð¾ ÐºÑÐµÐ´Ð¸ÑÐ°Ð¼ Ð¸ Ð·Ð°Ð¹Ð¼Ð°Ð¼",
+                                                                    "valueRub":  5440225,
+                                                                    "planRub":  null,
+                                                                    "color":  "#06b6d4"
+                                                                },
+                                                                {
+                                                                    "id":  "budget-6.03.01",
+                                                                    "label":  "6.03.01.",
+                                                                    "legendLabel":  "6.03.01.",
+                                                                    "valueRub":  5440225,
+                                                                    "planRub":  null,
+                                                                    "color":  "#8b5cf6"
+                                                                },
+                                                                {
+                                                                    "id":  "ebit",
+                                                                    "label":  "EBIT",
+                                                                    "legendLabel":  "EBIT",
+                                                                    "valueRub":  246567310,
+                                                                    "planRub":  null,
+                                                                    "color":  "#ec4899"
+                                                                },
+                                                                {
+                                                                    "id":  "Ð¿ÑÐ¸Ð±ÑÐ»ÑÐ´Ð¾Ð½Ð¾(Ð´Ð¾Ñ\u0085Ð¾Ð´Ñ-ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ)",
+                                                                    "label":  "ÐÑÐ¸Ð±ÑÐ»Ñ Ð´Ð¾ ÐÐ  (Ð´Ð¾Ñ\u0085Ð¾Ð´Ñ - ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ)",
+                                                                    "legendLabel":  "ÐÑÐ¸Ð±ÑÐ»Ñ Ð´Ð¾ ÐÐ  (Ð´Ð¾Ñ\u0085Ð¾Ð´Ñ - ÑÐ°ÑÑ\u0085Ð¾Ð´Ñ)",
+                                                                    "valueRub":  188749317,
+                                                                    "planRub":  null,
+                                                                    "color":  "#64748b"
+                                                                }
+                                                            ],
+                                         "contractedTotalRub":  637488241,
+                                         "projectTotalCostRub":  577888241
+                                     },
+                    "updatedAt":  "2026-07-17T01:04:41.319Z",
+                    "importMeta":  {
+                                       "sourceFileName":  "Ð±ÑÐ´Ð¶ÐµÑ_ÐÐ°Ð¹.csv",
+                                       "reportingDate":  "Ð¾ÑÑÐµÑÐ½Ð°Ñ Ð´Ð°ÑÐ°:",
+                                       "lastImportAt":  "2026-07-17T01:04:41.309Z",
+                                       "foundMetrics":  6,
+                                       "missingMetrics":  [
+                                                              "Turnover",
+                                                              "BankPercent"
+                                                          ]
+                                   }
+                },
+    "updatedAt":  "2026-07-17T09:04:41.371004+08:00",
+    "updatedByEmail":  "admin@example.com"
+}
