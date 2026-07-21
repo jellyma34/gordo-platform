@@ -38,10 +38,9 @@ On 401 from any protected request: `clearAuth()` + redirect to `/login?next=<pat
 
 ## Mock mode (dev)
 
-`NEXT_PUBLIC_AUTH_MOCK=true` (default in `development`):
-- Any non-empty email + password logs in as `manager` with all sections
-- No backend call made
-- Token is `"mock-dev-token"`, `/auth/me` is skipped for this token
+`NEXT_PUBLIC_AUTH_MOCK=true` — вход без бэкенда (любая непустая пара email/пароль, роль `manager`).
+
+По умолчанию в dev используется реальный `POST /auth/login`; учётные данные — `BOOTSTRAP_ADMIN_*` в `backend/.env` (локально: `marislova34@gmail.com` / `1234`).
 
 ## Guard components
 

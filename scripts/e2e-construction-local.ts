@@ -26,7 +26,17 @@ async function main() {
 
   console.log("API:", API);
 
-  const auth = await loginRequest("marislova34@gmail.com", "1234");
+  const email =
+    process.env.BOOTSTRAP_ADMIN_EMAIL ||
+    process.env.E2E_ADMIN_EMAIL ||
+    process.env.VALIDATE_ADMIN_EMAIL ||
+    "marislova34@gmail.com";
+  const password =
+    process.env.BOOTSTRAP_ADMIN_PASSWORD ||
+    process.env.E2E_ADMIN_PASSWORD ||
+    process.env.VALIDATE_ADMIN_PASSWORD ||
+    "1234";
+  const auth = await loginRequest(email, password);
   const token = auth.token;
   console.log("LOGIN OK:", auth.user.email, auth.user.role);
 

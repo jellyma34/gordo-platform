@@ -13,7 +13,7 @@
     "build": "node ./node_modules/next/dist/bin/next build",
     "start": "node server.js",
     "start:next": "node ./node_modules/next/dist/bin/next start",
-    "backend": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8080",
+    "backend": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
     "dev:all": "npm run clean-ports && concurrently \"npm run backend\" \"npm run dev\"",
     "clean-ports": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ports = @(8080,3000); foreach ($p in $ports) { Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }\"",
     "test:gpr-code": "tsx lib/gprCodeSort.selftest.ts",

@@ -180,12 +180,10 @@ export function authSnapshotFromApiUser(token: string, user: ApiLoginUser): Auth
 }
 
 /**
- * Вход без бэкенда: в `next dev` по умолчанию включён. Отключить: `NEXT_PUBLIC_AUTH_MOCK=false`.
- * В production мок выключен, кроме явного `NEXT_PUBLIC_AUTH_MOCK=true`.
+ * Вход без бэкенда: только при явном `NEXT_PUBLIC_AUTH_MOCK=true`
+ * (локально по умолчанию используется FastAPI из `NEXT_PUBLIC_API_URL`).
  */
-export const AUTH_LOGIN_MOCK_ENABLED =
-  (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_AUTH_MOCK !== "false") ||
-  process.env.NEXT_PUBLIC_AUTH_MOCK === "true";
+export const AUTH_LOGIN_MOCK_ENABLED = process.env.NEXT_PUBLIC_AUTH_MOCK === "true";
 
 const MOCK_DEV_TOKEN = "mock-dev-token";
 

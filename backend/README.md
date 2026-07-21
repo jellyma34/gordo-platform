@@ -16,8 +16,15 @@
 Из каталога `backend` в корне репозитория:
 
 ```bash
-PORT=8080 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port $PORT
+cp .env.example .env   # Windows: copy .env.example .env
+PORT=8000 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Первый вход:** при старте создаётся администратор, если в БД ещё нет пользователя с email из `BOOTSTRAP_ADMIN_EMAIL`. Логин и пароль — `backend/.env` (`BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`). Локальный этalon: `marislova34@gmail.com` / `1234` (см. `.env.example`). Устаревший placeholder `admin@example.com` при старте мигрируется или удаляется.
+
+Смена пароля: через админ-панель или однократно `BOOTSTRAP_ADMIN_SYNC_ON_START=true` и перезапуск backend (только локально).
+
+Фронтенд: `NEXT_PUBLIC_API_URL=http://localhost:8000`, реальный вход (`NEXT_PUBLIC_AUTH_MOCK=false` в `.env.development`).
 
 API: `http://127.0.0.1:${PORT}`  
 Документация: `http://127.0.0.1:${PORT}/docs`  

@@ -106,7 +106,15 @@ async function main() {
   console.log("  loaded:", auditSmart.loaded, "skipped:", auditSmart.skipped);
   if (auditSmart.skippedRows[0]) console.log("  first skip:", auditSmart.skippedRows[0].reason);
 
-  const auth = await loginRequest("marislova34@gmail.com", "1234");
+  const email =
+    process.env.BOOTSTRAP_ADMIN_EMAIL ||
+    process.env.VALIDATE_ADMIN_EMAIL ||
+    "marislova34@gmail.com";
+  const password =
+    process.env.BOOTSTRAP_ADMIN_PASSWORD ||
+    process.env.VALIDATE_ADMIN_PASSWORD ||
+    "1234";
+  const auth = await loginRequest(email, password);
   const saved = await bulkImportTendersToDb(auth.token, tenders);
   console.log("bulkImportTendersToDb → POST /tender/bulk-import:", saved.length);
 

@@ -24,8 +24,8 @@ page.on("console", (msg) => {
 
 await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await page.waitForSelector("#email", { timeout: 60000 });
-await page.fill("#email", process.env.VALIDATE_ADMIN_EMAIL || "marislova34@gmail.com");
-await page.fill("#password", process.env.VALIDATE_ADMIN_PASSWORD || "1234");
+await page.fill("#email", process.env.VALIDATE_ADMIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || "marislova34@gmail.com");
+await page.fill("#password", process.env.VALIDATE_ADMIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || "1234");
 await page.click('button[type="submit"]');
 await page.waitForURL((url) => !url.pathname.includes("/login"), { timeout: 30000 });
 

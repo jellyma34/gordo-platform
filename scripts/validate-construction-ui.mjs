@@ -9,8 +9,8 @@ import path from "path";
 const BASE = process.env.VALIDATE_BASE_URL || "http://localhost:3000";
 const API = process.env.VALIDATE_API_URL || "http://localhost:8000";
 const OUT_DIR = path.join(process.cwd(), "validation-screenshots");
-const ADMIN_EMAIL = process.env.VALIDATE_ADMIN_EMAIL || "marislova34@gmail.com";
-const ADMIN_PASSWORD = process.env.VALIDATE_ADMIN_PASSWORD || "1234";
+const ADMIN_EMAIL = process.env.VALIDATE_ADMIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || "marislova34@gmail.com";
+const ADMIN_PASSWORD = process.env.VALIDATE_ADMIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || "1234";
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
