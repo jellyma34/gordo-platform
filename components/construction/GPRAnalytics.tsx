@@ -4904,18 +4904,18 @@ export function GPRAnalytics({
         })()}
       </div>
 
-      <GprStageProgressBlock
-        tasks={stageDeviationFlatTasks}
-        branchRoots={aggregateRootCodes}
-        asOf={gprReportAsOf}
-        reportDateLabel={gprReportDateLabel}
-      />
-
       <GPRForecastChart
         tasks={tasksForActivePart}
         tmcItems={tmcItemsForPart}
         tenders={tendersForActivePart}
         activeProjectPart={chartPart}
+      />
+
+      <GprStageProgressBlock
+        tasks={stageDeviationFlatTasks}
+        branchRoots={aggregateRootCodes}
+        asOf={gprReportAsOf}
+        reportDateLabel={gprReportDateLabel}
       />
     </section>
   );

@@ -1,7 +1,11 @@
 import type {
   FinanceExecutionChartSegment,
+  FinanceExecutionExpenseArticle,
   FinanceExecutionExpenseChart,
   FinanceExecutionSalesChart,
+} from "@/lib/financeBudgetExecutionData";
+import {
+  withExpenseSegmentDeviations,
 } from "@/lib/financeBudgetExecutionData";
 
 const LOG_PREFIX = "[finance-execution-charts]";
@@ -649,6 +653,7 @@ type ParsedExpenseRow = {
   name: string;
   rawLabel: string;
   valueRub: number;
+  planRub: number | null;
 };
 
 /** Нормализация кода: «2.04.» → «2.04». */
@@ -824,14 +829,14 @@ function buildExpensePresentationSegments(
   if (hasAnyBudgetCode) {
     return codedPresentationRows.map((row, index) => {
       const labelName = resolveExpensePresentationLabel(row);
-      return {
+      return withExpenseSegmentDeviations({
         id: expenseSegmentId(row.code, row.rawLabel),
         label: labelName,
         legendLabel: labelName,
         valueRub: row.valueRub,
-        planRub: null,
+        planRub: row.planRub,
         color: EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
-      };
+      });
     });
   }
 
@@ -839,16 +844,18 @@ function buildExpensePresentationSegments(
   return normalizedRows
     .filter(
       (row) =>
-        row.valueRub > 0 &&
+        (row.valueRub > 0 || (row.planRub != null && row.planRub > 0)) &&
         !isExpenseProjectTotalRow(null, row.name, row.rawLabel),
     )
-    .map((row, index) => ({
-      id: slugId(row.rawLabel),
-      label: row.name || row.rawLabel,
-      valueRub: row.valueRub,
-      planRub: null,
-      color: EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
-    }));
+    .map((row, index) =>
+      withExpenseSegmentDeviations({
+        id: slugId(row.rawLabel),
+        label: row.name || row.rawLabel,
+        valueRub: row.valueRub,
+        planRub: row.planRub,
+        color: EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
+      }),
+    );
 }
 
 /**
@@ -886,18 +893,20 @@ export function filterExpenseSegmentsForPresentationChart(
             extractExpenseCodeAndName(segment.label).name ||
             segment.legendLabel ||
             segment.label;
-          return {
+          return withExpenseSegmentDeviations({
             ...segment,
             id: expenseSegmentId(code, segment.label),
             label: labelName,
             legendLabel: labelName,
-          };
+          });
         })
-    : segments.filter(
-        (segment) =>
-          segment.valueRub > 0 &&
-          !isExpenseProjectTotalRow(null, segment.label, segment.label),
-      );
+    : segments
+        .filter(
+          (segment) =>
+            (segment.valueRub > 0 || (segment.planRub != null && segment.planRub > 0)) &&
+            !isExpenseProjectTotalRow(null, segment.label, segment.label),
+        )
+        .map((segment) => withExpenseSegmentDeviations(segment));
 
   const codes = filtered.map((segment) => {
     return (
@@ -916,7 +925,7 @@ function buildExpenseDetailSegments(rows: ParsedExpenseRow[]): FinanceExecutionC
   return rows
     .filter(
       (row) =>
-        row.valueRub > 0 &&
+        (row.valueRub > 0 || (row.planRub != null && row.planRub > 0)) &&
         !isExpenseProjectTotalRow(row.code, row.name, row.rawLabel),
     )
     .map((row, index) => {
@@ -927,15 +936,99 @@ function buildExpenseDetailSegments(rows: ParsedExpenseRow[]): FinanceExecutionC
           ? `${row.code} ${labelBase}`
           : labelBase;
 
-      return {
+      return withExpenseSegmentDeviations({
         id: expenseSegmentId(row.code, row.rawLabel),
         label: labelWithCode,
         legendLabel: labelBase,
         valueRub: row.valueRub,
-        planRub: null,
+        planRub: row.planRub,
         color: EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
-      };
+      });
     });
+}
+
+/** Листья иерархии: исключаем родителя, если есть дочерние коды. */
+function preferLeafExpenseRows(rows: ParsedExpenseRow[]): ParsedExpenseRow[] {
+  const coded = rows.filter((row) => typeof row.code === "string" && row.code.length > 0);
+  if (coded.length === 0) return rows;
+  return coded.filter((row) => {
+    const prefix = `${row.code}.`;
+    return !coded.some(
+      (other) => other.code !== row.code && typeof other.code === "string" && other.code.startsWith(prefix),
+    );
+  });
+}
+
+function buildExpenseArticles(rows: ParsedExpenseRow[]): FinanceExecutionExpenseArticle[] {
+  const leafRows = preferLeafExpenseRows(
+    rows.filter(
+      (row) =>
+        !isExpenseProjectTotalRow(row.code, row.name, row.rawLabel) &&
+        row.planRub != null &&
+        row.planRub > 0,
+    ),
+  );
+
+  return leafRows.map((row, index) => {
+    const planRub = row.planRub as number;
+    const factRub = row.valueRub;
+    const name = (row.name || row.rawLabel).trim() || row.rawLabel;
+    return {
+      id: expenseSegmentId(row.code, row.rawLabel),
+      name,
+      planRub,
+      factRub,
+      deviationRub: factRub - planRub,
+      deviationPct: Math.round(((factRub - planRub) / planRub) * 1000) / 10,
+      color: EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
+      code: row.code,
+    };
+  });
+}
+
+/** Rollup листовых articles в сегменты 1-го уровня для donut. */
+function rollupArticlesToPresentationSegments(
+  articles: FinanceExecutionExpenseArticle[],
+): FinanceExecutionChartSegment[] {
+  const byTop = new Map<
+    string,
+    { label: string; valueRub: number; planRub: number; color: string }
+  >();
+
+  for (const article of articles) {
+    const code = article.code ?? expenseCodeFromSegmentId(article.id);
+    const topCode =
+      code && budgetCodeParts(code).length >= 2
+        ? budgetCodeParts(code).slice(0, 2).join(".")
+        : null;
+    const key = topCode ?? article.id;
+    const label =
+      (topCode && EXPENSE_TOP_LEVEL_SECTION_LABELS[topCode]) ||
+      (topCode ? topCode : article.name);
+    const prev = byTop.get(key);
+    if (prev) {
+      prev.valueRub += article.factRub;
+      prev.planRub += article.planRub;
+    } else {
+      byTop.set(key, {
+        label,
+        valueRub: article.factRub,
+        planRub: article.planRub,
+        color: article.color,
+      });
+    }
+  }
+
+  return [...byTop.entries()].map(([key, value], index) =>
+    withExpenseSegmentDeviations({
+      id: key.startsWith("budget-") ? key : expenseSegmentId(key, value.label),
+      label: value.label,
+      legendLabel: value.label,
+      valueRub: value.valueRub,
+      planRub: value.planRub,
+      color: value.color || EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
+    }),
+  );
 }
 
 function findProjectCostTable(rawRows: unknown[][]): ExpenseTableLayout | null {
@@ -1102,13 +1195,14 @@ export function parseFinanceExecutionExpenseChart(rawRows: unknown[][]): Finance
         continue;
       }
 
-      if (valueRub <= 0) continue;
+      if (valueRub <= 0 && !(planValue != null && planValue > 0)) continue;
 
       detailRows.push({
         code,
         name,
         rawLabel: rawName,
         valueRub,
+        planRub: planValue != null && planValue > 0 ? planValue : null,
       });
     }
   } else {
@@ -1173,33 +1267,43 @@ export function parseFinanceExecutionExpenseChart(rawRows: unknown[][]): Finance
   }
 
   const detailSegments = buildExpenseDetailSegments(detailRows);
+  const articles = buildExpenseArticles(detailRows);
   console.table(
     detailRows.slice(0, 20).map((r) => ({
       code: r.code,
       rawLabel: r.rawLabel,
       name: r.name,
       valueRub: r.valueRub,
+      planRub: r.planRub,
     })),
   );
   console.log(
     "[expense-diag] unique codes",
     [...new Set(detailRows.map((r) => r.code))].slice(0, 100),
   );
-  const presentationBeforeFilter = buildExpensePresentationSegments(detailRows);
+  let segments = buildExpensePresentationSegments(detailRows);
   console.log(
     "[expense-diag] presentation BEFORE filterExpenseSegmentsForPresentationChart:",
-    presentationBeforeFilter.length,
+    segments.length,
   );
   console.table(
-    presentationBeforeFilter.map((segment) => ({
+    segments.map((segment) => ({
       id: segment.id,
       code: expenseCodeFromSegmentId(segment.id),
       name: segment.label,
       value: segment.valueRub,
+      plan: segment.planRub,
     })),
   );
 
-  const segments = filterExpenseSegmentsForPresentationChart(presentationBeforeFilter);
+  // Если иерархия без строк 1-го уровня — собираем диаграмму из articles (rollup по коду).
+  if (segments.length === 0 && articles.length > 0) {
+    segments = rollupArticlesToPresentationSegments(articles);
+  }
+
+  segments = filterExpenseSegmentsForPresentationChart(
+    segments.length > 0 ? segments : detailSegments,
+  );
 
   console.log("[expense-diag] chartData AFTER filter, length:", segments.length);
   console.table(
@@ -1207,6 +1311,7 @@ export function parseFinanceExecutionExpenseChart(rawRows: unknown[][]): Finance
       code: expenseCodeFromSegmentId(segment.id),
       name: segment.label,
       value: segment.valueRub,
+      plan: segment.planRub,
     })),
   );
   if (segments.length === 0) {
@@ -1217,9 +1322,9 @@ export function parseFinanceExecutionExpenseChart(rawRows: unknown[][]): Finance
     );
   }
 
-  const contractedTotalRub = sumSegmentValues(segments);
+  const contractedTotalRub = sumSegmentValues(segments.filter((s) => s.valueRub > 0));
 
-  if (segments.length === 0 && projectTotalCostRub == null) {
+  if (segments.length === 0 && articles.length === 0 && projectTotalCostRub == null) {
     console.log(
       "[expense-diag] EXIT parseFinanceExecutionExpenseChart",
       { reason: "null — segments empty and no projectTotalCostRub" },
@@ -1227,19 +1332,43 @@ export function parseFinanceExecutionExpenseChart(rawRows: unknown[][]): Finance
     return null;
   }
 
+  // Плоский CSV: диаграмма и перерасход — один набор articles.
+  if (articles.length > 0 && segments.every((s) => s.planRub == null || !expenseCodeFromSegmentId(s.id))) {
+    const fromArticles = articles
+      .filter((article) => article.factRub > 0)
+      .map((article, index) =>
+        withExpenseSegmentDeviations({
+          id: article.id,
+          label: article.name,
+          legendLabel: article.name,
+          valueRub: article.factRub,
+          planRub: article.planRub,
+          color: article.color || EXPENSE_SEGMENT_COLORS[index % EXPENSE_SEGMENT_COLORS.length],
+        }),
+      );
+    if (fromArticles.length > 0 && segments.length === fromArticles.length) {
+      // already aligned
+    } else if (segments.length === 0 && fromArticles.length > 0) {
+      segments = fromArticles;
+    }
+  }
+
   const expenseChart: FinanceExecutionExpenseChart = {
     segments,
     detailSegments: detailSegments.length > 0 ? detailSegments : undefined,
+    articles: articles.length > 0 ? articles : undefined,
     contractedTotalRub,
     projectTotalCostRub,
   };
 
   console.log(`${LOG_PREFIX} expenseChart presentation (level-1):`, segments);
   console.log(`${LOG_PREFIX} expenseChart detail count:`, detailSegments.length);
+  console.log(`${LOG_PREFIX} expenseChart articles:`, articles.length);
   console.log("[expense-diag] EXIT parseFinanceExecutionExpenseChart", {
     reason: "expenseChart",
     segmentsCount: segments.length,
     detailSegmentsCount: detailSegments.length,
+    articlesCount: articles.length,
     projectTotalCostRub,
   });
   return expenseChart;

@@ -10,6 +10,7 @@ import {
   emptyFinanceExecutionImport,
   financeExecutionKpiHasData,
   type FinanceExecutionChartSegment,
+  type FinanceExecutionExpenseArticle,
   type FinanceExecutionExpenseChart,
   type FinanceExecutionImport,
   type FinanceExecutionSalesChart,
@@ -226,13 +227,53 @@ function parseChartSegment(raw: unknown): FinanceExecutionChartSegment | null {
   const body = raw as Record<string, unknown>;
   if (typeof body.id !== "string" || typeof body.label !== "string") return null;
   if (typeof body.valueRub !== "number" || typeof body.color !== "string") return null;
+  const planRub = typeof body.planRub === "number" ? body.planRub : null;
+  const valueRub = body.valueRub;
   return {
     id: body.id,
     label: body.label,
     legendLabel: typeof body.legendLabel === "string" ? body.legendLabel : undefined,
-    valueRub: body.valueRub,
-    planRub: typeof body.planRub === "number" ? body.planRub : null,
+    valueRub,
+    planRub,
+    deviationRub:
+      typeof body.deviationRub === "number"
+        ? body.deviationRub
+        : planRub != null && planRub > 0
+          ? valueRub - planRub
+          : null,
+    deviationPct:
+      typeof body.deviationPct === "number"
+        ? body.deviationPct
+        : planRub != null && planRub > 0
+          ? Math.round(((valueRub - planRub) / planRub) * 1000) / 10
+          : null,
     color: body.color,
+  };
+}
+
+function parseExpenseArticle(raw: unknown): FinanceExecutionExpenseArticle | null {
+  if (!raw || typeof raw !== "object") return null;
+  const body = raw as Record<string, unknown>;
+  if (typeof body.id !== "string" || typeof body.name !== "string") return null;
+  if (typeof body.planRub !== "number" || typeof body.factRub !== "number") return null;
+  if (body.planRub <= 0) return null;
+  const planRub = body.planRub;
+  const factRub = body.factRub;
+  const deviationRub =
+    typeof body.deviationRub === "number" ? body.deviationRub : factRub - planRub;
+  const deviationPct =
+    typeof body.deviationPct === "number"
+      ? body.deviationPct
+      : Math.round((deviationRub / planRub) * 1000) / 10;
+  return {
+    id: body.id,
+    name: body.name,
+    planRub,
+    factRub,
+    deviationRub,
+    deviationPct,
+    color: typeof body.color === "string" ? body.color : "#ef4444",
+    code: typeof body.code === "string" ? body.code : null,
   };
 }
 
@@ -261,10 +302,38 @@ function parseExpenseChart(raw: unknown): FinanceExecutionExpenseChart | null {
   const detailSegments = detailRaw
     .map((segment) => parseChartSegment(segment))
     .filter((segment): segment is FinanceExecutionChartSegment => segment != null);
-  if (segments.length === 0 && typeof body.projectTotalCostRub !== "number") return null;
+  const articlesRaw = Array.isArray(body.articles) ? body.articles : [];
+  let articles = articlesRaw
+    .map((article) => parseExpenseArticle(article))
+    .filter((article): article is FinanceExecutionExpenseArticle => article != null);
+
+  // Старые снимки без articles — восстановить из detail/segments с планом.
+  if (articles.length === 0) {
+    const source = detailSegments.length > 0 ? detailSegments : segments;
+    articles = source
+      .filter((segment) => segment.planRub != null && segment.planRub > 0)
+      .map((segment) => {
+        const planRub = segment.planRub as number;
+        const factRub = segment.valueRub;
+        return {
+          id: segment.id,
+          name: segment.legendLabel ?? segment.label,
+          planRub,
+          factRub,
+          deviationRub: factRub - planRub,
+          deviationPct: Math.round(((factRub - planRub) / planRub) * 1000) / 10,
+          color: segment.color,
+        };
+      });
+  }
+
+  if (segments.length === 0 && typeof body.projectTotalCostRub !== "number" && articles.length === 0) {
+    return null;
+  }
   return {
     segments,
     detailSegments: detailSegments.length > 0 ? detailSegments : undefined,
+    articles: articles.length > 0 ? articles : undefined,
     contractedTotalRub:
       typeof body.contractedTotalRub === "number" ? body.contractedTotalRub : null,
     projectTotalCostRub:

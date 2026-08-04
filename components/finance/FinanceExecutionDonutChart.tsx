@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   Cell,
   Pie,
@@ -15,9 +16,11 @@ import {
 } from "@/components/tmc/KpiDonutChart";
 
 const DEFAULT_CHART_SIZE = 190;
-const TOOLTIP_GAP_PX = 16;
-const TOOLTIP_EST_WIDTH = 148;
-const TOOLTIP_EST_HEIGHT = 72;
+const TOOLTIP_GAP_PX = 12;
+const VIEWPORT_PAD_PX = 8;
+const TOOLTIP_EST_WIDTH = 180;
+const TOOLTIP_EST_HEIGHT = 84;
+const TOOLTIP_MAX_WIDTH_PX = 220;
 
 export type FinanceDonutSegment = KpiDonutSegment & {
   legendLabel?: string;
@@ -28,7 +31,12 @@ function pctShare(value: number, total: number): string {
   return `${(Math.round((value / total) * 1000) / 10).toFixed(1).replace(".", ",")}%`;
 }
 
-/** Середина сектора в градусах Recharts (0° = 3 часа, по часовой). */
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+/** Середина сектора в градусах Recharts (0° = 3 часа, против часовой). */
 function sectorMidAngleDeg(
   index: number,
   data: { value: number }[],
@@ -47,89 +55,162 @@ function sectorMidAngleDeg(
   return cursor + segmentSweep / 2;
 }
 
-/** Tooltip снаружи donut: якорь на внешнем радиусе + отступ, с clamp внутри карточки. */
-function externalTooltipPosition(
-  midAngleDeg: number,
-  chartSize: number,
-  tooltipWidth: number,
-  tooltipHeight: number,
-): { left: number; top: number } {
-  const cx = chartSize / 2;
-  const cy = chartSize / 2;
-  const outerR = KPI_DONUT_OUTER_RADIUS_RATIO * (chartSize / 2);
-  const innerR = KPI_DONUT_INNER_RADIUS_RATIO * (chartSize / 2);
+type TooltipBox = { left: number; top: number; placement: "right" | "left" };
+
+/**
+ * Fixed-позиция tooltip вне карточки KPI:
+ * справа от карточки, если хватает места во viewport; иначе слева.
+ * Вертикально выравнивается по центру сектора (с clamp в окно).
+ */
+function portalTooltipOutsideCard(args: {
+  cardRect: DOMRect;
+  chartRect: DOMRect;
+  midAngleDeg: number;
+  tooltipWidth: number;
+  tooltipHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}): TooltipBox {
+  const {
+    cardRect,
+    chartRect,
+    midAngleDeg,
+    tooltipWidth,
+    tooltipHeight,
+    viewportWidth,
+    viewportHeight,
+  } = args;
+
   const rad = (midAngleDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
+  const sectorY =
+    chartRect.top + chartRect.height / 2 + Math.sin(rad) * (chartRect.height * 0.28);
 
-  const anchorDist = outerR + TOOLTIP_GAP_PX;
-  let left = cx + cos * (anchorDist + tooltipWidth / 2);
-  let top = cy + sin * (anchorDist + tooltipHeight / 2);
+  const top = clamp(
+    sectorY - tooltipHeight / 2,
+    VIEWPORT_PAD_PX,
+    Math.max(VIEWPORT_PAD_PX, viewportHeight - tooltipHeight - VIEWPORT_PAD_PX),
+  );
 
-  const pad = 4;
-  const halfW = tooltipWidth / 2;
-  const halfH = tooltipHeight / 2;
-  left = Math.max(pad + halfW, Math.min(chartSize - pad - halfW, left));
-  top = Math.max(pad + halfH, Math.min(chartSize - pad - halfH, top));
+  const spaceRight = viewportWidth - cardRect.right - TOOLTIP_GAP_PX - VIEWPORT_PAD_PX;
+  const spaceLeft = cardRect.left - TOOLTIP_GAP_PX - VIEWPORT_PAD_PX;
 
-  const dx = left - cx;
-  const dy = top - cy;
-  const minDist = innerR + halfH * 0.35;
-  const dist = Math.hypot(dx, dy);
-  if (dist < minDist && dist > 0) {
-    const scale = minDist / dist;
-    left = cx + dx * scale;
-    top = cy + dy * scale;
-    left = Math.max(pad + halfW, Math.min(chartSize - pad - halfW, left));
-    top = Math.max(pad + halfH, Math.min(chartSize - pad - halfH, top));
+  if (spaceRight >= tooltipWidth || spaceRight >= spaceLeft) {
+    return {
+      left: clamp(
+        cardRect.right + TOOLTIP_GAP_PX,
+        VIEWPORT_PAD_PX,
+        Math.max(VIEWPORT_PAD_PX, viewportWidth - tooltipWidth - VIEWPORT_PAD_PX),
+      ),
+      top,
+      placement: "right",
+    };
   }
 
-  return { left, top };
+  return {
+    left: clamp(
+      cardRect.left - TOOLTIP_GAP_PX - tooltipWidth,
+      VIEWPORT_PAD_PX,
+      Math.max(VIEWPORT_PAD_PX, viewportWidth - tooltipWidth - VIEWPORT_PAD_PX),
+    ),
+    top,
+    placement: "left",
+  };
 }
 
 type SectorTooltipProps = {
   segment: FinanceDonutSegment;
   segmentSum: number;
-  chartSize: number;
   midAngleDeg: number;
+  chartBoxRef: RefObject<HTMLDivElement | null>;
 };
 
-function SectorExternalTooltip({
+function SectorPortalTooltip({
   segment,
   segmentSum,
-  chartSize,
   midAngleDeg,
+  chartBoxRef,
 }: SectorTooltipProps) {
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState(() =>
-    externalTooltipPosition(
-      midAngleDeg,
-      chartSize,
-      TOOLTIP_EST_WIDTH,
-      TOOLTIP_EST_HEIGHT,
-    ),
-  );
+  const [position, setPosition] = useState<TooltipBox>({
+    left: -9999,
+    top: -9999,
+    placement: "right",
+  });
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useLayoutEffect(() => {
-    const el = tooltipRef.current;
-    const width = el?.offsetWidth ?? TOOLTIP_EST_WIDTH;
-    const height = el?.offsetHeight ?? TOOLTIP_EST_HEIGHT;
-    setPosition(externalTooltipPosition(midAngleDeg, chartSize, width, height));
-  }, [midAngleDeg, chartSize, segment.label]);
+    const tooltipEl = tooltipRef.current;
+    const chartEl = chartBoxRef.current;
+    if (!tooltipEl || !chartEl) return;
 
-  return (
+    const cardEl =
+      chartEl.closest<HTMLElement>("[data-finance-kpi-card]") ?? chartEl;
+    const cardRect = cardEl.getBoundingClientRect();
+    const chartRect = chartEl.getBoundingClientRect();
+    const width = tooltipEl.offsetWidth || TOOLTIP_EST_WIDTH;
+    const height = tooltipEl.offsetHeight || TOOLTIP_EST_HEIGHT;
+
+    setPosition(
+      portalTooltipOutsideCard({
+        cardRect,
+        chartRect,
+        midAngleDeg,
+        tooltipWidth: width,
+        tooltipHeight: height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      }),
+    );
+  }, [midAngleDeg, segment.label, segment.value, chartBoxRef]);
+
+  useEffect(() => {
+    const reposition = () => {
+      const tooltipEl = tooltipRef.current;
+      const chartEl = chartBoxRef.current;
+      if (!tooltipEl || !chartEl) return;
+      const cardEl =
+        chartEl.closest<HTMLElement>("[data-finance-kpi-card]") ?? chartEl;
+      setPosition(
+        portalTooltipOutsideCard({
+          cardRect: cardEl.getBoundingClientRect(),
+          chartRect: chartEl.getBoundingClientRect(),
+          midAngleDeg,
+          tooltipWidth: tooltipEl.offsetWidth || TOOLTIP_EST_WIDTH,
+          tooltipHeight: tooltipEl.offsetHeight || TOOLTIP_EST_HEIGHT,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        }),
+      );
+    };
+
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [midAngleDeg, chartBoxRef]);
+
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       ref={tooltipRef}
-      className="pointer-events-none absolute z-20 max-w-[min(148px,calc(100%-8px))] rounded-lg border border-slate-600/50 px-3 py-2 text-xs shadow-lg backdrop-blur-md"
+      role="tooltip"
+      className="pointer-events-none fixed z-[10000] rounded-lg border border-slate-600/50 px-3 py-2 text-xs shadow-lg backdrop-blur-md"
       style={{
         left: position.left,
         top: position.top,
-        transform: "translate(-50%, -50%)",
-        background: "rgba(15, 23, 42, 0.92)",
+        maxWidth: TOOLTIP_MAX_WIDTH_PX,
+        background: "rgba(15, 23, 42, 0.96)",
         boxShadow: `0 8px 24px rgba(0,0,0,0.45), 0 0 16px ${segment.color}33`,
       }}
     >
-      <div className="font-semibold leading-snug text-slate-100">
+      <div className="break-words font-semibold leading-snug text-slate-100">
         {segment.legendLabel ?? segment.label}
       </div>
       <div className="mt-1 tabular-nums text-slate-300">
@@ -144,7 +225,8 @@ function SectorExternalTooltip({
           {pctShare(segment.value, segmentSum)}
         </span>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -169,6 +251,7 @@ export function FinanceExecutionDonutChart({
 }: Props) {
   const gradPrefix = useId().replace(/:/g, "");
   const rootRef = useRef<HTMLDivElement>(null);
+  const chartBoxRef = useRef<HTMLDivElement>(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
@@ -248,9 +331,10 @@ export function FinanceExecutionDonutChart({
   }
 
   return (
-    <div ref={rootRef} className="w-full">
+    <div ref={rootRef} className="relative w-full">
       <div className="flex justify-center">
         <div
+          ref={chartBoxRef}
           className="relative shrink-0 cursor-pointer"
           style={{ width: chartSize, height: chartSize }}
           onClick={() => {
@@ -326,16 +410,7 @@ export function FinanceExecutionDonutChart({
             </PieChart>
           </ResponsiveContainer>
 
-          {hoverSegment && hoverMidAngle != null ? (
-            <SectorExternalTooltip
-              segment={hoverSegment}
-              segmentSum={segmentSum}
-              chartSize={chartSize}
-              midAngleDeg={hoverMidAngle}
-            />
-          ) : null}
-
-          <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+          <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center">
             <div className="text-center leading-none">
               <div
                 className="text-2xl font-extrabold tabular-nums tracking-tight"
@@ -352,6 +427,15 @@ export function FinanceExecutionDonutChart({
           </div>
         </div>
       </div>
+
+      {hoverSegment && hoverMidAngle != null ? (
+        <SectorPortalTooltip
+          segment={hoverSegment}
+          segmentSum={segmentSum}
+          midAngleDeg={hoverMidAngle}
+          chartBoxRef={chartBoxRef}
+        />
+      ) : null}
 
       {legendOpen ? (
         <div className="mt-3 w-full">

@@ -276,9 +276,6 @@ export function FinanceRevenueProgressCard({ presentation }: Props) {
   const salesChart = presentation.salesChart;
   const revenueCategories = presentation.revenueCategories;
 
-  const remainingRub =
-    planRub != null && factRub != null ? Math.max(0, planRub - factRub) : null;
-
   const activeSegments = sortRevenueSegments(
     salesChart?.segments.filter((segment) => segment.valueRub > 0) ?? [],
   );
@@ -299,17 +296,11 @@ export function FinanceRevenueProgressCard({ presentation }: Props) {
         <div className="min-w-0 flex-1">
           <FinanceKpiLabel>ДОХОДЫ</FinanceKpiLabel>
           <div className="mt-1.5 tabular-nums tracking-tight">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-              Фактический доход
-            </div>
-            <div className={`mt-1 text-4xl font-extrabold ${mainValueClass}`} style={mainGlow}>
+            <div className={`text-4xl font-extrabold ${mainValueClass}`} style={mainGlow}>
               {factRub != null ? financeRubKpiAmount(factRub) : "—"}
             </div>
             <div className="mt-1 text-xs tabular-nums text-slate-400">
-              План:{" "}
-              <span className="font-medium text-slate-300">
-                {planRub != null ? financeRubKpiAmount(planRub) : "—"}
-              </span>
+              из {planRub != null ? financeRubKpiAmount(planRub) : "—"}
             </div>
           </div>
         </div>
@@ -319,29 +310,21 @@ export function FinanceRevenueProgressCard({ presentation }: Props) {
         <FinanceKpiDivider />
 
         <div className="space-y-2">
-          <div className="flex items-end justify-between gap-3">
-            <div className="flex min-w-0 flex-1 items-baseline gap-2">
-              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Выполнение плана
-              </span>
-              {completionPct != null ? (
-                <>
-                  <span
-                    className="mb-0.5 min-w-[12px] flex-1 border-b border-dotted border-slate-600/45"
-                    aria-hidden
-                  />
-                  <span className="shrink-0 text-[10px] font-bold tabular-nums text-emerald-400">
-                    {financePct1(completionPct)}
-                  </span>
-                </>
-              ) : null}
-            </div>
-            <span className="shrink-0 text-right text-[10px] tabular-nums text-slate-400">
-              Осталось:{" "}
-              <span className="font-semibold text-slate-300">
-                {remainingRub != null ? financeRubKpiAmount(remainingRub) : "—"}
-              </span>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Выполнение плана
             </span>
+            {completionPct != null ? (
+              <>
+                <span
+                  className="mb-0.5 min-w-[12px] flex-1 border-b border-dotted border-slate-600/45"
+                  aria-hidden
+                />
+                <span className="shrink-0 text-[10px] font-bold tabular-nums text-emerald-400">
+                  {financePct1(completionPct)}
+                </span>
+              </>
+            ) : null}
           </div>
           {canShowStackedPlanBar ? (
             <FinanceStackedPlanProgressTrack

@@ -3,10 +3,30 @@ export type FinanceExecutionChartSegment = {
   label: string;
   /** Короткая подпись для легенды под диаграммой. */
   legendLabel?: string;
+  /** Факт / Законтрактовано, ₽. */
   valueRub: number;
-  /** План по строке объекта продажи (колонка «План» / «Устав»). */
+  /** План по статье, ₽. */
   planRub: number | null;
+  /** fact − plan; null если плана нет. */
+  deviationRub?: number | null;
+  /** ((fact − plan) / plan) * 100; null если плана нет. */
+  deviationPct?: number | null;
   color: string;
+};
+
+/**
+ * Статья бюджета (вид работ) — единый источник для диаграммы и перерасхода.
+ * Импортируется из CSV «Исполнение бюджета» (План / Законтрактовано).
+ */
+export type FinanceExecutionExpenseArticle = {
+  id: string;
+  name: string;
+  planRub: number;
+  factRub: number;
+  deviationRub: number;
+  deviationPct: number;
+  color: string;
+  code?: string | null;
 };
 
 /** Структура фактических продаж — колонка «Факт на текущую дату». */
@@ -28,11 +48,34 @@ export type FinanceExecutionExpenseChart = {
    * для рабочего режима / детального просмотра.
    */
   detailSegments?: FinanceExecutionChartSegment[];
+  /**
+   * Виды работ с планом и фактом — канонический набор для перерасхода
+   * (и источник сегментов диаграммы).
+   */
+  articles?: FinanceExecutionExpenseArticle[];
   /** Сумма «Законтрактовано» по статьям верхнего уровня. */
   contractedTotalRub: number | null;
   /** «Общая стоимость проекта». */
   projectTotalCostRub: number | null;
 };
+
+export function expenseDeviationRub(factRub: number, planRub: number | null): number | null {
+  if (planRub == null || planRub <= 0) return null;
+  return factRub - planRub;
+}
+
+export function expenseDeviationPct(factRub: number, planRub: number | null): number | null {
+  if (planRub == null || planRub <= 0) return null;
+  return Math.round(((factRub - planRub) / planRub) * 1000) / 10;
+}
+
+export function withExpenseSegmentDeviations(
+  segment: FinanceExecutionChartSegment,
+): FinanceExecutionChartSegment {
+  const deviationRub = expenseDeviationRub(segment.valueRub, segment.planRub);
+  const deviationPct = expenseDeviationPct(segment.valueRub, segment.planRub);
+  return { ...segment, deviationRub, deviationPct };
+}
 
 /** KPI отчёта «Исполнение бюджета» — только извлечённые из CSV значения, без расчётов. */
 export type FinanceExecutionKpi = {

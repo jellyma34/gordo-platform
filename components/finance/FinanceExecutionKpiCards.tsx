@@ -1,6 +1,7 @@
 "use client";
 
 import { CircleDollarSign, TrendingDown } from "lucide-react";
+import { useState } from "react";
 
 import {
   FinanceExecutionDonutChart,
@@ -18,7 +19,10 @@ import {
   financePct1,
   financeRubKpiAmount,
 } from "@/components/finance/FinancePresentationKpiPrimitives";
-import type { FinanceExecutionPresentationSnapshot } from "@/lib/financeExecutionAnalytics";
+import type {
+  FinanceExecutionExpenseOverrun,
+  FinanceExecutionPresentationSnapshot,
+} from "@/lib/financeExecutionAnalytics";
 
 const MONEY_VALUE_CLASS = "text-emerald-400";
 const PERCENT_VALUE_CLASS = "text-sky-400";
@@ -42,14 +46,12 @@ function valueClassForPercent(value: number | null): string {
 }
 
 type FinanceExecutionMainKpiProps = {
-  caption: string;
   value: string;
   valueClassName: string;
   glowColor: string;
 };
 
 function FinanceExecutionMainKpi({
-  caption,
   value,
   valueClassName,
   glowColor,
@@ -61,8 +63,7 @@ function FinanceExecutionMainKpi({
 
   return (
     <div className="mt-1.5 tabular-nums tracking-tight">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{caption}</div>
-      <div className={`mt-1 text-4xl font-extrabold ${valueClassName}`} style={glowStyle}>
+      <div className={`text-4xl font-extrabold ${valueClassName}`} style={glowStyle}>
         {value}
       </div>
     </div>
@@ -126,6 +127,61 @@ function FinanceExecutionChartCardSection({
   );
 }
 
+function FinanceExpenseOverrunBlock({
+  items,
+}: {
+  items: FinanceExecutionExpenseOverrun[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const TOP_N = 5;
+  const visible = expanded ? items : items.slice(0, TOP_N);
+  const hasMore = items.length > TOP_N;
+
+  return (
+    <div className="mt-3 space-y-2">
+      <FinanceKpiDivider />
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        Перерасход по видам работ
+      </div>
+      {items.length === 0 ? (
+        <p className="text-[10px] text-slate-500">
+          Нет статей с превышением плана. Импортируйте CSV «Исполнение бюджета» с колонками
+          «План» и «Законтрактовано» по видам работ.
+        </p>
+      ) : (
+        <>
+          <ul className="max-h-56 space-y-2.5 overflow-y-auto pr-0.5">
+            {visible.map((item) => (
+              <li key={item.id} className="space-y-0.5">
+                <div className="truncate text-[11px] font-medium text-slate-100">{item.label}</div>
+                <div className="text-[10px] tabular-nums text-slate-400">
+                  План: {financeRubKpiAmount(item.planRub)}
+                </div>
+                <div className="text-[10px] tabular-nums text-slate-400">
+                  Факт: {financeRubKpiAmount(item.factRub)}
+                </div>
+                <div className="text-[10px] font-semibold tabular-nums text-red-400">
+                  +{financeRubKpiAmount(item.overrunRub)} (+
+                  {financePct1(item.overrunPct).replace("%", "")}%)
+                </div>
+              </li>
+            ))}
+          </ul>
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="text-[10px] font-medium text-slate-300 underline-offset-2 hover:text-white hover:underline"
+            >
+              {expanded ? "Свернуть" : `Показать все (${items.length})`}
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 type Props = {
   presentation: FinanceExecutionPresentationSnapshot;
 };
@@ -165,7 +221,6 @@ export function FinanceExecutionKpiCards({ presentation }: Props) {
             <div className="min-w-0 flex-1">
               <FinanceKpiLabel>РАСХОДЫ</FinanceKpiLabel>
               <FinanceExecutionMainKpi
-                caption="Затраты"
                 value={formatMoney(presentation.expenses)}
                 valueClassName={valueClassForMoney(presentation.expenses)}
                 glowColor={FINANCE_KPI_COLORS.red}
@@ -174,19 +229,22 @@ export function FinanceExecutionKpiCards({ presentation }: Props) {
           </div>
 
           {hasExpenseDonut ? (
-            <FinanceExecutionChartCardSection
-              segments={presentation.expenseDonutSegments}
-              centerPercent={presentation.expenseBudgetUtilization.utilizationPct}
-              centerSublabelTop="Освоение"
-              centerSublabelBottom="бюджета"
-              centerValueColor="#f8fafc"
-              splitLabel="Законтрактовано"
-              factRub={presentation.expenseBudgetUtilization.contractedRub}
-              planRub={presentation.expenseBudgetUtilization.projectTotalRub}
-              accentColor={FINANCE_KPI_COLORS.red}
-              showCompletionLine={false}
-              chartSize={190}
-            />
+            <>
+              <FinanceExecutionChartCardSection
+                segments={presentation.expenseDonutSegments}
+                centerPercent={presentation.expenseBudgetUtilization.utilizationPct}
+                centerSublabelTop="Законтрактовано"
+                centerSublabelBottom="к плану"
+                centerValueColor="#f8fafc"
+                splitLabel="Законтрактовано"
+                factRub={presentation.expenseBudgetUtilization.contractedRub}
+                planRub={presentation.expenseBudgetUtilization.projectTotalRub}
+                accentColor={FINANCE_KPI_COLORS.red}
+                showCompletionLine={false}
+                chartSize={190}
+              />
+              <FinanceExpenseOverrunBlock items={presentation.expenseOverruns} />
+            </>
           ) : null}
         </div>
       </FinancePremiumKpiCard>

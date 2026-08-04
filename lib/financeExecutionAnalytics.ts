@@ -2,6 +2,7 @@ import {
   cloneFinanceExecutionKpi,
   emptyFinanceExecutionKpi,
   financeExecutionKpiHasData,
+  type FinanceExecutionExpenseArticle,
   type FinanceExecutionExpenseChart,
   type FinanceExecutionImport,
   type FinanceExecutionKpi,
@@ -79,6 +80,108 @@ export type FinanceExecutionRevenueCategory = {
   progressPct: number | null;
 };
 
+/** Статья расходов с превышением плана (законтрактовано > план). */
+export type FinanceExecutionExpenseOverrun = {
+  id: string;
+  label: string;
+  planRub: number;
+  factRub: number;
+  overrunRub: number;
+  /** ((fact − plan) / plan) * 100 */
+  overrunPct: number;
+};
+
+function resolveExpenseArticles(
+  chart: FinanceExecutionExpenseChart,
+): FinanceExecutionExpenseArticle[] {
+  if (chart.articles && chart.articles.length > 0) {
+    return chart.articles;
+  }
+
+  // Старые снимки: восстановить статьи из detail/segments с планом.
+  const source =
+    chart.detailSegments && chart.detailSegments.length > 0
+      ? chart.detailSegments
+      : chart.segments;
+
+  return source
+    .filter((segment) => segment.planRub != null && segment.planRub > 0)
+    .map((segment) => {
+      const planRub = segment.planRub as number;
+      const factRub = segment.valueRub;
+      return {
+        id: segment.id,
+        name: segment.legendLabel ?? segment.label,
+        planRub,
+        factRub,
+        deviationRub: factRub - planRub,
+        deviationPct: Math.round(((factRub - planRub) / planRub) * 1000) / 10,
+        color: segment.color,
+      };
+    });
+}
+
+/**
+ * Единая модель карточки «Расходы»:
+ * статьи (name / plan / fact) из expenseChart.articles;
+ * диаграмма — сегменты, собранные из того же импорта;
+ * перерасход — только статьи с fact > plan (без агрегата «Общая стоимость»).
+ */
+function buildExpenseContractingAnalytics(
+  chart: FinanceExecutionExpenseChart | null,
+  contractedFromDonut: number | null,
+): {
+  utilization: FinanceExecutionBudgetUtilization;
+  expenseOverruns: FinanceExecutionExpenseOverrun[];
+} {
+  if (!chart) {
+    return {
+      utilization: { contractedRub: null, projectTotalRub: null, utilizationPct: null },
+      expenseOverruns: [],
+    };
+  }
+
+  const articles = resolveExpenseArticles(chart);
+  const contractedFromArticles = articles.reduce((sum, article) => sum + article.factRub, 0);
+  const contractedRub =
+    (contractedFromDonut != null && contractedFromDonut > 0
+      ? contractedFromDonut
+      : null) ??
+    (contractedFromArticles > 0 ? contractedFromArticles : null) ??
+    (chart.contractedTotalRub != null && chart.contractedTotalRub > 0
+      ? chart.contractedTotalRub
+      : null);
+
+  const articlePlanSum = articles.reduce((sum, article) => sum + article.planRub, 0);
+  const planTotalRub =
+    chart.projectTotalCostRub != null && chart.projectTotalCostRub > 0
+      ? chart.projectTotalCostRub
+      : articlePlanSum > 0
+        ? articlePlanSum
+        : null;
+
+  const expenseOverruns = articles
+    .filter((article) => article.deviationRub > 0)
+    .map((article) => ({
+      id: article.id,
+      label: article.name,
+      planRub: article.planRub,
+      factRub: article.factRub,
+      overrunRub: article.deviationRub,
+      overrunPct: article.deviationPct,
+    }))
+    .sort((left, right) => right.overrunRub - left.overrunRub);
+
+  return {
+    utilization: {
+      contractedRub,
+      projectTotalRub: planTotalRub,
+      utilizationPct: completionPercent(contractedRub, planTotalRub),
+    },
+    expenseOverruns,
+  };
+}
+
 const REVENUE_CATEGORY_ORDER = ["apartments", "parking", "storage", "admin"] as const;
 
 function sortRevenueChartSegments<T extends { id: string }>(segments: T[]): T[] {
@@ -125,6 +228,7 @@ export type FinanceExecutionPresentationSnapshot = FinanceExecutionKpiSnapshot &
   revenuePlanExecution: FinanceExecutionPlanExecution;
   revenueCategories: FinanceExecutionRevenueCategory[];
   expenseBudgetUtilization: FinanceExecutionBudgetUtilization;
+  expenseOverruns: FinanceExecutionExpenseOverrun[];
 };
 
 function readSalesChart(input: FinanceExecutionAnalyticsInput): FinanceExecutionSalesChart | null {
@@ -270,6 +374,8 @@ export function getFinanceExecutionPresentation(
   const { donutSegments: expenseDonutSegments, contractedTotalRub: expenseContractedRub } =
     toExpenseDonutSegments(expenseChart);
   const revenueCategories = buildRevenueCategories(salesChart);
+  const { utilization: expenseBudgetUtilization, expenseOverruns } =
+    buildExpenseContractingAnalytics(expenseChart, expenseContractedRub);
 
   return {
     ...kpi,
@@ -283,13 +389,7 @@ export function getFinanceExecutionPresentation(
       completionPct: completionPercent(salesChart?.factTotalRub ?? null, kpi.revenue),
     },
     revenueCategories,
-    expenseBudgetUtilization: {
-      contractedRub: expenseContractedRub,
-      projectTotalRub: expenseChart?.projectTotalCostRub ?? null,
-      utilizationPct: completionPercent(
-        expenseContractedRub,
-        expenseChart?.projectTotalCostRub ?? null,
-      ),
-    },
+    expenseBudgetUtilization,
+    expenseOverruns,
   };
 }

@@ -275,6 +275,7 @@ export function FinancePremiumKpiCard({
 }) {
   return (
     <div
+      data-finance-kpi-card
       className="relative flex h-full min-h-[400px] flex-col overflow-hidden rounded-[20px] border p-6 backdrop-blur-[16px]"
       style={{
         background: gradient,
