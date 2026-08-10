@@ -7,6 +7,7 @@ import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import { getGprProjectId, loadPersistedTmcItems } from "@/lib/tmcImportPersistence";
 import { compareGprCodesByNumericPath, partIdToProjectPartKey } from "@/lib/gprUtils";
 import type { TMCItem, TmcSupplyStatus } from "@/lib/tmcData";
+import { isTmcControlledPosition } from "@/lib/tmcData";
 
 function supplierBadge(status: TmcSupplyStatus): { label: string; bg: string; fg: string } {
   if (status === "поставлено") {
@@ -125,7 +126,10 @@ export function SuppliersBlock({ activePartId, items: itemsProp, variant = "ligh
   }, [part, itemsProp, dbItems]);
 
   const rowsWithSupplier = useMemo(
-    () => scopedItems.filter((i) => hasSupplierText(i.supplier ?? "")),
+    () =>
+      scopedItems.filter(
+        (i) => isTmcControlledPosition(i) && hasSupplierText(i.supplier ?? ""),
+      ),
     [scopedItems],
   );
 

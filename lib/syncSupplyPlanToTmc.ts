@@ -5,7 +5,15 @@ import {
   type SupplyPlanColumnMap,
   type SupplyPlanCsvParsed,
 } from "@/lib/supplyPlanCsvImport";
-import { syncTmcFinancials, computeSupplyPlanProcurementDiagnostics, supplyPlanProcurementStatusToSupplyStatus, deriveTmcSupplyPlanProcurementStatus, type SupplyPlanProcurementDiagnostics, type TMCItem } from "@/lib/tmcData";
+import {
+  createEmptyTmcItem,
+  syncTmcFinancials,
+  computeSupplyPlanProcurementDiagnostics,
+  supplyPlanProcurementStatusToSupplyStatus,
+  deriveTmcSupplyPlanProcurementStatus,
+  type SupplyPlanProcurementDiagnostics,
+  type TMCItem,
+} from "@/lib/tmcData";
 
 /** Строка материала из CSV плана снабжения (после разбора). */
 export type SupplyPlanMaterialRow = {
@@ -99,6 +107,12 @@ function newTmcId(index: number): string {
   return `tmc-sp-${Date.now()}-${index}`;
 }
 
+function supplyPlanStableId(row: SupplyPlanMaterialRow, projectPart: ProjectPartKey, index: number): string {
+  const code = (row.itemCode || "nocode").replace(/\s+/g, "");
+  const nameKey = (row.name || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 40);
+  return `tmc-sp:${projectPart}:i${index}:${code}:${nameKey}`;
+}
+
 /** Извлекает типизированные строки из результата парсера (без создания TMCItem). */
 export function extractSupplyPlanMaterialRows(parsed: SupplyPlanCsvParsed): SupplyPlanMaterialRow[] {
   const { rows, headers } = parsed;
@@ -157,7 +171,7 @@ export function extractSupplyPlanMaterialRows(parsed: SupplyPlanCsvParsed): Supp
       pricePlan,
       priceFact,
       costPlan,
-      factCost: factCost != null && factCost > 0 ? factCost : null,
+      costFact: factCost != null && factCost > 0 ? factCost : null,
       priceDeviation,
       planFactDeviation,
     });
@@ -192,27 +206,29 @@ function findTmcMatchIndex(scope: TMCItem[], row: SupplyPlanMaterialRow): number
 }
 
 function applySupplyPlanRowToTmcItem(item: TMCItem, row: SupplyPlanMaterialRow): TMCItem {
-  const factCost = row.factCost;
   const procurementStatus = deriveTmcSupplyPlanProcurementStatus(row.volumePlan, row.volumeOrdered);
+  const status = supplyPlanProcurementStatusToSupplyStatus(procurementStatus);
 
   return syncTmcFinancials({
     ...item,
     itemCode: row.itemCode || item.itemCode,
+    sourceCode: row.itemCode || item.sourceCode,
     name: row.name || item.name,
+    stage: row.workGroup || item.stage || item.gprStage,
     gprStage: row.workGroup || item.gprStage,
     unit: row.unit || item.unit,
+    plannedQuantity: row.volumePlan,
+    actualQuantity: row.volumeOrdered,
     volumePlan: row.volumePlan,
     volumeFact: row.volumeOrdered,
-    pricePlan: row.pricePlan,
-    priceFact: row.priceFact,
-    planCost: row.costPlan,
-    factCost,
-    totalPlan: row.costPlan,
-    totalFact: factCost ?? 0,
-    status: supplyPlanProcurementStatusToSupplyStatus(procurementStatus),
+    status,
+    statusRaw: status,
+    statusCategory:
+      status === "поставлено" ? "delivered" : status === "частично" ? "partial" : "plan",
+    deliveryPlanDate: row.gprEndDate ?? item.deliveryPlanDate ?? item.supplyPlanDate,
     supplyPlanDate: row.gprEndDate ?? item.supplyPlanDate,
+    gprStartDate: row.gprStartDate ?? item.gprStartDate,
     contractPlanDate: row.gprStartDate ?? item.contractPlanDate,
-    // Сохраняем из основного ТМЦ: supplier, contract, supplyFactDate, contractFactDate
   });
 }
 
@@ -221,32 +237,32 @@ function createTmcItemFromSupplyPlanRow(
   projectPart: ProjectPartKey,
   index: number,
 ): TMCItem {
-  const factCost = row.factCost;
   const itemCode = row.itemCode || `2.05.99.${String(index).padStart(3, "0")}`;
   const procurementStatus = deriveTmcSupplyPlanProcurementStatus(row.volumePlan, row.volumeOrdered);
+  const status = supplyPlanProcurementStatusToSupplyStatus(procurementStatus);
 
-  return syncTmcFinancials({
-    id: row.itemCode ? `tmc-sp-${row.itemCode.replace(/\s+/g, "")}` : newTmcId(index),
+  return createEmptyTmcItem(projectPart, {
+    id: supplyPlanStableId(row, projectPart, index),
+    sourceRowNumber: index + 1,
+    sourceCode: itemCode,
     itemCode,
+    rowKind: "position",
     name: row.name || `Материал ${itemCode}`,
+    stage: row.workGroup,
     gprStage: row.workGroup,
     unit: row.unit || "шт",
+    plannedQuantity: row.volumePlan,
+    actualQuantity: row.volumeOrdered,
     volumePlan: row.volumePlan,
     volumeFact: row.volumeOrdered,
-    pricePlan: row.pricePlan,
-    priceFact: row.priceFact,
-    totalPlan: 0,
-    totalFact: 0,
-    supplier: "",
-    contract: "",
-    status: supplyPlanProcurementStatusToSupplyStatus(procurementStatus),
-    planCost: row.costPlan,
-    factCost,
+    status,
+    statusRaw: status,
+    statusCategory:
+      status === "поставлено" ? "delivered" : status === "частично" ? "partial" : "plan",
+    deliveryPlanDate: row.gprEndDate,
     supplyPlanDate: row.gprEndDate,
-    supplyFactDate: null,
+    gprStartDate: row.gprStartDate,
     contractPlanDate: row.gprStartDate,
-    contractFactDate: null,
-    projectPart,
   });
 }
 

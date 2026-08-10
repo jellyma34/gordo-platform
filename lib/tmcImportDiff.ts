@@ -13,29 +13,40 @@ function normalizeNameKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Устойчивое сравнение позиции ТМЦ для импорта (без ссылки на объект). */
+/** Устойчивое сравнение позиции ТМЦ для импорта. */
 export function tmcComparableFingerprint(t: TMCItem): string {
   return JSON.stringify({
     id: String(t.id ?? "").trim(),
+    sourceRowNumber: t.sourceRowNumber ?? 0,
+    sourceCode: String(t.sourceCode ?? "").trim(),
     itemCode: String(t.itemCode ?? "").trim(),
+    rowKind: t.rowKind,
     name: String(t.name ?? "").trim(),
-    gprStage: String(t.gprStage ?? "").trim(),
+    stage: String(t.stage ?? t.gprStage ?? "").trim(),
     unit: String(t.unit ?? "").trim(),
-    volumePlan: t.volumePlan ?? 0,
-    volumeFact: t.volumeFact ?? 0,
-    pricePlan: t.pricePlan ?? 0,
-    priceFact: t.priceFact ?? 0,
-    totalPlan: t.totalPlan ?? 0,
-    totalFact: t.totalFact ?? 0,
+    plannedQuantity: t.plannedQuantity ?? null,
+    actualQuantity: t.actualQuantity ?? null,
+    quantityDeviation: t.quantityDeviation ?? null,
     supplier: String(t.supplier ?? "").trim(),
     contract: String(t.contract ?? "").trim(),
-    status: t.status ?? "план",
-    planCost: t.planCost ?? 0,
-    factCost: t.factCost ?? null,
-    supplyPlanDate: t.supplyPlanDate ?? null,
-    supplyFactDate: t.supplyFactDate ?? null,
+    statusRaw: String(t.statusRaw ?? "").trim(),
+    statusCategory: t.statusCategory,
+    gprStartDate: t.gprStartDate ?? null,
+    orderDeadlineDays: t.orderDeadlineDays ?? null,
+    requestPlanDate: t.requestPlanDate ?? null,
+    requestFactDate: t.requestFactDate ?? null,
+    requestDeviationDays: t.requestDeviationDays ?? null,
+    contractLeadTimeDays: t.contractLeadTimeDays ?? null,
     contractPlanDate: t.contractPlanDate ?? null,
     contractFactDate: t.contractFactDate ?? null,
+    contractDeviationDays: t.contractDeviationDays ?? null,
+    deliveryPlanDate: t.deliveryPlanDate ?? t.supplyPlanDate ?? null,
+    deliveryFactDate: t.deliveryFactDate ?? t.supplyFactDate ?? null,
+    deliveryDeviationDays: t.deliveryDeviationDays ?? null,
+    contractDate2PlanDate: t.contractDate2PlanDate ?? null,
+    contractDate2FactDate: t.contractDate2FactDate ?? null,
+    contractDate2DeviationDays: t.contractDate2DeviationDays ?? null,
+    comment: String(t.comment ?? "").trim(),
     projectPart: (t.projectPart ?? "residential") as ProjectPartKey,
   });
 }
@@ -44,7 +55,7 @@ type PoolEntry = { t: TMCItem; used: boolean };
 
 /**
  * Реестр после импорта полностью задаётся строками CSV (`newData`).
- * Сопоставление: сначала по `id`, иначе по нормализованному наименованию.
+ * Сопоставление: id → sourceRowNumber+part → код+имя → имя.
  */
 export function diffTmcImport(
   oldData: TMCItem[],
@@ -62,9 +73,40 @@ export function diffTmcImport(
         return hit.t;
       }
     }
+    if (candidate.sourceRowNumber > 0) {
+      const hit = pool.find(
+        (p) =>
+          !p.used &&
+          p.t.sourceRowNumber === candidate.sourceRowNumber &&
+          p.t.projectPart === candidate.projectPart,
+      );
+      if (hit) {
+        hit.used = true;
+        return hit.t;
+      }
+    }
+    const code = candidate.sourceCode?.trim() || candidate.itemCode?.trim();
     const nk = normalizeNameKey(candidate.name);
+    if (code && code !== "-" && code !== "?" && nk) {
+      const hit = pool.find(
+        (p) =>
+          !p.used &&
+          (p.t.sourceCode?.trim() || p.t.itemCode?.trim()) === code &&
+          normalizeNameKey(p.t.name) === nk &&
+          p.t.projectPart === candidate.projectPart,
+      );
+      if (hit) {
+        hit.used = true;
+        return hit.t;
+      }
+    }
     if (nk) {
-      const hit = pool.find((p) => !p.used && normalizeNameKey(p.t.name) === nk);
+      const hit = pool.find(
+        (p) =>
+          !p.used &&
+          normalizeNameKey(p.t.name) === nk &&
+          p.t.projectPart === candidate.projectPart,
+      );
       if (hit) {
         hit.used = true;
         return hit.t;
@@ -101,7 +143,7 @@ export function diffTmcImport(
   return {
     result,
     stats: {
-      total: newData.length,
+      total: result.length,
       added,
       updated,
       unchanged,

@@ -7,7 +7,7 @@ import {
   type GprTaskApiItem,
   type GPRTask,
 } from "@/lib/gprUtils";
-import { syncTmcFinancials, type TMCItem, type TmcSupplyStatus } from "@/lib/tmcData";
+import { syncTmcFinancials, categorizeTmcStatus, type TMCItem, type TmcSupplyStatus } from "@/lib/tmcData";
 import {
   normalizeTenderCycleStatus,
   type Tender,
@@ -163,33 +163,85 @@ export function tmcFromApiItem(row: TmcApiItem): TMCItem {
     const v = d[k];
     return typeof v === "number" && Number.isFinite(v) ? v : fallback;
   };
+  const numOrNull = (k: string): number | null => {
+    const v = d[k];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
   const str = (k: string, fallback = "") => {
     const v = d[k];
     return typeof v === "string" ? v : fallback;
   };
+  const iso = (k: string): string | null => {
+    const v = str(k);
+    return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  };
   const externalId = row.external_id ?? "";
+  const stage = row.gpr_stage ?? str("stage") ?? "";
+  const statusRaw = str("statusRaw") || str("status") || "";
+  const deliveryPlanDate = iso("deliveryPlanDate") || iso("supplyPlanDate") || row.plan_date || null;
+  const deliveryFactDate = iso("deliveryFactDate") || iso("supplyFactDate") || row.fact_date || null;
+  const plannedQuantity = numOrNull("plannedQuantity") ?? num("volumePlan");
+  const actualQuantity = numOrNull("actualQuantity") ?? num("volumeFact");
+  const rowKind =
+    d.rowKind === "section" || d.rowKind === "group" || d.rowKind === "position" || d.rowKind === "other"
+      ? d.rowKind
+      : row.name?.trim()
+        ? "position"
+        : "other";
+  const statusCategory =
+    d.statusCategory === "delivered" ||
+    d.statusCategory === "partial" ||
+    d.statusCategory === "plan" ||
+    d.statusCategory === "no_fact"
+      ? d.statusCategory
+      : undefined;
+
   const draft: TMCItem = {
     id: externalId,
+    sourceRowNumber: num("sourceRowNumber"),
+    sourceCode: str("sourceCode", str("itemCode", externalId)),
     itemCode: str("itemCode", externalId),
+    rowKind,
+    parentWbsCode: str("parentWbsCode") || null,
+    stage,
+    gprStage: stage,
     name: row.name ?? "",
-    gprStage: row.gpr_stage ?? "",
-    unit: str("unit", "шт"),
-    volumePlan: num("volumePlan"),
-    volumeFact: num("volumeFact"),
-    pricePlan: num("pricePlan"),
-    priceFact: num("priceFact"),
-    totalPlan: num("totalPlan", row.plan_cost),
-    totalFact: num("totalFact", row.fact_cost ?? 0),
+    gprStartDate: iso("gprStartDate"),
+    orderDeadlineDays: numOrNull("orderDeadlineDays"),
+    requestPlanDate: iso("requestPlanDate"),
+    requestFactDate: iso("requestFactDate"),
+    requestDeviationDays: numOrNull("requestDeviationDays"),
+    contractLeadTimeDays: numOrNull("contractLeadTimeDays"),
+    contractPlanDate: iso("contractPlanDate"),
+    contractFactDate: iso("contractFactDate"),
+    contractDeviationDays: numOrNull("contractDeviationDays"),
+    deliveryPlanDate: deliveryPlanDate?.trim() || null,
+    deliveryFactDate: deliveryFactDate?.trim() || null,
+    deliveryDeviationDays: numOrNull("deliveryDeviationDays"),
+    contractDate2PlanDate: iso("contractDate2PlanDate"),
+    contractDate2FactDate: iso("contractDate2FactDate"),
+    contractDate2DeviationDays: numOrNull("contractDate2DeviationDays"),
+    unit: str("unit"),
+    plannedQuantity,
+    actualQuantity,
+    quantityDeviation: numOrNull("quantityDeviation"),
     supplier: str("supplier"),
     contract: str("contract"),
-    status: parseTmcSupplyStatus(d.status ?? "план"),
-    planCost: row.plan_cost,
-    factCost: row.fact_cost,
-    supplyPlanDate: str("supplyPlanDate") || row.plan_date || null,
-    supplyFactDate: str("supplyFactDate") || row.fact_date || null,
-    contractPlanDate: str("contractPlanDate") || null,
-    contractFactDate: str("contractFactDate") || null,
+    statusRaw,
+    statusCategory: (statusCategory ?? categorizeTmcStatus(statusRaw)) as TMCItem["statusCategory"],
+    status: parseTmcSupplyStatus(statusRaw || statusCategory || "план"),
+    comment: str("comment"),
     projectPart: row.project_part,
+    volumePlan: plannedQuantity ?? 0,
+    volumeFact: actualQuantity ?? 0,
+    supplyPlanDate: deliveryPlanDate?.trim() || null,
+    supplyFactDate: deliveryFactDate?.trim() || null,
+    pricePlan: 0,
+    priceFact: 0,
+    totalPlan: 0,
+    totalFact: 0,
+    planCost: 0,
+    factCost: null,
   };
   return syncTmcFinancials(draft);
 }
@@ -197,35 +249,60 @@ export function tmcFromApiItem(row: TmcApiItem): TMCItem {
 export function tmcToApiPayload(item: TMCItem): TmcApiItem {
   const synced = syncTmcFinancials(item);
   const planDate =
+    synced.deliveryPlanDate?.trim() ||
     synced.supplyPlanDate?.trim() ||
     synced.contractPlanDate?.trim() ||
     "";
-  const factDate = synced.supplyFactDate?.trim() || synced.contractFactDate?.trim() || null;
+  const factDate =
+    synced.deliveryFactDate?.trim() ||
+    synced.supplyFactDate?.trim() ||
+    synced.contractFactDate?.trim() ||
+    null;
   return {
     external_id: synced.id,
     project_part: synced.projectPart,
     name: synced.name,
-    gpr_stage: synced.gprStage,
-    plan_cost: Math.round(synced.planCost),
-    fact_cost: synced.factCost != null ? Math.round(synced.factCost) : null,
+    gpr_stage: synced.stage || synced.gprStage,
+    plan_cost: 0,
+    fact_cost: null,
     plan_date: planDate,
     fact_date: factDate,
     details: {
+      sourceRowNumber: synced.sourceRowNumber,
+      sourceCode: synced.sourceCode,
       itemCode: synced.itemCode,
+      rowKind: synced.rowKind,
+      parentWbsCode: synced.parentWbsCode,
+      stage: synced.stage,
       unit: synced.unit,
+      plannedQuantity: synced.plannedQuantity,
+      actualQuantity: synced.actualQuantity,
+      quantityDeviation: synced.quantityDeviation,
       volumePlan: synced.volumePlan,
       volumeFact: synced.volumeFact,
-      pricePlan: synced.pricePlan,
-      priceFact: synced.priceFact,
-      totalPlan: synced.totalPlan,
-      totalFact: synced.totalFact,
       supplier: synced.supplier,
       contract: synced.contract,
       status: synced.status,
-      supplyPlanDate: synced.supplyPlanDate,
-      supplyFactDate: synced.supplyFactDate,
+      statusRaw: synced.statusRaw,
+      statusCategory: synced.statusCategory,
+      comment: synced.comment,
+      gprStartDate: synced.gprStartDate,
+      orderDeadlineDays: synced.orderDeadlineDays,
+      requestPlanDate: synced.requestPlanDate,
+      requestFactDate: synced.requestFactDate,
+      requestDeviationDays: synced.requestDeviationDays,
+      contractLeadTimeDays: synced.contractLeadTimeDays,
       contractPlanDate: synced.contractPlanDate,
       contractFactDate: synced.contractFactDate,
+      contractDeviationDays: synced.contractDeviationDays,
+      deliveryPlanDate: synced.deliveryPlanDate,
+      deliveryFactDate: synced.deliveryFactDate,
+      deliveryDeviationDays: synced.deliveryDeviationDays,
+      supplyPlanDate: synced.supplyPlanDate,
+      supplyFactDate: synced.supplyFactDate,
+      contractDate2PlanDate: synced.contractDate2PlanDate,
+      contractDate2FactDate: synced.contractDate2FactDate,
+      contractDate2DeviationDays: synced.contractDate2DeviationDays,
     },
   };
 }

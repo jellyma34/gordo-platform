@@ -4,25 +4,32 @@ import { readCsvFileTextSmart } from "@/lib/csvTextEncoding";
 import { ruDateCellToIsoOrNull } from "@/lib/gprReportCsv";
 import type { ProjectPartKey } from "@/lib/gprUtils";
 import {
+  buildStableTmcId,
+  categorizeTmcStatus,
+  isTmcWbsCode,
   parseTmcSupplyStatus,
   syncTmcFinancials,
-  TMC_GPR_STAGE_ROOT_CODE,
   type TMCItem,
-  type TmcSupplyStatus,
+  type TmcRowKind,
 } from "@/lib/tmcData";
 
-/** Число из ячейки Excel (пробелы в числе, запятая как десятичный разделитель). Legacy: пустое → 0. */
+/** Число из ячейки Excel (пробелы, запятая как десятичный разделитель). Пустое → 0. */
 export function cleanNumber(val: unknown): number {
   const n = parseImportNumber(val);
   return n ?? 0;
 }
 
-/** Число для импорта; пустая ячейка → null (не 0). */
+/** Число для импорта; пустая ячейка → null (не 0). Сохраняет 0 и отрицательные. */
 export function parseImportNumber(val: unknown): number | null {
   if (val == null) return null;
   const s = String(val).trim();
   if (!s) return null;
-  const normalized = s.replace(/\s/g, "").replace(/\u00a0/g, "").replace(",", ".").replace(/[^\d.-]/g, "");
+  const normalized = s
+    .replace(/\u00a0/g, "")
+    .replace(/\s/g, "")
+    .replace(",", ".")
+    .replace(/[^\d.eE+-]/g, "");
+  if (!normalized || normalized === "-" || normalized === "+" || normalized === ".") return null;
   const n = Number.parseFloat(normalized);
   return Number.isFinite(n) ? n : null;
 }
@@ -31,9 +38,6 @@ export function normalizeHeaderCell(h: string): string {
   return String(h).replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/**
- * Индекс первого столбца, у которого нормализованный заголовок содержит ВСЕ подстроки из `includesList`.
- */
 export function findColumnIndex(headers: string[], includesList: string[]): number {
   const normalized = headers.map((x) => normalizeHeaderCell(String(x)));
   return normalized.findIndex((h) =>
@@ -41,7 +45,6 @@ export function findColumnIndex(headers: string[], includesList: string[]): numb
   );
 }
 
-/** Первое совпадение по одному из синонимов (includes(name)), паттерны от более длинных к коротким. */
 export function findColumnByIncludes(headersNorm: string[], possibleNames: string[]): number {
   const sorted = [...possibleNames].sort((a, b) => b.length - a.length);
   for (const name of sorted) {
@@ -51,14 +54,6 @@ export function findColumnByIncludes(headersNorm: string[], possibleNames: strin
   return -1;
 }
 
-function looksLikeHeaderRow(row: unknown[]): boolean {
-  return row.some((cell) => {
-    const s = String(cell ?? "").toLowerCase();
-    return s.includes("наименование") || s.includes("номенклатур");
-  });
-}
-
-/** ISO ГГГГ-ММ-ДД из произвольной ячейки (ДД.MM.ГГГГ, Excel serial опционально через gpr). */
 export function normalizeImportedDate(val: unknown): string | null {
   if (val == null || val === "") return null;
   const t = String(val).trim();
@@ -77,598 +72,462 @@ export function normalizeImportedDate(val: unknown): string | null {
   return null;
 }
 
-/** Алиас для импорта ТМЦ (ДД.MM.ГГГГ → ISO). */
 export const normalizeDate = normalizeImportedDate;
 
-export type TmcColumnMapKey =
-  | "deliveryPlan"
-  | "deliveryFact"
-  | "contractPlan"
-  | "contractFact"
-  | "volumePlan"
-  | "volumeFact"
-  | "pricePlan"
-  | "priceFact"
-  | "costPlan"
-  | "costFact"
-  | "name"
+/** @deprecated старый triplet layout больше не используется. */
+export const TMC_METRIC_TRIPLET_STEP = 3;
+export const TMC_METRIC_TRIPLET_BLOCKS = 0;
+export type TmcMetricLayout = "procurement_v2" | "legacy";
+
+export type TmcCsvColumnKey =
+  | "rowNo"
   | "itemCode"
   | "stage"
+  | "name"
+  | "gprStart"
+  | "orderDeadlineDays"
+  | "requestPlan"
+  | "requestFact"
+  | "requestDeviation"
+  | "contractLeadTimeDays"
+  | "contractPlan"
+  | "contractFact"
+  | "contractDeviation"
+  | "deliveryPlan"
+  | "deliveryFact"
+  | "deliveryDeviation"
+  | "contractDate2Plan"
+  | "contractDate2Fact"
+  | "contractDate2Deviation"
   | "unit"
+  | "volumePlan"
+  | "volumeFact"
+  | "volumeDeviation"
   | "supplier"
   | "contract"
   | "status"
-  | "projectPart";
+  | "comment";
 
-export type TmcColumnMap = Record<TmcColumnMapKey, number>;
+export type TmcColumnMap = Record<TmcCsvColumnKey, number>;
 
-/** Колонки метрик идут блоками по 3: План / Факт / Отклонение (откл игнорируется). */
-export const TMC_METRIC_TRIPLET_STEP = 3;
+/** Алиас для старых вызовов. */
+export type TmcColumnMapKey = TmcCsvColumnKey;
 
-/** Число блоков метрик подряд: дата поставки, дата договора, объём, цена, стоимость. */
-export const TMC_METRIC_TRIPLET_BLOCKS = 5;
-
-export type TmcMetricLayout = "triplet" | "legacy";
-
-/** Описание колонок для лога и отладки. */
-export function describeTmcColumnMap(headers: string[], colMap: TmcColumnMap): Record<string, string | number> {
+export function describeTmcColumnMap(
+  headers: string[],
+  colMap: TmcColumnMap,
+): Record<string, string | number> {
   const out: Record<string, string | number> = {};
-  for (const key of Object.keys(colMap) as TmcColumnMapKey[]) {
+  for (const key of Object.keys(colMap) as TmcCsvColumnKey[]) {
     const idx = colMap[key];
     out[key] = idx >= 0 && idx < headers.length ? `${idx}:${headers[idx]}` : -1;
   }
   return out;
 }
 
-/**
- * Порядок важен: сначала колонки с длинными уникальными подстроками, чтобы не занимать индекс «чужим» полем.
- */
-const COLUMN_DEFINITIONS: { key: TmcColumnMapKey; patterns: string[] }[] = [
-  {
-    key: "deliveryPlan",
-    patterns: [
-      "дата поставки план",
-      "дата отгрузки план",
-      "дата поставки (план)",
-      "поставки план",
-      "отгрузка план",
-      "план поставки",
-    ],
-  },
-  {
-    key: "deliveryFact",
-    patterns: [
-      "дата поставки факт",
-      "дата отгрузки факт",
-      "дата поставки (факт)",
-      "поставки факт",
-      "отгрузка факт",
-      "факт поставки",
-    ],
-  },
-  {
-    key: "contractPlan",
-    patterns: [
-      "дата заключения договора план",
-      "дата заключения договора (план)",
-      "заключения договора план",
-      "дата договора план",
-      "контракт план",
-      "договор план",
-    ],
-  },
-  {
-    key: "contractFact",
-    patterns: [
-      "дата заключения договора факт",
-      "дата заключения договора (факт)",
-      "заключения договора факт",
-      "дата договора факт",
-      "контракт факт",
-      "договор факт",
-    ],
-  },
-  {
-    key: "volumePlan",
-    patterns: [
-      "объем поставки план",
-      "объём поставки план",
-      "объем план",
-      "объём план",
-      "количество план",
-      "объем (план)",
-    ],
-  },
-  {
-    key: "volumeFact",
-    patterns: [
-      "объем поставки факт",
-      "объём поставки факт",
-      "объем факт",
-      "объём факт",
-      "количество факт",
-      "объем (факт)",
-    ],
-  },
-  {
-    key: "pricePlan",
-    patterns: [
-      "цена закупки за ед. план",
-      "цена закупки за единицу план",
-      "цена закупки план",
-      "цена за ед план",
-      "цена за ед. план",
-    ],
-  },
-  {
-    key: "priceFact",
-    patterns: [
-      "цена закупки за ед. факт",
-      "цена закупки за единицу факт",
-      "цена закупки факт",
-      "цена за ед факт",
-      "цена за ед. факт",
-    ],
-  },
-  {
-    key: "costPlan",
-    patterns: [
-      "стоимость план",
-      "стоимость (руб.) план",
-      "сумма план",
-      "план ₽",
-      "план стоимость",
-      "бюджет",
-      "плановая стоимость",
-    ],
-  },
-  {
-    key: "costFact",
-    patterns: [
-      "стоимость факт",
-      "стоимость (руб.) факт",
-      "сумма факт",
-      "факт ₽",
-      "факт стоимость",
-    ],
-  },
-  {
-    key: "name",
-    patterns: [
-      "наименование тмц",
-      "наименование позиции",
-      "номенклатура",
-      "наименование",
-      "название",
-      "материал",
-      "позиция",
-    ],
-  },
-  {
-    key: "itemCode",
-    patterns: ["шифр гпр", "код позиции", "шифр", "код гпр", "код", "itemcode"],
-  },
-  {
-    key: "stage",
-    patterns: ["этап работ гпр", "этап гпр", "этап работ", "этап", "gprstage"],
-  },
-  {
-    key: "unit",
-    patterns: ["единица измерения", "ед. изм.", "ед изм", "единица", "ед."],
-  },
-  { key: "supplier", patterns: ["поставщик", "supplier"] },
-  {
-    key: "contract",
-    patterns: ["номер договора", "реквизиты договора", "договор", "контракт", "контракт №"],
-  },
-  { key: "status", patterns: ["статус поставки", "статус поставк", "статус"] },
-  { key: "projectPart", patterns: ["часть проекта", "projectpart", "объект", "зона", "часть"] },
-];
+function cell(row: unknown[], idx: number): string {
+  if (idx < 0 || idx >= row.length) return "";
+  return String(row[idx] ?? "").trim();
+}
 
-export function buildTmcColumnMap(headers: string[]): TmcColumnMap {
-  const norm = headers.map((h) => normalizeHeaderCell(String(h)));
-  const used = new Set<number>();
-  const map = {} as TmcColumnMap;
+function detectDelimiter(sample: string): ";" | "," {
+  const lines = sample.split(/\r?\n/).slice(0, 12);
+  let semi = 0;
+  let comma = 0;
+  for (const line of lines) {
+    semi += (line.match(/;/g) ?? []).length;
+    comma += (line.match(/,/g) ?? []).length;
+  }
+  return semi >= comma ? ";" : ",";
+}
 
-  const emptyKeys: TmcColumnMapKey[] = [
-    "deliveryPlan",
-    "deliveryFact",
-    "contractPlan",
-    "contractFact",
-    "volumePlan",
-    "volumeFact",
-    "pricePlan",
-    "priceFact",
-    "costPlan",
-    "costFact",
-    "name",
-    "itemCode",
-    "stage",
-    "unit",
-    "supplier",
-    "contract",
-    "status",
-    "projectPart",
-  ];
-  for (const k of emptyKeys) map[k] = -1;
-
-  for (const def of COLUMN_DEFINITIONS) {
-    const ordered = [...def.patterns].sort((a, b) => b.length - a.length);
-    outer: for (const pattern of ordered) {
-      for (let i = 0; i < norm.length; i++) {
-        if (used.has(i)) continue;
-        if (norm[i].includes(pattern)) {
-          map[def.key] = i;
-          used.add(i);
-          break outer;
+function extractReportDate(matrix: string[][]): string | null {
+  for (let r = 0; r < Math.min(12, matrix.length); r++) {
+    const row = matrix[r] ?? [];
+    for (let c = 0; c < row.length; c++) {
+      const v = normalizeHeaderCell(row[c] ?? "");
+      if (v.includes("отчетная дата") || v.includes("отчётная дата")) {
+        for (let k = c + 1; k < Math.min(c + 4, row.length); k++) {
+          const iso = normalizeImportedDate(row[k]);
+          if (iso) return iso;
         }
       }
+      const isoInline = normalizeImportedDate(row[c]);
+      if (
+        isoInline &&
+        (v.includes("30.06") || normalizeHeaderCell(row[c - 1] ?? "").includes("отчетная"))
+      ) {
+        return isoInline;
+      }
     }
+  }
+  // fallback: any cell near top looking like report date label neighbour
+  for (let r = 0; r < Math.min(8, matrix.length); r++) {
+    const row = matrix[r] ?? [];
+    for (let c = 0; c < row.length - 1; c++) {
+      if (normalizeHeaderCell(row[c] ?? "").includes("отчетн")) {
+        const iso = normalizeImportedDate(row[c + 1]);
+        if (iso) return iso;
+      }
+    }
+  }
+  return null;
+}
+
+function scoreHeaderRow(cols: string[]): number {
+  const joined = cols.map(normalizeHeaderCell).join(" | ");
+  let score = 0;
+  const signatures = [
+    "id код",
+    "этап работ",
+    "наименование тмц",
+    "дата начала по гпр",
+    "дата подачи заявки",
+    "дата заключения договора",
+    "дата поставки",
+    "объем поставки",
+    "объём поставки",
+    "поставщик",
+    "статус",
+  ];
+  for (const s of signatures) {
+    if (joined.includes(s)) score += 1;
+  }
+  return score;
+}
+
+function findHeaderRowIndex(matrix: string[][]): number {
+  let bestIdx = -1;
+  let bestScore = 0;
+  for (let i = 0; i < Math.min(25, matrix.length); i++) {
+    const score = scoreHeaderRow(matrix[i] ?? []);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+  if (bestIdx < 0 || bestScore < 4) {
+    throw new Error(
+      "Не найден заголовок нового формата ТМЦ (ожидаются колонки «ID Код», «Наименование ТМЦ», даты заявки/договора/поставки).",
+    );
+  }
+  return bestIdx;
+}
+
+function isSubHeaderRow(cols: string[]): boolean {
+  const norms = cols.map(normalizeHeaderCell);
+  const hits = norms.filter((h) =>
+    h === "план" || h === "факт" || h.startsWith("откл") || h.includes("кол-во дней"),
+  ).length;
+  return hits >= 3;
+}
+
+function buildMergedHeaders(main: string[], sub: string[] | null): string[] {
+  const len = Math.max(main.length, sub?.length ?? 0);
+  const out: string[] = [];
+  let lastGroup = "";
+  for (let i = 0; i < len; i++) {
+    const m = String(main[i] ?? "").trim();
+    const s = String(sub?.[i] ?? "").trim();
+    if (m) lastGroup = m;
+    if (m && s) out.push(`${m} / ${s}`);
+    else if (m) out.push(m);
+    else if (s && lastGroup) out.push(`${lastGroup} / ${s}`);
+    else if (s) out.push(s);
+    else out.push("");
+  }
+  return out;
+}
+
+function findTripletStart(headersNorm: string[], groupIncludes: string[]): number {
+  for (let i = 0; i < headersNorm.length; i++) {
+    const h = headersNorm[i] ?? "";
+    if (!groupIncludes.every((p) => h.includes(p))) continue;
+    // Prefer the «План» column of the group
+    if (h.includes("план") || i + 1 < headersNorm.length) return i;
+  }
+  return -1;
+}
+
+/**
+ * Карта колонок нового CSV. Вторая группа «Дата заключения договора» (после поставки)
+ * сохраняется отдельно как contractDate2*.
+ */
+export function buildTmcColumnMap(headers: string[]): TmcColumnMap {
+  const n = headers.map((h) => normalizeHeaderCell(h));
+  const idx = (...parts: string[]) => findColumnByIncludes(n, parts.map((p) => p.toLowerCase()));
+
+  const empty = (): TmcColumnMap => ({
+    rowNo: -1,
+    itemCode: -1,
+    stage: -1,
+    name: -1,
+    gprStart: -1,
+    orderDeadlineDays: -1,
+    requestPlan: -1,
+    requestFact: -1,
+    requestDeviation: -1,
+    contractLeadTimeDays: -1,
+    contractPlan: -1,
+    contractFact: -1,
+    contractDeviation: -1,
+    deliveryPlan: -1,
+    deliveryFact: -1,
+    deliveryDeviation: -1,
+    contractDate2Plan: -1,
+    contractDate2Fact: -1,
+    contractDate2Deviation: -1,
+    unit: -1,
+    volumePlan: -1,
+    volumeFact: -1,
+    volumeDeviation: -1,
+    supplier: -1,
+    contract: -1,
+    status: -1,
+    comment: -1,
+  });
+
+  const map = empty();
+  map.rowNo = idx("№ п/п", "no п/п");
+  map.itemCode = idx("id код");
+  map.stage = idx("этап работ");
+  map.name = idx("наименование тмц");
+  map.gprStart = idx("дата начала по гпр");
+  map.orderDeadlineDays = idx("срок подачи заказа");
+  map.contractLeadTimeDays = idx("за сколько должен быть заключен договор");
+  map.unit = idx("ед. изм", "ед изм");
+  map.supplier = idx("поставщик");
+  map.contract = n.findIndex((h) => h === "договор" || h.startsWith("договор "));
+  map.status = idx("статус");
+  map.comment = idx("комментарий");
+
+  // Request triplet
+  const req = findTripletStart(n, ["дата подачи заявки"]);
+  if (req >= 0) {
+    map.requestPlan = req;
+    map.requestFact = req + 1;
+    map.requestDeviation = req + 2;
+  }
+
+  // Contract triplets: first after request, second after delivery
+  const contractHits: number[] = [];
+  for (let i = 0; i < n.length; i++) {
+    const h = n[i] ?? "";
+    if (h.includes("дата заключения договора") && (h.includes("план") || !h.includes("факт"))) {
+      // group start: header cell itself or «… / План»
+      if (h.includes("план") || h === "дата заключения договора") {
+        contractHits.push(i);
+      }
+    }
+  }
+  // Also detect by bare group title then plan in same/next cells
+  if (contractHits.length === 0) {
+    for (let i = 0; i < n.length; i++) {
+      if ((n[i] ?? "").includes("дата заключения договора")) contractHits.push(i);
+    }
+  }
+  if (contractHits[0] != null) {
+    const c0 = contractHits[0];
+    map.contractPlan = c0;
+    map.contractFact = c0 + 1;
+    map.contractDeviation = c0 + 2;
+  }
+  if (contractHits[1] != null) {
+    const c1 = contractHits[1];
+    map.contractDate2Plan = c1;
+    map.contractDate2Fact = c1 + 1;
+    map.contractDate2Deviation = c1 + 2;
+  }
+
+  const del = findTripletStart(n, ["дата поставки"]);
+  if (del >= 0) {
+    map.deliveryPlan = del;
+    map.deliveryFact = del + 1;
+    map.deliveryDeviation = del + 2;
+  }
+
+  const vol = findTripletStart(n, ["объем поставки"]);
+  const vol2 = vol < 0 ? findTripletStart(n, ["объём поставки"]) : vol;
+  if (vol2 >= 0) {
+    map.volumePlan = vol2;
+    map.volumeFact = vol2 + 1;
+    map.volumeDeviation = vol2 + 2;
+  }
+
+  // Fallback positional map for known 28-col layout of ТМЦ_новое.csv
+  if (map.itemCode < 0 && headers.length >= 26) {
+    map.rowNo = 0;
+    map.itemCode = 1;
+    map.stage = 2;
+    map.name = 3;
+    map.gprStart = 4;
+    map.orderDeadlineDays = 5;
+    map.requestPlan = 6;
+    map.requestFact = 7;
+    map.requestDeviation = 8;
+    map.contractLeadTimeDays = 9;
+    map.contractPlan = 10;
+    map.contractFact = 11;
+    map.contractDeviation = 12;
+    map.deliveryPlan = 13;
+    map.deliveryFact = 14;
+    map.deliveryDeviation = 15;
+    map.contractDate2Plan = 16;
+    map.contractDate2Fact = 17;
+    map.contractDate2Deviation = 18;
+    map.unit = 19;
+    map.volumePlan = 20;
+    map.volumeFact = 21;
+    map.volumeDeviation = 22;
+    map.supplier = 23;
+    map.contract = 24;
+    map.status = 25;
+    map.comment = 26;
+  }
+
+  if (map.itemCode < 0 || map.stage < 0) {
+    throw new Error("Новый формат ТМЦ: не удалось сопоставить колонки «ID Код» / «Этап работ».");
+  }
+
+  // Reject old financial CSV
+  const joined = n.join(" | ");
+  if (
+    (joined.includes("цена закупки") || joined.includes("стоимость")) &&
+    !joined.includes("дата подачи заявки") &&
+    !joined.includes("срок подачи заказа")
+  ) {
+    throw new Error(
+      "Обнаружен старый формат CSV ТМЦ (цена/стоимость). Импортируйте файл нового формата «ТМЦ_новое.csv».",
+    );
   }
 
   return map;
 }
 
-function tripletSubheaderOk(h: string | undefined, kind: "plan" | "fact" | "deviation"): boolean {
-  if (!h) return false;
-  if (kind === "plan") return h.includes("план");
-  if (kind === "fact") return h.includes("факт");
-  return h.includes("откл") || h.includes("отклон");
+/** @deprecated */
+export function detectTripletMetricLayout(_headers: string[]): TmcMetricLayout {
+  return "procurement_v2";
 }
 
-/** Плановая колонка блока «дата поставки» (не объём/цена/стоимость/договор). */
-function isDeliveryPlanHeader(h: string): boolean {
-  if (!tripletSubheaderOk(h, "plan")) return false;
-  if (h.includes("объем") || h.includes("объём") || h.includes("цена") || h.includes("стоимост")) {
-    return false;
+function detectSectionPart(stage: string): ProjectPartKey | null {
+  const s = stage.trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes("автостоян") || s.includes("паркинг") || s.includes("parking")) return "parking";
+  if (s === "жилой дом" || s.includes("жилой дом")) return "residential";
+  return null;
+}
+
+function classifyRowKind(sourceCode: string, stage: string, name: string): TmcRowKind {
+  const section = detectSectionPart(stage);
+  if (section && !name.trim() && !isTmcWbsCode(sourceCode)) return "section";
+  if (name.trim()) return "position";
+  if (isTmcWbsCode(sourceCode)) return "group";
+  if (stage.trim() && !sourceCode.trim() && !name.trim()) {
+    return section ? "section" : "other";
   }
-  if (h.includes("договор") || h.includes("заключен")) return false;
-  return h.includes("дата") && (h.includes("постав") || h.includes("отгруз"));
+  return "other";
 }
 
-function isContractPlanHeader(h: string): boolean {
-  return (
-    tripletSubheaderOk(h, "plan") &&
-    (h.includes("договор") || h.includes("заключен") || h.includes("контракт")) &&
-    !h.includes("объем") &&
-    !h.includes("объём")
-  );
-}
-
-function isVolumePlanHeader(h: string): boolean {
-  return tripletSubheaderOk(h, "plan") && (h.includes("объем") || h.includes("объём"));
-}
-
-function isPricePlanHeader(h: string): boolean {
-  return tripletSubheaderOk(h, "plan") && h.includes("цена");
-}
-
-function isCostPlanHeader(h: string): boolean {
-  return tripletSubheaderOk(h, "plan") && h.includes("стоимост");
-}
-
-/** Пять блоков подряд: дата поставки → договор → объём → цена → стоимость (план/факт/откл.). */
-function verifyFiveMetricTriplets(headersNorm: string[], start: number): boolean {
-  const step = TMC_METRIC_TRIPLET_STEP;
-  const planChecks = [
-    isDeliveryPlanHeader,
-    isContractPlanHeader,
-    isVolumePlanHeader,
-    isPricePlanHeader,
-    isCostPlanHeader,
-  ] as const;
-  for (let block = 0; block < TMC_METRIC_TRIPLET_BLOCKS; block += 1) {
-    const i = start + block * step;
-    const planH = headersNorm[i];
-    const factH = headersNorm[i + 1];
-    const devH = headersNorm[i + 2];
-    if (!planChecks[block]!(planH ?? "")) return false;
-    if (!tripletSubheaderOk(factH, "fact")) return false;
-    if (!tripletSubheaderOk(devH, "deviation")) return false;
-  }
-  return true;
-}
-
-/**
- * Индекс колонки «дата поставки — план»: начало цепочки из 5 троек План/Факт/Откл.
- * Короткие подстроки вроде «поставки план» намеренно не используются — они ложно
- * совпадают с «объём поставки план» и сдвигают разбор на колонку «откл.».
- */
-export function findDeliveryPlanColumnStart(headersNorm: string[]): number {
-  const need = TMC_METRIC_TRIPLET_STEP * TMC_METRIC_TRIPLET_BLOCKS;
-  for (let i = 0; i <= headersNorm.length - need; i += 1) {
-    if (!isDeliveryPlanHeader(headersNorm[i] ?? "")) continue;
-    if (!verifyFiveMetricTriplets(headersNorm, i)) continue;
-    return i;
-  }
-  return -1;
-}
-
-export function detectTripletMetricLayout(headers: string[]): {
-  layout: TmcMetricLayout;
-  tripletStart: number;
-} {
-  const norm = headers.map((h) => normalizeHeaderCell(String(h)));
-  const tripletStart = findDeliveryPlanColumnStart(norm);
-  const needCols = TMC_METRIC_TRIPLET_STEP * TMC_METRIC_TRIPLET_BLOCKS;
-  if (tripletStart >= 0 && tripletStart + needCols <= headers.length) {
-    return { layout: "triplet", tripletStart };
-  }
-  return { layout: "legacy", tripletStart: -1 };
-}
-
-function rawCellAt(headers: string[], row: Record<string, unknown>, idx: number): unknown {
-  if (idx < 0 || idx >= headers.length) return undefined;
-  const k = headers[idx];
-  if (k === undefined || !(k in row)) return undefined;
-  return row[k];
-}
-
-/**
- * Пять блоков подряд: дата поставки, дата договора, объём, цена, стоимость — в каждом [план, факт, откл.].
- */
-function parseTripletMetricCells(
-  row: Record<string, unknown>,
-  headers: string[],
-  startIdx: number,
-): {
-  supplyPlanDate: string | null;
-  supplyFactDate: string | null;
-  contractPlanDate: string | null;
-  contractFactDate: string | null;
-  volumePlanRaw: unknown;
-  volumeFactRaw: unknown;
-  pricePlanRaw: unknown;
-  priceFactRaw: unknown;
-  planCostRaw: unknown;
-  factCostRaw: unknown;
-} {
-  let i = startIdx;
-
-  const deliveryPlan = rawCellAt(headers, row, i);
-  const deliveryFact = rawCellAt(headers, row, i + 1);
-  i += TMC_METRIC_TRIPLET_STEP;
-
-  const contractPlan = rawCellAt(headers, row, i);
-  const contractFact = rawCellAt(headers, row, i + 1);
-  i += TMC_METRIC_TRIPLET_STEP;
-
-  const volumePlanRaw = rawCellAt(headers, row, i);
-  const volumeFactRaw = rawCellAt(headers, row, i + 1);
-  i += TMC_METRIC_TRIPLET_STEP;
-
-  const pricePlanRaw = rawCellAt(headers, row, i);
-  const priceFactRaw = rawCellAt(headers, row, i + 1);
-  i += TMC_METRIC_TRIPLET_STEP;
-
-  const planCostRaw = rawCellAt(headers, row, i);
-  const factCostRaw = rawCellAt(headers, row, i + 1);
-
-  return {
-    supplyPlanDate: normalizeImportedDate(deliveryPlan),
-    supplyFactDate: normalizeImportedDate(deliveryFact),
-    contractPlanDate: normalizeImportedDate(contractPlan),
-    contractFactDate: normalizeImportedDate(contractFact),
-    volumePlanRaw,
-    volumeFactRaw,
-    pricePlanRaw,
-    priceFactRaw,
-    planCostRaw,
-    factCostRaw,
-  };
-}
-
-/** Контрольная первая строка шаблона «Поставка ТМЦ.csv». */
-const TRIPLET_FIRST_ROW_EXPECT = {
-  volumePlan: 47,
-  volumeFact: 47,
-  pricePlan: 36307.2,
-  priceFact: 33997,
-  planCost: 1706438.4,
-  factCost: 1597859,
-} as const;
-
-function approxEq(a: number, b: number, eps: number): boolean {
-  return Math.abs(a - b) <= eps;
-}
-
-function assertTripletFirstRowSample(slice: {
-  volumePlan: number;
-  volumeFact: number;
-  pricePlan: number;
-  priceFact: number;
-  planCost: number;
-  factCost: number | null;
-}): void {
-  const exp = TRIPLET_FIRST_ROW_EXPECT;
-  const checks = [
-    approxEq(slice.volumePlan, exp.volumePlan, 1e-4),
-    approxEq(slice.volumeFact, exp.volumeFact, 1e-4),
-    approxEq(slice.pricePlan, exp.pricePlan, 1),
-    approxEq(slice.priceFact, exp.priceFact, 1),
-    approxEq(slice.planCost, exp.planCost, 2),
-    slice.factCost != null && approxEq(slice.factCost, exp.factCost, 2),
-  ];
-  if (checks.every(Boolean)) return;
-
-  throw new Error(
-    `[TMC CSV] Контроль первой строки не пройден. Ожидалось: объём=${exp.volumePlan}/${exp.volumeFact}, цена=${exp.pricePlan}/${exp.priceFact}, стоимость=${exp.planCost}/${exp.factCost}; получено: объём=${slice.volumePlan}/${slice.volumeFact}, цена=${slice.pricePlan}/${slice.priceFact}, стоимость=${slice.planCost}/${slice.factCost ?? "null"}.`,
-  );
-}
-
-export function cellAtColumnIndex(
-  headers: string[],
-  row: Record<string, unknown>,
-  idx: number,
-): string {
-  if (idx < 0 || idx >= headers.length) return "";
-  const k = headers[idx];
-  if (k === undefined || !(k in row)) return "";
-  const v = row[k];
-  return v == null ? "" : String(v).trim();
-}
-
-/** Уникальные ключи объекта при повторяющихся подписях столбцов. */
-function makeUniqueHeaderKeys(headerCells: string[]): string[] {
-  const counts = new Map<string, number>();
-  return headerCells.map((raw, i) => {
-    const h = raw.replace(/^\uFEFF/, "").trim().replace(/\s+/g, " ") || `__col_${i}`;
-    const n = (counts.get(h) ?? 0) + 1;
-    counts.set(h, n);
-    return n === 1 ? h : `${h}__dup_${i}`;
-  });
-}
-
-function forwardFillHeaderRow(cells: string[]): string[] {
-  let last = "";
-  return cells.map((c) => {
-    const t = c.trim();
-    if (t) last = t;
-    return last;
-  });
-}
-
-/** Вторая строка шапки: подписи «план» / «факт», без главного заголовка позиций. */
-function looksLikeSecondHeaderRow(sub: unknown[], primary: unknown[]): boolean {
-  const subS = sub.map((c) => String(c ?? "").trim().toLowerCase());
-  if (subS.some((s) => s.includes("наименование") || s.includes("номенклатур"))) return false;
-
-  let planFactTokens = 0;
-  let deviationTokens = 0;
-  for (const s of subS) {
-    if (!s) continue;
-    if (s === "план" || s === "факт") planFactTokens += 1;
-    else if (/^план[\s.),]/u.test(s) || /^факт[\s.),]/u.test(s)) planFactTokens += 1;
-    else if ((s.startsWith("план") || s.startsWith("факт")) && s.length < 18) planFactTokens += 1;
-    if (s.includes("откл") || s.includes("отклон")) deviationTokens += 1;
-  }
-
-  return planFactTokens >= 2 || (planFactTokens >= 1 && deviationTokens >= 1);
-}
-
-/** Склейка двух строк заголовка Excel в один подписанный столбец на колонку. */
-function mergeTwoHeaderRows(primary: unknown[], secondary: unknown[]): string[] {
-  const a = forwardFillHeaderRow(
-    primary.map((c) =>
-      String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
-    ),
-  );
-  const bRaw = secondary.map((c) =>
-    String(c ?? "").replace(/^\uFEFF/, "").trim().replace(/\s+/g, " "),
-  );
-  const b = forwardFillHeaderRow(bRaw);
-  const len = Math.max(a.length, b.length);
-  const out: string[] = [];
-  for (let i = 0; i < len; i++) {
-    const top = a[i] ?? "";
-    const bot = b[i] ?? "";
-    const botNorm = bot.toLowerCase();
-    const topNorm = top.toLowerCase();
-    const subIsMetricOnly =
-      botNorm === "план" || botNorm === "факт" || botNorm.startsWith("откл");
-    const topIsMetricGroup =
-      topNorm.includes("дата") ||
-      topNorm.includes("объем") ||
-      topNorm.includes("объём") ||
-      topNorm.includes("цена") ||
-      topNorm.includes("стоимост");
-    const merged =
-      top && subIsMetricOnly && !topIsMetricGroup
-        ? top
-        : [top, bot].filter(Boolean).join(" ").trim().replace(/\s+/g, " ");
-    out.push(merged || `__col_${i}`);
+function rowToRecord(headers: string[], cols: string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (let i = 0; i < headers.length; i++) {
+    const key = headers[i]?.trim() || `col_${i}`;
+    out[key] = cols[i] ?? "";
   }
   return out;
 }
 
-/**
- * Парсинг без `header: true`: многострочная шапка Excel не ломает колонки.
- * Строка заголовков ищется по ячейке с «наименование» / «номенклатура».
- */
-export type TmcCsvParsed = {
-  rows: Record<string, string>[];
-  headers: string[];
+export type TmcCsvParseMeta = {
+  reportDate: string | null;
+  delimiter: ";" | ",";
+  headerRowIndex: number;
+  subHeaderRowIndex: number | null;
+  rawRowCount: number;
+  dataRowCount: number;
+  skippedEmptyRows: number;
+  errorRows: number;
+  positionCount: number;
+  groupCount: number;
 };
 
-function stripBom(text: string): string {
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-}
+export type TmcCsvParsed = {
+  rows: Record<string, unknown>[];
+  headers: string[];
+  matrix: string[][];
+  meta: TmcCsvParseMeta;
+};
 
-function sniffCsvDelimiter(text: string): string {
-  const lines = stripBom(text).split(/\r?\n/).slice(0, 48);
-  let commas = 0;
-  let semis = 0;
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) continue;
-    commas += (t.match(/,/g) ?? []).length;
-    semis += (t.match(/;/g) ?? []).length;
-  }
-  return semis > commas ? ";" : ",";
-}
-
-export function parseTmcCsvText(csvText: string): TmcCsvParsed {
-  const delimiter = sniffCsvDelimiter(csvText);
-  const result = Papa.parse<string[]>(csvText, {
-    header: false,
-    skipEmptyLines: true,
+export function parseTmcCsvText(text: string): TmcCsvParsed {
+  const cleaned = text.replace(/^\uFEFF/, "");
+  const delimiter = detectDelimiter(cleaned);
+  const parsed = Papa.parse<string[]>(cleaned, {
     delimiter,
+    header: false,
+    skipEmptyLines: false,
+    quoteChar: '"',
+    escapeChar: '"',
   });
-  if (result.errors?.length) {
-    console.warn("[tmc CSV]", result.errors.slice(0, 5));
+
+  if (parsed.errors?.length) {
+    const fatal = parsed.errors.filter((e) => e.type === "Quotes" || e.type === "FieldMismatch");
+    if (fatal.length > 8) {
+      console.warn("[tmc CSV] Papa parse warnings:", fatal.slice(0, 5));
+    }
   }
 
-  const rawRows = Array.isArray(result.data) ? result.data : [];
-  const rows = rawRows.filter(
-    (row) => Array.isArray(row) && row.some((c) => String(c ?? "").trim() !== ""),
+  const matrix = (parsed.data ?? []).map((row) =>
+    (Array.isArray(row) ? row : []).map((c) => String(c ?? "")),
   );
 
-  const headerRowIndex = rows.findIndex((row) => looksLikeHeaderRow(row));
+  const reportDate = extractReportDate(matrix);
+  const headerRowIndex = findHeaderRowIndex(matrix);
+  const maybeSub = matrix[headerRowIndex + 1] ?? null;
+  const subHeaderRowIndex =
+    maybeSub && isSubHeaderRow(maybeSub) ? headerRowIndex + 1 : null;
+  const headers = buildMergedHeaders(
+    matrix[headerRowIndex] ?? [],
+    subHeaderRowIndex != null ? matrix[subHeaderRowIndex]! : null,
+  );
 
-  if (headerRowIndex === -1) {
-    throw new Error(
-      "Не найдена строка заголовков: в CSV нет колонки с подписью «Наименование» (или «Номенклатура»).",
-    );
+  const dataStart = (subHeaderRowIndex ?? headerRowIndex) + 1;
+  const rows: Record<string, unknown>[] = [];
+  let skippedEmptyRows = 0;
+  let errorRows = 0;
+
+  for (let i = dataStart; i < matrix.length; i++) {
+    const cols = matrix[i] ?? [];
+    const nonempty = cols.some((c) => String(c ?? "").trim() !== "");
+    if (!nonempty) {
+      skippedEmptyRows += 1;
+      continue;
+    }
+    try {
+      const rec = rowToRecord(headers, cols);
+      rec.__sourceRowNumber = i + 1; // 1-based file line (Papa logical row)
+      rec.__sourceCols = cols;
+      rows.push(rec);
+    } catch {
+      errorRows += 1;
+    }
   }
 
-  const primaryHeaderRow = rows[headerRowIndex]!;
-  const nextRow = rows[headerRowIndex + 1];
-
-  let headerRaw: string[];
-  let dataSliceStart: number;
-
-  if (nextRow && looksLikeSecondHeaderRow(nextRow, primaryHeaderRow)) {
-    headerRaw = mergeTwoHeaderRows(primaryHeaderRow, nextRow);
-    dataSliceStart = headerRowIndex + 2;
-  } else {
-    headerRaw = primaryHeaderRow.map((h) =>
-      String(h ?? "")
-        .replace(/^\uFEFF/, "")
-        .trim()
-        .replace(/\s+/g, " "),
-    );
-    dataSliceStart = headerRowIndex + 1;
-  }
-
-  const headers = makeUniqueHeaderKeys(headerRaw);
-
-  const dataRows = rows.slice(dataSliceStart);
-
-  const objects: Record<string, string>[] = dataRows.map((row) => {
-    const obj: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      const v = row[i];
-      obj[h] = v == null ? "" : String(v).trim();
-    });
-    return obj;
-  });
-
-  if (typeof console !== "undefined") {
-    console.log("DATA ROWS:", objects.length);
-    console.log("CSV columns:", headers);
-  }
-
-  return { rows: objects, headers };
+  return {
+    rows,
+    headers,
+    matrix,
+    meta: {
+      reportDate,
+      delimiter,
+      headerRowIndex,
+      subHeaderRowIndex,
+      rawRowCount: matrix.length,
+      dataRowCount: rows.length,
+      skippedEmptyRows,
+      errorRows,
+      positionCount: 0,
+      groupCount: 0,
+    },
+  };
 }
 
 export async function parseTmcCsvFile(file: File): Promise<TmcCsvParsed> {
@@ -676,488 +535,215 @@ export async function parseTmcCsvFile(file: File): Promise<TmcCsvParsed> {
   return parseTmcCsvText(text);
 }
 
-function pickCell(row: Record<string, unknown>, aliases: string[]): string {
-  const keys = Object.keys(row);
-  for (const alias of aliases) {
-    const al = alias.toLowerCase();
-    for (const k of keys) {
-      const nk = k.replace(/^\uFEFF/, "").trim().toLowerCase();
-      if (nk === al) {
-        const v = row[k];
-        if (v == null) continue;
-        const s = String(v).trim();
-        if (s !== "") return s;
-      }
-    }
-  }
-  return "";
+function isRowEffectivelyEmpty(cols: string[], map: TmcColumnMap): boolean {
+  const code = cell(cols, map.itemCode);
+  const stage = cell(cols, map.stage);
+  const name = cell(cols, map.name);
+  return !code && !stage && !name;
 }
 
-/** Совпадение по подстроке в имени колонки (длинные заголовки из Excel). */
-function pickCellSubstring(row: Record<string, unknown>, needles: string[]): string {
-  const orderedNeedles = [...needles].sort((a, b) => b.length - a.length);
-  for (const needle of orderedNeedles) {
-    const nl = needle.toLowerCase();
-    for (const k of Object.keys(row)) {
-      const nk = k.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, " ");
-      if (nk.includes(nl)) {
-        const v = row[k];
-        if (v == null) continue;
-        const s = String(v).trim();
-        if (s !== "") return s;
-      }
-    }
-  }
-  return "";
-}
+export type TmcNormalizeResult = {
+  items: TMCItem[];
+  reportDate: string | null;
+  importedRows: number;
+  positionCount: number;
+  groupCount: number;
+  errorRows: number;
+  skippedEmptyRows: number;
+};
 
-function getMappedCell(
-  row: Record<string, unknown>,
-  headers: string[],
-  colMap: TmcColumnMap,
-  key: TmcColumnMapKey,
-): string | null {
-  const idx = colMap[key];
-  if (idx === undefined || idx < 0 || idx >= headers.length) return null;
-  const k = headers[idx];
-  if (k === undefined || !(k in row)) return null;
-  const v = row[k];
-  if (v == null) return null;
-  const s = String(v).trim();
-  return s === "" ? null : s;
-}
-
-/** Этап ГПР для группировки дублей строк по одной позиции. */
-function getTmcRowStage(row: Record<string, unknown>, headers: string[], colMap: TmcColumnMap): string {
-  const mapped = getMappedCell(row, headers, colMap, "stage");
-  if (mapped) return mapped.trim();
-  const exact = pickCell(row, ["Этап работ ГПР", "Этап ГПР", "Этап", "gprStage", "stage"]);
-  if (exact.trim()) return exact.trim();
-  return pickCellSubstring(row, ["этап работ гпр", "этап гпр", "этап гп", "этап", "gprstage", "stage"]).trim();
-}
-
-/** Наименование: колонка из карты, затем известные заголовки. */
-function getTmcRowName(row: Record<string, unknown>, headers: string[], colMap: TmcColumnMap): string {
-  const mapped = getMappedCell(row, headers, colMap, "name");
-  if (mapped?.trim()) return mapped.trim();
-
-  const fromKeys = pickCell(row, [
-    "Наименование ТМЦ",
-    "Название",
-    "Наименование",
-    "Номенклатура",
-    "Материал",
-    "Item",
-    "name",
-    "Наименование позиции",
-    "Позиция",
-  ]);
-  if (fromKeys.trim()) return fromKeys.trim();
-
-  const fuzzy = pickCellSubstring(row, ["наименование", "номенклатура", "название", "материал"]);
-  if (fuzzy.trim()) return fuzzy.trim();
-
-  const firstVal = Object.values(row)[0];
-  if (firstVal != null && String(firstVal).trim() !== "") {
-    return String(firstVal).trim();
-  }
-
-  for (const v of Object.values(row)) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (s !== "") return s;
-  }
-  return "";
-}
-
-/** Отсечение заголовков и служебных подписей по тексту наименования (без учёта строки CSV целиком). */
-function isJunkTmcLabel(name: string): boolean {
-  const cleaned = name
-    .trim()
-    .toLowerCase()
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ");
-
-  const junkExact = new Set([
-    "№ п/п",
-    "№п/п",
-    "п/п",
-    "план",
-    "факт",
-    "отчетная дата:",
-    "отчётная дата:",
-    "наименование",
-    "название",
-    "номенклатура",
-    "итого",
-    "всего",
-    "№",
-    "no",
-    "единица измерения",
-    "ед.изм.",
-    "ед изм",
-  ]);
-
-  if (junkExact.has(cleaned)) return true;
-
-  if (/^№\s*п[/\\]?п\.?$/iu.test(name.trim())) return true;
-
-  if (/^\d+$/.test(cleaned)) return true;
-
-  if (/^\d+\s*[.)]\s*$/.test(cleaned)) return true;
-
-  if (/^[\s\-–—.]+$/.test(cleaned)) return true;
-
-  return false;
-}
-
-export function isValidTmcRow(row: Record<string, unknown>): boolean {
-  const name = getTmcRowName(row, [], {} as TmcColumnMap);
-  if (!name) return false;
-  return !isJunkTmcLabel(name);
-}
-
-function dropLeadingJunkRows(rows: Record<string, unknown>[], maxLeadingSkip = 5): Record<string, unknown>[] {
-  let i = 0;
-  while (i < rows.length && i < maxLeadingSkip && !isValidTmcRow(rows[i]!)) {
-    i += 1;
-  }
-  return rows.slice(i);
-}
-
-function parseProjectPart(raw: string): ProjectPartKey {
-  const s = raw.trim().toLowerCase();
-  if (!s) return "residential";
-  if (
-    s === "parking" ||
-    s === "паркинг" ||
-    s === "автостоянка" ||
-    s === "2" ||
-    s.includes("автостоян")
-  ) {
-    return "parking";
-  }
-  if (s === "1" || s.includes("жил")) return "residential";
-  return "residential";
-}
-
-function inferGprStageFromItemCode(code: string): string {
-  const t = code.trim();
-  if (!t) return "Строительство зданий и сооружений";
-  const parts = t.split(".").filter(Boolean);
-  if (parts.length < 2) return "Строительство зданий и сооружений";
-  const root = `${parts[0]}.${parts[1]}`;
-  for (const [label, rootCode] of Object.entries(TMC_GPR_STAGE_ROOT_CODE)) {
-    if (rootCode === root || t.startsWith(`${rootCode}.`)) return label;
-  }
-  return "Строительство зданий и сооружений";
-}
-
-function newIdFallback(index: number): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `tmc-import-${Date.now()}-${index}`;
-}
-
-type ResolvedTmcRow = { row: Record<string, unknown>; name: string; stage: string };
-
-function resolveTmcRowsWithCarryForward(
+/**
+ * Нормализация строк нового CSV → TMCItem[].
+ * Сохраняет группы, позиции с ID "-" / "?", секционные маркеры частей проекта.
+ */
+export function normalizeTmcCsvRows(
   rows: Record<string, unknown>[],
-  headers: string[],
-  colMap: TmcColumnMap,
-): ResolvedTmcRow[] {
-  let lastValidName = "";
-  let lastValidStage = "";
-  const result: ResolvedTmcRow[] = [];
+  headers?: string[],
+  options?: { reportDate?: string | null; defaultProjectPart?: ProjectPartKey },
+): TMCItem[] {
+  return normalizeTmcCsvRowsWithMeta(rows, headers, options).items;
+}
+
+export function normalizeTmcCsvRowsWithMeta(
+  rows: Record<string, unknown>[],
+  headers?: string[],
+  options?: { reportDate?: string | null; defaultProjectPart?: ProjectPartKey },
+): TmcNormalizeResult {
+  if (!headers?.length) {
+    console.warn("[tmc CSV] normalizeTmcCsvRows: не переданы заголовки столбцов");
+  }
+  const hdrs = headers ?? [];
+  const map = buildTmcColumnMap(hdrs);
+
+  let projectPart: ProjectPartKey = options?.defaultProjectPart ?? "residential";
+  let parentWbsCode: string | null = null;
+  const items: TMCItem[] = [];
+  let errorRows = 0;
+  let skippedEmptyRows = 0;
+  let positionCount = 0;
+  let groupCount = 0;
 
   for (const row of rows) {
-    let name = getTmcRowName(row, headers, colMap).trim();
-    let stage = getTmcRowStage(row, headers, colMap).trim();
+    try {
+      const cols = Array.isArray(row.__sourceCols)
+        ? (row.__sourceCols as string[])
+        : hdrs.map((h) => String(row[h] ?? ""));
 
-    if (name) lastValidName = name;
-    else name = lastValidName;
+      if (isRowEffectivelyEmpty(cols, map)) {
+        skippedEmptyRows += 1;
+        continue;
+      }
 
-    if (stage) lastValidStage = stage;
-    else stage = lastValidStage;
+      const sourceRowNumber =
+        typeof row.__sourceRowNumber === "number"
+          ? row.__sourceRowNumber
+          : items.length + 1;
 
-    const code =
-      getMappedCell(row, headers, colMap, "itemCode") ??
-      pickCell(row, ["Шифр", "Код", "Код позиции", "itemCode", "Шифр ГПР", "Код ГПР"]).trim();
+      const sourceCode = cell(cols, map.itemCode);
+      const stage = cell(cols, map.stage);
+      const name = cell(cols, map.name);
 
-    if (!stage && code) stage = inferGprStageFromItemCode(code);
+      const sectionPart = detectSectionPart(stage);
+      const rowKind = classifyRowKind(sourceCode, stage, name);
 
-    result.push({ row, name, stage });
-  }
-  return result;
-}
+      if (rowKind === "section" && sectionPart) {
+        projectPart = sectionPart;
+        parentWbsCode = null;
+      }
 
-function parseTmcCsvRowSlice(
-  row: Record<string, unknown>,
-  headers: string[],
-  colMap: TmcColumnMap,
-  metric: { layout: TmcMetricLayout; tripletStart: number },
-) {
-  const itemCodeRaw =
-    getMappedCell(row, headers, colMap, "itemCode") ??
-    pickCell(row, ["Шифр", "Код", "Код позиции", "itemCode", "Шифр ГПР", "Код ГПР"]);
+      if (rowKind === "group" && isTmcWbsCode(sourceCode)) {
+        parentWbsCode = sourceCode.trim();
+        groupCount += 1;
+      }
 
-  let supplyPlanDate: string | null = null;
-  let supplyFactDate: string | null = null;
-  let contractPlanDate: string | null = null;
-  let contractFactDate: string | null = null;
-  let volumePlanRaw: unknown;
-  let volumeFactRaw: unknown;
-  let priceRaw: unknown;
-  let priceFactRaw: unknown;
-  let planCostRaw: unknown;
-  let factCostRaw: unknown;
+      if (rowKind === "position") positionCount += 1;
 
-  if (metric.layout === "triplet" && metric.tripletStart >= 0) {
-    const tm = parseTripletMetricCells(row, headers, metric.tripletStart);
-    supplyPlanDate = tm.supplyPlanDate;
-    supplyFactDate = tm.supplyFactDate;
-    contractPlanDate = tm.contractPlanDate;
-    contractFactDate = tm.contractFactDate;
-    volumePlanRaw = tm.volumePlanRaw;
-    volumeFactRaw = tm.volumeFactRaw;
-    priceRaw = tm.pricePlanRaw;
-    priceFactRaw = tm.priceFactRaw;
-    planCostRaw = tm.planCostRaw;
-    factCostRaw = tm.factCostRaw;
-  } else {
-    supplyPlanDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "deliveryPlan"));
-    supplyFactDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "deliveryFact"));
-    contractPlanDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "contractPlan"));
-    contractFactDate = normalizeImportedDate(getMappedCell(row, headers, colMap, "contractFact"));
-    volumePlanRaw =
-      getMappedCell(row, headers, colMap, "volumePlan") ??
-      pickCell(row, [
-        "Объем поставки План",
-        "Объем план",
-        "Объем поставки",
-        "Количество",
-        "Qty",
-        "quantity",
-      ]);
-    volumeFactRaw =
-      getMappedCell(row, headers, colMap, "volumeFact") ??
-      pickCell(row, ["Объем факт", "Объем поставки Факт", "Объем поставки факт", "Объем (факт)"]);
-    priceRaw =
-      getMappedCell(row, headers, colMap, "pricePlan") ??
-      pickCell(row, [
-        "Цена закупки за ед. (руб.) План",
-        "Цена закупки за ед. (руб.)",
-        "Цена закупки за ед",
-        "Цена план",
-        "Цена",
-        "price",
-        "Цена за ед.",
-        "Цена за единицу",
-      ]);
-    priceFactRaw =
-      getMappedCell(row, headers, colMap, "priceFact") ??
-      pickCell(row, ["Цена закупки за ед. (руб.) Факт", "Цена факт", "Цена закупки факт", "Цена (факт)"]);
-    planCostRaw =
-      getMappedCell(row, headers, colMap, "costPlan") ??
-      pickCell(row, [
-        "Стоимость (руб.) План",
-        "Стоимость (руб) план",
-        "План ₽",
-        "План стоимость",
-        "Сумма план",
-        "Бюджет",
-        "Плановая стоимость",
-        "Сумма",
-        "Итого",
-        "total",
-        "planCost",
-      ]);
-    factCostRaw =
-      getMappedCell(row, headers, colMap, "costFact") ??
-      pickCell(row, [
-        "Стоимость (руб.) Факт",
-        "Стоимость (руб) факт",
-        "Факт ₽",
-        "Факт стоимость",
-        "factCost",
-      ]);
-  }
+      // Явная иерархия для позиции с WBS-кодом: родитель = код без последнего сегмента.
+      // Для "-" / "?" — ближайшая предшествующая группа по порядку CSV (не startsWith по имени).
+      let rowParent: string | null = rowKind === "group" ? null : parentWbsCode;
+      if (rowKind === "position" && isTmcWbsCode(sourceCode)) {
+        const segs = sourceCode.trim().replace(/\.$/, "").split(".").filter(Boolean);
+        if (segs.length > 1) {
+          rowParent = `${segs.slice(0, -1).join(".")}.`;
+        }
+      }
 
-  const unit =
-    (getMappedCell(row, headers, colMap, "unit") ??
-      pickCell(row, ["Ед. изм.", "Ед изм.", "Единица измерения", "Ед.", "unit"]).trim()) ||
-    pickCellSubstring(row, ["ед изм", "ед.изм", "единица измерения"]).trim();
+      const statusRaw = cell(cols, map.status);
+      const statusCategory = categorizeTmcStatus(statusRaw);
+      const plannedQuantity = parseImportNumber(cell(cols, map.volumePlan));
+      const actualQuantity = parseImportNumber(cell(cols, map.volumeFact));
 
-  const supplier =
-    (getMappedCell(row, headers, colMap, "supplier") ??
-      pickCell(row, ["Поставщик", "supplier"]).trim()) ||
-    pickCellSubstring(row, ["поставщик"]).trim();
+      const deliveryPlanDate = normalizeImportedDate(cell(cols, map.deliveryPlan));
+      const deliveryFactDate = normalizeImportedDate(cell(cols, map.deliveryFact));
+      const contractPlanDate = normalizeImportedDate(cell(cols, map.contractPlan));
+      const contractFactDate = normalizeImportedDate(cell(cols, map.contractFact));
 
-  const contract =
-    (getMappedCell(row, headers, colMap, "contract") ??
-      pickCell(row, ["Договор", "Номер договора", "Контракт"]).trim()) ||
-    pickCellSubstring(row, ["договор", "контракт №", "номер договора"]).trim();
+      const id = buildStableTmcId({
+        projectPart,
+        sourceRowNumber,
+        sourceCode,
+        stage,
+        name,
+      });
 
-  const statusLine =
-    (getMappedCell(row, headers, colMap, "status") ??
-      pickCell(row, ["Статус поставки", "Статус"]).trim()) ||
-    pickCellSubstring(row, ["статус"]).trim();
-  const status = parseTmcSupplyStatus(statusLine);
+      const item = syncTmcFinancials({
+        id,
+        sourceRowNumber,
+        sourceCode,
+        itemCode: sourceCode,
+        rowKind,
+        parentWbsCode: rowParent,
+        stage,
+        gprStage: stage,
+        name,
+        gprStartDate: normalizeImportedDate(cell(cols, map.gprStart)),
+        orderDeadlineDays: parseImportNumber(cell(cols, map.orderDeadlineDays)),
+        requestPlanDate: normalizeImportedDate(cell(cols, map.requestPlan)),
+        requestFactDate: normalizeImportedDate(cell(cols, map.requestFact)),
+        requestDeviationDays: parseImportNumber(cell(cols, map.requestDeviation)),
+        contractLeadTimeDays: parseImportNumber(cell(cols, map.contractLeadTimeDays)),
+        contractPlanDate,
+        contractFactDate,
+        contractDeviationDays: parseImportNumber(cell(cols, map.contractDeviation)),
+        deliveryPlanDate,
+        deliveryFactDate,
+        deliveryDeviationDays: parseImportNumber(cell(cols, map.deliveryDeviation)),
+        contractDate2PlanDate: normalizeImportedDate(cell(cols, map.contractDate2Plan)),
+        contractDate2FactDate: normalizeImportedDate(cell(cols, map.contractDate2Fact)),
+        contractDate2DeviationDays: parseImportNumber(cell(cols, map.contractDate2Deviation)),
+        unit: cell(cols, map.unit),
+        plannedQuantity,
+        actualQuantity,
+        quantityDeviation: parseImportNumber(cell(cols, map.volumeDeviation)),
+        supplier: cell(cols, map.supplier),
+        contract: cell(cols, map.contract),
+        statusRaw,
+        statusCategory,
+        status: parseTmcSupplyStatus(statusRaw),
+        comment: cell(cols, map.comment),
+        projectPart,
+        volumePlan: plannedQuantity ?? 0,
+        volumeFact: actualQuantity ?? 0,
+        supplyPlanDate: deliveryPlanDate,
+        supplyFactDate: deliveryFactDate,
+        pricePlan: 0,
+        priceFact: 0,
+        totalPlan: 0,
+        totalFact: 0,
+        planCost: 0,
+        factCost: null,
+      });
 
-  let planCost = parseImportNumber(planCostRaw);
-  let volumePlan = parseImportNumber(volumePlanRaw);
-  let pricePlan = parseImportNumber(priceRaw);
-  let volumeFact = parseImportNumber(volumeFactRaw);
-  let priceFact = parseImportNumber(priceFactRaw);
-
-  if (volumePlan == null) volumePlan = 0;
-  if (volumeFact == null) volumeFact = 0;
-  if (pricePlan == null) pricePlan = 0;
-  if (priceFact == null) priceFact = 0;
-
-  if (
-    planCost == null &&
-    String(volumePlanRaw ?? "").trim() !== "" &&
-    String(priceRaw ?? "").trim() !== ""
-  ) {
-    planCost = volumePlan * pricePlan;
-  }
-  if (planCost == null) planCost = 0;
-
-  if (metric.layout !== "triplet") {
-    if (volumePlan === 0 && pricePlan === 0 && planCost > 0) {
-      volumePlan = 1;
-      pricePlan = planCost;
+      items.push(item);
+    } catch (e) {
+      errorRows += 1;
+      console.warn("[tmc CSV] row normalize error", e);
     }
   }
-
-  const factCost: number | null = parseImportNumber(factCostRaw ?? "");
-
-  if (metric.layout !== "triplet") {
-    if (volumeFact === 0 && priceFact === 0 && factCost != null && factCost > 0) {
-      volumeFact = 1;
-      priceFact = factCost;
-    }
-  }
-
-  if (pricePlan === 0 && planCost > 0 && volumePlan > 0) {
-    pricePlan = planCost / volumePlan;
-  }
-  if (priceFact === 0 && factCost != null && factCost > 0 && volumeFact > 0) {
-    priceFact = factCost / volumeFact;
-  }
-
-  const projectPartRaw =
-    getMappedCell(row, headers, colMap, "projectPart") ??
-    pickCell(row, ["Часть проекта", "projectPart", "Объект", "Часть", "Зона"]);
-  const projectPart = parseProjectPart(projectPartRaw ?? "");
 
   return {
-    itemCodeRaw,
-    unit,
-    supplier,
-    contract,
-    status,
-    volumePlan,
-    volumeFact,
-    pricePlan,
-    priceFact,
-    planCost,
-    factCost,
-    supplyPlanDate,
-    contractPlanDate,
-    supplyFactDate,
-    contractFactDate,
-    projectPart,
+    items,
+    reportDate: options?.reportDate ?? null,
+    importedRows: items.length,
+    positionCount,
+    groupCount,
+    errorRows,
+    skippedEmptyRows,
   };
 }
 
-/**
- * Полная замена реестра из CSV.
- * Одна строка файла → одна позиция ТМЦ (без склейки дубликатов по имени/этапу).
- */
-export function normalizeTmcCsvRows(rows: Record<string, unknown>[], headers?: string[]): TMCItem[] {
-  if (!headers || headers.length === 0) {
-    console.warn("[tmc CSV] normalizeTmcCsvRows: не переданы заголовки столбцов");
-    return [];
-  }
-
-  const metric = detectTripletMetricLayout(headers);
-  const colMap = buildTmcColumnMap(headers);
-
-  const trimmed = dropLeadingJunkRows(rows);
-  const resolved = resolveTmcRowsWithCarryForward(trimmed, headers, colMap);
-
-  const usable = resolved.filter((x) => {
-    if (!x.name.trim()) return false;
-    if (isJunkTmcLabel(x.name)) return false;
-    return true;
+/** Полный пайплайн: text → items + meta. */
+export function importTmcProcurementCsvText(text: string): TmcNormalizeResult & {
+  headers: string[];
+  meta: TmcCsvParseMeta;
+} {
+  const parsed = parseTmcCsvText(text);
+  const normalized = normalizeTmcCsvRowsWithMeta(parsed.rows, parsed.headers, {
+    reportDate: parsed.meta.reportDate,
   });
+  return {
+    ...normalized,
+    reportDate: parsed.meta.reportDate,
+    headers: parsed.headers,
+    meta: {
+      ...parsed.meta,
+      positionCount: normalized.positionCount,
+      groupCount: normalized.groupCount,
+      errorRows: parsed.meta.errorRows + normalized.errorRows,
+      skippedEmptyRows: parsed.meta.skippedEmptyRows + normalized.skippedEmptyRows,
+    },
+  };
+}
 
-  if (typeof console !== "undefined") {
-    console.log({
-      parsedRows: usable.length,
-      mappedColumns: describeTmcColumnMap(headers, colMap),
-      metricLayout: metric.layout,
-      tripletColumnStart: metric.tripletStart,
-    });
-  }
+export async function importTmcProcurementCsvFile(file: File) {
+  const text = await readCsvFileTextSmart(file);
+  return importTmcProcurementCsvText(text);
+}
 
-  const out: TMCItem[] = [];
-  let idx = 0;
-  let tripletSampleDone = false;
-
-  for (const { row, name, stage } of usable) {
-    idx += 1;
-    const slice = parseTmcCsvRowSlice(row, headers, colMap, metric);
-
-    if (metric.layout === "triplet" && !tripletSampleDone) {
-      tripletSampleDone = true;
-      assertTripletFirstRowSample(slice);
-      if (typeof console !== "undefined") {
-        console.log({
-          volumePlan: slice.volumePlan,
-          volumeFact: slice.volumeFact,
-          pricePlan: slice.pricePlan,
-          priceFact: slice.priceFact,
-          costPlan: slice.planCost,
-          costFact: slice.factCost,
-        });
-      }
-    }
-
-    let gprStage = stage.trim();
-    if (!gprStage) gprStage = inferGprStageFromItemCode(slice.itemCodeRaw.trim());
-
-    const itemCode = slice.itemCodeRaw.trim() || `2.05.99.${String(idx).padStart(3, "0")}`;
-
-    const draft: TMCItem = {
-      id: newIdFallback(idx),
-      itemCode,
-      name: name.trim(),
-      gprStage,
-      unit: slice.unit.trim() || "шт",
-      volumePlan: slice.volumePlan,
-      volumeFact: slice.volumeFact,
-      pricePlan: slice.pricePlan,
-      priceFact: slice.priceFact,
-      totalPlan: 0,
-      totalFact: 0,
-      supplier: slice.supplier.trim(),
-      contract: slice.contract.trim(),
-      status: slice.status,
-      planCost: slice.planCost,
-      factCost: slice.factCost,
-      supplyPlanDate: slice.supplyPlanDate,
-      contractPlanDate: slice.contractPlanDate,
-      supplyFactDate: slice.supplyFactDate,
-      contractFactDate: slice.contractFactDate,
-      projectPart: slice.projectPart,
-    };
-
-    out.push(syncTmcFinancials(draft));
-  }
-
-  return out;
+/** Проверка «валидности» для diff: группы и позиции сохраняются. */
+export function isValidTmcRow(item: TMCItem): boolean {
+  if (item.rowKind === "section") return true;
+  if (item.rowKind === "group") return Boolean(item.itemCode || item.stage);
+  if (item.rowKind === "position") return Boolean(item.name.trim());
+  return Boolean(item.stage || item.name || item.itemCode);
 }

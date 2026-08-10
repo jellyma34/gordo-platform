@@ -4,6 +4,7 @@ import { readCsvFileTextSmart } from "@/lib/csvTextEncoding";
 import { ruDateCellToIsoOrNull } from "@/lib/gprReportCsv";
 import type { ProjectPartKey } from "@/lib/gprUtils";
 import {
+  createEmptyTmcItem,
   syncTmcFinancials,
   TMC_GPR_STAGE_ROOT_CODE,
   supplyPlanProcurementStatusToSupplyStatus,
@@ -212,13 +213,10 @@ function deriveSupplyStatus(volumePlan: number, volumeOrdered: number): TmcSuppl
   );
 }
 
-function supplyPlanItemId(itemCode: string, index: number): string {
-  const code = itemCode.trim();
-  if (code) return `tmc-sp-${code.replace(/\s+/g, "")}`;
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `tmc-sp-${Date.now()}-${index}`;
+function supplyPlanItemId(itemCode: string, index: number, name = ""): string {
+  const code = (itemCode.trim() || "nocode").replace(/\s+/g, "");
+  const nameKey = name.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 40);
+  return `tmc-sp:i${index}:${code}:${nameKey}`;
 }
 
 function getCell(row: Record<string, string>, headers: string[], colMap: SupplyPlanColumnMap, key: SupplyPlanColumnKey): string {
@@ -343,30 +341,31 @@ export function normalizeSupplyPlanCsvRows(
 
     const gprStage = inferGprStageFromItemCode(itemCode, workGroup);
     const status = deriveSupplyStatus(volumePlan, volumeFact);
+    const code = itemCode.trim() || `2.05.99.${String(idx).padStart(3, "0")}`;
 
-    const draft: TMCItem = {
-      id: supplyPlanItemId(itemCode, idx),
-      itemCode: itemCode.trim() || `2.05.99.${String(idx).padStart(3, "0")}`,
+    const draft = createEmptyTmcItem(defaultProjectPart, {
+      id: supplyPlanItemId(itemCode, idx, name),
+      sourceRowNumber: idx + 1,
+      sourceCode: code,
+      itemCode: code,
+      rowKind: "position",
       name,
+      stage: gprStage,
       gprStage,
       unit,
+      plannedQuantity: volumePlan,
+      actualQuantity: volumeFact,
       volumePlan,
       volumeFact,
-      pricePlan,
-      priceFact,
-      totalPlan: 0,
-      totalFact: 0,
-      supplier: "",
-      contract: "",
       status,
-      planCost,
-      factCost: factCost != null && factCost > 0 ? factCost : null,
+      statusRaw: status,
+      statusCategory:
+        status === "поставлено" ? "delivered" : status === "частично" ? "partial" : "plan",
+      deliveryPlanDate: gprEndDate,
       supplyPlanDate: gprEndDate,
-      supplyFactDate: null,
+      gprStartDate: gprStartDate,
       contractPlanDate: gprStartDate,
-      contractFactDate: null,
-      projectPart: defaultProjectPart,
-    };
+    });
 
     items.push(syncTmcFinancials(draft));
   }

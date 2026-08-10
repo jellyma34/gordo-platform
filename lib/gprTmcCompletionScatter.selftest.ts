@@ -11,6 +11,7 @@ import {
   type GprTmcDependencyPoint,
 } from "./gprTmcDependency";
 import type { TMCItem } from "./tmcData";
+import { createEmptyTmcItem } from "./tmcData";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -90,29 +91,21 @@ const children = listGprDirectChildWorkCodes(childTasks, "2.05.04");
 assert(children.join(",") === "2.05.04.01,2.05.04.02", "direct child work codes");
 
 const tmcItems: TMCItem[] = [
-  {
+  createEmptyTmcItem("residential", {
     id: "1",
     itemCode: "2.05.04.01",
     name: "Арматура А500С",
     gprStage: "2.05.04.01",
+    stage: "2.05.04.01",
     unit: "т",
     volumePlan: 10,
     volumeFact: 4.5,
-    pricePlan: 100,
-    priceFact: 100,
-    totalPlan: 1000,
-    totalFact: 450,
-    supplier: "",
-    contract: "",
-    status: "partial",
-    planCost: 1000,
-    factCost: 450,
-    supplyPlanDate: null,
-    supplyFactDate: null,
-    contractPlanDate: null,
-    contractFactDate: null,
-    projectPart: "residential",
-  },
+    plannedQuantity: 10,
+    actualQuantity: 4.5,
+    status: "частично",
+    statusCategory: "partial",
+    statusRaw: "частично",
+  }),
 ];
 const tmcLines = listTmcSupplyLinesForWorkCode(tmcItems, "2.05.04");
 assert(tmcLines.length === 1 && tmcLines[0]?.supplyPercent === 45, "tmc line supply");

@@ -33,6 +33,8 @@ export {
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,

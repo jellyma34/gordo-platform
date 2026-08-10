@@ -325,8 +325,12 @@ function TmcProcurementPointLabels({
   );
 }
 
-function formatDynamicsAxisTick(value: number, unit: TmcDynamicsChartUnit): string {
-  if (unit === "count") return `${value} шт.`;
+function formatDynamicsAxisTick(
+  value: number,
+  unit: TmcDynamicsChartUnit,
+  countUnitLabel = "шт.",
+): string {
+  if (unit === "count") return `${value} ${countUnitLabel}`;
   if (unit === "rub") {
     const rounded = Math.round(value);
     return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
@@ -345,19 +349,20 @@ function formatDynamicsMlnRubValue(n: number): string {
   return `${sign}${text} млн ₽`;
 }
 
-function formatDynamicsCountValue(n: number): string {
+function formatDynamicsCountValue(n: number, countUnitLabel = "шт."): string {
   const sign = n < 0 ? "−" : "";
-  return `${sign}${Math.abs(Math.round(n))} шт.`;
+  return `${sign}${Math.abs(Math.round(n))} ${countUnitLabel}`;
 }
 
 function formatDynamicsTooltipValue(
   value: unknown,
   unit: TmcDynamicsChartUnit,
+  countUnitLabel = "шт.",
 ): string {
   if (value == null) return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
-  if (unit === "count") return formatDynamicsCountValue(n);
+  if (unit === "count") return formatDynamicsCountValue(n, countUnitLabel);
   if (unit === "rub") {
     const rounded = Math.round(n);
     return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(rounded)} ₽`;
@@ -365,16 +370,24 @@ function formatDynamicsTooltipValue(
   return formatDynamicsMlnRubValue(n);
 }
 
+export type TmcDynamicsDeviationTooltipCopy = {
+  planLabel?: string;
+  factLabel?: string;
+  countUnitLabel?: string;
+};
+
 function TmcDynamicsPlanFactDeviationTooltip({
   active,
   payload,
   label,
   valueUnit,
+  copy,
 }: {
   active?: boolean;
   payload?: Array<{ payload?: TmcProcurementChartRow }>;
   label?: string;
   valueUnit: TmcDynamicsChartUnit;
+  copy?: TmcDynamicsDeviationTooltipCopy;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
@@ -383,8 +396,13 @@ function TmcDynamicsPlanFactDeviationTooltip({
   const plan = row.plan ?? 0;
   const fact = row.fact;
   const deviation = fact != null ? fact - plan : null;
+  const countUnitLabel = copy?.countUnitLabel ?? "шт.";
   const formatValue =
-    valueUnit === "count" ? formatDynamicsCountValue : formatDynamicsMlnRubValue;
+    valueUnit === "count"
+      ? (n: number) => formatDynamicsCountValue(n, countUnitLabel)
+      : formatDynamicsMlnRubValue;
+  const planLabel = copy?.planLabel ?? "План";
+  const factLabel = copy?.factLabel ?? "Факт";
 
   return (
     <div
@@ -397,10 +415,10 @@ function TmcDynamicsPlanFactDeviationTooltip({
     >
       {label ? <div className="mb-1 font-semibold text-slate-100">{label}</div> : null}
       <div className="tabular-nums text-slate-300">
-        План: <span className="font-medium text-white">{formatValue(plan)}</span>
+        {planLabel}: <span className="font-medium text-white">{formatValue(plan)}</span>
       </div>
       <div className="tabular-nums text-slate-300">
-        Факт:{" "}
+        {factLabel}:{" "}
         <span className="font-medium text-white">
           {fact != null ? formatValue(fact) : "—"}
         </span>
@@ -422,6 +440,7 @@ export function TmcProcurementDynamicsChart({
   labels = DEFAULT_DYNAMICS_LABELS,
   planFactDeviationTooltip = false,
   planOnly = false,
+  deviationTooltipCopy,
 }: {
   chartData: TmcProcurementChartRow[];
   chartGradId: string;
@@ -432,7 +451,10 @@ export function TmcProcurementDynamicsChart({
   planFactDeviationTooltip?: boolean;
   /** Только линия плана (без факта и заливки). */
   planOnly?: boolean;
+  /** Подписи tooltip отклонения (напр. «План начала работ»). */
+  deviationTooltipCopy?: TmcDynamicsDeviationTooltipCopy;
 }) {
+  const countUnitLabel = deviationTooltipCopy?.countUnitLabel ?? "шт.";
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ComposedChart
@@ -459,12 +481,15 @@ export function TmcProcurementDynamicsChart({
         />
         <YAxis
           tick={{ fill: "#94a3b8", fontSize: 11 }}
-          tickFormatter={(v) => formatDynamicsAxisTick(Number(v), valueUnit)}
+          tickFormatter={(v) => formatDynamicsAxisTick(Number(v), valueUnit, countUnitLabel)}
         />
         <Tooltip
           content={
             planFactDeviationTooltip ? (
-              <TmcDynamicsPlanFactDeviationTooltip valueUnit={valueUnit} />
+              <TmcDynamicsPlanFactDeviationTooltip
+                valueUnit={valueUnit}
+                copy={deviationTooltipCopy}
+              />
             ) : undefined
           }
           contentStyle={
@@ -480,7 +505,7 @@ export function TmcProcurementDynamicsChart({
             planFactDeviationTooltip
               ? undefined
               : (value: unknown, name: unknown) => [
-                  formatDynamicsTooltipValue(value, valueUnit),
+                  formatDynamicsTooltipValue(value, valueUnit, countUnitLabel),
                   String(name) === "plan" ? labels.planTooltip : labels.factTooltip,
                 ]
           }

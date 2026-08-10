@@ -7,6 +7,7 @@ import {
 import {
   classifyTmcSupplyPlanProcurementStatus,
   computeSupplyPlanProcurementDiagnostics,
+  createEmptyTmcItem,
   deriveTmcSupplyPlanProcurementStatus,
   syncTmcFinancials,
   type TMCItem,
@@ -28,7 +29,7 @@ for (const [plan, ordered, expected] of cases) {
 }
 
 const baseItem = (overrides: Partial<TMCItem>): TMCItem =>
-  syncTmcFinancials({
+  createEmptyTmcItem("residential", {
     id: "t1",
     itemCode: "2.05.01.001",
     name: "Test",
@@ -36,20 +37,8 @@ const baseItem = (overrides: Partial<TMCItem>): TMCItem =>
     unit: "шт",
     volumePlan: 10,
     volumeFact: 0,
-    pricePlan: 100,
-    priceFact: 0,
-    totalPlan: 0,
-    totalFact: 0,
-    supplier: "",
-    contract: "",
-    status: "план",
-    planCost: 1000,
-    factCost: null,
-    supplyPlanDate: null,
-    supplyFactDate: null,
-    contractPlanDate: null,
-    contractFactDate: null,
-    projectPart: "residential",
+    plannedQuantity: 10,
+    actualQuantity: 0,
     ...overrides,
   });
 
@@ -58,9 +47,9 @@ if (classifyTmcSupplyPlanProcurementStatus(baseItem({})) !== "notPurchased") {
 }
 
 const diag = computeSupplyPlanProcurementDiagnostics([
-  baseItem({ volumeFact: 0, planCost: 1000, factCost: null }),
-  baseItem({ id: "t2", volumeFact: 5, planCost: 2000, factCost: 900 }),
-  baseItem({ id: "t3", volumeFact: 10, planCost: 3000, factCost: 3100 }),
+  baseItem({ volumeFact: 0, actualQuantity: 0 }),
+  baseItem({ id: "t2", volumeFact: 5, actualQuantity: 5 }),
+  baseItem({ id: "t3", volumeFact: 10, actualQuantity: 10, statusCategory: "delivered", status: "поставлено" }),
 ]);
 
 if (diag.totalMaterials !== 3) throw new Error(`totalMaterials expected 3, got ${diag.totalMaterials}`);
@@ -69,11 +58,11 @@ if (diag.partiallyPurchased !== 1) {
   throw new Error(`partiallyPurchased expected 1, got ${diag.partiallyPurchased}`);
 }
 if (diag.fullyPurchased !== 1) throw new Error(`fullyPurchased expected 1, got ${diag.fullyPurchased}`);
-if (diag.totalPlanCostRub !== 6000) {
-  throw new Error(`totalPlanCostRub expected 6000, got ${diag.totalPlanCostRub}`);
+if (diag.totalPlanCostRub !== 0) {
+  throw new Error(`totalPlanCostRub expected 0 (no price in new model), got ${diag.totalPlanCostRub}`);
 }
-if (diag.totalFactCostRub !== 4000) {
-  throw new Error(`totalFactCostRub expected 4000, got ${diag.totalFactCostRub}`);
+if (diag.totalFactCostRub !== 0) {
+  throw new Error(`totalFactCostRub expected 0 (no price in new model), got ${diag.totalFactCostRub}`);
 }
 
 const today = new Date("2026-07-13T12:00:00");

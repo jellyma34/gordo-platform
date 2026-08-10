@@ -885,7 +885,13 @@ export function isGprPlanFactChartExcludedMiscStageName(name: string | null | un
   return text.includes("Прочие") || text.includes("Прочее");
 }
 
-function filterGprTasksForPlanFactBarLevel(
+/**
+ * Отбор задач ГПР по режиму детализации bar-chart «План vs Факт»:
+ * simplified → WBS level 1 (корни 2.04/2.05/…);
+ * detailed → WBS level 2;
+ * full → листья WBS в партиции.
+ */
+export function filterGprTasksForPlanFactBarLevel(
   tasks: GPRTask[],
   barLevel: PlanFactTasksBarLevel,
   partKey: PlanFactWorkTypePartKey,
@@ -920,6 +926,23 @@ function filterGprTasksForPlanFactBarLevel(
     }
   }
   return out;
+}
+
+/**
+ * Отбор для графика «начало работ» в ТМЦ.
+ * Упрощённо / Детально — как у «План vs Факт».
+ * Все этапы — все узлы ветки (без leaf-фильтра), чтобы показать все ID, связанные с ТМЦ.
+ */
+export function filterGprTasksForTmcStartChart(
+  tasks: GPRTask[],
+  barLevel: PlanFactTasksBarLevel,
+  partKey: PlanFactWorkTypePartKey,
+): GPRTask[] {
+  if (barLevel === "full") {
+    const roots = planFactBranchRoots(partKey);
+    return tasks.filter((t) => taskMatchesPlanFactBranch(t, roots));
+  }
+  return filterGprTasksForPlanFactBarLevel(tasks, barLevel, partKey);
 }
 
 /** Шифр этапа «Монолитные конструкции» — визуальное разбиение только в «Все этапы». */

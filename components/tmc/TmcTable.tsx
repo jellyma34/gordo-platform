@@ -11,194 +11,96 @@ import {
   type ChangeEvent,
 } from "react";
 import {
-  analyzeFourPlanFactDates,
-  analyzeGprCodeInList,
   compareGprCodesByNumericPath,
-  getStatusByDeviation,
-  GPR_CODE_FORMAT_RE,
-  mergeGprRowIssues,
-  normalizeGprCodeFinal,
   partIdToProjectPartKey,
-  sanitizeGprCodeTyping,
   type ProjectPartKey,
 } from "@/lib/gprUtils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { bulkImportTmcToDb, listTmcFromDb } from "@/lib/constructionApi";
-import { API_URL } from "@/lib/apiClient";
-import { getGprStorageMode, isGprLocalStorageMode } from "@/lib/gprStorageMode";
+import { isGprLocalStorageMode } from "@/lib/gprStorageMode";
 import {
   getGprProjectId,
   loadPersistedTmcItems,
   postTmcImportToApi,
   saveTmcTasksToLocalStorage,
 } from "@/lib/tmcImportPersistence";
-import { normalizeTmcCsvRows, parseTmcCsvFile } from "@/lib/tmcCsvImport";
-import { parseSupplyPlanCsvFile } from "@/lib/supplyPlanCsvImport";
-import { syncSupplyPlanToTmc, type SupplyPlanSyncStats } from "@/lib/syncSupplyPlanToTmc";
+import { importTmcProcurementCsvFile } from "@/lib/tmcCsvImport";
 import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
-  computeTmcDataDiagnostics,
-  logTmcDataPipelineDiagnostics,
-} from "@/lib/tmcPresentationAnalytics";
-import {
-  computeTmcTotalsFromVolumes,
-  suggestNextTmcItemCode,
+  createEmptyTmcItem,
   syncTmcFinancials,
-  TMC_DATA,
-  tmcFactReferenceDate,
-  tmcPlanReferenceDate,
   type TMCItem,
-  type TmcSupplyStatus,
+  type TmcStatusCategory,
 } from "@/lib/tmcData";
+import {
+  formatTmcDeviationDays,
+  formatTmcIsoRu,
+  tmcDateDeviationTone,
+} from "@/lib/tmcProcurementAnalytics";
 import { formatStoredDateForUi } from "@/lib/ruIsoDate";
-import { useAppMode } from "@/components/mode/ModeProvider";
 import { GprDateField } from "@/components/ui/GprDateField";
-import { gprIssueStatusTitle } from "@/components/ui/GprRowIssueIndicator";
 
-type Traffic = "green" | "yellow" | "red" | "gray" | "overdue_not_started";
-
-/** Риск закупки по фактам (объём / сумма) и сравнению с планом. */
-type ProcurementRisk = "green" | "yellow" | "red";
-
-const COLORS = {
-  green: "#22c55e",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-  gray: "#6b7280",
-  overdue_not_started: "#dc2626",
-} as const;
-
-function parseDecimalInput(s: string): number {
+function parseDecimalInput(s: string): number | null {
   const t = s.trim().replace(/\s/g, "").replace(",", ".");
-  if (!t) return 0;
+  if (!t) return null;
   const n = Number(t);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }
 
-function fmtRubCompact(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "—";
-  return `${(n / 1_000_000).toFixed(2)} млн`;
-}
-
-function fmtQty(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  if (n === 0) return "—";
+function fmtQty(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(n);
 }
 
-function fmtPriceRub(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "—";
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n);
-}
-
-/** Подсказки для шапки: как в Excel/PDF + понятные формулировки для презентации. */
-const TMC_HEAD_HELP = {
-  code: "Код позиции ТМЦ в иерархии ГПР (шифр).",
-  name: "Наименование материала или услуги.",
-  stage: "Этап производства работ по справочнику ГПР.",
-  grpSupply: "Сроки поставки материала на объект (план и факт).",
-  supplyPlan:
-    "Дата поставки (план) — запланированная дата поставки ТМЦ на объект или на склад.",
-  supplyFact: "Дата поставки (факт) — фактическая дата поставки ТМЦ.",
-  grpContract: "Даты заключения договора с поставщиком (план и факт).",
-  contractPlan: "Дата договора (план) — когда планируется подписание договора.",
-  contractFact: "Дата договора (факт) — дата заключённого договора.",
-  grpVolume: "Объёмы закупки в выбранной единице измерения (как в реестре PDF).",
-  volumePlan: "Объем (план) — запланированное количество.",
-  volumeFact: "Объем (факт) — фактически поставленное количество.",
-  grpPrice: "Цена за единицу номенклатуры без учёта итоговой суммы строки.",
-  pricePlan: "Цена за ед. (план) — плановая цена закупки за единицу.",
-  priceFact: "Цена за ед. (факт) — фактическая цена за единицу.",
-  grpCost: "Стоимость строки: объём × цена (пересчитывается автоматически).",
-  costPlan: "Стоимость (план) — плановая сумма по строке.",
-  costFact: "Стоимость (факт) — фактическая сумма по строке.",
-  unit: "Единица измерения (кг, м³, шт и т.п.), как в реестре ТМЦ.",
-  supplier: "Поставщик или контрагент по строке.",
-  contractNo: "Номер и примечание к договору с поставщиком.",
-  deviation: "Отклонение фактической опорной даты от плановой, в календарных днях.",
-  traffic:
-    "Закуплено / частично / не закуплено — по фактическому объёму и сумме относительно плана (без учёта поставщика и договора).",
-  actions: "Редактировать или удалить строку.",
-} as const;
-
-function ms(iso: string | null | undefined) {
-  if (!iso?.trim()) return null;
-  const value = new Date(`${iso.trim()}T00:00:00`).getTime();
-  return Number.isNaN(value) ? null : value;
-}
-
-function deviationDays(item: TMCItem): number | null {
-  const pr = tmcPlanReferenceDate(item);
-  const fr = tmcFactReferenceDate(item);
-  if (!pr || !fr) return null;
-  const p = ms(pr);
-  const f = ms(fr);
-  if (p === null || f === null) return null;
-  return Math.round((f - p) / (1000 * 60 * 60 * 24));
-}
-
-function statusOf(item: TMCItem): Traffic {
-  const factRef = tmcFactReferenceDate(item);
-  if (!factRef) {
-    const planRef = tmcPlanReferenceDate(item);
-    if (!planRef) return "gray";
-    const p = ms(planRef);
-    const today = new Date();
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    if (p !== null && p < todayStart) return "overdue_not_started";
-    return "gray";
-  }
-  const d = deviationDays(item);
-  if (d === null) return "gray";
-  return getStatusByDeviation(d) as Traffic;
-}
-
-/**
- * Риск закупки по плану снабжения: объём (заказан) vs объём (план).
- */
-export function procurementRiskFromVolumes(item: TMCItem): ProcurementRisk {
-  const ordered = Math.max(0, item.volumeFact);
-  if (ordered <= 0) return "red";
-  if (item.volumePlan > 0 && ordered < item.volumePlan) return "yellow";
-  return "green";
+function deviationClass(days: number | null | undefined, forQuantity = false): string {
+  if (forQuantity) return "text-slate-600";
+  const tone = tmcDateDeviationTone(days);
+  if (tone === "danger") return "font-semibold text-rose-600";
+  if (tone === "ok") return "text-emerald-600";
+  if (tone === "early") return "text-emerald-700";
+  return "text-slate-500";
 }
 
 type EditableTmc = {
   id: string;
   itemCode: string;
+  stage: string;
   name: string;
-  gprStage: string;
-  unit: string;
-  volumePlan: string;
-  volumeFact: string;
-  pricePlan: string;
-  priceFact: string;
-  supplier: string;
-  contract: string;
-  status: TmcSupplyStatus;
-  supplyPlanDate: string;
-  supplyFactDate: string;
+  gprStartDate: string;
+  requestPlanDate: string;
+  requestFactDate: string;
   contractPlanDate: string;
   contractFactDate: string;
+  deliveryPlanDate: string;
+  deliveryFactDate: string;
+  unit: string;
+  plannedQuantity: string;
+  actualQuantity: string;
+  supplier: string;
+  contract: string;
+  statusRaw: string;
+  comment: string;
 };
 
 const EMPTY_FORM: EditableTmc = {
   id: "",
   itemCode: "",
+  stage: "",
   name: "",
-  gprStage: "",
-  unit: "",
-  volumePlan: "",
-  volumeFact: "",
-  pricePlan: "",
-  priceFact: "",
-  supplier: "",
-  contract: "",
-  status: "план",
-  supplyPlanDate: "",
-  supplyFactDate: "",
+  gprStartDate: "",
+  requestPlanDate: "",
+  requestFactDate: "",
   contractPlanDate: "",
   contractFactDate: "",
+  deliveryPlanDate: "",
+  deliveryFactDate: "",
+  unit: "",
+  plannedQuantity: "",
+  actualQuantity: "",
+  supplier: "",
+  contract: "",
+  statusRaw: "",
+  comment: "",
 };
 
 export type TmcTableHandle = {
@@ -209,10 +111,6 @@ export type TmcTableHandle = {
 type TmcTableProps = {
   embedded?: boolean;
   activePartId: number;
-  /**
-   * Короткие групповые заголовки и подписи «План» / «Факт» в подстроке (удобно для презентации).
-   * Если не задано — берётся из режима: `presentation` → компактно, иначе полные названия как в Excel.
-   */
   compactHeaders?: boolean;
 };
 
@@ -220,6 +118,8 @@ function sortTmcInPart(items: TMCItem[], part: ProjectPartKey): TMCItem[] {
   const rest = items.filter((x) => x.projectPart !== part);
   const partRows = items.filter((x) => x.projectPart === part);
   const sorted = [...partRows].sort((a, b) => {
+    const rowCmp = (a.sourceRowNumber || 0) - (b.sourceRowNumber || 0);
+    if (rowCmp !== 0) return rowCmp;
     const codeCmp = compareGprCodesByNumericPath(a.itemCode ?? "", b.itemCode ?? "");
     if (codeCmp !== 0) return codeCmp;
     return (a.id ?? "").localeCompare(b.id ?? "");
@@ -227,978 +127,653 @@ function sortTmcInPart(items: TMCItem[], part: ProjectPartKey): TMCItem[] {
   return [...rest, ...sorted];
 }
 
-function isoOrEmptyOk(s: string): boolean {
-  const t = s.trim();
-  return !t || /^\d{4}-\d{2}-\d{2}$/.test(t);
+function toForm(item: TMCItem): EditableTmc {
+  return {
+    id: item.id,
+    itemCode: item.itemCode || item.sourceCode || "",
+    stage: item.stage || item.gprStage || "",
+    name: item.name || "",
+    gprStartDate: item.gprStartDate || "",
+    requestPlanDate: item.requestPlanDate || "",
+    requestFactDate: item.requestFactDate || "",
+    contractPlanDate: item.contractPlanDate || "",
+    contractFactDate: item.contractFactDate || "",
+    deliveryPlanDate: item.deliveryPlanDate || item.supplyPlanDate || "",
+    deliveryFactDate: item.deliveryFactDate || item.supplyFactDate || "",
+    unit: item.unit || "",
+    plannedQuantity: item.plannedQuantity != null ? String(item.plannedQuantity) : "",
+    actualQuantity: item.actualQuantity != null ? String(item.actualQuantity) : "",
+    supplier: item.supplier || "",
+    contract: item.contract || "",
+    statusRaw: item.statusRaw || "",
+    comment: item.comment || "",
+  };
+}
+
+function fromForm(form: EditableTmc, base: TMCItem, part: ProjectPartKey): TMCItem {
+  const plannedQuantity = parseDecimalInput(form.plannedQuantity);
+  const actualQuantity = parseDecimalInput(form.actualQuantity);
+  return syncTmcFinancials({
+    ...base,
+    projectPart: part,
+    itemCode: form.itemCode.trim(),
+    sourceCode: form.itemCode.trim() || base.sourceCode,
+    stage: form.stage.trim(),
+    gprStage: form.stage.trim(),
+    name: form.name.trim(),
+    gprStartDate: form.gprStartDate.trim() || null,
+    requestPlanDate: form.requestPlanDate.trim() || null,
+    requestFactDate: form.requestFactDate.trim() || null,
+    contractPlanDate: form.contractPlanDate.trim() || null,
+    contractFactDate: form.contractFactDate.trim() || null,
+    deliveryPlanDate: form.deliveryPlanDate.trim() || null,
+    deliveryFactDate: form.deliveryFactDate.trim() || null,
+    supplyPlanDate: form.deliveryPlanDate.trim() || null,
+    supplyFactDate: form.deliveryFactDate.trim() || null,
+    unit: form.unit.trim(),
+    plannedQuantity,
+    actualQuantity,
+    volumePlan: plannedQuantity ?? 0,
+    volumeFact: actualQuantity ?? 0,
+    supplier: form.supplier.trim(),
+    contract: form.contract.trim(),
+    statusRaw: form.statusRaw.trim(),
+    comment: form.comment.trim(),
+    rowKind: form.name.trim() ? "position" : base.rowKind === "group" ? "group" : "position",
+  });
 }
 
 const tmcLocalMode = isGprLocalStorageMode();
 
+function statusBadge(category: TmcStatusCategory, raw: string) {
+  const label = raw.trim() || category;
+  const cls =
+    category === "delivered"
+      ? "bg-emerald-50 text-emerald-800"
+      : category === "partial"
+        ? "bg-amber-50 text-amber-800"
+        : category === "plan"
+          ? "bg-sky-50 text-sky-800"
+          : "bg-slate-100 text-slate-600";
+  return (
+    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {label || "—"}
+    </span>
+  );
+}
+
 export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTable(
-  { embedded = false, activePartId, compactHeaders: compactHeadersProp },
+  { embedded = false, activePartId },
   ref,
 ) {
-  const { mode } = useAppMode();
-  const compactHeaders =
-    compactHeadersProp !== undefined ? compactHeadersProp : mode === "presentation";
-
   const activeProjectPart: ProjectPartKey = partIdToProjectPartKey(activePartId);
-
   const { token, hydrated } = useAuth();
   const projectId = useMemo(() => getGprProjectId(), []);
 
-  const [items, setItems] = useState<TMCItem[]>(() =>
-    tmcLocalMode ? TMC_DATA.map((x) => ({ ...x })) : [],
-  );
-  const lastSavedTmcJsonRef = useRef<string | null>(null);
-  const [tmcPersistReady, setTmcPersistReady] = useState(!tmcLocalMode);
-  const [tmcDbLoaded, setTmcDbLoaded] = useState(tmcLocalMode);
-  const csvInputRef = useRef<HTMLInputElement>(null);
-  const supplyPlanCsvInputRef = useRef<HTMLInputElement>(null);
-  const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
-  const [supplyPlanSyncStats, setSupplyPlanSyncStats] = useState<SupplyPlanSyncStats | null>(null);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | ProcurementRisk>("all");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [items, setItems] = useState<TMCItem[]>([]);
+  const [baseline, setBaseline] = useState<TMCItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<EditableTmc>(EMPTY_FORM);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importStats, setImportStats] = useState<TmcImportDiffStats | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  const persist = useCallback(
+    async (next: TMCItem[]) => {
+      const sorted = sortTmcInPart(next, activeProjectPart);
+      setItems(sorted);
+      if (tmcLocalMode) {
+        saveTmcTasksToLocalStorage(projectId, sorted);
+        await postTmcImportToApi(projectId, sorted);
+      } else if (token) {
+        await bulkImportTmcToDb(token, sorted);
+      }
+      window.dispatchEvent(new Event("gordo-tmc-saved"));
+    },
+    [activeProjectPart, projectId, token],
+  );
+
+  const reload = useCallback(async () => {
     if (tmcLocalMode) {
-      lastSavedTmcJsonRef.current = null;
-      setTmcPersistReady(false);
-      let cancelled = false;
-      (async () => {
-        try {
-          const r = await loadPersistedTmcItems(projectId);
-          if (cancelled) return;
-          setItems(r.items);
-          lastSavedTmcJsonRef.current = r.bootstrapJson;
-        } catch (e) {
-          console.error(e);
-        } finally {
-          if (!cancelled) setTmcPersistReady(true);
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
+      const r = await loadPersistedTmcItems(projectId);
+      const sorted = sortTmcInPart(r.items, activeProjectPart);
+      setItems(sorted);
+      setBaseline(sorted);
+      return;
     }
     if (!hydrated || !token) return;
-    let cancelled = false;
-    setTmcDbLoaded(false);
-    (async () => {
-      try {
-        const rows = await listTmcFromDb(token);
-        if (!cancelled) setItems(rows);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (!cancelled) setTmcDbLoaded(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tmcLocalMode, hydrated, token, projectId]);
+    const rows = await listTmcFromDb(token);
+    const sorted = sortTmcInPart(rows, activeProjectPart);
+    setItems(sorted);
+    setBaseline(sorted);
+  }, [activeProjectPart, hydrated, projectId, token]);
 
   useEffect(() => {
-    if (!tmcLocalMode || !tmcPersistReady || typeof window === "undefined") return;
-    try {
-      const next = JSON.stringify(items);
-      if (next === lastSavedTmcJsonRef.current) return;
-      lastSavedTmcJsonRef.current = next;
-      saveTmcTasksToLocalStorage(projectId, items);
-      void postTmcImportToApi(projectId, items);
-    } catch (e) {
-      console.error(e);
-    }
-  }, [items, tmcPersistReady, projectId]);
+    void reload();
+  }, [reload]);
 
-  const rows = useMemo(
-    () =>
-      items
-        .filter((item) => item.projectPart === activeProjectPart)
-        .map((item) => {
-          const deviation = deviationDays(item);
-          const scheduleTraffic = statusOf(item);
-          const procurementRisk = procurementRiskFromVolumes(item);
-          return { ...item, deviation, scheduleTraffic, procurementRisk };
-        }),
+  const partItems = useMemo(
+    () => items.filter((i) => i.projectPart === activeProjectPart),
     [items, activeProjectPart],
   );
 
-  const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows.filter((row) => {
-      const byQuery =
-        !q ||
-        (row.name ?? "").toLowerCase().includes(q) ||
-        (row.itemCode ?? "").toLowerCase().includes(q) ||
-        (row.gprStage ?? "").toLowerCase().includes(q);
-      const byStatus = statusFilter === "all" ? true : row.procurementRisk === statusFilter;
-      return byQuery && byStatus;
-    });
-  }, [rows, query, statusFilter]);
-
-  const sortedFilteredRows = useMemo(() => {
-    return [...filteredRows].sort((a, b) => {
-      const codeCmp = compareGprCodesByNumericPath(a.itemCode ?? "", b.itemCode ?? "");
-      if (codeCmp !== 0) return codeCmp;
-      return (a.id ?? "").localeCompare(b.id ?? "");
-    });
-  }, [filteredRows]);
-
-  useEffect(() => {
-    if (!tmcPersistReady) return;
-    logTmcDataPipelineDiagnostics(
-      computeTmcDataDiagnostics(rows, "editor", activeProjectPart),
-    );
-    logTmcDataPipelineDiagnostics(
-      computeTmcDataDiagnostics(items, "editor", `all parts (${items.length} total)`),
-    );
-  }, [rows, items, activeProjectPart, tmcPersistReady]);
-
-  const tmcRowIssues = useMemo(() => {
-    const m = new Map<string, { errors: string[]; warnings: string[] }>();
-    const peers = items.filter((t) => t.projectPart === activeProjectPart);
-    for (const row of sortedFilteredRows) {
-      const rowAsCode = { id: row.id, code: row.itemCode };
-      const peersAsCode = peers.map((t) => ({ id: t.id, code: t.itemCode }));
-      const merged = mergeGprRowIssues(
-        analyzeGprCodeInList(rowAsCode, peersAsCode),
-        analyzeFourPlanFactDates({
-          planStart: row.supplyPlanDate,
-          planEnd: row.contractPlanDate,
-          factStart: row.supplyFactDate,
-          factEnd: row.contractFactDate,
-        }),
-      );
-      if (merged.errors.length > 0 || merged.warnings.length > 0) m.set(row.id, merged);
-    }
-    return m;
-  }, [sortedFilteredRows, items, activeProjectPart]);
-
-  const openCreate = () => {
-    setEditingId(null);
-    const prefix = activeProjectPart === "parking" ? "tmc-p-" : "tmc-";
-    const id = `${prefix}${Date.now()}`;
-    const suggested = suggestNextTmcItemCode(items, activeProjectPart, "Строительство зданий и сооружений");
-    setForm({
-      ...EMPTY_FORM,
-      id,
-      itemCode: suggested,
-      gprStage: "Строительство зданий и сооружений",
-    });
-    setIsModalOpen(true);
-  };
-
-  const openEdit = (row: TMCItem) => {
-    setEditingId(row.id);
-    setForm({
-      id: row.id,
-      itemCode: row.itemCode,
-      name: row.name,
-      gprStage: row.gprStage,
-      unit: row.unit ?? "",
-      volumePlan: String(row.volumePlan ?? ""),
-      volumeFact: String(row.volumeFact ?? ""),
-      pricePlan: String(row.pricePlan ?? ""),
-      priceFact: String(row.priceFact ?? ""),
-      supplier: row.supplier ?? "",
-      contract: row.contract ?? "",
-      status: row.status ?? "план",
-      supplyPlanDate: row.supplyPlanDate ?? "",
-      supplyFactDate: row.supplyFactDate ?? "",
-      contractPlanDate: row.contractPlanDate ?? "",
-      contractFactDate: row.contractFactDate ?? "",
-    });
-    setIsModalOpen(true);
-  };
-
-  const removeItem = (id: string) => {
-    const ok = window.confirm("Удалить позицию ТМЦ?");
-    if (!ok) return;
-    setItems((prev) => prev.filter((x) => x.id !== id));
-  };
-
-  const persist = useCallback(async () => {
-    const peers = items.filter((t) => t.projectPart === activeProjectPart);
-    const asCodes = peers.map((t) => ({ id: t.id, code: t.itemCode }));
-    for (const t of peers) {
-      const merged = mergeGprRowIssues(
-        analyzeGprCodeInList({ id: t.id, code: t.itemCode }, asCodes),
-        analyzeFourPlanFactDates({
-          planStart: t.supplyPlanDate,
-          planEnd: t.contractPlanDate,
-          factStart: t.supplyFactDate,
-          factEnd: t.contractFactDate,
-        }),
-      );
-      if (merged.errors.length > 0) {
-        window.alert(`Исправьте ошибки перед сохранением: ${t.itemCode} — ${merged.errors.join("; ")}`);
-        return;
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const today = Date.now();
+    return partItems.filter((p) => {
+      if (p.rowKind === "section") return false;
+      if (statusFilter !== "all" && p.statusCategory !== statusFilter) return false;
+      if (overdueOnly) {
+        const late =
+          (p.deliveryDeviationDays != null && p.deliveryDeviationDays > 0) ||
+          Boolean(
+            (p.deliveryPlanDate || p.supplyPlanDate) &&
+              !(p.deliveryFactDate || p.supplyFactDate) &&
+              new Date(`${p.deliveryPlanDate || p.supplyPlanDate}T12:00:00`).getTime() < today,
+          );
+        if (!late) return false;
       }
-    }
-    if (tmcLocalMode) {
-      saveTmcTasksToLocalStorage(projectId, items);
-      void postTmcImportToApi(projectId, items);
-      window.dispatchEvent(new Event("gordo-tmc-saved"));
-      return;
-    }
-    if (!token) {
-      window.alert("Требуется авторизация для сохранения в БД");
-      return;
-    }
-    try {
-      const saved = await bulkImportTmcToDb(token, items);
-      setItems(saved);
-      window.dispatchEvent(new Event("gordo-tmc-saved"));
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Не удалось сохранить ТМЦ");
-    }
-  }, [items, activeProjectPart, token, projectId]);
+      if (!q) return true;
+      const hay = [p.itemCode, p.sourceCode, p.stage, p.name, p.supplier, p.contract]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [partItems, search, statusFilter, overdueOnly]);
 
-  const handleTmcCsvImport = useCallback(
+  const handleImport = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
-      if (!tmcLocalMode && !tmcDbLoaded) {
-        window.alert("Дождитесь загрузки данных из БД перед импортом.");
-        return;
-      }
+      setBusy(true);
+      setImportMsg(null);
       try {
-        const { rows, headers } = await parseTmcCsvFile(file);
-        const normalized = normalizeTmcCsvRows(rows, headers);
-        console.group("[TMC debug] CSV import chain");
-        console.log("file:", file.name);
-        console.log("CSV rows", rows.length);
-        console.log("Normalized rows", normalized.length);
-
-        if (normalized.length === 0) {
-          console.groupEnd();
-          setImportStats({
-            total: 0,
-            added: 0,
-            updated: 0,
-            unchanged: 0,
-            skippedInvalid: rows.length,
-          });
-          window.alert(
-            "В файле нет строк с распознаваемым наименованием позиции (или некорректный формат). Смотрите консоль: CSV columns.",
-          );
-          return;
+        const imported = await importTmcProcurementCsvFile(file);
+        if (imported.reportDate) {
+          try {
+            window.localStorage.setItem("tmc_report_date", imported.reportDate);
+          } catch {
+            /* ignore */
+          }
         }
-
-        const scoped = normalized.map((row) => ({ ...row, projectPart: activeProjectPart }));
-        const peersInPart = items.filter((t) => t.projectPart === activeProjectPart);
-        const otherParts = items.filter((t) => t.projectPart !== activeProjectPart);
-        const { result: partResult, stats } = diffTmcImport(peersInPart, scoped, rows.length);
-        const merged = [...otherParts, ...partResult];
-        const removedFromPart = peersInPart.length - partResult.length;
-        console.log("TMC before import:", peersInPart.length, `(part: ${activeProjectPart})`);
-        console.log("TMC parsed from CSV:", normalized.length, `(raw rows: ${rows.length})`);
-        console.log("TMC after import:", partResult.length, `(removed from part: ${removedFromPart})`);
-        console.log("TMC stored:", merged.length, `(other parts preserved: ${otherParts.length})`);
-        console.log("import stats:", stats);
-        console.groupEnd();
+        const scoped = imported.items;
+        const peersOther = items.filter((x) => x.projectPart !== activeProjectPart);
+        // Импорт содержит обе части проекта — заменяем реестр целиком.
+        const { result, stats } = diffTmcImport(items, scoped, imported.meta.dataRowCount);
+        const merged = result.length > 0 ? result : [...peersOther, ...scoped];
+        await persist(merged);
+        setBaseline(merged);
         setImportStats(stats);
-        setSupplyPlanSyncStats(null);
-        setItems(merged);
-        if (tmcLocalMode) {
-          saveTmcTasksToLocalStorage(projectId, merged);
-          void postTmcImportToApi(projectId, merged);
-          console.log("[TMC debug] persisted to localStorage:", merged.length);
-        } else if (token) {
-          console.log("[TMC IMPORT] Storage mode:", getGprStorageMode());
-          console.log(
-            "[TMC IMPORT] isGprLocalStorageMode():",
-            isGprLocalStorageMode() ? "local" : "postgres",
-          );
-          console.log("[TMC IMPORT] API URL:", API_URL);
-          console.log("[TMC IMPORT] process.env.NEXT_PUBLIC_API_URL:", process.env.NEXT_PUBLIC_API_URL);
-          console.log(
-            "[TMC IMPORT] window.location.origin:",
-            typeof window !== "undefined" ? window.location.origin : "(unavailable)",
-          );
-          console.log("[TMC IMPORT] Items count:", merged.length);
-          console.log("[TMC IMPORT] First item:", merged[0] ?? null);
-          const saved = await bulkImportTmcToDb(token, merged);
-          console.log("[TMC IMPORT] POST completed");
-          console.log("[TMC IMPORT] Response records:", saved.length);
-          const rows = await listTmcFromDb(token);
-          console.log("[TMC IMPORT] DB records after import:", rows.length);
-          setItems(rows);
-          console.log("[TMC debug] persisted to DB:", rows.length, "records");
-        } else {
-          window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
-        }
-        window.dispatchEvent(new Event("gordo-tmc-saved"));
+        setImportMsg(
+          [
+            `Импорт «${file.name}»`,
+            imported.reportDate ? `отчётная дата ${formatTmcIsoRu(imported.reportDate)}` : null,
+            `строк: ${imported.importedRows}`,
+            `позиций: ${imported.positionCount}`,
+            `групп: ${imported.groupCount}`,
+            `ошибок: ${imported.errorRows}`,
+            `пропущено пустых: ${imported.skippedEmptyRows}`,
+            `добавлено: ${stats.added}, обновлено: ${stats.updated}, без изменений: ${stats.unchanged}`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        );
       } catch (err) {
-        console.error(err);
-        window.alert(err instanceof Error ? err.message : "Не удалось разобрать CSV.");
+        setImportMsg(err instanceof Error ? err.message : "Ошибка импорта CSV");
+      } finally {
+        setBusy(false);
       }
     },
-    [token, items, activeProjectPart, projectId, tmcDbLoaded],
+    [activeProjectPart, items, persist],
   );
 
-  const handleSupplyPlanCsvImport = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
-      if (!tmcLocalMode && !tmcDbLoaded) {
-        window.alert("Дождитесь загрузки данных из БД перед импортом.");
-        return;
-      }
-      try {
-        const parsed = await parseSupplyPlanCsvFile(file);
-        const { items: merged, stats } = syncSupplyPlanToTmc(items, parsed, activeProjectPart);
-        console.group("[TMC supply plan] sync chain");
-        console.log("file:", file.name);
-        console.log("sync stats:", stats);
-        console.table(stats.procurementDiagnostics);
-        console.groupEnd();
+  const startEdit = (item: TMCItem) => {
+    setEditingId(item.id);
+    setForm(toForm(item));
+  };
 
-        if (stats.materialRows === 0) {
-          setSupplyPlanSyncStats(stats);
-          window.alert(
-            "В файле плана снабжения нет распознаваемых строк (или некорректный формат). Смотрите консоль.",
-          );
-          return;
-        }
-
-        setImportStats(null);
-        setSupplyPlanSyncStats(stats);
-        setItems(merged);
-        if (tmcLocalMode) {
-          saveTmcTasksToLocalStorage(projectId, merged);
-          void postTmcImportToApi(projectId, merged);
-        } else if (token) {
-          const saved = await bulkImportTmcToDb(token, merged);
-          const rowsFromDb = await listTmcFromDb(token);
-          setItems(rowsFromDb.length > 0 ? rowsFromDb : saved);
-        } else {
-          window.alert("Синхронизация отображена локально, но без авторизации не сохранена в БД");
-        }
-        window.dispatchEvent(new Event("gordo-tmc-saved"));
-      } catch (err) {
-        console.error(err);
-        window.alert(err instanceof Error ? err.message : "Не удалось синхронизировать план снабжения с ТМЦ.");
-      }
-    },
-    [token, items, activeProjectPart, projectId, tmcDbLoaded, tmcLocalMode],
-  );
-
-  const resetToSeed = useCallback(() => {
-    setItems((prev) => {
-      const rest = prev.filter((x) => x.projectPart !== activeProjectPart);
-      const seedForPart = TMC_DATA.filter((x) => x.projectPart === activeProjectPart);
-      return [...rest, ...seedForPart];
-    });
-  }, [activeProjectPart]);
-
-  useImperativeHandle(ref, () => ({ save: persist, cancel: resetToSeed }), [persist, resetToSeed]);
-
-  const saveForm = () => {
-    if (!form.name.trim() || !form.gprStage.trim()) return;
-    const itemCode = normalizeGprCodeFinal(form.itemCode);
-    if (!itemCode || !GPR_CODE_FORMAT_RE.test(itemCode)) {
-      window.alert("Укажите корректный код позиции (цифры и точки).");
-      return;
-    }
-    if (
-      !isoOrEmptyOk(form.supplyPlanDate) ||
-      !isoOrEmptyOk(form.supplyFactDate) ||
-      !isoOrEmptyOk(form.contractPlanDate) ||
-      !isoOrEmptyOk(form.contractFactDate)
-    ) {
-      window.alert("Даты должны быть пустыми или в формате ГГГГ-ММ-ДД.");
-      return;
-    }
-
-    const probeId = form.id || `tmc-${Date.now()}`;
-    const peers = items.filter((x) => x.projectPart === activeProjectPart && x.id !== editingId);
-
-    const vp = parseDecimalInput(form.volumePlan);
-    const vf = parseDecimalInput(form.volumeFact);
-    const pp = parseDecimalInput(form.pricePlan);
-    const pf = parseDecimalInput(form.priceFact);
-    const totals = computeTmcTotalsFromVolumes(vp, pp, vf, pf);
-
-    const draft: TMCItem = {
-      id: probeId,
-      itemCode,
-      name: form.name.trim(),
-      gprStage: form.gprStage.trim(),
-      unit: form.unit.trim(),
-      volumePlan: vp,
-      volumeFact: vf,
-      pricePlan: pp,
-      priceFact: pf,
-      totalPlan: totals.totalPlan,
-      totalFact: totals.totalFact,
-      supplier: form.supplier.trim(),
-      contract: form.contract.trim(),
-      status: form.status,
-      planCost: 0,
-      factCost: null,
-      supplyPlanDate: form.supplyPlanDate.trim() || null,
-      supplyFactDate: form.supplyFactDate.trim() || null,
-      contractPlanDate: form.contractPlanDate.trim() || null,
-      contractFactDate: form.contractFactDate.trim() || null,
-      projectPart: editingId
-        ? items.find((x) => x.id === editingId)?.projectPart ?? activeProjectPart
-        : activeProjectPart,
-    };
-
-    const probeRow = syncTmcFinancials(draft);
-
-    const peersAsCode = peers.map((t) => ({ id: t.id, code: t.itemCode }));
-    const merged = mergeGprRowIssues(
-      analyzeGprCodeInList({ id: probeRow.id, code: probeRow.itemCode }, [
-        ...peersAsCode,
-        { id: probeRow.id, code: probeRow.itemCode },
-      ]),
-      analyzeFourPlanFactDates({
-        planStart: probeRow.supplyPlanDate,
-        planEnd: probeRow.contractPlanDate,
-        factStart: probeRow.supplyFactDate,
-        factEnd: probeRow.contractFactDate,
-      }),
-    );
-    if (merged.errors.length > 0) {
-      window.alert(merged.errors.join("\n"));
-      return;
-    }
-
-    const payload: TMCItem = { ...probeRow, id: editingId ?? probeId };
-
-    setItems((prev) => {
-      const next = editingId
-        ? prev.map((x) => (x.id === editingId ? payload : x))
-        : [payload, ...prev];
-      return sortTmcInPart(next, payload.projectPart);
-    });
-    setIsModalOpen(false);
+  const cancelEdit = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
   };
 
-  const shellClass = embedded
-    ? "space-y-6"
-    : "rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 shadow-sm";
+  const saveEdit = async () => {
+    if (!editingId) return;
+    const base = items.find((x) => x.id === editingId);
+    if (!base) return;
+    const nextItem = fromForm(form, base, activeProjectPart);
+    const next = items.map((x) => (x.id === editingId ? nextItem : x));
+    await persist(next);
+    setBaseline(next);
+    cancelEdit();
+  };
+
+  const removeItem = async (id: string) => {
+    const next = items.filter((x) => x.id !== id);
+    await persist(next);
+    setBaseline(next);
+  };
+
+  const addRow = async () => {
+    const created = createEmptyTmcItem(activeProjectPart, {
+      rowKind: "position",
+      stage: "",
+      name: "Новая позиция ТМЦ",
+    });
+    const next = [...items, created];
+    await persist(next);
+    setBaseline(next);
+    startEdit(created);
+  };
+
+  useImperativeHandle(ref, () => ({
+    save: () => {
+      void (async () => {
+        await persist(items);
+        setBaseline(items);
+      })();
+    },
+    cancel: () => {
+      setItems(baseline);
+      cancelEdit();
+    },
+  }));
+
+  const th = "px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500";
+  const td = "px-2 py-2 align-top text-xs text-slate-700";
 
   return (
-    <section className={shellClass}>
-      {!embedded ? (
-        <>
-          <h2 className="text-lg font-semibold text-slate-900">Закупка ТМЦ</h2>
-          <p className="mt-1 text-xs text-slate-600">
-            Рабочий режим: позиции привязаны к выбранной части проекта (
-            {activeProjectPart === "residential" ? "жилой дом" : "автостоянка"}).
-          </p>
-        </>
-      ) : null}
-
-      <div className={`rounded-xl border border-slate-200 bg-white p-3 ${embedded ? "" : "mt-4"}`}>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className={embedded ? "space-y-3" : "space-y-4"}>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+        >
+          Импорт CSV
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={handleImport}
+        />
+        <button
+          type="button"
+          onClick={() => void addRow()}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+        >
+          Добавить позицию
+        </button>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Поиск: код, этап, ТМЦ, поставщик, договор"
+          className="min-w-[200px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="all">Все статусы</option>
+          <option value="delivered">Поставлено</option>
+          <option value="partial">Частично</option>
+          <option value="plan">План</option>
+          <option value="no_fact">Нет факта</option>
+        </select>
+        <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
           <input
-            ref={csvInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(ev) => void handleTmcCsvImport(ev)}
+            type="checkbox"
+            checked={overdueOnly}
+            onChange={(e) => setOverdueOnly(e.target.checked)}
           />
-          <input
-            ref={supplyPlanCsvInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(ev) => void handleSupplyPlanCsvImport(ev)}
-          />
-          <button
-            type="button"
-            onClick={() => csvInputRef.current?.click()}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-          >
-            Импорт CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => supplyPlanCsvInputRef.current?.click()}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-          >
-            Импорт плана снабжения (ГПР)
-          </button>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            + Добавить ТМЦ
-          </button>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск: код, название, этап"
-            className="h-10 min-w-[220px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | ProcurementRisk)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-          >
-            <option value="all">Все</option>
-            <option value="green">Закуплено</option>
-            <option value="yellow">Частично</option>
-            <option value="red">Не закуплено</option>
-          </select>
-        </div>
-        {importStats ? (
-          <p className="mt-2 text-xs leading-snug text-slate-600">
-            Файл: {importStats.total} записей после разбора.
-            {importStats.skippedInvalid > 0 ? (
-              <> Пропущено строк без наименования: {importStats.skippedInvalid}.</>
-            ) : null}{" "}
-            Обновлено: {importStats.updated}, добавлено: {importStats.added}, без изменений:{" "}
-            {importStats.unchanged}.
-          </p>
-        ) : null}
-        {supplyPlanSyncStats ? (
-          <div className="mt-2 space-y-1 text-xs leading-snug text-slate-600">
-            <p>
-              План снабжения: обработано строк {supplyPlanSyncStats.materialRows}. Обновлено:{" "}
-              {supplyPlanSyncStats.updated}. Создано новых: {supplyPlanSyncStats.created}. Не удалось
-              сопоставить этап ГПР: {supplyPlanSyncStats.stageMatchFailed}.
-            </p>
-            <p className="font-medium text-slate-700">Диагностика закупок (сверка с CSV):</p>
-            <ul className="list-inside list-disc text-slate-600">
-              <li>Всего материалов: {supplyPlanSyncStats.procurementDiagnostics.totalMaterials}</li>
-              <li>Закуплено полностью: {supplyPlanSyncStats.procurementDiagnostics.fullyPurchased}</li>
-              <li>
-                Закуплено частично: {supplyPlanSyncStats.procurementDiagnostics.partiallyPurchased}
-              </li>
-              <li>Не закуплено: {supplyPlanSyncStats.procurementDiagnostics.notPurchased}</li>
-              <li>
-                Общая плановая стоимость:{" "}
-                {Math.round(supplyPlanSyncStats.procurementDiagnostics.totalPlanCostRub).toLocaleString(
-                  "ru-RU",
-                )}{" "}
-                ₽
-              </li>
-              <li>
-                Общая фактическая стоимость:{" "}
-                {Math.round(supplyPlanSyncStats.procurementDiagnostics.totalFactCostRub).toLocaleString(
-                  "ru-RU",
-                )}{" "}
-                ₽
-              </li>
-            </ul>
-          </div>
-        ) : null}
+          С просрочкой
+        </label>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-y-2 text-sm">
+      {importMsg ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          {importMsg}
+          {importStats ? (
+            <div className="mt-1 text-xs text-slate-500">
+              diff: +{importStats.added} / ~{importStats.updated} / ={importStats.unchanged}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="w-full min-w-[1400px] border-collapse">
           <thead className="bg-slate-50">
-            <tr className="border-b border-slate-200 text-left text-xs text-slate-600">
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.code}
-                className="sticky left-0 z-10 whitespace-nowrap border-b border-slate-200 bg-slate-50 px-2 py-2 align-bottom font-semibold"
-              >
+            <tr className="border-b border-slate-200">
+              <th className={th} rowSpan={2}>
                 Код
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.name}
-                className="min-w-[160px] border-b border-slate-200 px-2 py-2 align-bottom font-semibold"
-              >
-                Название
+              <th className={th} rowSpan={2}>
+                Этап работ
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.stage}
-                className="min-w-[120px] border-b border-slate-200 px-2 py-2 align-bottom font-semibold"
-              >
-                Этап ГПР
+              <th className={th} rowSpan={2}>
+                Наименование ТМЦ
               </th>
-              <th
-                colSpan={2}
-                title={TMC_HEAD_HELP.grpSupply}
-                className="border-b border-slate-200 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide"
-              >
-                {compactHeaders ? "Дата пост." : "Дата поставки"}
+              <th className={th} rowSpan={2}>
+                Начало ГПР
               </th>
-              <th
-                colSpan={2}
-                title={TMC_HEAD_HELP.grpContract}
-                className="border-b border-slate-200 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide"
-              >
-                {compactHeaders ? "Дата дог." : "Дата договора"}
+              <th className={`${th} border-l border-slate-200 text-center`} colSpan={3}>
+                Заявка
               </th>
-              <th
-                colSpan={2}
-                title={TMC_HEAD_HELP.grpVolume}
-                className="border-b border-slate-200 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide"
-              >
-                Объем
+              <th className={`${th} border-l border-slate-200 text-center`} colSpan={3}>
+                Договор
               </th>
-              <th
-                colSpan={2}
-                title={TMC_HEAD_HELP.grpPrice}
-                className="border-b border-slate-200 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide"
-              >
-                Цена за ед.
+              <th className={`${th} border-l border-slate-200 text-center`} colSpan={3}>
+                Поставка
               </th>
-              <th
-                colSpan={2}
-                title={TMC_HEAD_HELP.grpCost}
-                className="border-b border-slate-200 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide"
-              >
-                {compactHeaders ? "Сумма" : "Стоимость"}
+              <th className={`${th} border-l border-slate-200 text-center`} colSpan={3}>
+                Объём
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.unit}
-                className="border-b border-slate-200 px-2 py-2 align-bottom font-semibold"
-              >
-                Ед.&nbsp;изм.
+              <th className={th} rowSpan={2}>
+                Поставщик
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.deviation}
-                className="border-b border-slate-200 px-2 py-2 align-bottom font-semibold"
-              >
-                Отклонение
+              <th className={th} rowSpan={2}>
+                Договор
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.traffic}
-                className="border-b border-slate-200 px-2 py-2 align-bottom font-semibold"
-              >
-                Риск
+              <th className={th} rowSpan={2}>
+                Статус
               </th>
-              <th
-                rowSpan={2}
-                title={TMC_HEAD_HELP.actions}
-                className="sticky right-0 z-10 border-b border-slate-200 bg-slate-50 px-2 py-2 text-right align-bottom font-semibold"
-              >
+              <th className={th} rowSpan={2}>
+                Комментарий
+              </th>
+              <th className={th} rowSpan={2}>
                 Действия
               </th>
             </tr>
-            <tr className="text-[11px] font-medium text-slate-500">
-              <th title={TMC_HEAD_HELP.supplyPlan} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                План
-              </th>
-              <th title={TMC_HEAD_HELP.supplyFact} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                Факт
-              </th>
-              <th title={TMC_HEAD_HELP.contractPlan} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                План
-              </th>
-              <th title={TMC_HEAD_HELP.contractFact} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                Факт
-              </th>
-              <th title={TMC_HEAD_HELP.volumePlan} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                План
-              </th>
-              <th title={TMC_HEAD_HELP.volumeFact} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                Факт
-              </th>
-              <th title={TMC_HEAD_HELP.pricePlan} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                План
-              </th>
-              <th title={TMC_HEAD_HELP.priceFact} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                Факт
-              </th>
-              <th title={TMC_HEAD_HELP.costPlan} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                План
-              </th>
-              <th title={TMC_HEAD_HELP.costFact} className="whitespace-nowrap border-b border-slate-200 px-2 py-1.5">
-                Факт
-              </th>
+            <tr className="border-b border-slate-200">
+              {["План", "Факт", "Откл.", "План", "Факт", "Откл.", "План", "Факт", "Откл.", "План", "Факт", "Откл."].map(
+                (label, i) => (
+                  <th key={`${label}-${i}`} className={`${th} border-l border-slate-100`}>
+                    {label}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
-            {sortedFilteredRows.map((row) => {
-              const deviationColor = COLORS[row.scheduleTraffic];
-              const procurementColor = COLORS[row.procurementRisk];
-              const procurementLabel =
-                row.procurementRisk === "green"
-                  ? "Закуплено полностью"
-                  : row.procurementRisk === "yellow"
-                    ? "Закуплено частично"
-                    : "Не закуплено";
-              const rowIssues = tmcRowIssues.get(row.id);
-              const statusTitle = gprIssueStatusTitle(rowIssues);
-              return (
-                <tr
-                  key={row.id}
-                  className="rounded-lg border border-slate-200 bg-white text-slate-800 shadow-sm"
-                >
-                  <td className="sticky left-0 z-[1] bg-white px-2 py-2 font-mono text-xs">{row.itemCode}</td>
-                  <td className="px-2 py-2 font-medium">{row.name}</td>
-                  <td className="px-2 py-2 text-slate-600">{row.gprStage}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.supplyPlanDate)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.supplyFactDate)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.contractPlanDate)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStoredDateForUi(row.contractFactDate)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtQty(row.volumePlan)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtQty(row.volumeFact)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtPriceRub(row.pricePlan)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtPriceRub(row.priceFact)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtRubCompact(row.totalPlan)}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs">{fmtRubCompact(row.totalFact)}</td>
-                  <td className="px-2 py-2 text-xs">{row.unit?.trim() || "—"}</td>
-                  <td className="px-2 py-2 tabular-nums text-xs" style={{ color: deviationColor }}>
-                    {row.deviation === null ? "—" : row.deviation > 0 ? `+${row.deviation} дн` : `${row.deviation} дн`}
-                  </td>
-                  <td className="px-2 py-2">
-                    <span
-                      className="inline-flex cursor-default rounded-full px-2 py-0.5 text-[11px] font-medium"
-                      style={{
-                        backgroundColor: `${procurementColor}22`,
-                        color: procurementColor,
-                        fontWeight: 500,
-                      }}
-                      title={statusTitle}
-                    >
-                      {procurementLabel}
-                    </span>
-                  </td>
-                  <td className="sticky right-0 z-[1] bg-white px-2 py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(row)}
-                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(row.id)}
-                        className="rounded border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={20} className="px-4 py-10 text-center text-sm text-slate-500">
+                  Нет данных. Импортируйте файл «ТМЦ_новое.csv».
+                </td>
+              </tr>
+            ) : (
+              visible.map((item) => {
+                const isGroup = item.rowKind === "group";
+                const editing = editingId === item.id;
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-t border-slate-100 ${isGroup ? "bg-slate-50/80" : "bg-white"}`}
+                  >
+                    <td className={`${td} font-mono text-[11px] ${isGroup ? "font-semibold" : ""}`}>
+                      {editing ? (
+                        <input
+                          className="w-24 rounded border border-slate-300 px-1 py-0.5"
+                          value={form.itemCode}
+                          onChange={(e) => setForm((f) => ({ ...f, itemCode: e.target.value }))}
+                        />
+                      ) : (
+                        item.sourceCode || item.itemCode || "—"
+                      )}
+                    </td>
+                    <td className={`${td} max-w-[160px]`}>
+                      {editing ? (
+                        <input
+                          className="w-full rounded border border-slate-300 px-1 py-0.5"
+                          value={form.stage}
+                          onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="line-clamp-2">{item.stage || item.gprStage || "—"}</span>
+                      )}
+                    </td>
+                    <td className={`${td} max-w-[180px] font-medium text-slate-900`}>
+                      {editing ? (
+                        <input
+                          className="w-full rounded border border-slate-300 px-1 py-0.5"
+                          value={form.name}
+                          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="line-clamp-2">{item.name || (isGroup ? "—" : "—")}</span>
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Начало ГПР"
+                          value={form.gprStartDate}
+                          onIso={(v) => setForm((f) => ({ ...f, gprStartDate: v }))}
+                        />
+                      ) : (
+                        formatStoredDateForUi(item.gprStartDate) || "—"
+                      )}
+                    </td>
+                    {/* Заявка */}
+                    <td className={`${td} border-l border-slate-100 whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Заявка план"
+                          value={form.requestPlanDate}
+                          onIso={(v) => setForm((f) => ({ ...f, requestPlanDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.requestPlanDate)
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Заявка факт"
+                          value={form.requestFactDate}
+                          onIso={(v) => setForm((f) => ({ ...f, requestFactDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.requestFactDate)
+                      )}
+                    </td>
+                    <td className={`${td} tabular-nums ${deviationClass(item.requestDeviationDays)}`}>
+                      {formatTmcDeviationDays(item.requestDeviationDays)}
+                    </td>
+                    {/* Договор */}
+                    <td className={`${td} border-l border-slate-100 whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Договор план"
+                          value={form.contractPlanDate}
+                          onIso={(v) => setForm((f) => ({ ...f, contractPlanDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.contractPlanDate)
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Договор факт"
+                          value={form.contractFactDate}
+                          onIso={(v) => setForm((f) => ({ ...f, contractFactDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.contractFactDate)
+                      )}
+                    </td>
+                    <td className={`${td} tabular-nums ${deviationClass(item.contractDeviationDays)}`}>
+                      {formatTmcDeviationDays(item.contractDeviationDays)}
+                    </td>
+                    {/* Поставка */}
+                    <td className={`${td} border-l border-slate-100 whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Поставка план"
+                          value={form.deliveryPlanDate}
+                          onIso={(v) => setForm((f) => ({ ...f, deliveryPlanDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.deliveryPlanDate ?? item.supplyPlanDate)
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {editing ? (
+                        <GprDateField
+                          title="Поставка факт"
+                          value={form.deliveryFactDate}
+                          onIso={(v) => setForm((f) => ({ ...f, deliveryFactDate: v }))}
+                        />
+                      ) : (
+                        formatTmcIsoRu(item.deliveryFactDate ?? item.supplyFactDate)
+                      )}
+                    </td>
+                    <td className={`${td} tabular-nums ${deviationClass(item.deliveryDeviationDays)}`}>
+                      {formatTmcDeviationDays(item.deliveryDeviationDays)}
+                    </td>
+                    {/* Объём */}
+                    <td className={`${td} border-l border-slate-100 tabular-nums`}>
+                      {editing ? (
+                        <input
+                          className="w-20 rounded border border-slate-300 px-1 py-0.5"
+                          value={form.plannedQuantity}
+                          onChange={(e) => setForm((f) => ({ ...f, plannedQuantity: e.target.value }))}
+                        />
+                      ) : (
+                        fmtQty(item.plannedQuantity)
+                      )}
+                    </td>
+                    <td className={`${td} tabular-nums`}>
+                      {editing ? (
+                        <input
+                          className="w-20 rounded border border-slate-300 px-1 py-0.5"
+                          value={form.actualQuantity}
+                          onChange={(e) => setForm((f) => ({ ...f, actualQuantity: e.target.value }))}
+                        />
+                      ) : (
+                        fmtQty(item.actualQuantity)
+                      )}
+                    </td>
+                    <td className={`${td} tabular-nums ${deviationClass(item.quantityDeviation, true)}`}>
+                      {item.quantityDeviation == null
+                        ? "—"
+                        : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(
+                            item.quantityDeviation,
+                          )}
+                      {item.unit && !editing ? (
+                        <span className="ml-1 text-[10px] text-slate-400">{item.unit}</span>
+                      ) : null}
+                    </td>
+                    <td className={`${td} max-w-[120px]`}>
+                      {editing ? (
+                        <input
+                          className="w-full rounded border border-slate-300 px-1 py-0.5"
+                          value={form.supplier}
+                          onChange={(e) => setForm((f) => ({ ...f, supplier: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="line-clamp-2">{item.supplier || "—"}</span>
+                      )}
+                    </td>
+                    <td className={`${td} max-w-[120px]`}>
+                      {editing ? (
+                        <textarea
+                          className="w-full rounded border border-slate-300 px-1 py-0.5 text-xs"
+                          rows={2}
+                          value={form.contract}
+                          onChange={(e) => setForm((f) => ({ ...f, contract: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="line-clamp-2 whitespace-pre-wrap">{item.contract || "—"}</span>
+                      )}
+                    </td>
+                    <td className={td}>
+                      {editing ? (
+                        <input
+                          className="w-28 rounded border border-slate-300 px-1 py-0.5"
+                          value={form.statusRaw}
+                          onChange={(e) => setForm((f) => ({ ...f, statusRaw: e.target.value }))}
+                        />
+                      ) : (
+                        statusBadge(item.statusCategory, item.statusRaw)
+                      )}
+                    </td>
+                    <td className={`${td} max-w-[140px]`}>
+                      {editing ? (
+                        <textarea
+                          className="w-full rounded border border-slate-300 px-1 py-0.5 text-xs"
+                          rows={2}
+                          value={form.comment}
+                          onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="line-clamp-2 whitespace-pre-wrap text-slate-500">
+                          {item.comment || "—"}
+                        </span>
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap`}>
+                      {editing ? (
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            className="rounded bg-slate-900 px-2 py-1 text-[11px] text-white"
+                            onClick={() => void saveEdit()}
+                          >
+                            OK
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate-300 px-2 py-1 text-[11px]"
+                            onClick={cancelEdit}
+                          >
+                            Отмена
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            className="rounded border border-slate-300 px-2 py-1 text-[11px]"
+                            onClick={() => startEdit(item)}
+                          >
+                            Изм.
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-rose-200 px-2 py-1 text-[11px] text-rose-700"
+                            onClick={() => void removeItem(item.id)}
+                          >
+                            Удал.
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h3 className="text-lg font-semibold text-slate-900">
-                {editingId ? "Редактировать ТМЦ" : "Добавить ТМЦ"}
-              </h3>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <input
-                  value={form.itemCode}
-                  onChange={(e) => setForm((p) => ({ ...p, itemCode: sanitizeGprCodeTyping(e.target.value) }))}
-                  onBlur={() => setForm((p) => ({ ...p, itemCode: normalizeGprCodeFinal(p.itemCode) }))}
-                  placeholder="Код позиции (2.05.01.1)"
-                  className="h-10 rounded-lg border border-slate-300 px-3 font-mono text-sm text-slate-900"
-                />
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="Название"
-                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900"
-                />
-                <input
-                  value={form.gprStage}
-                  onChange={(e) => {
-                    const gprStage = e.target.value;
-                    setForm((p) => {
-                      if (editingId) return { ...p, gprStage };
-                      const sugg = suggestNextTmcItemCode(items, activeProjectPart, gprStage);
-                      return { ...p, gprStage, itemCode: sugg };
-                    });
-                  }}
-                  placeholder="Этап ГПР (подпись)"
-                  className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 md:col-span-2"
-                />
-              </div>
-
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">📦 Логистика</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-3 md:grid-cols-2">
-                <label className="block text-xs text-slate-600">
-                  Ед. изм.
-                  <input
-                    value={form.unit}
-                    onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
-                    placeholder="кг, м³, шт"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="block text-xs text-slate-600">
-                  Объём план
-                  <input
-                    value={form.volumePlan}
-                    onChange={(e) => setForm((p) => ({ ...p, volumePlan: e.target.value }))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="block text-xs text-slate-600 md:col-span-2">
-                  Объём факт
-                  <input
-                    value={form.volumeFact}
-                    onChange={(e) => setForm((p) => ({ ...p, volumeFact: e.target.value }))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-              </div>
-
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">💰 Цены</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-3 md:grid-cols-2">
-                <label className="block text-xs text-slate-600">
-                  Цена (план), ₽ за ед.
-                  <input
-                    value={form.pricePlan}
-                    onChange={(e) => setForm((p) => ({ ...p, pricePlan: e.target.value }))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="block text-xs text-slate-600">
-                  Цена (факт), ₽ за ед.
-                  <input
-                    value={form.priceFact}
-                    onChange={(e) => setForm((p) => ({ ...p, priceFact: e.target.value }))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-              </div>
-
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">💰 Стоимость (авто)</p>
-              <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
-                {(() => {
-                  const vp = parseDecimalInput(form.volumePlan);
-                  const vf = parseDecimalInput(form.volumeFact);
-                  const pp = parseDecimalInput(form.pricePlan);
-                  const pf = parseDecimalInput(form.priceFact);
-                  const { totalPlan, totalFact } = computeTmcTotalsFromVolumes(vp, pp, vf, pf);
-                  return (
-                    <div className="flex flex-wrap gap-x-6 gap-y-1">
-                      <span>
-                        Σ план:{" "}
-                        <strong className="tabular-nums">{fmtRubCompact(totalPlan)}</strong>
-                      </span>
-                      <span>
-                        Σ факт:{" "}
-                        <strong className="tabular-nums">{fmtRubCompact(totalFact)}</strong>
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">🏢 Контракт</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-3 md:grid-cols-2">
-                <label className="block text-xs text-slate-600 md:col-span-2">
-                  Поставщик
-                  <input
-                    value={form.supplier}
-                    onChange={(e) => setForm((p) => ({ ...p, supplier: e.target.value }))}
-                    placeholder="Напр. АО Темерсо"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="block text-xs text-slate-600 md:col-span-2">
-                  Договор (номер / реквизиты)
-                  <input
-                    value={form.contract}
-                    onChange={(e) => setForm((p) => ({ ...p, contract: e.target.value }))}
-                    placeholder="№ …"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="block text-xs text-slate-600 md:col-span-2">
-                  Статус поставки
-                  <select
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, status: e.target.value as TmcSupplyStatus }))
-                    }
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                  >
-                    <option value="план">План</option>
-                    <option value="поставлено">Поставлено</option>
-                    <option value="частично">Частично</option>
-                  </select>
-                </label>
-              </div>
-
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">📅 Даты</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <GprDateField
-                  value={form.supplyPlanDate}
-                  onIso={(iso) => setForm((p) => ({ ...p, supplyPlanDate: iso }))}
-                  title="Дата поставки: план"
-                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                />
-                <GprDateField
-                  value={form.supplyFactDate}
-                  onIso={(iso) => setForm((p) => ({ ...p, supplyFactDate: iso }))}
-                  title="Дата поставки: факт"
-                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                />
-                <GprDateField
-                  value={form.contractPlanDate}
-                  onIso={(iso) => setForm((p) => ({ ...p, contractPlanDate: iso }))}
-                  title="Дата договора: план"
-                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                />
-                <GprDateField
-                  value={form.contractFactDate}
-                  onIso={(iso) => setForm((p) => ({ ...p, contractFactDate: iso }))}
-                  title="Дата договора: факт"
-                  fieldClassName="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                />
-              </div>
-            </div>
-            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setEditingId(null);
-                  setForm(EMPTY_FORM);
-                }}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                onClick={saveForm}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
-              >
-                Сохранить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </section>
+    </div>
   );
 });
+
+/** @deprecated старый риск по объёму — оставлен для совместимости импортов. */
+export function procurementRiskFromVolumes(item: TMCItem): "green" | "yellow" | "red" {
+  if (item.statusCategory === "delivered") return "green";
+  if (item.statusCategory === "partial") return "yellow";
+  return "red";
+}

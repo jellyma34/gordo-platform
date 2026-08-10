@@ -26,12 +26,23 @@ import {
 import {
   TMC_GPR_STAGE_ROOT_CODE,
   classifyTmcSupplyPlanProcurementStatus,
+  isTmcControlledPosition,
   tmcFactReferenceDate,
   tmcOrderedVolume,
   tmcPlanReferenceDate,
   type TMCItem,
   type TmcSupplyStatus,
 } from "@/lib/tmcData";
+import {
+  hasContractFact as hasTmcContractFactFromProcurement,
+  hasDeliveryFact,
+  isTmcDeliveredPosition,
+  isTmcDeliveryOverdue,
+  isTmcInProgressPosition,
+  isTmcNotPurchased,
+  tmcDeliveryLateDays,
+  tmcKpiPositions,
+} from "@/lib/tmcProcurementAnalytics";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -143,13 +154,19 @@ export function tmcItemCsvFactCostRub(item: TMCItem): number {
   return item.factCost ?? 0;
 }
 
-/** Позиции со статусом «закуплено полностью» по плану снабжения. */
+/** Позиции со статусом поставки (полная или частичная) по новому CSV. */
 export function isTmcDeliveredSupplyStatus(item: TMCItem): boolean {
-  return classifyTmcSupplyPlanProcurementStatus(item) === "full";
+  return isTmcDeliveredPosition(item);
 }
 
-/** Позиция с начатой закупкой (объём заказан > 0). */
+/** Позиция с начатой закупкой (заявка/договор/объём/статус). */
 export function isTmcProcurementStarted(item: TMCItem): boolean {
+  if (isTmcDeliveredPosition(item)) return true;
+  if (hasDeliveryFact(item)) return true;
+  if (hasTmcContractFactFromProcurement(item)) return true;
+  if ((item.actualQuantity ?? item.volumeFact ?? 0) > 0) return true;
+  if (item.requestFactDate?.trim()) return true;
+  if (item.statusCategory === "plan") return true;
   return tmcOrderedVolume(item) > 0;
 }
 
@@ -207,17 +224,20 @@ export function isTmcDeliveryFact(item: TMCItem): boolean {
   return classifyTmcSupplyPlanProcurementStatus(item) === "full";
 }
 
-/** Невыполненный остаток поставки (база средней KPI-карточки «Просрочено»). */
+/** Невыполненный остаток: поставка ещё не состоялась. */
 export function isTmcRemainingPosition(item: TmcEnrichedItem): boolean {
-  return !isTmcDeliveryFact(item);
+  return !isTmcDeliveredPosition(item);
 }
 
 /**
- * Просроченная позиция ТМЦ — тот же критерий, что и сегмент «Просрочено» в распределении статусов:
- * поставка с отставанием (red) или плановая дата прошла без факта (overdue_not_started).
+ * Просроченная позиция ТМЦ — по датам поставки нового CSV.
  */
-export function isTmcOverduePosition(item: TmcEnrichedItem): boolean {
-  return item.traffic === "red" || item.traffic === "overdue_not_started";
+export function isTmcOverduePosition(item: TmcEnrichedItem, today: Date = new Date()): boolean {
+  return (
+    isTmcDeliveryOverdue(item, today) ||
+    item.traffic === "red" ||
+    item.traffic === "overdue_not_started"
+  );
 }
 
 /**
@@ -639,14 +659,15 @@ export function computeTmcProcurementKpi(
   tenders: Tender[] = [],
   options?: { logMaterialStatusDiagnostic?: boolean },
 ): TmcProcurementKpi {
-  const planRub = items.reduce((s, i) => s + tmcItemCsvPlanCostRub(i), 0);
-  const procurementFactRub = items.reduce((s, i) => s + tmcItemCsvFactCostRub(i), 0);
-  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(items, today, {
+  const scoped = tmcKpiPositions(items) as TmcEnrichedItem[];
+  const planRub = 0;
+  const procurementFactRub = 0;
+  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(scoped, today, {
     logDiagnostic: options?.logMaterialStatusDiagnostic,
   });
-  const receiptsFactRub = procurementFactRub;
-  const receiptsPlanRub = planRub;
-  const pipelineDist = computeTmcPipelineStatusDistribution(items, tenders, today);
+  const receiptsFactRub = 0;
+  const receiptsPlanRub = 0;
+  const pipelineDist = computeTmcPipelineStatusDistribution(scoped, tenders, today);
   const deliveryCount = materialStatus.deliveredCount;
   const totalItemCount = materialStatus.totalMaterials;
   const purchasedItemCount =
@@ -657,22 +678,29 @@ export function computeTmcProcurementKpi(
     totalItemCount > 0
       ? Math.round((purchasedItemCount / totalItemCount) * 1000) / 10
       : 0;
-  const overdueItems = items.filter(isTmcOverduePosition);
-  const overdueAmongPurchasedCount = items.filter((i) => i.traffic === "red").length;
-  const overdueNotStartedCount = items.filter((i) => i.traffic === "overdue_not_started").length;
-  const overdueAmongRemainingItems = items.filter(
-    (i) =>
-      classifyTmcPipelineStatus(i, tenders, today) === "deliveryOverdue",
+  const overdueItems = scoped.filter((i) => isTmcOverduePosition(i, today));
+  const overdueAmongPurchasedCount = scoped.filter((i) => i.traffic === "red").length;
+  const overdueNotStartedCount = scoped.filter((i) => i.traffic === "overdue_not_started").length;
+  const overdueAmongRemainingItems = scoped.filter(
+    (i) => classifyTmcPipelineStatus(i, tenders, today) === "deliveryOverdue",
   );
-  const planDueRub = items
-    .filter((i) => isTmcPlanDueByToday(i, today))
-    .reduce((s, i) => s + i.planCost, 0);
-  const plannedExecutionPct =
-    planRub > 0 ? Math.round((planDueRub / planRub) * 1000) / 10 : 0;
-  const actualExecutionPct =
-    planRub > 0
-      ? Math.min(100, Math.round((procurementFactRub / planRub) * 1000) / 10)
-      : 0;
+  const remainingItemCount = Math.max(0, totalItemCount - deliveryCount);
+  const notPurchasedCount = scoped.filter((i) => isTmcNotPurchased(i)).length;
+  const inProgressCount = scoped.filter((i) => isTmcInProgressPosition(i)).length;
+
+  let overdueDaysSum = 0;
+  let overdueForAvg = 0;
+  for (const item of overdueItems) {
+    const days = tmcDeliveryLateDays(item, today);
+    if (days > 0) {
+      overdueDaysSum += days;
+      overdueForAvg += 1;
+    }
+  }
+
+  const deliveryPct =
+    totalItemCount > 0 ? Math.round((deliveryCount / totalItemCount) * 1000) / 10 : 0;
+
   return {
     planRub,
     factRub: procurementFactRub,
@@ -685,20 +713,19 @@ export function computeTmcProcurementKpi(
     purchasedItemPct,
     overdueAmongPurchasedCount,
     overdueNotStartedCount,
-    avgCheckRub: deliveryCount > 0 ? receiptsFactRub / deliveryCount : 0,
-    deviationRub: procurementFactRub - planRub,
-    deviationPct:
-      planRub > 0 ? Math.round(((procurementFactRub - planRub) / planRub) * 1000) / 10 : null,
+    avgCheckRub: 0,
+    deviationRub: 0,
+    deviationPct: null,
     overdueCount: overdueItems.length,
-    overdueCostRub: overdueAmongRemainingItems.reduce((s, i) => s + i.planCost, 0),
-    remainingItemCount: pipelineDist.remainingItemCount,
-    overdueAmongRemainingCount: pipelineDist.deliveryOverdueAmongRemaining,
-    notPurchasedAmongRemainingCount: pipelineDist.notPurchasedAmongRemaining,
-    inProgressAmongRemainingCount: pipelineDist.inProgressAmongRemaining,
+    overdueCostRub: 0,
+    remainingItemCount,
+    overdueAmongRemainingCount: overdueAmongRemainingItems.length,
+    notPurchasedAmongRemainingCount: notPurchasedCount,
+    inProgressAmongRemainingCount: inProgressCount,
     onTimeAmongRemainingCount: pipelineDist.counts.orderPlaced,
-    averageOverdueDays: computeTmcAverageOverdueDays(items, tenders, today),
-    plannedExecutionPct,
-    actualExecutionPct,
+    averageOverdueDays: overdueForAvg > 0 ? Math.round(overdueDaysSum / overdueForAvg) : 0,
+    plannedExecutionPct: deliveryPct,
+    actualExecutionPct: deliveryPct,
   };
 }
 
@@ -733,38 +760,52 @@ export type TmcProcurementEconomyVolumeRow = {
   overrunRub: number;
 };
 
-/** Финансовый результат закупок: экономия/перерасход по фактически закупленному объёму. */
+/**
+ * Карточка «Отклонение»: без денежных полей в новом CSV.
+ * Поля *Rub переиспользуются как счётчики (UI без суффикса ₽).
+ * economy = раньше плана, overrun = позже плана, deviation = нетто просроченных позиций.
+ */
 export function computeTmcProcurementFinancialResult(
   items: TmcEnrichedItem[],
+  today: Date = new Date(),
 ): TmcProcurementFinancialResult {
-  let economyRub = 0;
-  let overrunRub = 0;
-  let purchasedPlanRub = 0;
+  const scoped = tmcKpiPositions(items);
+  let earlyCount = 0;
+  let lateCount = 0;
+  let onTimeCount = 0;
+  let withPlan = 0;
+  let withFact = 0;
 
-  for (const item of items) {
-    if (!isTmcPurchasedForDeviation(item)) continue;
-    const adjustedPlan = tmcItemVolumeAdjustedPlanCostRub(item);
-    const fact = tmcItemCsvFactCostRub(item);
-    if (adjustedPlan <= 0 && fact <= 0) continue;
-    purchasedPlanRub += adjustedPlan;
-    economyRub += Math.max(adjustedPlan - fact, 0);
-    overrunRub += Math.max(fact - adjustedPlan, 0);
+  for (const item of scoped) {
+    const plan = item.deliveryPlanDate ?? item.supplyPlanDate;
+    const fact = item.deliveryFactDate ?? item.supplyFactDate;
+    if (plan) withPlan += 1;
+    if (fact || isTmcDeliveredPosition(item)) withFact += 1;
+
+    const dev =
+      item.deliveryDeviationDays != null
+        ? item.deliveryDeviationDays
+        : isTmcDeliveryOverdue(item, today)
+          ? tmcDeliveryLateDays(item, today)
+          : null;
+
+    if (dev == null) continue;
+    if (dev < 0) earlyCount += 1;
+    else if (dev > 0) lateCount += 1;
+    else onTimeCount += 1;
   }
 
-  const economySharePct =
-    purchasedPlanRub > 0 ? Math.round((economyRub / purchasedPlanRub) * 1000) / 10 : 0;
-  const purchasedFactRub = purchasedPlanRub - economyRub + overrunRub;
-  const deviationRub = purchasedFactRub - purchasedPlanRub;
-  const deviationPct =
-    purchasedPlanRub > 0 ? Math.round((deviationRub / purchasedPlanRub) * 1000) / 10 : 0;
+  const total = scoped.length;
+  const deviationRub = lateCount - earlyCount;
+  const deviationPct = total > 0 ? Math.round((lateCount / total) * 1000) / 10 : 0;
 
   return {
-    economyRub,
-    overrunRub,
-    balanceRub: economyRub - overrunRub,
-    purchasedPlanRub,
-    economySharePct,
-    purchasedFactRub,
+    economyRub: earlyCount,
+    overrunRub: lateCount,
+    balanceRub: earlyCount - lateCount,
+    purchasedPlanRub: withPlan,
+    economySharePct: withPlan > 0 ? Math.round((earlyCount / withPlan) * 1000) / 10 : 0,
+    purchasedFactRub: withFact,
     deviationRub,
     deviationPct,
   };
@@ -4397,20 +4438,31 @@ export function isTmcSupplyPlanPurchasedLate(
 
 /**
  * Единый итоговый статус материала (single source of truth для карточки «Поставлено»).
- * Приоритет: просрочено → частично → полностью → не закуплено.
+ * Источник: новый CSV (статус + даты поставки + объёмы), без цен.
  */
 export function classifyTmcSupplyPlanMaterialStatus(
-  item: TmcEnrichedItem,
+  item: TMCItem | TmcEnrichedItem,
   today: Date = new Date(),
 ): TmcSupplyPlanMaterialStatus {
-  if (!isTmcProcurementStarted(item)) return "notPurchased";
-  if (isTmcSupplyPlanPurchasedLate(item, today)) return "purchasedLate";
+  if (!isTmcControlledPosition(item)) return "notPurchased";
 
-  const ordered = tmcOrderedVolume(item);
-  const plan = item.volumePlan;
-  if (plan > 0 && ordered < plan) return "partiallyPurchased";
-
-  return "fullyPurchased";
+  const late = isTmcDeliveryOverdue(item, today) && isTmcDeliveredPosition(item);
+  if (item.statusCategory === "partial" || (isTmcDeliveredPosition(item) && item.statusCategory !== "delivered" && (item.actualQuantity ?? 0) > 0 && item.plannedQuantity != null && (item.actualQuantity ?? 0) < item.plannedQuantity)) {
+    return late ? "purchasedLate" : "partiallyPurchased";
+  }
+  if (item.statusCategory === "delivered" || isTmcDeliveredPosition(item)) {
+    return late || (item.deliveryDeviationDays != null && item.deliveryDeviationDays > 0)
+      ? "purchasedLate"
+      : "fullyPurchased";
+  }
+  if (isTmcNotPurchased(item)) return "notPurchased";
+  if (isTmcProcurementStarted(item)) {
+    const ordered = tmcOrderedVolume(item);
+    const plan = item.volumePlan;
+    if (plan > 0 && ordered > 0 && ordered < plan) return "partiallyPurchased";
+    if (ordered > 0) return late ? "purchasedLate" : "fullyPurchased";
+  }
+  return "notPurchased";
 }
 
 /** Распределение материалов по единому статусу — база KPI и donut «Поставлено». */
@@ -4419,6 +4471,7 @@ export function computeTmcSupplyPlanMaterialStatusDistribution(
   today: Date = new Date(),
   options?: { logDiagnostic?: boolean },
 ): TmcSupplyPlanMaterialStatusDistribution {
+  const scoped = tmcKpiPositions(items);
   const counts: Record<TmcSupplyPlanMaterialStatus, number> = {
     notPurchased: 0,
     partiallyPurchased: 0,
@@ -4426,17 +4479,18 @@ export function computeTmcSupplyPlanMaterialStatusDistribution(
     purchasedLate: 0,
   };
 
-  for (const item of items) {
+  for (const item of scoped) {
     counts[classifyTmcSupplyPlanMaterialStatus(item, today)] += 1;
   }
 
-  const totalMaterials = items.length;
+  const totalMaterials = scoped.length;
   const statusSum =
     counts.notPurchased +
     counts.partiallyPurchased +
     counts.fullyPurchased +
     counts.purchasedLate;
-  const deliveredCount = counts.fullyPurchased;
+  const deliveredCount =
+    counts.fullyPurchased + counts.purchasedLate + counts.partiallyPurchased;
 
   const distribution: TmcSupplyPlanMaterialStatusDistribution = {
     totalMaterials,
@@ -4613,32 +4667,32 @@ export function computeTmcRemainderCardCounts(
   today: Date = new Date(),
   options?: { logDiagnostic?: boolean },
 ): TmcRemainderCardCounts {
-  const pipeline = computeTmcPipelineStatusDistribution(items, tenders, today);
-  const inTransitCount = countTmcInTransitAmongRemaining(items, today);
-  const tenderInProgressCount = pipeline.counts.tenderInProgress;
-  const overdueCount = pipeline.counts.deliveryOverdue;
-  const activeWorkCount = tenderInProgressCount + inTransitCount + overdueCount;
+  const scoped = tmcKpiPositions(items) as TmcEnrichedItem[];
+  const remaining = scoped.filter((i) => isTmcRemainingPosition(i));
+  const overdueCount = remaining.filter((i) => isTmcOverduePosition(i, today)).length;
+  const notStartedCount = remaining.filter((i) => isTmcNotPurchased(i)).length;
+  const inTransitCount = remaining.filter(
+    (i) => !isTmcNotPurchased(i) && !isTmcOverduePosition(i, today) && isTmcInProgressPosition(i),
+  ).length;
+  const tenderInProgressCount = remaining.filter((i) => {
+    if (isTmcNotPurchased(i) || isTmcOverduePosition(i, today)) return false;
+    return classifyTmcPipelineStatus(i, tenders, today) === "tenderInProgress";
+  }).length;
+  const activeWorkCount = Math.max(
+    inTransitCount + overdueCount + tenderInProgressCount,
+    remaining.filter((i) => isTmcInProgressPosition(i) || isTmcOverduePosition(i, today)).length,
+  );
 
-  const donutCounts: Record<TmcRemainderCardDonutBucket, number> = {
-    overdueNotPurchased: 0,
-    notPurchased: 0,
-    inTransit: 0,
-  };
-
-  for (const item of items) {
-    const bucket = classifyTmcRemainderCardDonutBucket(item, today);
-    if (bucket) donutCounts[bucket] += 1;
-  }
-
-  const overdueNotPurchasedCount = donutCounts.overdueNotPurchased;
-  const notPurchasedOnTimeCount = donutCounts.notPurchased;
-  const inTransitDonutCount = donutCounts.inTransit;
-  const notStartedCount = overdueNotPurchasedCount + notPurchasedOnTimeCount;
+  const overdueNotPurchasedCount = remaining.filter(
+    (i) => isTmcNotPurchased(i) && isTmcOverduePosition(i, today),
+  ).length;
+  const notPurchasedOnTimeCount = Math.max(0, notStartedCount - overdueNotPurchasedCount);
+  const inTransitDonutCount = inTransitCount;
   const donutSum = overdueNotPurchasedCount + notPurchasedOnTimeCount + inTransitDonutCount;
 
   if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
     console.table({
-      remainingItemCount: pipeline.remainingItemCount,
+      remainingItemCount: remaining.length,
       notStartedCount,
       tenderInProgressCount,
       inTransitCount,
@@ -4649,16 +4703,10 @@ export function computeTmcRemainderCardCounts(
       inTransitDonutCount,
       donutSum,
     });
-    if (donutSum !== pipeline.remainingItemCount) {
-      console.warn("[TMC remainder card] donutSum !== remainingItemCount", {
-        donutSum,
-        remainingItemCount: pipeline.remainingItemCount,
-      });
-    }
   }
 
   return {
-    remainingItemCount: pipeline.remainingItemCount,
+    remainingItemCount: remaining.length,
     notStartedCount,
     tenderInProgressCount,
     inTransitCount,
@@ -4787,6 +4835,9 @@ export function computeTmcPurchasedDeliveryDonutCounts(
     donutSum,
   };
 }
+
+/** @deprecated alias for diagnostic scripts */
+export const computeTmcDeliveredDeliveryDonutCounts = computeTmcPurchasedDeliveryDonutCounts;
 
 /** Средняя просрочка поставки (дни) — только «Закуплено с опозданием» (donut «Поставлено»). */
 export function computeTmcAverageDeliveryLateDays(

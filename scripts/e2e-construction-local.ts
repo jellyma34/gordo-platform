@@ -22,6 +22,7 @@ async function main() {
   } = await import("../lib/constructionApi");
   const { mergeGprTasksFromReportCsv } = await import("../lib/gprTasksMergeFromReportCsv");
   const { normalizeTenderCsvRowsWithAudit, parseTenderCsvText } = await import("../lib/tenderCsvImport");
+  const { createEmptyTmcItem } = await import("../lib/tmcData");
   type TMCItem = import("../lib/tmcData").TMCItem;
 
   console.log("API:", API);
@@ -65,29 +66,26 @@ async function main() {
 
   // ─── TMC (минимальный тестовый набор, без CSV-образца в repo) ───────────
   const tmcItems: TMCItem[] = [
-    {
+    createEmptyTmcItem("residential", {
       id: "tmc-e2e-001",
       itemCode: "2.05.01.1",
       name: "E2E тестовая позиция ТМЦ",
       gprStage: "2.05",
+      stage: "2.05",
       unit: "шт",
       volumePlan: 10,
       volumeFact: 5,
-      pricePlan: 1000,
-      priceFact: 1100,
-      totalPlan: 10000,
-      totalFact: 5500,
+      plannedQuantity: 10,
+      actualQuantity: 5,
       supplier: "E2E Supplier",
       contract: "DOG-001",
       status: "план",
-      planCost: 10000,
-      factCost: 5500,
+      statusRaw: "план",
+      statusCategory: "plan",
+      deliveryPlanDate: "2026-06-01",
       supplyPlanDate: "2026-06-01",
-      supplyFactDate: null,
       contractPlanDate: "2026-05-15",
-      contractFactDate: null,
-      projectPart: "residential",
-    },
+    }),
   ];
   console.log("\n[TMC test payload]");
   console.log("  items:", tmcItems.length);

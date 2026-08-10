@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { syncTmcFinancials, type TMCItem } from "./tmcData";
+import { createEmptyTmcItem, type TMCItem } from "./tmcData";
 import { parseSupplyPlanCsvText } from "./supplyPlanCsvImport";
 import { extractSupplyPlanMaterialRows, syncSupplyPlanToTmc } from "./syncSupplyPlanToTmc";
 
@@ -14,7 +14,7 @@ if (materialRows.length !== 2) {
 }
 
 const baseTmc: TMCItem[] = [
-  syncTmcFinancials({
+  createEmptyTmcItem("residential", {
     id: "tmc-1",
     itemCode: "2.05.05.1.1",
     name: "Старое название",
@@ -22,20 +22,11 @@ const baseTmc: TMCItem[] = [
     unit: "шт",
     volumePlan: 1,
     volumeFact: 0,
-    pricePlan: 1,
-    priceFact: 0,
-    totalPlan: 1,
-    totalFact: 0,
     supplier: "ООО Поставщик",
     contract: "DOG-001",
     status: "план",
-    planCost: 1,
-    factCost: null,
     supplyPlanDate: "2026-05-01",
-    supplyFactDate: null,
     contractPlanDate: "2026-04-01",
-    contractFactDate: null,
-    projectPart: "residential",
   }),
 ];
 
