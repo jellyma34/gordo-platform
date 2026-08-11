@@ -82,7 +82,18 @@ export function PresentationChrome({ children }: Props) {
     return "rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100";
   };
 
-  const navDarkIdle = "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
+  const navDark = (segment: "construction" | "marketing" | "finance") => {
+    const active =
+      segment === "construction"
+        ? pathname.startsWith("/presentation/construction")
+        : segment === "marketing"
+          ? pathname.startsWith("/presentation/marketing")
+          : pathname.startsWith("/presentation/finance");
+    if (active) {
+      return "rounded-lg border border-sky-400/50 bg-sky-500/20 px-3 py-2 text-sm font-medium text-sky-100 shadow-[0_0_0_1px_rgba(56,189,248,0.15)]";
+    }
+    return "rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10";
+  };
 
   /** Когда появятся данные проекта (API / контекст), задать объект с полем `name`. */
   const project: PresentationProjectSource | null = null;
@@ -110,13 +121,13 @@ export function PresentationChrome({ children }: Props) {
     </>
   ) : (
     <>
-      <Link href="/presentation/construction" className={navDarkIdle}>
+      <Link href="/presentation/construction" className={navDark("construction")}>
         Строительство
       </Link>
-      <Link href="/presentation/marketing/sales-plan" className={navDarkIdle}>
+      <Link href="/presentation/marketing/sales-plan" className={navDark("marketing")}>
         Маркетинг
       </Link>
-      <Link href="/presentation/finance" className={navDarkIdle}>
+      <Link href="/presentation/finance" className={navDark("finance")}>
         Финансы
       </Link>
     </>

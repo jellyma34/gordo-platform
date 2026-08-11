@@ -29,7 +29,7 @@ function ViewAllFooter({ accent }: { accent: "sky" | "rose" }) {
   const hover =
     accent === "sky" ? "hover:text-sky-300" : "hover:text-rose-300";
   return (
-    <div className="border-t border-slate-700/40 px-3 py-2.5">
+    <div className="mt-auto border-t border-slate-700/40 px-3 py-2.5">
       <button
         type="button"
         className={`text-[11px] font-medium text-slate-400 transition-colors ${hover}`}
@@ -43,14 +43,14 @@ function ViewAllFooter({ accent }: { accent: "sky" | "rose" }) {
 function NextMonthTable({ rows }: { rows: TmcMonthlyPlanNextMonthRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="px-3 py-6">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-6">
         <p className="text-center text-[12px] text-slate-500">Нет позиций для закупки</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-auto pb-1" style={{ maxHeight: TABLE_BODY_MAX_H }}>
+    <div className="min-h-0 flex-1 overflow-auto pb-1" style={{ maxHeight: TABLE_BODY_MAX_H }}>
       <table className="w-full table-fixed border-collapse text-left text-[11px]">
         <colgroup>
           <col className="w-[12%]" />
@@ -97,14 +97,14 @@ function NextMonthTable({ rows }: { rows: TmcMonthlyPlanNextMonthRow[] }) {
 function OverdueTable({ rows }: { rows: TmcMonthlyPlanOverdueRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="px-3 py-6">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-6">
         <p className="text-center text-[12px] text-slate-500">Просроченных позиций нет</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-auto pb-1" style={{ maxHeight: TABLE_BODY_MAX_H }}>
+    <div className="min-h-0 flex-1 overflow-auto pb-1" style={{ maxHeight: TABLE_BODY_MAX_H }}>
       <table className="w-full table-fixed border-collapse text-left text-[11px]">
         <colgroup>
           <col className="w-[12%]" />
@@ -184,35 +184,16 @@ export function TmcMonthlyPlanBlock({
           "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
       }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex items-start">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
             План на месяц
           </h3>
         </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2.5">
-          <div className="min-w-[112px] rounded-xl border border-sky-500/35 bg-sky-950/30 px-3.5 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-sky-400/90">
-              Следующий месяц
-            </div>
-            <div className="mt-0.5 text-2xl font-extrabold tabular-nums leading-none text-sky-300">
-              {analytics.nextMonthCount}
-            </div>
-          </div>
-          <div className="min-w-[112px] rounded-xl border border-rose-500/40 bg-rose-950/35 px-3.5 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-rose-400/90">
-              Просрочено
-            </div>
-            <div className="mt-0.5 text-2xl font-extrabold tabular-nums leading-none text-rose-400">
-              {analytics.overdueCount}
-            </div>
-          </div>
-        </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-        <div className="flex h-auto min-w-0 flex-col overflow-hidden rounded-xl border border-sky-500/25 bg-slate-950/45">
+      <div className="mt-5 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+        <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-sky-500/25 bg-slate-950/45">
           <div className="border-b border-sky-500/20 bg-sky-950/35 px-3 py-2.5">
             <h4 className="text-[11px] font-semibold uppercase leading-snug tracking-wider text-sky-300">
               Нужно закупить в следующем месяце
@@ -222,7 +203,7 @@ export function TmcMonthlyPlanBlock({
           <ViewAllFooter accent="sky" />
         </div>
 
-        <div className="flex h-auto min-w-0 flex-col overflow-hidden rounded-xl border border-rose-500/30 bg-slate-950/45">
+        <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-rose-500/30 bg-slate-950/45">
           <div className="border-b border-rose-500/25 bg-rose-950/40 px-3 py-2.5">
             <h4 className="text-[11px] font-semibold uppercase leading-snug tracking-wider text-rose-300">
               Не закуплено в срок

@@ -1212,7 +1212,17 @@ export function TmcPresentation({
     >
       <ConstructionPdfKpiLines lines={pdfKpiLines} />
       <div className="mb-4">
-        <h2 className="text-xl font-semibold text-slate-50">Закупка ТМЦ</h2>
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-500/35 bg-sky-950/35 text-sky-300">
+            <ShoppingCart className="h-5 w-5" strokeWidth={2} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold text-slate-50">Закупки</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Актуальная сводка по закупкам и поставкам материалов
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
