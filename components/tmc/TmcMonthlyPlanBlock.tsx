@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { TmcMaterialCell } from "@/components/tmc/TmcMaterialCell";
 import type { TMCItem } from "@/lib/tmcData";
 import {
   buildTmcMonthlyPlanAnalytics,
@@ -53,16 +54,16 @@ function NextMonthTable({ rows }: { rows: TmcMonthlyPlanNextMonthRow[] }) {
       <table className="w-full table-fixed border-collapse text-left text-[11px]">
         <colgroup>
           <col className="w-[12%]" />
-          <col className="w-[34%]" />
-          <col className="w-[16%]" />
+          <col className="w-[32%]" />
           <col className="w-[20%]" />
-          <col className="w-[18%]" />
+          <col className="w-[20%]" />
+          <col className="w-[16%]" />
         </colgroup>
         <thead className="sticky top-0 z-[1] bg-slate-950/95 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
           <tr>
             <th className="px-3 py-2 font-semibold">ID</th>
             <th className="px-3 py-2 font-semibold">Материал</th>
-            <th className="px-3 py-2 font-semibold">Кол-во</th>
+            <th className="whitespace-nowrap px-3 py-2 font-semibold">V, ПОСТАВКИ</th>
             <th className="px-3 py-2 font-semibold">Плановая дата</th>
             <th className="px-3 py-2 font-semibold">Статус</th>
           </tr>
@@ -73,8 +74,8 @@ function NextMonthTable({ rows }: { rows: TmcMonthlyPlanNextMonthRow[] }) {
               <td className="truncate px-3 py-2 align-top tabular-nums text-sky-300/90">
                 {row.workId}
               </td>
-              <td className="px-3 py-2 align-top font-medium text-slate-100">
-                <span className="line-clamp-2 break-words">{row.name}</span>
+              <td className="px-3 py-2 align-middle font-medium text-slate-100">
+                <TmcMaterialCell name={row.name} />
               </td>
               <td className="truncate px-3 py-2 align-top tabular-nums text-slate-300">
                 {row.quantityLabel}
@@ -127,8 +128,8 @@ function OverdueTable({ rows }: { rows: TmcMonthlyPlanOverdueRow[] }) {
               <td className="truncate px-3 py-2 align-top tabular-nums text-slate-200">
                 {row.workId}
               </td>
-              <td className="px-3 py-2 align-top font-medium text-slate-100">
-                <span className="line-clamp-2 break-words">{row.name}</span>
+              <td className="px-3 py-2 align-middle font-medium text-slate-100">
+                <TmcMaterialCell name={row.name} />
               </td>
               <td className="truncate px-3 py-2 align-top tabular-nums text-slate-400">
                 {formatPlanDateRu(row.planDate)}
@@ -188,9 +189,6 @@ export function TmcMonthlyPlanBlock({
           <h3 className="text-lg font-semibold uppercase tracking-wide text-slate-50">
             План на месяц
           </h3>
-          <p className="mt-1 text-[12px] text-slate-400">
-            Следующий месяц: {analytics.nextMonthLabel}
-          </p>
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2.5">
