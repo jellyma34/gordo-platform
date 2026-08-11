@@ -22,6 +22,7 @@ import {
   hasContractFact,
   isTmcInProgressPosition,
   isTmcNotPurchased,
+  isTmcOverdueAndNotPurchased,
   tmcKpiPositions,
 } from "@/lib/tmcProcurementAnalytics";
 import {
@@ -133,6 +134,11 @@ export type TmcMetricsSummary = {
   remainingInProgressCount: number;
   /** Среди остатка: просрочена поставка (план прошёл, факта нет). */
   remainingOverdueCount: number;
+  /**
+   * Среди остатка: не закуплено и плановая дата закупки прошла
+   * (тот же критерий, что «ПРОСРОЧЕНО» в «План на месяц»).
+   */
+  remainingOverdueNotPurchasedCount: number;
   /** Активная работа среди остатка (закупка начата, поставки ещё нет). */
   remainingActiveWorkCount: number;
   /** Средняя просрочка среди поставленных с опозданием (дни). */
@@ -215,6 +221,7 @@ function buildSummary(
   let remainingInProgress = 0;
   let remainingOverdueDaysSum = 0;
   let remainingOverdueForAvg = 0;
+  let remainingOverdueNotPurchased = 0;
   const reportMs = new Date(
     reportDate.getFullYear(),
     reportDate.getMonth(),
@@ -239,8 +246,12 @@ function buildSummary(
       }
     }
 
-    if (notPurchased) remainingNotPurchased += 1;
-    else if (inProgress) remainingInProgress += 1;
+    if (notPurchased) {
+      remainingNotPurchased += 1;
+      if (item && isTmcOverdueAndNotPurchased(item, reportDate)) {
+        remainingOverdueNotPurchased += 1;
+      }
+    } else if (inProgress) remainingInProgress += 1;
   }
 
   const eligible = units.length;
@@ -259,6 +270,7 @@ function buildSummary(
     remainingNotPurchasedCount: remainingNotPurchased,
     remainingInProgressCount: remainingInProgress,
     remainingOverdueCount: missing,
+    remainingOverdueNotPurchasedCount: remainingOverdueNotPurchased,
     remainingActiveWorkCount: remainingInProgress,
     averageDeliveryLateDays: late > 0 ? Math.round(lateDaysSum / late) : 0,
     averageRemainingOverdueDays:
@@ -325,10 +337,7 @@ function buildFinancialFromSummary(summary: TmcMetricsSummary): TmcUnifiedFinanc
 }
 
 function buildRemainderFromSummary(summary: TmcMetricsSummary): TmcUnifiedRemainderCardCounts {
-  const overdueNotPurchasedCount = Math.min(
-    summary.remainingOverdueCount,
-    summary.remainingNotPurchasedCount,
-  );
+  const overdueNotPurchasedCount = summary.remainingOverdueNotPurchasedCount;
   const notPurchasedOnTimeCount = Math.max(
     0,
     summary.remainingNotPurchasedCount - overdueNotPurchasedCount,

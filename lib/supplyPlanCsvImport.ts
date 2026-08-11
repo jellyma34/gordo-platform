@@ -346,6 +346,7 @@ export function normalizeSupplyPlanCsvRows(
     const draft = createEmptyTmcItem(defaultProjectPart, {
       id: supplyPlanItemId(itemCode, idx, name),
       sourceRowNumber: idx + 1,
+      rowNo: null,
       sourceCode: code,
       itemCode: code,
       rowKind: "position",

@@ -35,6 +35,7 @@ import { TmcGprDeficitImpactBlock } from "@/components/tmc/TmcGprDeficitImpactBl
 import { TmcContractConclusionDynamicsBlock } from "@/components/tmc/TmcContractConclusionDynamicsBlock";
 import { TmcRequestDynamicsBlock } from "@/components/tmc/TmcRequestDynamicsBlock";
 import { TmcDeliveryDynamicsBlock } from "@/components/tmc/TmcDeliveryDynamicsBlock";
+import { TmcMonthlyPlanBlock } from "@/components/tmc/TmcMonthlyPlanBlock";
 import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { formatCurrencyCompact } from "@/lib/chartFormatters";
@@ -681,6 +682,15 @@ export function TmcPresentation({
   const kpiDonutSegments = tmcMetrics.donutDistributions;
   const requestContractFactCount = tmcMetrics.summary.contractFactCount;
   const contractEligibleCount = tmcMetrics.summary.contractEligibleCount;
+
+  /** Остаток поставок из того же buildTmcMetrics — источник KPI «В работе / Не закуплено». */
+  const deliveryRemainingItemIds = useMemo(
+    () =>
+      tmcMetrics.deliveries.units
+        .filter((u) => !u.actualDeliveryDate)
+        .map((u) => u.id),
+    [tmcMetrics.deliveries.units],
+  );
 
   const monthlySeries = useMemo(
     () => buildTmcMonthlyProcurementSeries(enriched, today, procurementValueMode),
@@ -1431,6 +1441,12 @@ export function TmcPresentation({
           </div>
         </TmcPremiumKpiCard>
       </div>
+
+      <TmcMonthlyPlanBlock
+        items={enriched}
+        reportDate={today}
+        remainingItemIds={deliveryRemainingItemIds}
+      />
 
       <TmcRequestDynamicsBlock
         items={enriched}

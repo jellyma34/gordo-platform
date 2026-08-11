@@ -244,6 +244,7 @@ function createTmcItemFromSupplyPlanRow(
   return createEmptyTmcItem(projectPart, {
     id: supplyPlanStableId(row, projectPart, index),
     sourceRowNumber: index + 1,
+    rowNo: null,
     sourceCode: itemCode,
     itemCode,
     rowKind: "position",

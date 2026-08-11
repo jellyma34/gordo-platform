@@ -199,8 +199,12 @@ export function tmcFromApiItem(row: TmcApiItem): TMCItem {
   const draft: TMCItem = {
     id: externalId,
     sourceRowNumber: num("sourceRowNumber"),
-    sourceCode: str("sourceCode", str("itemCode", externalId)),
-    itemCode: str("itemCode", externalId),
+    rowNo: (() => {
+      const n = numOrNull("rowNo");
+      return n != null && n > 0 ? Math.trunc(n) : null;
+    })(),
+    sourceCode: str("sourceCode") || str("itemCode"),
+    itemCode: str("itemCode") || str("sourceCode"),
     rowKind,
     parentWbsCode: str("parentWbsCode") || null,
     stage,
@@ -269,6 +273,7 @@ export function tmcToApiPayload(item: TMCItem): TmcApiItem {
     fact_date: factDate,
     details: {
       sourceRowNumber: synced.sourceRowNumber,
+      rowNo: synced.rowNo,
       sourceCode: synced.sourceCode,
       itemCode: synced.itemCode,
       rowKind: synced.rowKind,

@@ -67,6 +67,11 @@ export type TMCItem = {
   id: string;
   /** 1-based номер физической/логической строки CSV (для стабильности "-" / "?"). */
   sourceRowNumber: number;
+  /**
+   * Номер позиции из CSV «№ п/п» — отображаемый ID работы/позиции.
+   * Не путать с внутренним `id` (`tmc:...`) и с «ID Код» (WBS / "-" / "?").
+   */
+  rowNo: number | null;
   /** Сырое значение колонки «ID Код». */
   sourceCode: string;
   /** Код для отображения / сортировки (sourceCode; для групп — WBS). */
@@ -139,6 +144,35 @@ export type TMCItem = {
 
 export function isTmcControlledPosition(item: TMCItem): boolean {
   return item.rowKind === "position";
+}
+
+/**
+ * Отображаемый ID работы/позиции для UI.
+ * Приоритет: CSV «№ п/п» → валидный «ID Код» (не "-", "?", внутренний tmc:...).
+ */
+export function tmcDisplayWorkId(item: Pick<TMCItem, "rowNo" | "sourceCode" | "itemCode" | "id">): string {
+  if (item.rowNo != null && Number.isFinite(item.rowNo) && item.rowNo > 0) {
+    return String(Math.trunc(item.rowNo));
+  }
+  const code = (item.sourceCode || item.itemCode || "").trim();
+  if (
+    !code ||
+    code === "-" ||
+    code === "?" ||
+    code === "_" ||
+    code.toLowerCase().startsWith("tmc:")
+  ) {
+    return "—";
+  }
+  return code;
+}
+
+/** Только CSV «№ п/п» — для блоков, где WBS / internal id недопустимы. */
+export function tmcCsvRowNoLabel(item: Pick<TMCItem, "rowNo">): string {
+  if (item.rowNo != null && Number.isFinite(item.rowNo) && item.rowNo > 0) {
+    return String(Math.trunc(item.rowNo));
+  }
+  return "—";
 }
 
 export function tmcOrderedVolume(item: TMCItem): number {
@@ -337,6 +371,7 @@ function seedPosition(
     ...partial,
     ...emptyCompatMoney(),
     sourceRowNumber: 0,
+    rowNo: null,
     sourceCode: partial.itemCode,
     rowKind: "position",
     parentWbsCode: null,
@@ -435,12 +470,20 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
   if (!id) return null;
 
   const itemCodeRaw = typeof o.itemCode === "string" ? o.itemCode.trim() : "";
-  const sourceCode =
+  const sourceCodeRaw =
     typeof o.sourceCode === "string" ? o.sourceCode.trim() : itemCodeRaw;
+  /** Не подставлять внутренний `tmc:...` id в display-код. */
+  const sourceCode =
+    sourceCodeRaw.toLowerCase().startsWith("tmc:") ? "" : sourceCodeRaw;
+  const itemCodeClean =
+    itemCodeRaw.toLowerCase().startsWith("tmc:") ? "" : itemCodeRaw;
   const sourceRowNumber =
     typeof o.sourceRowNumber === "number" && Number.isFinite(o.sourceRowNumber)
       ? o.sourceRowNumber
       : 0;
+  const rowNoRaw = coerceFiniteNumberOrNull(o.rowNo);
+  const rowNo =
+    rowNoRaw != null && rowNoRaw > 0 ? Math.trunc(rowNoRaw) : null;
 
   const deliveryPlanDate =
     coerceIsoNullable(o.deliveryPlanDate) ??
@@ -484,9 +527,9 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
     o.rowKind === "position" ||
     o.rowKind === "other"
       ? o.rowKind
-      : name.trim()
+        : name.trim()
         ? "position"
-        : isTmcWbsCode(sourceCode || itemCodeRaw)
+        : isTmcWbsCode(sourceCode || itemCodeClean)
           ? "group"
           : "other";
 
@@ -498,8 +541,9 @@ export function normalizeTmcRowLoose(raw: unknown): TMCItem | null {
   const draft: TMCItem = {
     id,
     sourceRowNumber,
+    rowNo,
     sourceCode,
-    itemCode: itemCodeRaw || sourceCode || id,
+    itemCode: itemCodeClean || sourceCode,
     rowKind,
     parentWbsCode: typeof o.parentWbsCode === "string" ? o.parentWbsCode : null,
     stage,
@@ -555,6 +599,7 @@ export function createEmptyTmcItem(
   const base: TMCItem = {
     id,
     sourceRowNumber,
+    rowNo: overrides.rowNo ?? null,
     sourceCode,
     itemCode: overrides.itemCode || sourceCode,
     rowKind: "position",

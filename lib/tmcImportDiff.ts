@@ -18,6 +18,7 @@ export function tmcComparableFingerprint(t: TMCItem): string {
   return JSON.stringify({
     id: String(t.id ?? "").trim(),
     sourceRowNumber: t.sourceRowNumber ?? 0,
+    rowNo: t.rowNo ?? null,
     sourceCode: String(t.sourceCode ?? "").trim(),
     itemCode: String(t.itemCode ?? "").trim(),
     rowKind: t.rowKind,

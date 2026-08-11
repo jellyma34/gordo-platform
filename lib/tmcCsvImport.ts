@@ -602,6 +602,9 @@ export function normalizeTmcCsvRowsWithMeta(
       const sourceCode = cell(cols, map.itemCode);
       const stage = cell(cols, map.stage);
       const name = cell(cols, map.name);
+      const rowNoParsed = parseImportNumber(cell(cols, map.rowNo));
+      const rowNo =
+        rowNoParsed != null && rowNoParsed > 0 ? Math.trunc(rowNoParsed) : null;
 
       const sectionPart = detectSectionPart(stage);
       const rowKind = classifyRowKind(sourceCode, stage, name);
@@ -649,6 +652,7 @@ export function normalizeTmcCsvRowsWithMeta(
       const item = syncTmcFinancials({
         id,
         sourceRowNumber,
+        rowNo,
         sourceCode,
         itemCode: sourceCode,
         rowKind,

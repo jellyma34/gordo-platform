@@ -40,8 +40,10 @@ import {
   isTmcDeliveryOverdue,
   isTmcInProgressPosition,
   isTmcNotPurchased,
+  isTmcOverdueAndNotPurchased,
   tmcDeliveryLateDays,
   tmcKpiPositions,
+  tmcPurchasePlanDate,
 } from "@/lib/tmcProcurementAnalytics";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -4507,14 +4509,15 @@ export type TmcRemainderCardCounts = {
 
 /** Плановая дата договора или закупки для сегмента «Не закуплено». */
 export function tmcPurchaseOrContractPlanDate(item: TMCItem): string | null {
-  return item.contractPlanDate?.trim() || item.supplyPlanDate?.trim() || null;
+  return tmcPurchasePlanDate(item);
 }
 
-/** Плановая дата договора/закупки раньше даты отчёта, факт закупки отсутствует. */
+/**
+ * Плановая дата договора/закупки раньше даты отчёта и позиция не закуплена.
+ * Согласовано с `isTmcOverdueAndNotPurchased`.
+ */
 export function isTmcNotPurchasedPlanOverdue(item: TMCItem, today: Date = new Date()): boolean {
-  const plan = tmcPurchaseOrContractPlanDate(item);
-  if (!plan) return false;
-  return plan < tmcTodayIso(today);
+  return isTmcOverdueAndNotPurchased(item, today);
 }
 
 /**

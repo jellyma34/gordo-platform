@@ -98,6 +98,100 @@ export function isTmcNotPurchased(item: TMCItem): boolean {
   return true;
 }
 
+/** Нормализованный статус закупки (единый для KPI и «План на месяц»). */
+export type TmcPurchaseStatus =
+  | "purchased"
+  | "partially_purchased"
+  | "not_purchased"
+  | "no_fact";
+
+/** Нормализованный статус относительно плановой даты закупки/договора. */
+export type TmcPurchaseScheduleStatus = "ahead" | "on_time" | "late" | "no_plan";
+
+export type TmcNormalizedPurchaseState = {
+  purchaseStatus: TmcPurchaseStatus;
+  scheduleStatus: TmcPurchaseScheduleStatus;
+  /** Плановая дата закупки: contractPlanDate → supplyPlanDate (не дата поставки). */
+  plannedDate: string | null;
+  /** Факт договора или поставки (закупка считается выполненной). */
+  isPurchased: boolean;
+  /** Не закуплено (то же, что KPI «Не закуплено»). */
+  isNotPurchased: boolean;
+  /** План закупки прошёл и позиция не закуплена. */
+  isOverdueAndNotPurchased: boolean;
+};
+
+function tmcLocalIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Плановая дата закупки/заключения договора.
+ * Не использует даты поставки (deliveryPlanDate).
+ */
+export function tmcPurchasePlanDate(item: TMCItem): string | null {
+  return item.contractPlanDate?.trim() || item.supplyPlanDate?.trim() || null;
+}
+
+/** Есть ли факт закупки: договор или поставка. */
+export function isTmcPurchased(item: TMCItem): boolean {
+  return !isTmcNotPurchased(item);
+}
+
+export function classifyTmcPurchaseStatus(item: TMCItem): TmcPurchaseStatus {
+  if (item.statusCategory === "partial") return "partially_purchased";
+  if (isTmcDeliveredPosition(item) || hasContractFact(item)) return "purchased";
+  const raw = item.statusRaw?.trim();
+  if (!raw || item.statusCategory === "no_fact") return "no_fact";
+  return "not_purchased";
+}
+
+export function classifyTmcPurchaseScheduleStatus(
+  item: TMCItem,
+  today: Date = new Date(),
+): TmcPurchaseScheduleStatus {
+  const plannedDate = tmcPurchasePlanDate(item);
+  if (!plannedDate) return "no_plan";
+  const todayIso = tmcLocalIsoDate(today);
+  if (plannedDate < todayIso) return "late";
+  if (plannedDate === todayIso) return "on_time";
+  return "ahead";
+}
+
+/**
+ * «Не закуплено в срок»:
+ * плановая дата закупки < сегодня И позиция не закуплена.
+ * Не использует дату поставки.
+ */
+export function isTmcOverdueAndNotPurchased(
+  item: TMCItem,
+  today: Date = new Date(),
+): boolean {
+  if (!isTmcNotPurchased(item)) return false;
+  return classifyTmcPurchaseScheduleStatus(item, today) === "late";
+}
+
+/** Единое нормализованное состояние позиции для связанных KPI. */
+export function normalizeTmcPurchaseState(
+  item: TMCItem,
+  today: Date = new Date(),
+): TmcNormalizedPurchaseState {
+  const purchaseStatus = classifyTmcPurchaseStatus(item);
+  const scheduleStatus = classifyTmcPurchaseScheduleStatus(item, today);
+  const isNotPurchased = isTmcNotPurchased(item);
+  return {
+    purchaseStatus,
+    scheduleStatus,
+    plannedDate: tmcPurchasePlanDate(item),
+    isPurchased: !isNotPurchased,
+    isNotPurchased,
+    isOverdueAndNotPurchased: isNotPurchased && scheduleStatus === "late",
+  };
+}
+
 export function tmcDeliveryLateDays(item: TMCItem, reportDate: Date): number {
   const plan = item.deliveryPlanDate ?? item.supplyPlanDate;
   const fact = item.deliveryFactDate ?? item.supplyFactDate;
@@ -130,7 +224,9 @@ export type TmcProcurementLifecycleKpi = {
   withoutDeliveryCount: number;
 };
 
-const CRITICAL_OVERDUE_DAYS = 14;
+/** Порог критической / «высокой» просрочки (дней). */
+export const TMC_CRITICAL_OVERDUE_DAYS = 14;
+const CRITICAL_OVERDUE_DAYS = TMC_CRITICAL_OVERDUE_DAYS;
 
 export function computeTmcProcurementLifecycleKpi(
   items: TMCItem[],

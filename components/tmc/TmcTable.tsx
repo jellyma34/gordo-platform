@@ -29,6 +29,7 @@ import { diffTmcImport, type TmcImportDiffStats } from "@/lib/tmcImportDiff";
 import {
   createEmptyTmcItem,
   syncTmcFinancials,
+  tmcDisplayWorkId,
   type TMCItem,
   type TmcStatusCategory,
 } from "@/lib/tmcData";
@@ -528,7 +529,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
                           onChange={(e) => setForm((f) => ({ ...f, itemCode: e.target.value }))}
                         />
                       ) : (
-                        item.sourceCode || item.itemCode || "—"
+                        tmcDisplayWorkId(item)
                       )}
                     </td>
                     <td className={`${td} max-w-[160px]`}>
