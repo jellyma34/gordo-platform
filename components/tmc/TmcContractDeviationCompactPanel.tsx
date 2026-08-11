@@ -57,12 +57,19 @@ export function TmcContractDeviationCompactPanel({
   segments,
   factConcludedCount,
   onTimeOverallPct,
+  eligibleCount,
 }: {
   segments: TmcContractDeviationSegment[];
   factConcludedCount: number;
   onTimeOverallPct: number | null;
+  /** Договоры с плановой датой (знаменатель donut). */
+  eligibleCount?: number;
 }) {
   const gradPrefix = useId().replace(/:/g, "");
+  const legendTotal =
+    eligibleCount != null && eligibleCount > 0
+      ? eligibleCount
+      : segments.reduce((s, x) => s + x.count, 0);
 
   const chartData = useMemo(() => {
     const source = segments.filter((s) => s.count > 0);
@@ -72,10 +79,10 @@ export function TmcContractDeviationCompactPanel({
     }));
   }, [segments, gradPrefix]);
 
-  if (factConcludedCount === 0) {
+  if (legendTotal === 0 && factConcludedCount === 0) {
     return (
       <div className="flex min-h-[120px] items-center justify-center px-2 text-center text-xs text-slate-500">
-        Нет фактически заключённых договоров
+        Нет договоров с определённой плановой датой
       </div>
     );
   }
@@ -115,7 +122,7 @@ export function TmcContractDeviationCompactPanel({
                   >
                     <div className="font-medium text-slate-100">{row.label}</div>
                     <div className="tabular-nums text-slate-300">
-                      {row.count} договоров · {formatPct1(row.count, factConcludedCount)}
+                      {row.count} договоров · {formatPct1(row.count, legendTotal)}
                     </div>
                   </div>
                 );
@@ -163,7 +170,7 @@ export function TmcContractDeviationCompactPanel({
 
       <div className="mt-2 grid w-full grid-cols-2 gap-x-1.5 gap-y-0.5 border-t border-slate-700/35 pt-2">
         {segments.map((seg) => (
-          <DeviationLegendItem key={seg.bucket} segment={seg} total={factConcludedCount} />
+          <DeviationLegendItem key={seg.bucket} segment={seg} total={legendTotal} />
         ))}
       </div>
 

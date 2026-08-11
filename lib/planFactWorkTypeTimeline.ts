@@ -346,6 +346,11 @@ export type PlanFactWorkTypeRowDetail = {
 
 export type PlanFactWorkTypeChartModel = {
   labels: string[];
+  /**
+   * Опционально: ID работ ГПР в отдельной колонке (блок ТМЦ
+   * «Динамика объемов поставок, %»). Длина должна совпадать с labels.
+   */
+  rowWorkIds?: string[];
   planRanges: Array<[number, number] | null>;
   factRanges: Array<[number, number] | null>;
   planColors: string[];
@@ -508,6 +513,9 @@ export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX = 280;
 
 /** Минимальная ширина левой колонки подписей (px). */
 export const PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX = 140;
+
+/** Компактная колонка «ID работ» (px) для блока объёмов поставок ТМЦ. */
+export const PLAN_FACT_GPR_CHART_WORK_ID_COLUMN_PX = 88;
 
 /** Высота одной строки полосы (План или Факт). */
 export const PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX = 22;

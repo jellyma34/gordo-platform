@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GPRTask } from "@/lib/gprUtils";
 import type { TMCItem } from "@/lib/tmcData";
 import {
   buildTmcRequestDynamicsAnalytics,
   logTmcRequestDynamicsDiagnostic,
 } from "@/lib/tmcRequestDynamicsAnalytics";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { TmcRequestMonthlyDynamicsChart } from "@/components/tmc/TmcRequestMonthlyDynamicsChart";
+import type { TmcPlanFactValueMode } from "@/components/tmc/TmcPlanFactTodayReferenceLine";
 import { TmcRequestDeviationCompactPanel } from "@/components/tmc/TmcRequestDeviationCompactPanel";
 
 function ChartInlineLegend() {
@@ -32,14 +34,18 @@ export function TmcRequestDynamicsBlock({
   items,
   gprTasks = [],
   reportDate = new Date(),
+  analytics: analyticsProp,
 }: {
   items: TMCItem[];
   gprTasks?: GPRTask[];
   reportDate?: Date;
+  analytics?: ReturnType<typeof buildTmcRequestDynamicsAnalytics>;
 }) {
+  const [valueMode, setValueMode] = useState<TmcPlanFactValueMode>("monthly");
+
   const analytics = useMemo(
-    () => buildTmcRequestDynamicsAnalytics(items, reportDate, gprTasks),
-    [items, reportDate, gprTasks],
+    () => analyticsProp ?? buildTmcRequestDynamicsAnalytics(items, reportDate, gprTasks),
+    [analyticsProp, items, reportDate, gprTasks],
   );
 
   useEffect(() => {
@@ -58,22 +64,37 @@ export function TmcRequestDynamicsBlock({
           "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
       }}
     >
-      <div>
-        <h3 className="text-lg font-semibold text-slate-50">Динамика заявок</h3>
-        <p className="mt-1 text-sm text-slate-400">
-          Своевременность подачи заявок по импортированным данным ТМЦ
-        </p>
-      </div>
+      <h3 className="text-lg font-semibold text-slate-50">Динамика заявок</h3>
 
-      <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
+      <div className="mt-3 grid grid-cols-1 items-start gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
         <div className="flex min-w-0 flex-col">
-          <h4 className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-            Динамика подачи заявок по месяцам
-          </h4>
+          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "monthly" as const, label: "Помесячно" },
+                  { id: "cumulative" as const, label: "Нарастающим итогом" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setValueMode(m.id)}
+                  className={segmentedControlTabClass(valueMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <ChartInlineLegend />
           <div className="mt-1.5 h-[380px] w-full min-w-0">
             {hasMonthly ? (
-              <TmcRequestMonthlyDynamicsChart rows={analytics.monthlyRows} />
+              <TmcRequestMonthlyDynamicsChart
+                rows={analytics.monthlyRows}
+                reportDate={reportDate}
+                mode={valueMode}
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">
                 Недостаточно дат заявок для построения динамики
@@ -83,9 +104,6 @@ export function TmcRequestDynamicsBlock({
         </div>
 
         <div className="w-full shrink-0 xl:w-[250px]">
-          <h4 className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-            Распределение отклонений
-          </h4>
           <TmcRequestDeviationCompactPanel
             segments={analytics.deviationSegments}
             factSubmittedCount={analytics.factSubmittedCount}

@@ -37,7 +37,7 @@ export function tmcStatusCategoryLabel(cat: TmcStatusCategory): string {
     case "delivered":
       return "Поставлено";
     case "partial":
-      return "Частично поставлено";
+      return "Поставлено частично";
     case "plan":
       return "План";
     default:

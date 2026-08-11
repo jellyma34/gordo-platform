@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   CartesianGrid,
   LabelList,
@@ -10,6 +11,11 @@ import {
   XAxis,
   YAxis,
 } from "@/components/charting/rechartsClient";
+import {
+  accumulatePlanFactMonthlyRows,
+  TmcPlanFactTodayReferenceLine,
+  type TmcPlanFactValueMode,
+} from "@/components/tmc/TmcPlanFactTodayReferenceLine";
 import type { TmcDeliveryMonthlyDynamicsRow } from "@/lib/tmcDeliveryDynamicsAnalytics";
 
 const COLORS = {
@@ -40,15 +46,19 @@ function deliveriesWord(n: number): string {
 function PlanFactTooltip({
   active,
   payload,
+  mode,
 }: {
   active?: boolean;
   payload?: Array<{ payload?: TmcDeliveryMonthlyDynamicsRow }>;
+  mode: TmcPlanFactValueMode;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   if (!row) return null;
 
   const deviation = row.fact - row.plan;
+  const planLabel = mode === "cumulative" ? "План накопительно" : "План";
+  const factLabel = mode === "cumulative" ? "Факт накопительно" : "Факт";
 
   return (
     <div
@@ -61,13 +71,13 @@ function PlanFactTooltip({
     >
       <div className="mb-1.5 font-semibold text-slate-100">Месяц: {row.monthTitle}</div>
       <div className="tabular-nums text-slate-300">
-        План:{" "}
+        {planLabel}:{" "}
         <span className="font-medium text-white">
           {row.plan} {deliveriesWord(row.plan)}
         </span>
       </div>
       <div className="tabular-nums text-slate-300">
-        Факт:{" "}
+        {factLabel}:{" "}
         <span className="font-medium text-white">
           {row.fact} {deliveriesWord(row.fact)}
         </span>
@@ -86,10 +96,19 @@ function PlanFactTooltip({
 
 export function TmcDeliveryMonthlyDynamicsChart({
   rows,
+  reportDate = new Date(),
+  mode = "monthly",
 }: {
   rows: TmcDeliveryMonthlyDynamicsRow[];
+  reportDate?: Date;
+  mode?: TmcPlanFactValueMode;
 }) {
-  if (rows.length === 0) {
+  const chartRows = useMemo(
+    () => (mode === "cumulative" ? accumulatePlanFactMonthlyRows(rows) : rows),
+    [rows, mode],
+  );
+
+  if (chartRows.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-slate-500">
         Недостаточно дат поставок для построения динамики
@@ -97,12 +116,12 @@ export function TmcDeliveryMonthlyDynamicsChart({
     );
   }
 
-  const maxCount = rows.reduce((m, r) => Math.max(m, r.plan, r.fact), 0);
+  const maxCount = chartRows.reduce((m, r) => Math.max(m, r.plan, r.fact), 0);
 
   return (
     <div className="h-full w-full min-h-0">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 18, right: 8, left: 4, bottom: 36 }}>
+        <LineChart data={chartRows} margin={{ top: 18, right: 8, left: 4, bottom: 36 }}>
           <CartesianGrid stroke="rgba(148,163,184,0.12)" strokeDasharray="4 4" vertical={false} />
           <XAxis
             dataKey="label"
@@ -134,7 +153,11 @@ export function TmcDeliveryMonthlyDynamicsChart({
               style: { fill: "#64748b", fontSize: 9 },
             }}
           />
-          <Tooltip content={<PlanFactTooltip />} cursor={{ stroke: "rgba(148,163,184,0.25)" }} />
+          <Tooltip
+            content={<PlanFactTooltip mode={mode} />}
+            cursor={{ stroke: "rgba(148,163,184,0.25)" }}
+          />
+          <TmcPlanFactTodayReferenceLine rows={chartRows} reportDate={reportDate} />
           <Line
             type="monotone"
             dataKey="plan"

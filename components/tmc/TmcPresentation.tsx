@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, ChevronDown, ShoppingCart, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, PieChart, ShoppingCart, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ConstructionPdfKpiLines } from "@/components/reports/ConstructionPdfKpiLines";
 import {
@@ -32,12 +32,10 @@ import {
 import { TmcVolumeDynamicsChart } from "@/components/tmc/TmcVolumeDynamicsChart";
 import { TmcProcurementVolumeDynamicsBlock } from "@/components/tmc/TmcProcurementVolumeDynamicsBlock";
 import { TmcGprDeficitImpactBlock } from "@/components/tmc/TmcGprDeficitImpactBlock";
-import { TmcGprMaterialSupplyBlock } from "@/components/tmc/TmcGprMaterialSupplyBlock";
 import { TmcContractConclusionDynamicsBlock } from "@/components/tmc/TmcContractConclusionDynamicsBlock";
 import { TmcRequestDynamicsBlock } from "@/components/tmc/TmcRequestDynamicsBlock";
 import { TmcDeliveryDynamicsBlock } from "@/components/tmc/TmcDeliveryDynamicsBlock";
 import { KpiDonutChart } from "@/components/tmc/KpiDonutChart";
-import { useTmcKpiDonutSegments } from "@/components/tmc/useTmcKpiDonutSegments";
 import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { formatCurrencyCompact } from "@/lib/chartFormatters";
 import { gprMockData } from "@/lib/gprMockData";
@@ -49,9 +47,6 @@ import {
   type TmcDynamicsValueMode,
   buildTmcMonthlyProcurementSeries,
   buildTmcMonthlyRequestSeries,
-  computeTmcProcurementKpi,
-  computeTmcAverageDeliveryLateDays,
-  computeTmcProcurementFinancialResult,
   logTmcProcurementEconomyVolumeAdjusted,
   computeTmcMaterialPlanFact,
   computeTmcArmaturePlanFactDiagnostics,
@@ -63,10 +58,8 @@ import {
   buildTmcPriceIndexTimeline,
   computeTmcDataDiagnostics,
   computeTmcOverdueReasonBreakdown,
-  computeTmcRemainderCardCounts,
   logTmcDataPipelineDiagnostics,
   logTmcPipelineStatusDiagnostic,
-  logTmcPurchasedVsRequestDiagnostic,
   logTmcContractFactKpiChartDiagnostic,
   type TmcMaterialCostDynamicsMode,
   diagnoseTmcDeliveryDynamicsMonths,
@@ -74,13 +67,12 @@ import {
   type TmcMaterialPlanFactMode,
   enrichTmcItems,
   fillTmcMonthlyProcurementTimeline,
-  classifyTmcPipelineStatus,
   isTmcDeliveredSupplyStatus,
   tmcItemCsvFactCostRub,
   tmcItemCsvPlanCostRub,
 } from "@/lib/tmcPresentationAnalytics";
+import { buildTmcMetrics, logTmcUnifiedMetricsDiagnostic } from "@/lib/tmcUnifiedMetrics";
 import { isTmcControlledPosition } from "@/lib/tmcData";
-import { hasContractFact } from "@/lib/tmcProcurementAnalytics";
 
 const tmcLocalMode = isGprLocalStorageMode();
 const tenderLocalMode = isGprLocalStorageMode();
@@ -180,7 +172,6 @@ const DELIVERY_DYNAMICS_LABELS: TmcDynamicsChartLabels = {
 };
 
 const TMC_PURCHASED_DEVIATION_CARD_TITLE = "ОТКЛОНЕНИЕ";
-const TMC_PURCHASED_DEVIATION_PCT_LABEL = "ДОЛЯ ПРОСРОЧЕННЫХ, %";
 
 /** Сумма для KPI первой карточки ТМЦ — без символа ₽. */
 function rubKpiAmount(value: number): string {
@@ -399,52 +390,6 @@ function TmcKpiCountBlock({
         <div className="mt-2 flex items-baseline gap-1 tabular-nums tracking-tight">
           <span className="text-2xl font-extrabold text-white">{primaryCount}</span>
           <span className="text-xl font-medium text-slate-300/65">из {totalCount}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TmcKpiSplitMoneyBlock({
-  label,
-  factRub,
-  planRub,
-  accentColor,
-  showRubSuffix = false,
-}: {
-  label: string;
-  factRub: number;
-  planRub: number;
-  accentColor: string;
-  showRubSuffix?: boolean;
-}) {
-  const primaryGlow = { textShadow: "0 0 22px rgba(59,130,246,0.42)" };
-  const suffix = showRubSuffix ? " ₽" : "";
-
-  return (
-    <div className="space-y-1.5">
-      <TmcKpiDivider />
-      <div className="pt-5 pl-0.5">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{
-              backgroundColor: accentColor,
-              boxShadow: `0 0 10px ${accentColor}cc`,
-            }}
-            aria-hidden
-          />
-          {label}
-        </div>
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 tabular-nums tracking-tight">
-          <span className="text-2xl font-extrabold text-white" style={primaryGlow}>
-            {rubKpiAmount(factRub)}
-            {suffix}
-          </span>
-          <span className="text-xl font-medium text-slate-300/65">
-            из {rubKpiAmount(planRub)}
-            {suffix}
-          </span>
         </div>
       </div>
     </div>
@@ -719,18 +664,24 @@ export function TmcPresentation({
     [allTenders, activePartScope],
   );
 
-  const kpi = useMemo(
-    () => computeTmcProcurementKpi(enriched, today, scopedTenders),
-    [enriched, today, scopedTenders],
+  const scopedGprTasks = useMemo(
+    () => filterGprTasksByObjectScope(gprTasks, activePartScope),
+    [gprTasks, activePartScope],
   );
-  const remainderCard = useMemo(
-    () => computeTmcRemainderCardCounts(enriched, scopedTenders, today),
-    [enriched, scopedTenders, today],
+
+  /** Единый слой: KPI + заявка заявок/договоров/поставок из одного расчёта. */
+  const tmcMetrics = useMemo(
+    () => buildTmcMetrics(enriched, today, scopedGprTasks),
+    [enriched, today, scopedGprTasks],
   );
-  const averageDeliveryLateDays = useMemo(
-    () => computeTmcAverageDeliveryLateDays(enriched, today),
-    [enriched, today],
-  );
+  const kpi = tmcMetrics.kpi;
+  const remainderCard = tmcMetrics.remainderCard;
+  const financialResult = tmcMetrics.financialResult;
+  const averageDeliveryLateDays = tmcMetrics.summary.averageDeliveryLateDays;
+  const kpiDonutSegments = tmcMetrics.donutDistributions;
+  const requestContractFactCount = tmcMetrics.summary.contractFactCount;
+  const contractEligibleCount = tmcMetrics.summary.contractEligibleCount;
+
   const monthlySeries = useMemo(
     () => buildTmcMonthlyProcurementSeries(enriched, today, procurementValueMode),
     [enriched, today, procurementValueMode],
@@ -872,11 +823,6 @@ export function TmcPresentation({
     [enriched, priceIndexTimeline],
   );
 
-  const scopedGprTasks = useMemo(
-    () => filterGprTasksByObjectScope(gprTasks, activePartScope),
-    [gprTasks, activePartScope],
-  );
-
   const volumeDynamics = useMemo(
     () =>
       computeTmcVolumeDynamics(enriched, {
@@ -921,35 +867,19 @@ export function TmcPresentation({
 
   const receiptCostExecutionPct = kpi.actualExecutionPct;
 
-  const overdueFactCostRub = useMemo(
-    () =>
-      enriched.filter(
-        (item) => classifyTmcPipelineStatus(item, scopedTenders, today) === "deliveryOverdue",
-      ).length,
-    [enriched, scopedTenders, today],
-  );
-
-  const requestContractFactCount = useMemo(
-    () => enriched.filter((item) => hasContractFact(item)).length,
-    [enriched],
-  );
-
   const receiptDeviation = useMemo(
     () => computeTmcReceiptDeviationDisplay(kpi.receiptsPlanRub, kpi.receiptsFactRub),
     [kpi.receiptsPlanRub, kpi.receiptsFactRub],
   );
 
-  const financialResult = useMemo(
-    () => computeTmcProcurementFinancialResult(enriched, today),
-    [enriched, today],
-  );
-
-  const kpiDonutSegments = useTmcKpiDonutSegments(enriched, scopedTenders, today);
-
   const overdueReasonBreakdown = useMemo(
     () => computeTmcOverdueReasonBreakdown(enriched, scopedTenders, today),
     [enriched, scopedTenders, today],
   );
+
+  useEffect(() => {
+    logTmcUnifiedMetricsDiagnostic(tmcMetrics);
+  }, [tmcMetrics]);
 
   useEffect(() => {
     const deliveredItems = enriched.filter(isTmcDeliveredSupplyStatus);
@@ -1275,7 +1205,7 @@ export function TmcPresentation({
         <h2 className="text-xl font-semibold text-slate-50">Закупка ТМЦ</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         <TmcPremiumKpiCard
           glowColor={COLORS.blue}
           gradient="linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(30,58,138,0.14) 100%)"
@@ -1297,12 +1227,6 @@ export function TmcPresentation({
           </div>
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <TmcKpiSplitMoneyBlock
-              label="ФАКТ ПОСТАВКИ (ПОЗИЦИИ)"
-              factRub={kpi.deliveryCount}
-              planRub={kpi.totalItemCount}
-              accentColor={COLORS.blue}
-            />
             <TmcKpiMetricBlock
               label="СРЕДНЯЯ ПРОСРОЧКА ПОСТАВКИ"
               value={`${averageDeliveryLateDays} дн.`}
@@ -1313,15 +1237,8 @@ export function TmcPresentation({
             <TmcKpiCountBlock
               label="ЗАКУПЛЕНО ПО ДОГОВОРУ"
               primaryCount={requestContractFactCount}
-              totalCount={kpi.totalItemCount}
+              totalCount={contractEligibleCount}
               accentColor={COLORS.plan}
-            />
-            <TmcKpiMetricBlock
-              label="ДОЛЯ ПОСТАВЛЕННЫХ"
-              value={pct1(receiptCostExecutionPct)}
-              tier="primary"
-              accentColor={COLORS.blue}
-              sectionPt="pt-5"
             />
           </div>
 
@@ -1393,12 +1310,6 @@ export function TmcPresentation({
           ) : null}
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <TmcKpiSplitMoneyBlock
-              label="ПРОСРОЧЕНО / ОСТАТОК"
-              factRub={overdueFactCostRub}
-              planRub={kpi.remainingItemCount}
-              accentColor={COLORS.blue}
-            />
             <TmcKpiCountBlock
               label="НЕ ЗАКУПЛЕНО"
               primaryCount={remainderCard.notStartedCount}
@@ -1456,12 +1367,6 @@ export function TmcPresentation({
           </div>
 
           <div className="mt-2 flex flex-1 flex-col justify-evenly">
-            <TmcKpiSplitMoneyBlock
-              label="ФАКТ / ПЛАН ПОСТАВКИ"
-              factRub={financialResult.purchasedFactRub}
-              planRub={financialResult.purchasedPlanRub}
-              accentColor={COLORS.blue}
-            />
             <TmcKpiAmountBlock
               label="РАНЬШЕ ПЛАНА"
               amountRub={financialResult.economyRub}
@@ -1473,26 +1378,6 @@ export function TmcPresentation({
               accentColor={COLORS.red}
               valueClassName={financialResult.overrunRub > 0 ? "text-[#ff5b6b]" : undefined}
             />
-            <TmcKpiMetricBlock
-              label={TMC_PURCHASED_DEVIATION_PCT_LABEL}
-              value={pctSigned1(financialResult.deviationPct)}
-              tier="primary"
-              accentColor={
-                financialResult.deviationPct < 0
-                  ? COLORS.green
-                  : financialResult.deviationPct > 0
-                    ? COLORS.red
-                    : "#f59e0b"
-              }
-              sectionPt="pt-5"
-              valueClassName={
-                financialResult.deviationPct < 0
-                  ? "text-emerald-400"
-                  : financialResult.deviationPct > 0
-                    ? "text-[#ff5b6b]"
-                    : undefined
-              }
-            />
           </div>
 
           <div className="mt-auto space-y-1.5">
@@ -1502,7 +1387,74 @@ export function TmcPresentation({
             </div>
           </div>
         </TmcPremiumKpiCard>
+
+        <TmcPremiumKpiCard
+          glowColor={COLORS.plan}
+          gradient="linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.92) 55%, rgba(71,85,105,0.18) 100%)"
+          waveColor={COLORS.plan}
+          waveOpacity={0.22}
+        >
+          <div className="flex items-start gap-3">
+            <TmcKpiIconBadge tone="amber">
+              <PieChart className="h-5 w-5" strokeWidth={2} />
+            </TmcKpiIconBadge>
+            <div className="min-w-0 flex-1">
+              <TmcKpiLabel>РАСПРЕДЕЛЕНИЕ СТАТУСОВ</TmcKpiLabel>
+            </div>
+          </div>
+
+          <div className="mt-auto flex flex-1 flex-col justify-center pt-4">
+            <KpiDonutChart
+              segments={kpiDonutSegments.statusDistribution}
+              chartHeight={148}
+              centerValue={
+                kpiDonutSegments.statusDistribution.length > 0
+                  ? String(
+                      kpiDonutSegments.statusDistribution.reduce(
+                        (sum, seg) => sum + seg.value,
+                        0,
+                      ),
+                    )
+                  : undefined
+              }
+              centerSublabel={
+                kpiDonutSegments.statusDistribution.length > 0 ? "ПОЗИЦИЙ" : undefined
+              }
+              showLegendPercent
+              legendPosition="bottom"
+              large
+              compactLegend
+              fullLegendLabels
+              reasonTooltip
+              tooltipValueLabel="Позиций"
+            />
+          </div>
+        </TmcPremiumKpiCard>
       </div>
+
+      <TmcRequestDynamicsBlock
+        items={enriched}
+        gprTasks={scopedGprTasks}
+        reportDate={today}
+        analytics={tmcMetrics.applications}
+      />
+
+      <TmcContractConclusionDynamicsBlock
+        items={enriched}
+        reportDate={today}
+        analytics={tmcMetrics.contracts}
+      />
+
+      <TmcDeliveryDynamicsBlock
+        items={enriched}
+        reportDate={today}
+        analytics={tmcMetrics.deliveries}
+      />
+
+      <TmcProcurementVolumeDynamicsBlock
+        items={enriched}
+        todayIso={today.toISOString().slice(0, 10)}
+      />
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
@@ -1572,23 +1524,6 @@ export function TmcPresentation({
           <TmcDynamicsChartLegend />
         </div>
       </div>
-
-      <TmcContractConclusionDynamicsBlock items={enriched} reportDate={today} />
-
-      <TmcRequestDynamicsBlock
-        items={enriched}
-        gprTasks={scopedGprTasks}
-        reportDate={today}
-      />
-
-      <TmcDeliveryDynamicsBlock items={enriched} reportDate={today} />
-
-      <TmcGprMaterialSupplyBlock
-        items={enriched}
-        gprTasks={scopedGprTasks}
-        objectScope={activePartScope}
-        reportDate={today}
-      />
 
       <div
         className="rounded-2xl border border-slate-600/45 bg-[#1e293b] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/[0.06]"
@@ -1805,11 +1740,6 @@ export function TmcPresentation({
           />
         </div>
       </div>
-
-      <TmcProcurementVolumeDynamicsBlock
-        items={enriched}
-        todayIso={today.toISOString().slice(0, 10)}
-      />
 
       {showGprDeficitImpactBlock ? (
         <TmcGprDeficitImpactBlock rows={tmcGprImpactRows} pdfMeta={gprProcurementLagMeta} />

@@ -1,6 +1,6 @@
-import { parseDateSafe } from "@/lib/gprUtils";
+import { compareGprCodesByNumericPath, normalizeGprCodeFinal, parseDateSafe } from "@/lib/gprUtils";
 import type { PlanFactWorkTypeChartModel, PlanFactWorkTypeRowDetail } from "@/lib/planFactWorkTypeTimeline";
-import type { TMCItem } from "@/lib/tmcData";
+import { isTmcWbsCode, type TMCItem } from "@/lib/tmcData";
 import {
   computeTmcSupplyVolumeCompletionPercent,
   resolveTmcMaterialBucketKey,
@@ -19,6 +19,8 @@ const MIN_BAR_SPAN_MONTHS = 0.08;
 
 export type TmcSupplyVolumeRowMeta = {
   name: string;
+  /** ID работы ГПР (из ID Код / parentWbsCode позиции ТМЦ). */
+  workId: string;
   unit: string;
   planVolume: number;
   factVolume: number;
@@ -36,6 +38,29 @@ export type TmcSupplyVolumeChartBundle = {
   model: PlanFactWorkTypeChartModel;
   rowMeta: TmcSupplyVolumeRowMeta[];
 };
+
+/**
+ * ID работы ГПР для позиции ТМЦ — та же логика, что resolveTmcWorkCode:
+ * WBS из sourceCode/itemCode («ID Код»), иначе parentWbsCode.
+ */
+function resolveTmcWorkId(item: TMCItem): string | null {
+  const raw = (item.sourceCode || item.itemCode || "").trim();
+  if (raw && isTmcWbsCode(raw)) {
+    return normalizeGprCodeFinal(raw) || null;
+  }
+  const parent = normalizeGprCodeFinal(item.parentWbsCode || "");
+  return parent || null;
+}
+
+function formatTmcWorkIdsForRow(groupItems: TMCItem[]): string {
+  const codes = new Set<string>();
+  for (const item of groupItems) {
+    const code = resolveTmcWorkId(item);
+    if (code) codes.add(code);
+  }
+  if (codes.size === 0) return "—";
+  return [...codes].sort(compareGprCodesByNumericPath).join(", ");
+}
 
 function daysInMonth(y: number, m0: number): number {
   return new Date(y, m0 + 1, 0).getDate();
@@ -133,6 +158,7 @@ function aggregateTmcSupplyMaterials(items: TMCItem[]): Map<string, TMCItem[]> {
 
 type SupplyTimelineEntry = {
   name: string;
+  workId: string;
   ps: string | null;
   pe: string | null;
   fs: string | null;
@@ -167,6 +193,7 @@ function buildSupplyTimelineEntries(items: TMCItem[]): SupplyTimelineEntry[] {
     const planEnd = maxIsoDate(groupItems.map(tmcSupplyPlanDate));
     const factStart = minIsoDate(groupItems.map(tmcSupplyFactDate));
     const factEnd = maxIsoDate(groupItems.map(tmcSupplyFactDate));
+    const workId = formatTmcWorkIdsForRow(groupItems);
 
     const psm = isoDayMs(planStart);
     const pem = isoDayMs(planEnd);
@@ -174,6 +201,7 @@ function buildSupplyTimelineEntries(items: TMCItem[]): SupplyTimelineEntry[] {
 
     entries.push({
       name,
+      workId,
       ps: planStart,
       pe: planEnd,
       fs: factStart,
@@ -182,6 +210,7 @@ function buildSupplyTimelineEntries(items: TMCItem[]): SupplyTimelineEntry[] {
       completionPercent,
       meta: {
         name,
+        workId,
         unit: formatTmcAggregatedUnits(units),
         planVolume,
         factVolume,
@@ -242,6 +271,7 @@ export function buildTmcSupplyVolumeChartBundle(
   const todayF = monthFloatFromIso(todayIso, originMonth);
 
   const labels: string[] = [];
+  const rowWorkIds: string[] = [];
   const planRanges: Array<[number, number] | null> = [];
   const factRanges: Array<[number, number] | null> = [];
   const planColors: string[] = [];
@@ -252,6 +282,7 @@ export function buildTmcSupplyVolumeChartBundle(
 
   for (const e of entries) {
     labels.push(e.name);
+    rowWorkIds.push(e.workId);
     factCompletionLabels.push(formatSupplyVolumePct(e.completionPercent));
     rowMeta.push(e.meta);
     rowDetails.push({
@@ -311,6 +342,7 @@ export function buildTmcSupplyVolumeChartBundle(
 
   const model: PlanFactWorkTypeChartModel = {
     labels,
+    rowWorkIds,
     planRanges,
     factRanges,
     planColors,

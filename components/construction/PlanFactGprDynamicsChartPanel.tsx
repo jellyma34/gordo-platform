@@ -18,6 +18,7 @@ import {
   PLAN_FACT_OVERDUE_START_OVERLAY,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX,
   PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX,
+  PLAN_FACT_GPR_CHART_WORK_ID_COLUMN_PX,
   PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
   PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX,
   PLAN_FACT_GPR_CHART_ROWS_PER_STAGE,
@@ -96,8 +97,14 @@ function parseFactPercent(label: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function buildPlanFactGprGridTemplateColumns(): string {
-  return `minmax(${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX}px, min(38%, ${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX}px)) minmax(0, 1fr)`;
+function buildPlanFactGprGridTemplateColumns(showWorkIdColumn: boolean): string {
+  const labels = `minmax(${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MIN_PX}px, min(38%, ${PLAN_FACT_GPR_CHART_LABELS_COLUMN_MAX_PX}px))`;
+  if (!showWorkIdColumn) return `${labels} minmax(0, 1fr)`;
+  return `${labels} ${PLAN_FACT_GPR_CHART_WORK_ID_COLUMN_PX}px minmax(0, 1fr)`;
+}
+
+function modelHasWorkIdColumn(model: PlanFactWorkTypeChartModel): boolean {
+  return Array.isArray(model.rowWorkIds) && model.rowWorkIds.length === model.labels.length;
 }
 
 function PlanFactGprXAxis({
@@ -265,6 +272,7 @@ function PlanFactGprSingleBar({
 function PlanFactGprStageGroup({
   index,
   label,
+  workId,
   model,
   todayLeftPct,
   gridTemplateColumns,
@@ -273,6 +281,7 @@ function PlanFactGprStageGroup({
 }: {
   index: number;
   label: string;
+  workId?: string;
   model: PlanFactWorkTypeChartModel;
   todayLeftPct: number | null;
   gridTemplateColumns: string;
@@ -305,6 +314,7 @@ function PlanFactGprStageGroup({
 
   const groupHeight = PLAN_FACT_GPR_CHART_ROWS_PER_STAGE * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX;
   const tooltip = buildStageTooltip(model, index, buildTooltip);
+  const showWorkId = workId !== undefined;
 
   return (
     <div
@@ -324,6 +334,16 @@ function PlanFactGprStageGroup({
       >
         <span className="line-clamp-2 w-full break-words">{label}</span>
       </div>
+
+      {showWorkId ? (
+        <div
+          className="flex items-center overflow-hidden border-r border-slate-600/35 px-1.5 font-mono text-[10px] leading-snug text-slate-300"
+          style={{ gridRow: `1 / span ${PLAN_FACT_GPR_CHART_ROWS_PER_STAGE}` }}
+          title={workId}
+        >
+          <span className="line-clamp-2 w-full break-all">{workId || "—"}</span>
+        </div>
+      ) : null}
 
       <PlanFactGprSingleBar
         span={planSpan}
@@ -360,7 +380,11 @@ export function PlanFactGprDynamicsChartPanel({
   const stageCount = model.labels.length;
   const chartLayout = useMemo(() => computePlanFactGprChartLayout(stageCount), [stageCount]);
   const audit = useMemo(() => auditPlanFactChartModel(model), [model]);
-  const gridTemplateColumns = useMemo(() => buildPlanFactGprGridTemplateColumns(), []);
+  const showWorkIdColumn = modelHasWorkIdColumn(model);
+  const gridTemplateColumns = useMemo(
+    () => buildPlanFactGprGridTemplateColumns(showWorkIdColumn),
+    [showWorkIdColumn],
+  );
 
   const todayLeftPct =
     model.todayX != null && Number.isFinite(model.todayX)
@@ -397,6 +421,18 @@ export function PlanFactGprDynamicsChartPanel({
           }}
         />
 
+        {showWorkIdColumn ? (
+          <div
+            className="flex items-end border-b border-r border-slate-600/35 px-1.5 pb-1 text-[9px] font-semibold uppercase leading-tight tracking-wide text-slate-500"
+            style={{
+              height: PLAN_FACT_GPR_CHART_X_AXIS_HEIGHT_PX,
+              borderBottomColor: PLAN_FACT_GPR_CHART_ROW_DIVIDER_COLOR,
+            }}
+          >
+            ID работ
+          </div>
+        ) : null}
+
         <div
           className="relative min-w-0 border-b border-slate-600/35"
           style={{
@@ -408,7 +444,7 @@ export function PlanFactGprDynamicsChartPanel({
         </div>
 
         <div
-          className="relative col-span-2 min-w-0"
+          className="relative min-w-0"
           style={{
             gridColumn: "1 / -1",
             height: chartLayout.visualRowCount * PLAN_FACT_GPR_CHART_ROW_HEIGHT_PX,
@@ -420,6 +456,7 @@ export function PlanFactGprDynamicsChartPanel({
             aria-hidden
           >
             <div />
+            {showWorkIdColumn ? <div /> : null}
             <div className="relative min-w-0">
               <PlanFactGprChartGridOverlay model={model} todayLeftPct={todayLeftPct} />
             </div>
@@ -430,6 +467,7 @@ export function PlanFactGprDynamicsChartPanel({
               key={`${index}::${label}`}
               index={index}
               label={label}
+              workId={showWorkIdColumn ? (model.rowWorkIds?.[index] ?? "—") : undefined}
               model={model}
               todayLeftPct={todayLeftPct}
               gridTemplateColumns={gridTemplateColumns}

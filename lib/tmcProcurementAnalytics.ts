@@ -405,7 +405,7 @@ export function computeTmcLifecycleDonutSegments(
   return (
     [
       { key: "delivered" as const, label: "Поставлено", value: delivered, color: "#22c55e" },
-      { key: "partial" as const, label: "Частично поставлено", value: partial, color: "#f59e0b" },
+      { key: "partial" as const, label: "Поставлено частично", value: partial, color: "#f59e0b" },
       { key: "inProgress" as const, label: "В работе", value: inProgress, color: "#3b82f6" },
       { key: "overdue" as const, label: "Просрочено", value: overdue, color: "#ef4444" },
       { key: "notPurchased" as const, label: "Не закуплено", value: notPurchased, color: "#94a3b8" },

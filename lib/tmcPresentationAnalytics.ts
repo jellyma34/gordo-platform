@@ -653,80 +653,20 @@ export type TmcProcurementKpi = {
   actualExecutionPct: number;
 };
 
+/**
+ * KPI «Закупка ТМЦ» — делегирует в единый слой buildTmcMetrics
+ * (тот же eligible/факт, что у «Динамика поставок»).
+ * Lazy require избегает цикла presentation ↔ contract chart start month.
+ */
 export function computeTmcProcurementKpi(
   items: TmcEnrichedItem[],
   today: Date = new Date(),
-  tenders: Tender[] = [],
-  options?: { logMaterialStatusDiagnostic?: boolean },
+  _tenders: Tender[] = [],
+  _options?: { logMaterialStatusDiagnostic?: boolean },
 ): TmcProcurementKpi {
-  const scoped = tmcKpiPositions(items) as TmcEnrichedItem[];
-  const planRub = 0;
-  const procurementFactRub = 0;
-  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(scoped, today, {
-    logDiagnostic: options?.logMaterialStatusDiagnostic,
-  });
-  const receiptsFactRub = 0;
-  const receiptsPlanRub = 0;
-  const pipelineDist = computeTmcPipelineStatusDistribution(scoped, tenders, today);
-  const deliveryCount = materialStatus.deliveredCount;
-  const totalItemCount = materialStatus.totalMaterials;
-  const purchasedItemCount =
-    materialStatus.partiallyPurchased +
-    materialStatus.fullyPurchased +
-    materialStatus.purchasedLate;
-  const purchasedItemPct =
-    totalItemCount > 0
-      ? Math.round((purchasedItemCount / totalItemCount) * 1000) / 10
-      : 0;
-  const overdueItems = scoped.filter((i) => isTmcOverduePosition(i, today));
-  const overdueAmongPurchasedCount = scoped.filter((i) => i.traffic === "red").length;
-  const overdueNotStartedCount = scoped.filter((i) => i.traffic === "overdue_not_started").length;
-  const overdueAmongRemainingItems = scoped.filter(
-    (i) => classifyTmcPipelineStatus(i, tenders, today) === "deliveryOverdue",
-  );
-  const remainingItemCount = Math.max(0, totalItemCount - deliveryCount);
-  const notPurchasedCount = scoped.filter((i) => isTmcNotPurchased(i)).length;
-  const inProgressCount = scoped.filter((i) => isTmcInProgressPosition(i)).length;
-
-  let overdueDaysSum = 0;
-  let overdueForAvg = 0;
-  for (const item of overdueItems) {
-    const days = tmcDeliveryLateDays(item, today);
-    if (days > 0) {
-      overdueDaysSum += days;
-      overdueForAvg += 1;
-    }
-  }
-
-  const deliveryPct =
-    totalItemCount > 0 ? Math.round((deliveryCount / totalItemCount) * 1000) / 10 : 0;
-
-  return {
-    planRub,
-    factRub: procurementFactRub,
-    procurementFactRub,
-    receiptsFactRub,
-    receiptsPlanRub,
-    deliveryCount,
-    totalItemCount,
-    purchasedItemCount,
-    purchasedItemPct,
-    overdueAmongPurchasedCount,
-    overdueNotStartedCount,
-    avgCheckRub: 0,
-    deviationRub: 0,
-    deviationPct: null,
-    overdueCount: overdueItems.length,
-    overdueCostRub: 0,
-    remainingItemCount,
-    overdueAmongRemainingCount: overdueAmongRemainingItems.length,
-    notPurchasedAmongRemainingCount: notPurchasedCount,
-    inProgressAmongRemainingCount: inProgressCount,
-    onTimeAmongRemainingCount: pipelineDist.counts.orderPlaced,
-    averageOverdueDays: overdueForAvg > 0 ? Math.round(overdueDaysSum / overdueForAvg) : 0,
-    plannedExecutionPct: deliveryPct,
-    actualExecutionPct: deliveryPct,
-  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildTmcMetrics } = require("./tmcUnifiedMetrics") as typeof import("./tmcUnifiedMetrics");
+  return buildTmcMetrics(items, today, []).kpi as TmcProcurementKpi;
 }
 
 export type TmcProcurementFinancialResult = {
@@ -761,54 +701,16 @@ export type TmcProcurementEconomyVolumeRow = {
 };
 
 /**
- * Карточка «Отклонение»: без денежных полей в новом CSV.
- * Поля *Rub переиспользуются как счётчики (UI без суффикса ₽).
- * economy = раньше плана, overrun = позже плана, deviation = нетто просроченных позиций.
+ * Карточка «Отклонение»: раньше/позже плана по тем же delivery units,
+ * что и «Динамика поставок».
  */
 export function computeTmcProcurementFinancialResult(
   items: TmcEnrichedItem[],
   today: Date = new Date(),
 ): TmcProcurementFinancialResult {
-  const scoped = tmcKpiPositions(items);
-  let earlyCount = 0;
-  let lateCount = 0;
-  let onTimeCount = 0;
-  let withPlan = 0;
-  let withFact = 0;
-
-  for (const item of scoped) {
-    const plan = item.deliveryPlanDate ?? item.supplyPlanDate;
-    const fact = item.deliveryFactDate ?? item.supplyFactDate;
-    if (plan) withPlan += 1;
-    if (fact || isTmcDeliveredPosition(item)) withFact += 1;
-
-    const dev =
-      item.deliveryDeviationDays != null
-        ? item.deliveryDeviationDays
-        : isTmcDeliveryOverdue(item, today)
-          ? tmcDeliveryLateDays(item, today)
-          : null;
-
-    if (dev == null) continue;
-    if (dev < 0) earlyCount += 1;
-    else if (dev > 0) lateCount += 1;
-    else onTimeCount += 1;
-  }
-
-  const total = scoped.length;
-  const deviationRub = lateCount - earlyCount;
-  const deviationPct = total > 0 ? Math.round((lateCount / total) * 1000) / 10 : 0;
-
-  return {
-    economyRub: earlyCount,
-    overrunRub: lateCount,
-    balanceRub: earlyCount - lateCount,
-    purchasedPlanRub: withPlan,
-    economySharePct: withPlan > 0 ? Math.round((earlyCount / withPlan) * 1000) / 10 : 0,
-    purchasedFactRub: withFact,
-    deviationRub,
-    deviationPct,
-  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildTmcMetrics } = require("./tmcUnifiedMetrics") as typeof import("./tmcUnifiedMetrics");
+  return buildTmcMetrics(items, today, []).financialResult as TmcProcurementFinancialResult;
 }
 
 /** Диагностика KPI «Отклонение от закупленного» — методика по фактическому объёму. */
@@ -4657,66 +4559,18 @@ export function countTmcInTransitAmongRemaining(
 }
 
 /**
- * KPI и donut карточки «В работе»:
- * активная работа = тендер в работе + в пути + просрочено (pipeline);
- * donut = просрочено (не закуплено) + не закуплено + в пути = остаток.
+ * KPI и donut карточки «В работе» — из единых delivery units
+ * (остаток = eligible без факта поставки).
  */
 export function computeTmcRemainderCardCounts(
   items: TmcEnrichedItem[],
-  tenders: Tender[],
+  _tenders: Tender[],
   today: Date = new Date(),
-  options?: { logDiagnostic?: boolean },
+  _options?: { logDiagnostic?: boolean },
 ): TmcRemainderCardCounts {
-  const scoped = tmcKpiPositions(items) as TmcEnrichedItem[];
-  const remaining = scoped.filter((i) => isTmcRemainingPosition(i));
-  const overdueCount = remaining.filter((i) => isTmcOverduePosition(i, today)).length;
-  const notStartedCount = remaining.filter((i) => isTmcNotPurchased(i)).length;
-  const inTransitCount = remaining.filter(
-    (i) => !isTmcNotPurchased(i) && !isTmcOverduePosition(i, today) && isTmcInProgressPosition(i),
-  ).length;
-  const tenderInProgressCount = remaining.filter((i) => {
-    if (isTmcNotPurchased(i) || isTmcOverduePosition(i, today)) return false;
-    return classifyTmcPipelineStatus(i, tenders, today) === "tenderInProgress";
-  }).length;
-  const activeWorkCount = Math.max(
-    inTransitCount + overdueCount + tenderInProgressCount,
-    remaining.filter((i) => isTmcInProgressPosition(i) || isTmcOverduePosition(i, today)).length,
-  );
-
-  const overdueNotPurchasedCount = remaining.filter(
-    (i) => isTmcNotPurchased(i) && isTmcOverduePosition(i, today),
-  ).length;
-  const notPurchasedOnTimeCount = Math.max(0, notStartedCount - overdueNotPurchasedCount);
-  const inTransitDonutCount = inTransitCount;
-  const donutSum = overdueNotPurchasedCount + notPurchasedOnTimeCount + inTransitDonutCount;
-
-  if (options?.logDiagnostic && process.env.NODE_ENV !== "production") {
-    console.table({
-      remainingItemCount: remaining.length,
-      notStartedCount,
-      tenderInProgressCount,
-      inTransitCount,
-      overdueCount,
-      activeWorkCount,
-      overdueNotPurchasedCount,
-      notPurchasedOnTimeCount,
-      inTransitDonutCount,
-      donutSum,
-    });
-  }
-
-  return {
-    remainingItemCount: remaining.length,
-    notStartedCount,
-    tenderInProgressCount,
-    inTransitCount,
-    overdueCount,
-    overdueNotPurchasedCount,
-    notPurchasedOnTimeCount,
-    inTransitDonutCount,
-    activeWorkCount,
-    donutSum,
-  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildTmcMetrics } = require("./tmcUnifiedMetrics") as typeof import("./tmcUnifiedMetrics");
+  return buildTmcMetrics(items, today, []).remainderCard as TmcRemainderCardCounts;
 }
 
 /**
@@ -4839,21 +4693,14 @@ export function computeTmcPurchasedDeliveryDonutCounts(
 /** @deprecated alias for diagnostic scripts */
 export const computeTmcDeliveredDeliveryDonutCounts = computeTmcPurchasedDeliveryDonutCounts;
 
-/** Средняя просрочка поставки (дни) — только «Закуплено с опозданием» (donut «Поставлено»). */
+/** Средняя просрочка поставки (дни) — только поставленные с опозданием (delivery units). */
 export function computeTmcAverageDeliveryLateDays(
   items: TmcEnrichedItem[],
   today: Date = new Date(),
 ): number {
-  const lateItems = items.filter(
-    (item) => classifyTmcSupplyPlanMaterialStatus(item, today) === "purchasedLate",
-  );
-  if (lateItems.length === 0) return 0;
-  const totalDays = lateItems.reduce((sum, item) => {
-    const deviation = tmcSupplyDeliveryDeviationDays(item);
-    if (deviation !== null && deviation > 0) return sum + deviation;
-    return sum + tmcSupplyPlanOverdueDays(item, today);
-  }, 0);
-  return Math.round(totalDays / lateItems.length);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildTmcMetrics } = require("./tmcUnifiedMetrics") as typeof import("./tmcUnifiedMetrics");
+  return buildTmcMetrics(items, today, []).summary.averageDeliveryLateDays;
 }
 
 export type TmcOverdueBreakdownKind = "supply" | "contract" | "payment" | "other";
@@ -5358,6 +5205,7 @@ export type TmcKpiDonutDistributions = {
   overdueStructure: TmcKpiDonutSegment[];
   overdueReasons: TmcKpiDonutSegment[];
   budgetDeviation: TmcKpiDonutSegment[];
+  statusDistribution: TmcKpiDonutSegment[];
 };
 
 const PURCHASED_DELIVERY_LABELS: Record<TmcPurchasedDeliveryBucket, string> = {
@@ -5592,60 +5440,15 @@ function buildPurchasedBudgetDonutSegments(
 /** Единый проход по позициям ТМЦ для трёх KPI donut-диаграмм. */
 export function computeTmcKpiDonutDistributions(
   items: TmcEnrichedItem[],
-  options?: {
+  _options?: {
     logDeliveryDiagnostic?: boolean;
     logProblemDiagnostic?: boolean;
     logBudgetDiagnostic?: boolean;
   },
   today: Date = new Date(),
-  tenders: Tender[] = [],
+  _tenders: Tender[] = [],
 ): TmcKpiDonutDistributions {
-  const materialStatus = computeTmcSupplyPlanMaterialStatusDistribution(items, today, {
-    logDiagnostic: options?.logDeliveryDiagnostic,
-  });
-
-  const remainderCard = computeTmcRemainderCardCounts(items, tenders, today, {
-    logDiagnostic: options?.logProblemDiagnostic,
-  });
-
-  const purchasedBudgetDonut = computeTmcPurchasedBudgetDonutCounts(items, {
-    logDiagnostic: options?.logBudgetDiagnostic,
-  });
-
-  const remainingStatusCounts: Record<TmcRemainingStatusBucket, number> = {
-    overdue: remainderCard.overdueNotPurchasedCount,
-    notPurchased: remainderCard.notPurchasedOnTimeCount,
-    onTime: remainderCard.inTransitDonutCount,
-  };
-
-  if (options?.logProblemDiagnostic && process.env.NODE_ENV !== "production") {
-    console.table({
-      overdueNotPurchased: remainderCard.overdueNotPurchasedCount,
-      notPurchasedOnTime: remainderCard.notPurchasedOnTimeCount,
-      inTransitDonut: remainderCard.inTransitDonutCount,
-      notStartedTotal: remainderCard.notStartedCount,
-      tenderInProgress: remainderCard.tenderInProgressCount,
-      inTransitKpi: remainderCard.inTransitCount,
-      deliveryOverdue: remainderCard.overdueCount,
-      activeWork: remainderCard.activeWorkCount,
-      remainingTotal: remainderCard.remainingItemCount,
-      donutSum: remainderCard.donutSum,
-    });
-  }
-
-  const budgetCounts: Record<TmcPurchasedBudgetBucket, number> = {
-    economy: purchasedBudgetDonut.economyCount,
-    onBudget: purchasedBudgetDonut.budgetNormalCount,
-    overrun: purchasedBudgetDonut.overspendCount,
-    noFact: purchasedBudgetDonut.noFactCount,
-  };
-
-  const overdueReasons = buildRemainderCardDonutSegments(remainderCard);
-
-  return {
-    deliveryStatus: buildSupplyPlanMaterialStatusDonutSegments(materialStatus),
-    overdueStructure: buildRemainingStatusDonutSegments(remainingStatusCounts),
-    overdueReasons,
-    budgetDeviation: buildPurchasedBudgetDonutSegments(budgetCounts),
-  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildTmcMetrics } = require("./tmcUnifiedMetrics") as typeof import("./tmcUnifiedMetrics");
+  return buildTmcMetrics(items, today, []).donutDistributions as TmcKpiDonutDistributions;
 }

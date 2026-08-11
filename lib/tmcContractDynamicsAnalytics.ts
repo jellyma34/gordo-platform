@@ -27,6 +27,8 @@ const DEVIATION_BUCKET_ORDER = [
   "days_4_7",
   "days_8_14",
   "days_over_14",
+  "not_concluded",
+  "pending",
 ] as const;
 
 export type TmcContractDeviationBucketId = (typeof DEVIATION_BUCKET_ORDER)[number];
@@ -37,6 +39,8 @@ export type TmcUniqueContract = {
   contractPlanDate: string | null;
   contractFactDate: string | null;
   contractDeviationDays: number | null;
+  /** Классификация своевременности (единый алгоритм с KPI). */
+  bucket?: TmcContractDeviationBucketId;
 };
 
 export type TmcContractMonthlyDynamicsRow = {
@@ -257,7 +261,44 @@ const DEVIATION_BUCKET_META: Record<
   days_4_7: { label: "4–7 дней", color: "#f59e0b" },
   days_8_14: { label: "8–14 дней", color: "#f97316" },
   days_over_14: { label: ">14 дней", color: "#ef4444" },
+  not_concluded: { label: "Не заключён", color: "#94a3b8" },
+  pending: { label: "Срок не наступил", color: "#64748b" },
 };
+
+function reportDateNoonMs(reportDate: Date): number {
+  return new Date(
+    reportDate.getFullYear(),
+    reportDate.getMonth(),
+    reportDate.getDate(),
+    12,
+    0,
+    0,
+  ).getTime();
+}
+
+function classifyContractBucket(
+  contract: TmcUniqueContract,
+  reportDate: Date,
+): TmcContractDeviationBucketId | null {
+  const plan = contract.contractPlanDate;
+  const fact = contract.contractFactDate;
+  if (!plan) {
+    // Без плана нельзя классифицировать своевременность; факт без плана — вне timing-donut.
+    return null;
+  }
+  const planMs = isoStartMs(plan);
+  if (planMs == null) return null;
+  const reportMs = reportDateNoonMs(reportDate);
+
+  if (fact) {
+    const dev = resolveContractDeviationDays(contract);
+    if (dev == null) return null;
+    return deviationBucketId(dev);
+  }
+
+  if (planMs > reportMs) return "pending";
+  return "not_concluded";
+}
 
 function isDateInChartRange(iso: string, projectStartMonth: string, endMonthKey: string): boolean {
   const mk = monthKeyFromIso(iso);
@@ -307,17 +348,23 @@ function buildMonthlyRows(
   return rows;
 }
 
-function buildDeviationSegments(contracts: TmcUniqueContract[]): TmcContractDeviationSegment[] {
-  const withFact = contracts.filter((c) => c.contractFactDate);
-  const total = withFact.length;
+function buildDeviationSegments(
+  contracts: TmcUniqueContract[],
+  reportDate: Date,
+): TmcContractDeviationSegment[] {
+  const classified = contracts
+    .map((c) => {
+      const bucket = classifyContractBucket(c, reportDate);
+      return bucket ? { ...c, bucket } : null;
+    })
+    .filter((c): c is TmcUniqueContract & { bucket: TmcContractDeviationBucketId } => c != null);
+
+  const total = classified.length;
   const counts = new Map<TmcContractDeviationBucketId, number>();
   for (const id of DEVIATION_BUCKET_ORDER) counts.set(id, 0);
 
-  for (const c of withFact) {
-    const dev = resolveContractDeviationDays(c);
-    if (dev == null) continue;
-    const bucket = deviationBucketId(dev);
-    counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
+  for (const c of classified) {
+    counts.set(c.bucket, (counts.get(c.bucket) ?? 0) + 1);
   }
 
   return DEVIATION_BUCKET_ORDER.map((bucket) => {
@@ -337,9 +384,12 @@ export function buildTmcContractConclusionAnalytics(
   items: TMCItem[],
   reportDate: Date = new Date(),
 ): TmcContractConclusionAnalytics {
-  const uniqueContracts = dedupeTmcContracts(items);
+  const uniqueContracts = dedupeTmcContracts(items).map((c) => {
+    const bucket = classifyContractBucket(c, reportDate);
+    return bucket ? { ...c, bucket } : c;
+  });
   const monthlyRows = buildMonthlyRows(uniqueContracts, reportDate);
-  const deviationSegments = buildDeviationSegments(uniqueContracts);
+  const deviationSegments = buildDeviationSegments(uniqueContracts, reportDate);
   const withFact = uniqueContracts.filter((c) => c.contractFactDate);
   const onTimeCount = withFact.filter(isTmcContractOnTime).length;
 

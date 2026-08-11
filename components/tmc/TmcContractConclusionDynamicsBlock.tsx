@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TMCItem } from "@/lib/tmcData";
 import {
   buildTmcContractConclusionAnalytics,
   logTmcContractConclusionDiagnostic,
 } from "@/lib/tmcContractDynamicsAnalytics";
+import { segmentedControlTabClass } from "@/components/marketing/marketingSegmentedControlClasses";
 import { TmcContractMonthlyDynamicsChart } from "@/components/tmc/TmcContractMonthlyDynamicsChart";
+import type { TmcPlanFactValueMode } from "@/components/tmc/TmcPlanFactTodayReferenceLine";
 import { TmcContractDeviationCompactPanel } from "@/components/tmc/TmcContractDeviationCompactPanel";
 
 function ChartInlineLegend() {
@@ -30,13 +32,17 @@ function ChartInlineLegend() {
 export function TmcContractConclusionDynamicsBlock({
   items,
   reportDate = new Date(),
+  analytics: analyticsProp,
 }: {
   items: TMCItem[];
   reportDate?: Date;
+  analytics?: ReturnType<typeof buildTmcContractConclusionAnalytics>;
 }) {
+  const [valueMode, setValueMode] = useState<TmcPlanFactValueMode>("monthly");
+
   const analytics = useMemo(
-    () => buildTmcContractConclusionAnalytics(items, reportDate),
-    [items, reportDate],
+    () => analyticsProp ?? buildTmcContractConclusionAnalytics(items, reportDate),
+    [analyticsProp, items, reportDate],
   );
 
   useEffect(() => {
@@ -55,19 +61,37 @@ export function TmcContractConclusionDynamicsBlock({
           "linear-gradient(160deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.95) 100%)",
       }}
     >
-      <div>
-        <h3 className="text-lg font-semibold text-slate-50">Динамика заключения договоров</h3>
-        <p className="mt-1 text-sm text-slate-400">
-          Своевременность контрактования по импортированным данным ТМЦ
-        </p>
-      </div>
+      <h3 className="text-lg font-semibold text-slate-50">Динамика заключения договоров</h3>
 
-      <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
+      <div className="mt-3 grid grid-cols-1 items-start gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
         <div className="flex min-w-0 flex-col">
-          <ChartInlineLegend />
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <ChartInlineLegend />
+            <div className="inline-flex rounded-lg border border-slate-600/70 bg-slate-900/50 p-0.5">
+              {(
+                [
+                  { id: "monthly" as const, label: "Помесячно" },
+                  { id: "cumulative" as const, label: "Нарастающим итогом" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setValueMode(m.id)}
+                  className={segmentedControlTabClass(valueMode === m.id, "dark")}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="mt-1.5 h-[380px] w-full min-w-0">
             {hasMonthly ? (
-              <TmcContractMonthlyDynamicsChart rows={analytics.monthlyRows} />
+              <TmcContractMonthlyDynamicsChart
+                rows={analytics.monthlyRows}
+                reportDate={reportDate}
+                mode={valueMode}
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">
                 Недостаточно дат договоров для построения динамики
@@ -77,13 +101,11 @@ export function TmcContractConclusionDynamicsBlock({
         </div>
 
         <div className="w-full shrink-0 xl:w-[250px]">
-          <h4 className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-            Распределение отклонений
-          </h4>
           <TmcContractDeviationCompactPanel
             segments={analytics.deviationSegments}
             factConcludedCount={analytics.factConcludedCount}
             onTimeOverallPct={analytics.onTimeOverallPct}
+            eligibleCount={analytics.deviationSegments.reduce((s, x) => s + x.count, 0)}
           />
         </div>
       </div>
