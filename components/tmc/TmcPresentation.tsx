@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, ChevronDown, PieChart, ShoppingCart, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, PieChart, RefreshCw, ShoppingCart, Wallet } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ConstructionPdfKpiLines } from "@/components/reports/ConstructionPdfKpiLines";
 import {
@@ -208,6 +208,27 @@ function formatPeriodRangeRu(labels: string[]): string {
   const first = clean[0]!;
   const last = clean[clean.length - 1]!;
   return `${formatMonthLabelRu(first)} — ${formatMonthLabelRu(last)}`;
+}
+
+function formatLastDataUpdateLabel(value: Date | null): string {
+  if (!value) return "—";
+  const now = new Date();
+  const isToday =
+    value.getFullYear() === now.getFullYear() &&
+    value.getMonth() === now.getMonth() &&
+    value.getDate() === now.getDate();
+  const time = value.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (isToday) return `сегодня, ${time}`;
+  return value.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function pct1(n: number): string {
@@ -542,6 +563,8 @@ export function TmcPresentation({
   const [requestChartMode, setRequestChartMode] = useState<ChartMode>("monthly");
   const [workTypeChartMode, setWorkTypeChartMode] = useState<MaterialChartMode>("cost");
   const [costDynamicsMode, setCostDynamicsMode] = useState<TmcMaterialCostDynamicsMode>("byMaterial");
+  const [lastDataUpdateAt, setLastDataUpdateAt] = useState<Date | null>(null);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
   const today = useMemo(() => new Date(), []);
 
   const reloadTmc = useCallback(async () => {
@@ -549,6 +572,7 @@ export function TmcPresentation({
       try {
         const r = await loadPersistedTmcItems(projectId);
         setAllTmc(r.items);
+        setLastDataUpdateAt(new Date());
         console.log(
           "[TMC debug] TMC loaded in presentation:",
           r.items.length,
@@ -563,6 +587,7 @@ export function TmcPresentation({
     try {
       const rows = await listTmcFromDb(token);
       setAllTmc(rows);
+      setLastDataUpdateAt(new Date());
       console.log("[TMC debug] TMC loaded in presentation:", rows.length, "(from DB)");
     } catch (e) {
       console.error(e);
@@ -574,6 +599,7 @@ export function TmcPresentation({
       try {
         const r = await loadPersistedTenderItems(projectId);
         setAllTenders(r.tenders);
+        setLastDataUpdateAt(new Date());
       } catch (e) {
         console.error(e);
       }
@@ -582,6 +608,7 @@ export function TmcPresentation({
     if (!token) return;
     try {
       setAllTenders(await listTendersFromDb(token));
+      setLastDataUpdateAt(new Date());
     } catch (e) {
       console.error(e);
     }
@@ -592,6 +619,7 @@ export function TmcPresentation({
       try {
         const r = await loadPersistedGprTasks(projectId, gprMockData);
         setGprTasks(r.tasks);
+        setLastDataUpdateAt(new Date());
       } catch (e) {
         console.error(e);
       }
@@ -600,6 +628,7 @@ export function TmcPresentation({
     if (!token) return;
     try {
       setGprTasks(await listGprTasksFromDb(token));
+      setLastDataUpdateAt(new Date());
     } catch (e) {
       console.error(e);
     }
@@ -646,6 +675,16 @@ export function TmcPresentation({
     window.addEventListener("gordo-gpr-saved", bump);
     return () => window.removeEventListener("gordo-gpr-saved", bump);
   }, [tmcLocalMode, hydrated, token, reloadGprTasks]);
+
+  const refreshProcurementData = useCallback(async () => {
+    setIsRefreshingData(true);
+    try {
+      await Promise.all([reloadTmc(), reloadTenders(), reloadGprTasks()]);
+      setLastDataUpdateAt(new Date());
+    } finally {
+      setIsRefreshingData(false);
+    }
+  }, [reloadGprTasks, reloadTenders, reloadTmc]);
 
   const activeProjectPart = partIdToProjectPartKey(
     activePartScope === "project" ? 1 : activePartScope,
@@ -1211,8 +1250,8 @@ export function TmcPresentation({
       }}
     >
       <ConstructionPdfKpiLines lines={pdfKpiLines} />
-      <div className="mb-4">
-        <div className="flex items-start gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-500/35 bg-sky-950/35 text-sky-300">
             <ShoppingCart className="h-5 w-5" strokeWidth={2} />
           </div>
@@ -1222,6 +1261,24 @@ export function TmcPresentation({
               Актуальная сводка по закупкам и поставкам материалов
             </p>
           </div>
+        </div>
+        <div className="inline-flex items-center gap-2 self-start text-xs text-slate-400">
+          <span>
+            Данные обновлены: {formatLastDataUpdateLabel(lastDataUpdateAt)}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refreshProcurementData()}
+            disabled={isRefreshingData}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-600/60 bg-slate-900/40 text-slate-300 transition hover:border-slate-500 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+            aria-label="Обновить данные закупок"
+            title="Обновить данные"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`}
+              strokeWidth={2}
+            />
+          </button>
         </div>
       </div>
 
