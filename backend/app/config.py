@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     # Обязателен в окружении (Railway Variables), напр. postgresql://...
     database_url: str = ""
 
-    # Список origin через запятую (например https://app.up.railway.app).
-    # "*" — все origin; в этом режиме allow_credentials в CORS будет False (требование браузера).
+    # Список origin через запятую.
+    # "*" раскрывается в явный allowlist (Railway frontend + localhost), НЕ в wildcard —
+    # иначе с Authorization браузер может показать CORS error вместо реального HTTP status.
+    # Рекомендуется на Railway test:
+    # CORS_ORIGINS=https://gordo-frontend-test.up.railway.app
     cors_origins: str = "*"
 
     bootstrap_admin_email: str | None = None

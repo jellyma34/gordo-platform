@@ -84,25 +84,44 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="GORDO API", docs_url="/docs", lifespan=lifespan)
 
 
+# Явные origin для JWT/Authorization: wildcard "*" с credentials запрещён браузером
+# и маскирует ошибки как CORS, если Origin не отражается.
+_BUILTIN_CORS_ORIGINS = (
+    "https://gordo-frontend-test.up.railway.app",
+    "https://gordo-frontend-production.up.railway.app",
+    "https://gordo-frontend-dev.up.railway.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+)
+
+
 def _cors_allowlist(raw: str) -> tuple[list[str], bool]:
-    """(origins, allow_credentials). Для credentials нельзя использовать origin="*"."""
+    """(origins, allow_credentials). Для JWT не используем origin='*'."""
     s = (raw or "*").strip()
     if s == "*":
-        return ["*"], False
-    parts = [p.strip() for p in s.split(",") if p.strip()]
-    if not parts:
-        return ["*"], False
-    return parts, True
+        return list(_BUILTIN_CORS_ORIGINS), True
+    parts = [p.strip().rstrip("/") for p in s.split(",") if p.strip()]
+    # Не теряем известные Railway frontend, если CORS_ORIGINS задан частично.
+    merged: list[str] = []
+    seen: set[str] = set()
+    for origin in parts + list(_BUILTIN_CORS_ORIGINS):
+        if origin and origin not in seen:
+            seen.add(origin)
+            merged.append(origin)
+    if not merged:
+        return list(_BUILTIN_CORS_ORIGINS), True
+    return merged, True
 
 
 _cors_origins, _cors_credentials = _cors_allowlist(settings.cors_origins)
+print(f"[CORS] allow_origins={_cors_origins!r} allow_credentials={_cors_credentials}", flush=True)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=_cors_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 
