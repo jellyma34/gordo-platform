@@ -218,6 +218,166 @@ def ensure_entity_history_entity_id_fk_dropped() -> None:
                 pass
 
 
+def _default_project_id() -> str:
+    try:
+        from app.project_ids import CANONICAL_DEFAULT_PROJECT_ID
+
+        return CANONICAL_DEFAULT_PROJECT_ID
+    except Exception:
+        return "verba-phase-1"
+
+
+def ensure_construction_project_id_columns() -> None:
+    """
+    Non-destructive: добавить project_id + updated_at в tmc / gpr_tasks / tenders,
+    backfill legacy rows → verba-phase-1, перестроить unique на (project_id, …).
+    """
+    pid = _default_project_id()
+    tables = ("tmc", "gpr_tasks", "tenders")
+    try:
+        insp = inspect(engine)
+    except Exception:
+        return
+
+    with engine.begin() as conn:
+        for table in tables:
+            if not insp.has_table(table):
+                continue
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if "project_id" not in cols:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN project_id VARCHAR(128)")
+                )
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET project_id = :pid "
+                        f"WHERE project_id IS NULL OR project_id = '' OR lower(project_id) = 'default'"
+                    ),
+                    {"pid": pid},
+                )
+                conn.execute(
+                    text(f"ALTER TABLE {table} ALTER COLUMN project_id SET NOT NULL")
+                )
+            else:
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET project_id = :pid "
+                        f"WHERE project_id IS NULL OR project_id = '' OR lower(project_id) = 'default'"
+                    ),
+                    {"pid": pid},
+                )
+            conn.execute(
+                text(f"CREATE INDEX IF NOT EXISTS ix_{table}_project_id ON {table} (project_id)")
+            )
+            if "updated_at" not in cols:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()")
+                )
+
+        # tmc: unique (project_id, external_id) вместо global unique(external_id)
+        if insp.has_table("tmc"):
+            for uq in insp.get_unique_constraints("tmc") or []:
+                cols_uq = list(uq.get("column_names") or [])
+                name = uq.get("name")
+                if name and cols_uq == ["external_id"]:
+                    try:
+                        conn.execute(text(f'ALTER TABLE tmc DROP CONSTRAINT "{name}"'))
+                    except Exception:
+                        pass
+            # также index unique на external_id
+            for ix in insp.get_indexes("tmc") or []:
+                if ix.get("unique") and list(ix.get("column_names") or []) == ["external_id"]:
+                    name = ix.get("name")
+                    if name:
+                        try:
+                            conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+                        except Exception:
+                            pass
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_tmc_project_external "
+                    "ON tmc (project_id, external_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_tmc_project_part "
+                    "ON tmc (project_id, project_part)"
+                )
+            )
+
+        if insp.has_table("gpr_tasks"):
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_gpr_tasks_project_part "
+                    "ON gpr_tasks (project_id, part_id)"
+                )
+            )
+            try:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_gpr_project_part_gid "
+                        "ON gpr_tasks (project_id, part_id, global_task_id)"
+                    )
+                )
+            except Exception:
+                # Дубликаты в legacy-данных — не блокируем старт.
+                pass
+
+        if insp.has_table("tenders"):
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_tenders_project_part "
+                    "ON tenders (project_id, part_id)"
+                )
+            )
+            try:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tenders_project_part_code "
+                        "ON tenders (project_id, part_id, code)"
+                    )
+                )
+            except Exception:
+                pass
+
+
+def ensure_marketing_imports_table() -> None:
+    """Таблица marketing_imports (project_id + kind) — SoT для CSV маркетинга."""
+    try:
+        insp = inspect(engine)
+        if insp.has_table("marketing_imports"):
+            return
+    except Exception:
+        return
+    ddl = """
+    CREATE TABLE IF NOT EXISTS marketing_imports (
+        id SERIAL PRIMARY KEY,
+        project_id VARCHAR(128) NOT NULL,
+        kind VARCHAR(64) NOT NULL,
+        payload JSON NOT NULL,
+        raw_csv TEXT,
+        file_name VARCHAR(512),
+        uploaded_by VARCHAR(320),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_imports_project_kind "
+                "ON marketing_imports (project_id, kind)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_marketing_imports_project_id "
+                "ON marketing_imports (project_id)"
+            )
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:

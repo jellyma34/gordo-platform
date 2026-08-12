@@ -11,18 +11,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import FinanceBudgetImport, FinanceExecutionImport, User
+from app.project_ids import normalize_project_id as _normalize_project_id
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
 
-def _normalize_project_id(raw: str | None) -> str:
-    s = (raw or "default").strip() or "default"
-    cleaned = "".join(ch if ch.isalnum() or ch in ("_", "-", ".") or ("\u0400" <= ch <= "\u04FF") else "_" for ch in s)
-    return (cleaned[:128] or "default")
-
-
 class FinanceImportPutBody(BaseModel):
-    projectId: str = Field(default="default")
+    projectId: str = Field(default="verba-phase-1")
     payload: dict[str, Any]
 
     model_config = ConfigDict(populate_by_name=True)
@@ -57,7 +52,7 @@ def _execution_response(row: FinanceExecutionImport) -> FinanceImportResponse:
 
 @router.get("/budget-imports", response_model=FinanceImportResponse)
 def get_finance_budget_import(
-    project_id: str = Query("default", alias="projectId"),
+    project_id: str = Query("verba-phase-1", alias="projectId"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -100,7 +95,7 @@ def put_finance_budget_import(
 
 @router.get("/execution-imports", response_model=FinanceImportResponse)
 def get_finance_execution_import(
-    project_id: str = Query("default", alias="projectId"),
+    project_id: str = Query("verba-phase-1", alias="projectId"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

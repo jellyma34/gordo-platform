@@ -1,4 +1,9 @@
-/** Режим хранения данных строительства (ГПР / ТМЦ / тендеры) на клиенте. */
+/**
+ * Режим хранения данных строительства (ГПР / ТМЦ / тендеры).
+ *
+ * Production и обычный local/dev: `postgres` (FastAPI + PostgreSQL).
+ * `local` — только для явных тестов/отладки без БД (не для пользовательского сценария).
+ */
 export type GprStorageMode = "local" | "postgres";
 
 /** @alias GprStorageMode */
@@ -11,11 +16,9 @@ function readStorageEnv(): string {
 }
 
 /**
- * `postgres` — FastAPI + PostgreSQL (Railway / production, по умолчанию).
- * `local` — Next API + localStorage + mock fallback (локальный dev без БД).
- *
- * Задаётся через `NEXT_PUBLIC_CONSTRUCTION_STORAGE=local|postgres`
- * или `NEXT_PUBLIC_GPR_STORAGE=local|postgres` (обратная совместимость).
+ * По умолчанию всегда `postgres`.
+ * `local` включается только явным `NEXT_PUBLIC_CONSTRUCTION_STORAGE=local`
+ * или `NEXT_PUBLIC_GPR_STORAGE=local`.
  */
 export function getGprStorageMode(): GprStorageMode {
   const raw = readStorageEnv();

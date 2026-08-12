@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user, require_admin, require_admin_or_manager, require_gpr_write
 from app.models import EntityHistory, GprRelatedDeviation, GprTask, ProjectPart, User
+from app.project_ids import normalize_project_id
 from app.routers.tmc import tmc_row_for_part
 from app.services.history import append_entity_history
 from app.schemas import (
@@ -267,11 +268,13 @@ def list_project_parts(
 
 @router.get("/tasks", response_model=list[GprTaskItem])
 def list_gpr_tasks(
+    project_id: str | None = Query(None, alias="projectId"),
     part_id: int | None = Query(None),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    stmt = select(GprTask).order_by(GprTask.code)
+    pid = normalize_project_id(project_id)
+    stmt = select(GprTask).where(GprTask.project_id == pid).order_by(GprTask.code)
     if part_id is not None:
         requested_kind = _kind_by_part_id(db, part_id)
         if requested_kind is not None:
@@ -303,8 +306,11 @@ def bulk_import_gpr_tasks(
     actor: User = Depends(require_gpr_write),
     db: Session = Depends(get_db),
 ):
-    """Массовый upsert задач ГПР (CSV-импорт): ключ (part_id, global_task_id)."""
-    existing_rows = list(db.scalars(select(GprTask)).all())
+    """Массовый upsert задач ГПР (CSV-импорт): ключ (project_id, part_id, global_task_id)."""
+    from datetime import datetime, timezone
+
+    pid = normalize_project_id(body.project_id or body.projectId)
+    existing_rows = list(db.scalars(select(GprTask).where(GprTask.project_id == pid)).all())
     existing: dict[tuple[int, str], GprTask] = {}
     for row in existing_rows:
         gid = (row.global_task_id or row.code or "").strip()
@@ -313,6 +319,7 @@ def bulk_import_gpr_tasks(
 
     seen_keys: set[tuple[int, str]] = set()
     out: list[GprTaskItem] = []
+    now = datetime.now(timezone.utc)
 
     for item in body.tasks:
         canonical_part_id = _canonical_storage_part_id_for_task(db, item.part_id, item.code)
@@ -321,6 +328,7 @@ def bulk_import_gpr_tasks(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
         payload = item.model_dump()
         payload["part_id"] = canonical_part_id
+        payload["project_id"] = pid
         global_task_id = (payload.get("global_task_id") or payload["code"] or "").strip()
         if not global_task_id:
             continue
@@ -330,12 +338,14 @@ def bulk_import_gpr_tasks(
         task = existing.get(key)
         if task is None:
             task = GprTask(**payload)
+            task.updated_at = now
             db.add(task)
             existing[key] = task
         else:
             for field, value in payload.items():
                 if field != "id":
                     setattr(task, field, value)
+            task.updated_at = now
 
     if body.replace_missing:
         for key, task in list(existing.items()):
@@ -343,7 +353,7 @@ def bulk_import_gpr_tasks(
                 db.delete(task)
 
     db.commit()
-    for task in db.scalars(select(GprTask).order_by(GprTask.code)).all():
+    for task in db.scalars(select(GprTask).where(GprTask.project_id == pid).order_by(GprTask.code)).all():
         gid = (task.global_task_id or task.code or "").strip()
         if (task.part_id, gid) in seen_keys:
             out.append(_to_task_item(task, db, _response_part_id(db, task.part_id)))
@@ -355,16 +365,22 @@ def create_gpr_task(
     body: GprTaskCreate,
     actor: User = Depends(require_gpr_write),
     db: Session = Depends(get_db),
+    project_id: str | None = Query(None, alias="projectId"),
 ):
+    from datetime import datetime, timezone
+
+    pid = normalize_project_id(project_id)
     canonical_part_id = _canonical_storage_part_id_for_task(db, body.part_id, body.code)
     part = db.get(ProjectPart, canonical_part_id)
     if part is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Часть проекта не найдена")
     payload = body.model_dump()
     payload["part_id"] = canonical_part_id
+    payload["project_id"] = pid
     payload["global_task_id"] = payload.get("global_task_id") or body.code
     print(f"[GPR] Creating task: user={actor.email!r} payload={payload}", flush=True)
     task = GprTask(**payload)
+    task.updated_at = datetime.now(timezone.utc)
     db.add(task)
     db.commit()
     db.refresh(task)

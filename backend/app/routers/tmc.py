@@ -1,5 +1,6 @@
-"""ТМЦ по частям проекта (residential / parking) — хранение в PostgreSQL."""
+"""ТМЦ по частям проекта (residential / parking) — хранение в PostgreSQL с project_id."""
 
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import assert_section_access, get_current_user, require_materials_write
 from app.models import Tmc, User
+from app.project_ids import normalize_project_id
 from app.services.history import append_entity_history
 from app.schemas import TmcBulkImportBody, TmcDbItem, TmcItemFull, TmcUpdate
 
@@ -20,6 +22,7 @@ ProjectPartKey = Literal["residential", "parking"]
 def _tmc_snapshot(t: Tmc) -> dict:
     return {
         "id": t.id,
+        "project_id": t.project_id,
         "external_id": t.external_id,
         "project_part": t.project_part,
         "name": t.name,
@@ -66,6 +69,11 @@ def _fact_date_from_details(details: dict | list | None) -> str | None:
 
 @router.get("", response_model=list[TmcItemFull])
 def list_tmc(
+    project_id: str | None = Query(
+        None,
+        alias="projectId",
+        description="Идентификатор проекта (ЖК). По умолчанию — verba-phase-1.",
+    ),
     project_part: ProjectPartKey | None = Query(
         None,
         description="Фильтр: residential | parking. Без параметра — все позиции.",
@@ -74,7 +82,8 @@ def list_tmc(
     db: Session = Depends(get_db),
 ):
     assert_section_access(user, "materials")
-    stmt = select(Tmc).order_by(Tmc.external_id)
+    pid = normalize_project_id(project_id)
+    stmt = select(Tmc).where(Tmc.project_id == pid).order_by(Tmc.external_id)
     if project_part is not None:
         stmt = stmt.where(Tmc.project_part == project_part)
     rows = db.scalars(stmt).all()
@@ -87,10 +96,12 @@ def bulk_import_tmc(
     actor: User = Depends(require_materials_write),
     db: Session = Depends(get_db),
 ):
-    """Массовый upsert ТМЦ (CSV-импорт): ключ external_id."""
-    existing_rows = list(db.scalars(select(Tmc)).all())
+    """Массовый upsert ТМЦ (CSV-импорт): ключ (project_id, external_id)."""
+    pid = normalize_project_id(getattr(body, "project_id", None) or getattr(body, "projectId", None))
+    existing_rows = list(db.scalars(select(Tmc).where(Tmc.project_id == pid)).all())
     existing: dict[str, Tmc] = {r.external_id: r for r in existing_rows if r.external_id}
     seen_ids: set[str] = set()
+    now = datetime.now(timezone.utc)
 
     for item in body.items:
         external_id = (item.external_id or "").strip()
@@ -102,6 +113,7 @@ def bulk_import_tmc(
         row = existing.get(external_id)
         if row is None:
             row = Tmc(
+                project_id=pid,
                 external_id=external_id,
                 project_part=item.project_part,
                 name=item.name,
@@ -111,10 +123,12 @@ def bulk_import_tmc(
                 plan_date=plan_date,
                 fact_date=fact_date,
                 details=item.details if isinstance(item.details, dict) else None,
+                updated_at=now,
             )
             db.add(row)
             existing[external_id] = row
         else:
+            row.project_id = pid
             row.project_part = item.project_part
             row.name = item.name
             row.gpr_stage = item.gpr_stage
@@ -123,6 +137,7 @@ def bulk_import_tmc(
             row.plan_date = plan_date
             row.fact_date = fact_date
             row.details = item.details if isinstance(item.details, dict) else row.details
+            row.updated_at = now
 
     if body.replace_missing:
         for ext_id, row in list(existing.items()):
@@ -130,7 +145,9 @@ def bulk_import_tmc(
                 db.delete(row)
 
     db.commit()
-    rows = list(db.scalars(select(Tmc).order_by(Tmc.external_id)).all())
+    rows = list(
+        db.scalars(select(Tmc).where(Tmc.project_id == pid).order_by(Tmc.external_id)).all()
+    )
     return [_to_tmc_item_full(r) for r in rows if r.external_id in seen_ids]
 
 
@@ -150,6 +167,7 @@ def update_tmc(
     payload = body.model_dump()
     for k, v in payload.items():
         setattr(t, k, v)
+    t.updated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(t)
@@ -166,11 +184,14 @@ def patch_tmc(
     return update_tmc(tmc_id, body, actor, db)
 
 
-def tmc_row_for_part(db: Session, part_id: int, tmc_id: str) -> dict[str, str | None] | None:
+def tmc_row_for_part(db: Session, part_id: int, tmc_id: str, project_id: str | None = None) -> dict[str, str | None] | None:
     """План/факт поставки для блокировки ГПР с учётом части проекта."""
     key: ProjectPartKey = "parking" if part_id == 2 else "residential"
+    pid = normalize_project_id(project_id)
     row = db.scalar(
-        select(Tmc).where(Tmc.external_id == tmc_id, Tmc.project_part == key).limit(1)
+        select(Tmc)
+        .where(Tmc.project_id == pid, Tmc.external_id == tmc_id, Tmc.project_part == key)
+        .limit(1)
     )
     if row is None:
         return None

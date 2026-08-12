@@ -585,7 +585,7 @@ export function TmcPresentation({
     }
     if (!token) return;
     try {
-      const rows = await listTmcFromDb(token);
+      const rows = await listTmcFromDb(token, undefined, projectId);
       setAllTmc(rows);
       setLastDataUpdateAt(new Date());
       console.log("[TMC debug] TMC loaded in presentation:", rows.length, "(from DB)");
@@ -607,7 +607,7 @@ export function TmcPresentation({
     }
     if (!token) return;
     try {
-      setAllTenders(await listTendersFromDb(token));
+      setAllTenders(await listTendersFromDb(token, undefined, projectId));
       setLastDataUpdateAt(new Date());
     } catch (e) {
       console.error(e);
@@ -627,7 +627,7 @@ export function TmcPresentation({
     }
     if (!token) return;
     try {
-      setGprTasks(await listGprTasksFromDb(token));
+      setGprTasks(await listGprTasksFromDb(token, undefined, projectId));
       setLastDataUpdateAt(new Date());
     } catch (e) {
       console.error(e);

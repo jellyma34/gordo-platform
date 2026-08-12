@@ -539,9 +539,12 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
       return;
     }
     try {
-      await bulkImportTendersToDb(token, items);
+      await bulkImportTendersToDb(token, items, projectId);
+      const { listTendersFromDb } = await import("@/lib/constructionApi");
+      const saved = await listTendersFromDb(token, undefined, projectId);
+      setItems(saved);
       window.dispatchEvent(
-        new CustomEvent("gordo-tenders-saved", { detail: { count: items.length } }),
+        new CustomEvent("gordo-tenders-saved", { detail: { count: saved.length } }),
       );
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Не удалось сохранить тендеры");
@@ -688,7 +691,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
             { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 435 },
             { mode: "bulkImport", recordsToSave: result.length, firstRecord: result[0] ?? null },
           );
-          const saved = await bulkImportTendersToDb(token, result);
+          const saved = await bulkImportTendersToDb(token, result, projectId);
           auditTrace("after bulkImportTendersToDb", {
             generation,
             attemptId,
@@ -705,11 +708,8 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
           );
           finalItems = result;
         } else {
-          logPipelineBeforeSave(
-            { file: "components/tenders/TendersTable.tsx", fn: "handleTenderCsvImport", line: 446 },
-            { mode: "displayOnly", recordsToSave: result.length, firstRecord: result[0] ?? null },
-          );
-          window.alert("Импорт отображён локально, но без авторизации не сохранён в БД");
+          window.alert("Требуется авторизация: импорт не сохранён в PostgreSQL");
+          return;
         }
 
         commitImportSuccessSnapshot(
@@ -764,7 +764,7 @@ export const TendersTable = forwardRef<TendersTableHandle, TendersTableProps>(fu
 
         if (!tenderLocalMode && token) {
           try {
-            await bulkImportTendersToDb(token, merged);
+            await bulkImportTendersToDb(token, merged, projectId);
           } catch (dbError) {
             console.error(dbError);
             window.alert(

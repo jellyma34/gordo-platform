@@ -226,13 +226,22 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
   const persist = useCallback(
     async (next: TMCItem[]) => {
       const sorted = sortTmcInPart(next, activeProjectPart);
-      setItems(sorted);
       if (tmcLocalMode) {
+        // Только явный test/local adapter — не SoT для приложения.
+        setItems(sorted);
         saveTmcTasksToLocalStorage(projectId, sorted);
         await postTmcImportToApi(projectId, sorted);
-      } else if (token) {
-        await bulkImportTmcToDb(token, sorted);
+        window.dispatchEvent(new Event("gordo-tmc-saved"));
+        return;
       }
+      if (!token) {
+        throw new Error("Требуется авторизация для сохранения ТМЦ в PostgreSQL");
+      }
+      await bulkImportTmcToDb(token, sorted, projectId);
+      const rows = await listTmcFromDb(token, undefined, projectId);
+      const fromServer = sortTmcInPart(rows, activeProjectPart);
+      setItems(fromServer);
+      setBaseline(fromServer);
       window.dispatchEvent(new Event("gordo-tmc-saved"));
     },
     [activeProjectPart, projectId, token],
@@ -247,7 +256,7 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
       return;
     }
     if (!hydrated || !token) return;
-    const rows = await listTmcFromDb(token);
+    const rows = await listTmcFromDb(token, undefined, projectId);
     const sorted = sortTmcInPart(rows, activeProjectPart);
     setItems(sorted);
     setBaseline(sorted);
@@ -308,7 +317,6 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         const { result, stats } = diffTmcImport(items, scoped, imported.meta.dataRowCount);
         const merged = result.length > 0 ? result : [...peersOther, ...scoped];
         await persist(merged);
-        setBaseline(merged);
         setImportStats(stats);
         setImportMsg(
           [
@@ -326,11 +334,19 @@ export const TmcTable = forwardRef<TmcTableHandle, TmcTableProps>(function TmcTa
         );
       } catch (err) {
         setImportMsg(err instanceof Error ? err.message : "Ошибка импорта CSV");
+        // Не оставляем неподтверждённые данные в UI — откат к серверу / baseline.
+        if (!tmcLocalMode) {
+          try {
+            await reload();
+          } catch {
+            /* ignore */
+          }
+        }
       } finally {
         setBusy(false);
       }
     },
-    [activeProjectPart, items, persist],
+    [activeProjectPart, items, persist, reload],
   );
 
   const startEdit = (item: TMCItem) => {

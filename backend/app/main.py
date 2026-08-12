@@ -11,20 +11,33 @@ from app.database import (
     Base,
     SessionLocal,
     engine,
+    ensure_construction_project_id_columns,
     ensure_entity_history_entity_type_column,
     ensure_entity_history_entity_id_fk_dropped,
     ensure_entity_history_table,
     ensure_gpr_global_task_id_column,
     ensure_gpr_plan_dates_nullable,
     ensure_gpr_related_tmc_ids_column,
+    ensure_marketing_imports_table,
     ensure_tmc_details_column,
     ensure_tender_cost_numeric_column,
     ensure_users_status_columns,
     ensure_users_full_name_column,
 )
 from app.models import ProjectPart
-from app.routers import admin, auth as auth_router, debug, entity_versions, finance, gpr, sections, tender, tmc
-
+from app.routers import (
+    admin,
+    auth as auth_router,
+    debug,
+    entity_versions,
+    finance,
+    gpr,
+    marketing,
+    sections,
+    storage_status,
+    tender,
+    tmc,
+)
 
 def ensure_project_parts() -> None:
     db = SessionLocal()
@@ -51,6 +64,8 @@ async def lifespan(_: FastAPI):
     ensure_entity_history_table()
     ensure_entity_history_entity_type_column()
     ensure_entity_history_entity_id_fk_dropped()
+    ensure_construction_project_id_columns()
+    ensure_marketing_imports_table()
     ensure_project_parts()
     bootstrap_admin_if_needed()
     print("Backend started", flush=True)
@@ -117,10 +132,12 @@ def root():
 app.include_router(auth_router.router, prefix="/auth")
 app.include_router(tmc.router)
 app.include_router(admin.router)
+app.include_router(storage_status.router)
 app.include_router(debug.router)
 app.include_router(sections.router)
 app.include_router(gpr.router)
 app.include_router(entity_versions.router)
 app.include_router(tender.router)
 app.include_router(finance.router)
+app.include_router(marketing.router)
 

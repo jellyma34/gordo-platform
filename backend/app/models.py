@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -49,6 +49,7 @@ class GprTask(Base):
     __tablename__ = "gpr_tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True, default="verba-phase-1")
     code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     global_task_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -61,6 +62,12 @@ class GprTask(Base):
     comment: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     related_tmc_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     part_id: Mapped[int] = mapped_column(ForeignKey("project_parts.id"), nullable=False, index=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class GprRelatedDeviation(Base):
@@ -114,6 +121,7 @@ class Tender(Base):
     __tablename__ = "tenders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True, default="verba-phase-1")
     part_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -126,13 +134,21 @@ class Tender(Base):
     contractor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # planned|in_progress|completed|delayed
     comment: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class Tmc(Base):
     __tablename__ = "tmc"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    external_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True, default="verba-phase-1")
+    # Уникальность (project_id, external_id) обеспечивается ensure_construction_project_id_columns().
+    external_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     project_part: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # residential|parking
     name: Mapped[str] = mapped_column(String(512), nullable=False)
     gpr_stage: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -141,6 +157,32 @@ class Tmc(Base):
     plan_date: Mapped[str] = mapped_column(String(10), nullable=False)
     fact_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     details: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class MarketingImport(Base):
+    """Нормализованный/распарсенный CSV-документ маркетинга — один актуальный снимок на (project_id, kind)."""
+
+    __tablename__ = "marketing_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload: Mapped[dict | list | None] = mapped_column(JSON, nullable=False)
+    raw_csv: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    uploaded_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class FinanceBudgetImport(Base):

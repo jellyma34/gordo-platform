@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # LOGIN_DEBUG=1 / true — печать в консоль при логине (email, пароль, хеш); только для отладки
     login_debug: bool = False
 
+    # Канонический project_id для ЖК Верба / 1 очередь (см. app.project_ids).
+    default_project_id: str = "verba-phase-1"
+
+    # Опциональный ключ для Next.js → FastAPI (marketing storage без user JWT).
+    # Если пусто — marketing endpoints требуют Bearer JWT.
+    internal_api_key: str = ""
+
     @field_validator("login_debug", mode="before")
     @classmethod
     def _coerce_login_debug(cls, v):

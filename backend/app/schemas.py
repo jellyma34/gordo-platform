@@ -304,11 +304,15 @@ class TmcDbItem(TmcBase):
 class GprBulkImportBody(BaseModel):
     tasks: list[GprTaskCreate]
     replace_missing: bool = True
+    projectId: str | None = None
+    project_id: str | None = None
 
 
 class TenderBulkImportBody(BaseModel):
     tenders: list[TenderBase]
     replace_missing: bool = True
+    projectId: str | None = None
+    project_id: str | None = None
 
 
 class TmcBulkImportItem(BaseModel):
@@ -326,6 +330,8 @@ class TmcBulkImportItem(BaseModel):
 class TmcBulkImportBody(BaseModel):
     items: list[TmcBulkImportItem]
     replace_missing: bool = True
+    projectId: str | None = None
+    project_id: str | None = None
 
 
 class TmcItemFull(TmcBase):

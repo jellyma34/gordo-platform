@@ -27,18 +27,30 @@ async function apiJsonError(res: Response, fallback: string): Promise<never> {
 
 // ─── ГПР ───────────────────────────────────────────────────────────────────
 
-export async function listGprTasksFromDb(token: string, partId?: number): Promise<GPRTask[]> {
-  const q = partId != null ? `?part_id=${partId}` : "";
+export async function listGprTasksFromDb(
+  token: string,
+  partId?: number,
+  projectId?: string,
+): Promise<GPRTask[]> {
+  const params = new URLSearchParams();
+  if (partId != null) params.set("part_id", String(partId));
+  if (projectId) params.set("projectId", projectId);
+  const q = params.toString() ? `?${params}` : "";
   const res = await fetchAuthorizedApi(buildApiUrl(`/gpr/tasks${q}`), token, {});
   if (!res.ok) await apiJsonError(res, "Не удалось загрузить задачи ГПР");
   const rows = (await res.json()) as GprTaskApiItem[];
   return rows.map((r) => gprTaskFromApiItem(r));
 }
 
-export async function bulkImportGprTasksToDb(token: string, tasks: GPRTask[]): Promise<GPRTask[]> {
+export async function bulkImportGprTasksToDb(
+  token: string,
+  tasks: GPRTask[],
+  projectId?: string,
+): Promise<GPRTask[]> {
   const payload = {
     tasks: tasks.map((t) => gprTaskToApiWritePayload(t)),
     replace_missing: true,
+    projectId: projectId ?? undefined,
   };
   const res = await fetchAuthorizedApi(buildApiUrl("/gpr/tasks/bulk-import"), token, {
     method: "POST",
@@ -112,21 +124,33 @@ export function tenderToApiPayload(t: Tender) {
   };
 }
 
-export async function listTendersFromDb(token: string, partId?: number): Promise<Tender[]> {
-  const q = partId != null ? `?part_id=${partId}` : "";
+export async function listTendersFromDb(
+  token: string,
+  partId?: number,
+  projectId?: string,
+): Promise<Tender[]> {
+  const params = new URLSearchParams();
+  if (partId != null) params.set("part_id", String(partId));
+  if (projectId) params.set("projectId", projectId);
+  const q = params.toString() ? `?${params}` : "";
   const res = await fetchAuthorizedApi(buildApiUrl(`/tender${q}`), token, {});
   if (!res.ok) await apiJsonError(res, "Не удалось загрузить тендеры");
   const rows = (await res.json()) as TenderApiItem[];
   return rows.map(tenderFromApiItem);
 }
 
-export async function bulkImportTendersToDb(token: string, tenders: Tender[]): Promise<Tender[]> {
+export async function bulkImportTendersToDb(
+  token: string,
+  tenders: Tender[],
+  projectId?: string,
+): Promise<Tender[]> {
   const res = await fetchAuthorizedApi(buildApiUrl("/tender/bulk-import"), token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       tenders: tenders.map(tenderToApiPayload),
       replace_missing: true,
+      projectId: projectId ?? undefined,
     }),
   });
   if (!res.ok) await apiJsonError(res, "Не удалось сохранить импорт тендеров");
@@ -315,21 +339,30 @@ export function tmcToApiPayload(item: TMCItem): TmcApiItem {
 export async function listTmcFromDb(
   token: string,
   projectPart?: "residential" | "parking",
+  projectId?: string,
 ): Promise<TMCItem[]> {
-  const q = projectPart ? `?project_part=${projectPart}` : "";
+  const params = new URLSearchParams();
+  if (projectPart) params.set("project_part", projectPart);
+  if (projectId) params.set("projectId", projectId);
+  const q = params.toString() ? `?${params}` : "";
   const res = await fetchAuthorizedApi(buildApiUrl(`/tmc${q}`), token, {});
   if (!res.ok) await apiJsonError(res, "Не удалось загрузить ТМЦ");
   const rows = (await res.json()) as TmcApiItem[];
   return rows.map(tmcFromApiItem);
 }
 
-export async function bulkImportTmcToDb(token: string, items: TMCItem[]): Promise<TMCItem[]> {
+export async function bulkImportTmcToDb(
+  token: string,
+  items: TMCItem[],
+  projectId?: string,
+): Promise<TMCItem[]> {
   const res = await fetchAuthorizedApi(buildApiUrl("/tmc/bulk-import"), token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       items: items.map(tmcToApiPayload),
       replace_missing: true,
+      projectId: projectId ?? undefined,
     }),
   });
   if (!res.ok) await apiJsonError(res, "Не удалось сохранить импорт ТМЦ");

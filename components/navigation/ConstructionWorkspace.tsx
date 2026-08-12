@@ -266,7 +266,7 @@ function ConstructionWorkspaceInner({
     }
     if (!token) return;
     try {
-      const mapped = await listGprTasksFromDb(token);
+      const mapped = await listGprTasksFromDb(token, undefined, gprProjectId);
       setTasks(mapped);
     } catch (e) {
       console.error("Construction edit error:", e);
@@ -291,7 +291,7 @@ function ConstructionWorkspaceInner({
     let cancelled = false;
     (async () => {
       try {
-        const mapped = await listGprTasksFromDb(token);
+        const mapped = await listGprTasksFromDb(token, undefined, gprProjectId);
         if (!cancelled) setTasks(mapped);
       } catch (e) {
         console.error("Construction edit error:", e);
@@ -349,18 +349,25 @@ function ConstructionWorkspaceInner({
   const replaceAllGprTasks = useCallback(
     (next: GPRTask[]) => {
       const list = cloneTasks(Array.isArray(next) ? next : []);
-      setTasks(list);
       if (gprLocalMode) {
+        setTasks(list);
         void postGprImportToApi(gprProjectId, list);
         return;
       }
       if (!token) {
         console.warn("[GPR] CSV import без токена: данные не сохранены в БД");
+        window.alert("Требуется авторизация для сохранения ГПР в PostgreSQL");
         return;
       }
-      void bulkImportGprTasksToDb(token, list)
-        .then((saved) => setTasks(saved))
-        .catch((e) => console.error("[GPR] bulk import failed:", e));
+      void bulkImportGprTasksToDb(token, list, gprProjectId)
+        .then(async () => {
+          const saved = await listGprTasksFromDb(token, undefined, gprProjectId);
+          setTasks(saved);
+        })
+        .catch((e) => {
+          console.error("[GPR] bulk import failed:", e);
+          window.alert(e instanceof Error ? e.message : "Не удалось сохранить импорт ГПР");
+        });
     },
     [gprProjectId, token],
   );
