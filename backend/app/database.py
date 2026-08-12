@@ -111,6 +111,34 @@ def ensure_tmc_details_column() -> None:
         conn.execute(text("ALTER TABLE tmc ADD COLUMN details JSON"))
 
 
+def ensure_tmc_varchar_widths() -> None:
+    """
+    Non-destructive: расширить VARCHAR под реальный CSV payload.
+
+    Root cause Railway 500: frontend buildStableTmcId → external_id ~70–150 символов
+    при историческом tmc.external_id VARCHAR(64) → StringDataRightTruncation.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("tmc"):
+            return
+    except Exception:
+        return
+
+    alters = (
+        ("external_id", "VARCHAR(255)"),
+        ("name", "VARCHAR(1024)"),
+        ("gpr_stage", "VARCHAR(512)"),
+    )
+    with engine.begin() as conn:
+        for col, typ in alters:
+            try:
+                conn.execute(text(f"ALTER TABLE tmc ALTER COLUMN {col} TYPE {typ}"))
+                print(f"[DB] ensure_tmc_varchar_widths: tmc.{col} -> {typ}", flush=True)
+            except Exception as e:
+                print(f"[DB] ensure_tmc_varchar_widths skip {col}: {e}", flush=True)
+
+
 def ensure_gpr_related_tmc_ids_column() -> None:
     """Без Alembic: добавить колонку gpr_tasks.related_tmc_ids, если её ещё нет."""
     try:

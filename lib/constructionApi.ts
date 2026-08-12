@@ -356,13 +356,24 @@ export async function bulkImportTmcToDb(
   items: TMCItem[],
   projectId?: string,
 ): Promise<TMCItem[]> {
+  const replace_missing = true;
+  const resolvedProjectId = projectId ?? undefined;
+  const apiItems = items.map(tmcToApiPayload);
+  console.log("[TMC BULK IMPORT REQUEST]", {
+    projectId: resolvedProjectId,
+    itemCount: apiItems.length,
+    replace_missing,
+    firstItem: apiItems[0],
+    lastItem: apiItems[apiItems.length - 1],
+    maxExternalIdLen: Math.max(0, ...apiItems.map((x) => (x.external_id || "").length)),
+  });
   const res = await fetchAuthorizedApi(buildApiUrl("/tmc/bulk-import"), token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      items: items.map(tmcToApiPayload),
-      replace_missing: true,
-      projectId: projectId ?? undefined,
+      items: apiItems,
+      replace_missing,
+      projectId: resolvedProjectId,
     }),
   });
   if (!res.ok) await apiJsonError(res, "Не удалось сохранить импорт ТМЦ");

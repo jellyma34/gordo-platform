@@ -20,6 +20,7 @@ from app.database import (
     ensure_gpr_related_tmc_ids_column,
     ensure_marketing_imports_table,
     ensure_tmc_details_column,
+    ensure_tmc_varchar_widths,
     ensure_tender_cost_numeric_column,
     ensure_users_status_columns,
     ensure_users_full_name_column,
@@ -60,6 +61,7 @@ async def lifespan(_: FastAPI):
     ensure_gpr_plan_dates_nullable()
     ensure_gpr_related_tmc_ids_column()
     ensure_tmc_details_column()
+    ensure_tmc_varchar_widths()
     ensure_tender_cost_numeric_column()
     ensure_entity_history_table()
     ensure_entity_history_entity_type_column()
@@ -123,6 +125,27 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc: Exception):
+    """
+    Превращает необработанные ошибки в JSONResponse через ExceptionMiddleware,
+    чтобы CORSMiddleware успел добавить Access-Control-Allow-Origin
+    (иначе ServerErrorMiddleware отдаёт plain 500 без CORS → Failed to fetch в браузере).
+    """
+    import traceback
+
+    tb = traceback.format_exc()
+    print(f"[UNHANDLED] {request.method} {request.url.path}: {type(exc).__name__}: {exc}\n{tb}", flush=True)
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"{type(exc).__name__}: {exc}",
+        },
+    )
 
 
 @app.get("/health")

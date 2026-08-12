@@ -148,10 +148,11 @@ class Tmc(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     project_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True, default="verba-phase-1")
     # Уникальность (project_id, external_id) обеспечивается ensure_construction_project_id_columns().
-    external_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # external_id: frontend buildStableTmcId часто > 64 символов → VARCHAR(255).
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     project_part: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # residential|parking
-    name: Mapped[str] = mapped_column(String(512), nullable=False)
-    gpr_stage: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(1024), nullable=False)
+    gpr_stage: Mapped[str] = mapped_column(String(512), nullable=False)
     plan_cost: Mapped[int] = mapped_column(Integer, nullable=False)
     fact_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
     plan_date: Mapped[str] = mapped_column(String(10), nullable=False)
