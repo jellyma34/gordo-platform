@@ -3,7 +3,15 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { firstConstructionPath, canAccessConstructionHub, hasSectionAccess, pathRequiresConstructionHub, pathRequiresMarketing } from "@/lib/auth";
+import {
+  firstConstructionPath,
+  canAccessConstructionHub,
+  canAccessHubNav,
+  hasSectionAccess,
+  pathRequiresConstructionHub,
+  pathRequiresFinance,
+  pathRequiresMarketing,
+} from "@/lib/auth";
 
 import { useAuth } from "./AuthProvider";
 
@@ -64,6 +72,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
       router.replace(firstConstructionPath(role, sections, "presentation"));
       return;
     }
+    if (pathRequiresFinance(pathname) && !canAccessHubNav(role, sections, "finance")) {
+      router.replace(firstConstructionPath(role, sections, "presentation"));
+      return;
+    }
     if (pathRequiresConstructionHub(pathname) && !canAccessConstructionHub(role, sections)) {
       router.replace(firstConstructionPath(role, sections, "presentation"));
     }
@@ -114,6 +126,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (role) {
     if (pathRequiresMarketing(pathname) && !hasSectionAccess(role, sections, "marketing")) {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+          Перенаправление…
+        </div>
+      );
+    }
+    if (pathRequiresFinance(pathname) && !canAccessHubNav(role, sections, "finance")) {
       return (
         <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
           Перенаправление…

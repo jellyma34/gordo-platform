@@ -70,6 +70,12 @@ export function pathRequiresMarketing(pathname: string): boolean {
   );
 }
 
+/** Маршрут финансов: в `allowed_sections` ключа нет — только admin/manager. */
+export function pathRequiresFinance(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, "") || "/";
+  return p.startsWith("/presentation/finance") || p.startsWith("/edit/finance");
+}
+
 /** Маршрут хаба строительства (ГПР / тендеры / ТМЦ). */
 export function pathRequiresConstructionHub(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";

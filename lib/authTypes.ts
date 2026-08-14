@@ -39,14 +39,20 @@ export function canAccessConstructionHub(
 
 export type HubNavKey = "construction" | "marketing" | "finance";
 
-/** Верхние разделы хаба. Финансы не входят в `allowed_sections` — доступны любому вошедшему. */
+/**
+ * Верхние разделы хаба.
+ * - construction ← gpr | tenders | materials
+ * - marketing ← marketing
+ * - finance: отдельного ключа в `allowed_sections` нет → только admin/manager
+ *   (сотруднику не показываем, пока в админке нет чекбокса «Финансы»).
+ */
 export function canAccessHubNav(
   role: Role | null | undefined,
   allowed: readonly string[] | null | undefined,
   hub: HubNavKey,
 ): boolean {
   if (!role) return false;
-  if (hub === "finance") return true;
+  if (hub === "finance") return role === "admin" || role === "manager";
   if (hub === "marketing") return hasSectionAccess(role, allowed, "marketing");
   return canAccessConstructionHub(role, allowed);
 }
