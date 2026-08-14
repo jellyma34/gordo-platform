@@ -6,6 +6,17 @@ const STORAGE_ROLE = "gordo_role";
 const STORAGE_SECTIONS = "gordo_allowed_sections";
 const STORAGE_USER_LABEL = "gordo_user_label";
 const STORAGE_USER = "gordo_user";
+const TOKEN_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 7;
+
+function persistAuthTokenCookie(token: string | null): void {
+  if (typeof document === "undefined") return;
+  const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+  if (!token) {
+    document.cookie = `${STORAGE_TOKEN}=; path=/; max-age=0; SameSite=Lax${secure}`;
+    return;
+  }
+  document.cookie = `${STORAGE_TOKEN}=${encodeURIComponent(token)}; path=/; max-age=${TOKEN_COOKIE_MAX_AGE_SEC}; SameSite=Lax${secure}`;
+}
 
 function optTrim(rec: Record<string, unknown>, key: string): string | null {
   const v = rec[key];
@@ -88,6 +99,7 @@ export function saveAuth(
 ): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_TOKEN, token);
+  persistAuthTokenCookie(token);
   window.localStorage.setItem(STORAGE_ROLE, role);
   window.localStorage.setItem(STORAGE_SECTIONS, JSON.stringify(allowedSections));
   if (userLabel != null && String(userLabel).trim() !== "") {
@@ -117,6 +129,7 @@ export function saveAuth(
 export function clearAuth(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_TOKEN);
+  persistAuthTokenCookie(null);
   window.localStorage.removeItem(STORAGE_ROLE);
   window.localStorage.removeItem(STORAGE_SECTIONS);
   window.localStorage.removeItem(STORAGE_USER_LABEL);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { deleteImport } from "@/lib/server/marketingStorage";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 import { normalizeMarketingImportKind } from "@/lib/marketingImportKinds";
 import { sanitizeMarketingPaymentPlanProjectId } from "@/lib/marketingPaymentPlanStore";
 
@@ -10,6 +11,8 @@ type RouteCtx = { params: Promise<{ key: string }> };
 
 /** DELETE /api/marketing/import/:key?projectId=… */
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const { key } = await ctx.params;
   const kind = normalizeMarketingImportKind(key);
   if (!kind) {

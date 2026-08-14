@@ -17,6 +17,7 @@ import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
+  canAccessConstructionHub,
   canAccessConstructionSection,
   createGprTaskApi,
   uiToApi,
@@ -380,7 +381,7 @@ function ConstructionWorkspaceInner({
     router.replace(`${prefix}/construction`);
   }
 
-  if (!hasFullConstructionAccess && allowedApi.length === 0) {
+  if (!canAccessConstructionHub(role, allowedApi)) {
     return (
       <section className="mx-auto w-full min-w-0 max-w-[1400px] px-3 py-4 sm:px-4 md:p-6">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.audit_log import log_action
 from app.database import get_db
@@ -258,7 +259,8 @@ def update_user(
     if "full_name" in patch:
         user.full_name = _norm_full_name(patch["full_name"])
     user.role = body.role
-    user.allowed_sections = allowed
+    user.allowed_sections = list(allowed)
+    flag_modified(user, "allowed_sections")
     db.flush()
     after = _user_snapshot(user)
     log_action(db, actor, "update", "users", {"user_id": user_id, "before": before, "after": after})

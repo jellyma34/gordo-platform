@@ -12,6 +12,7 @@ import {
   type ApiSection,
   type AuthSnapshot,
   type AuthStoredUser,
+  hasSectionAccess,
   isApiSection,
   type Role,
   type UserStatus,
@@ -21,12 +22,16 @@ export type { ApiSection, AuthSnapshot, AuthStoredUser, Role, UserStatus } from 
 export {
   API_SECTION_KEYS,
   API_SECTION_LABELS,
+  canAccessConstructionHub,
+  canAccessHubNav,
   defaultNewEmployeeSections,
   formatAllowedSectionsRu,
+  hasSectionAccess,
   isApiSection,
   sectionsRecordAll,
   sectionsRecordFromAllowed,
 } from "./authTypes";
+export type { HubNavKey } from "./authTypes";
 export {
   API_URL,
   apiClient,
@@ -52,9 +57,28 @@ export function canAccessConstructionSection(
   allowed: ApiSection[],
   ui: UiConstructionSection,
 ): boolean {
-  if (role === "admin" || role === "manager") return true;
-  if (role !== "employee") return false;
-  return allowed.includes(uiToApi(ui));
+  return hasSectionAccess(role, allowed, uiToApi(ui));
+}
+
+/** Маршрут требует permission `marketing` (прямые URL и дочерние страницы). */
+export function pathRequiresMarketing(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, "") || "/";
+  return (
+    p.startsWith("/presentation/marketing") ||
+    p.startsWith("/edit/marketing") ||
+    p.startsWith("/marketing")
+  );
+}
+
+/** Маршрут хаба строительства (ГПР / тендеры / ТМЦ). */
+export function pathRequiresConstructionHub(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, "") || "/";
+  return (
+    p.startsWith("/presentation/construction") ||
+    p.startsWith("/edit/construction") ||
+    p === "/construction" ||
+    p.startsWith("/construction/")
+  );
 }
 
 const CONSTRUCTION_SECTION_ORDER: Array<Exclude<ApiSection, "marketing">> = ["gpr", "tenders", "materials"];

@@ -7,6 +7,7 @@ import { TendersSection } from "@/components/construction/TendersSection";
 import { TMCSection } from "@/components/construction/TMCSection";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { canAccessConstructionSection } from "@/lib/auth";
 import { bulkImportGprTasksToDb, listGprTasksFromDb } from "@/lib/constructionApi";
 import {
   getGprProjectId,
@@ -32,7 +33,10 @@ export default function ConstructionPage() {
   const { mode: appMode } = useAppMode();
   const mode: "edit" | "presentation" = appMode === "edit" ? "edit" : "presentation";
 
-  const { token, hydrated } = useAuth();
+  const { token, hydrated, role, allowedSections } = useAuth();
+  const showGpr = canAccessConstructionSection(role, allowedSections, "gpr");
+  const showTenders = canAccessConstructionSection(role, allowedSections, "tenders");
+  const showTmc = canAccessConstructionSection(role, allowedSections, "tmc");
   const gprProjectId = useMemo(() => getGprProjectId(), []);
   const [tasks, setTasks] = useState<GPRTask[]>(() => {
     if (!gprLocalMode) return [];
@@ -131,6 +135,7 @@ export default function ConstructionPage() {
             ← Назад
           </button>
           <div className="flex flex-wrap gap-2">
+            {showGpr ? (
             <button
               type="button"
               onClick={() => setActiveSection("gpr")}
@@ -142,6 +147,8 @@ export default function ConstructionPage() {
             >
               ГПР
             </button>
+            ) : null}
+            {showTenders ? (
             <button
               type="button"
               onClick={() => setActiveSection("tenders")}
@@ -153,6 +160,8 @@ export default function ConstructionPage() {
             >
               Тендеры
             </button>
+            ) : null}
+            {showTmc ? (
             <button
               type="button"
               onClick={() => setActiveSection("tmc")}
@@ -164,6 +173,7 @@ export default function ConstructionPage() {
             >
               ТМЦ
             </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -176,7 +186,8 @@ export default function ConstructionPage() {
               Выберите направление для перехода к рабочему интерфейсу.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            {showGpr ? (
             <button
               type="button"
               onClick={() => setActiveSection("gpr")}
@@ -189,6 +200,8 @@ export default function ConstructionPage() {
                 План-факт анализ выполнения работ, контроль сроков и статусов задач.
               </p>
             </button>
+            ) : null}
+            {showTenders ? (
             <button
               type="button"
               onClick={() => setActiveSection("tenders")}
@@ -201,6 +214,8 @@ export default function ConstructionPage() {
                 Планирование и контроль тендерных процедур, подрядчиков и сроков.
               </p>
             </button>
+            ) : null}
+            {showTmc ? (
             <button
               type="button"
               onClick={() => setActiveSection("tmc")}
@@ -211,6 +226,7 @@ export default function ConstructionPage() {
                 Управление поставками, доступностью материалов и обеспечением стройки.
               </p>
             </button>
+            ) : null}
           </div>
         </>
       ) : (

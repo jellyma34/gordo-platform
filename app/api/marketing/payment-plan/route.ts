@@ -19,6 +19,7 @@ import {
   type MarketingPaymentPlanMeta,
 } from "@/lib/marketingPaymentPlanStore";
 import { NextRequest, NextResponse } from "next/server";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 
 export const runtime = "nodejs";
 
@@ -110,6 +111,8 @@ async function deleteAllPlanFiles(safeId: string): Promise<void> {
 
 /** Текущий график платежей по проекту (общий для всех пользователей инстанса). */
 export async function GET(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const projectId = sanitizeMarketingPaymentPlanProjectId(req.nextUrl.searchParams.get("projectId") ?? "default");
   const doc = await readPlanDoc(projectId);
   return NextResponse.json(
@@ -132,6 +135,8 @@ type MigrateJsonBody = {
 };
 
 export async function POST(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const ct = req.headers.get("content-type") ?? "";
 
@@ -284,6 +289,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const projectId = sanitizeMarketingPaymentPlanProjectId(req.nextUrl.searchParams.get("projectId") ?? "default");
     const scope = (req.nextUrl.searchParams.get("scope") ?? "all").toLowerCase();

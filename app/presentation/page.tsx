@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubReportingPeriodSelector } from "@/components/presentation/HubReportingPeriodSelector";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
+import { canAccessHubNav } from "@/lib/auth";
 import { listGprTasksFromDb, listTmcFromDb } from "@/lib/constructionApi";
 import { getGprProjectId, loadPersistedGprTasks } from "@/lib/gprImportPersistence";
 import { gprMockData } from "@/lib/gprMockData";
@@ -25,7 +26,7 @@ function cloneTasks(tasks: GPRTask[]): GPRTask[] {
 
 export default function PresentationEntry() {
   const { setMode } = useAppMode();
-  const { token, hydrated } = useAuth();
+  const { token, hydrated, role, allowedSections } = useAuth();
   const projectId = useMemo(() => getGprProjectId(), []);
   const [gprTasks, setGprTasks] = useState<GPRTask[]>(() => {
     if (!gprLocalMode) return [];
@@ -151,31 +152,50 @@ export default function PresentationEntry() {
     setMode("presentation");
   }, [setMode]);
 
-  const blocks = [
-    {
-      title: "Строительство",
-      description: "ГПР, тендеры, ТМЦ — аналитика и график работ.",
-      href: "/presentation/construction",
-      status: getHubNavStatusTone(snapshot, "construction"),
-      wide: true,
-      constructionProjectKpi: snapshot.constructionProjectKpi,
-      tenderBudgetKpi: snapshot.tenderBudgetKpi,
-      tmcPurchasedDeviationKpi: snapshot.tmcPurchasedDeviationKpi,
-    },
-    {
-      title: "Маркетинг",
-      description: "План продаж, воронка и рассрочка по ДДУ.",
-      href: "/presentation/marketing/sales-plan",
-      status: getHubNavStatusTone(snapshot, "marketing"),
-      marketingProjectKpi: snapshot.marketingProjectKpi,
-    },
-    {
-      title: "Финансы",
-      description: "Экономика и показатели (модуль в разработке).",
-      href: "/presentation/finance",
-      status: getHubNavStatusTone(snapshot, "finance"),
-    },
-  ] as const;
+  const blocks = useMemo(() => {
+    const all: Array<{
+      hub: "construction" | "marketing" | "finance";
+      title: string;
+      description: string;
+      href: string;
+      status: ReturnType<typeof getHubNavStatusTone>;
+      wide?: boolean;
+      constructionProjectKpi?: typeof snapshot.constructionProjectKpi;
+      marketingProjectKpi?: typeof snapshot.marketingProjectKpi;
+      tenderBudgetKpi?: typeof snapshot.tenderBudgetKpi;
+      tmcPurchasedDeviationKpi?: typeof snapshot.tmcPurchasedDeviationKpi;
+    }> = [
+      {
+        hub: "construction",
+        title: "Строительство",
+        description: "ГПР, тендеры, ТМЦ — аналитика и график работ.",
+        href: "/presentation/construction",
+        status: getHubNavStatusTone(snapshot, "construction"),
+        wide: true,
+        constructionProjectKpi: snapshot.constructionProjectKpi,
+        tenderBudgetKpi: snapshot.tenderBudgetKpi,
+        tmcPurchasedDeviationKpi: snapshot.tmcPurchasedDeviationKpi,
+      },
+      {
+        hub: "marketing",
+        title: "Маркетинг",
+        description: "План продаж, воронка и рассрочка по ДДУ.",
+        href: "/presentation/marketing/sales-plan",
+        status: getHubNavStatusTone(snapshot, "marketing"),
+        marketingProjectKpi: snapshot.marketingProjectKpi,
+      },
+      {
+        hub: "finance",
+        title: "Финансы",
+        description: "Экономика и показатели (модуль в разработке).",
+        href: "/presentation/finance",
+        status: getHubNavStatusTone(snapshot, "finance"),
+      },
+    ];
+    return all
+      .filter((item) => canAccessHubNav(role, allowedSections, item.hub))
+      .map(({ hub: _hub, ...block }) => block);
+  }, [role, allowedSections, snapshot]);
 
   return (
     <div className="presentation-hub">

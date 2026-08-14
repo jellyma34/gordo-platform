@@ -15,6 +15,42 @@ export function isApiSection(x: string): x is ApiSection {
   return (API_SECTION_KEYS as readonly string[]).includes(x);
 }
 
+/** Админ и руководитель — полный доступ; сотрудник — только listed `allowed_sections`. */
+export function hasSectionAccess(
+  role: Role | null | undefined,
+  allowed: readonly string[] | null | undefined,
+  section: ApiSection,
+): boolean {
+  if (role === "admin" || role === "manager") return true;
+  if (role !== "employee") return false;
+  return Array.isArray(allowed) && allowed.includes(section);
+}
+
+export function canAccessConstructionHub(
+  role: Role | null | undefined,
+  allowed: readonly string[] | null | undefined,
+): boolean {
+  return (
+    hasSectionAccess(role, allowed, "gpr") ||
+    hasSectionAccess(role, allowed, "tenders") ||
+    hasSectionAccess(role, allowed, "materials")
+  );
+}
+
+export type HubNavKey = "construction" | "marketing" | "finance";
+
+/** Верхние разделы хаба. Финансы не входят в `allowed_sections` — доступны любому вошедшему. */
+export function canAccessHubNav(
+  role: Role | null | undefined,
+  allowed: readonly string[] | null | undefined,
+  hub: HubNavKey,
+): boolean {
+  if (!role) return false;
+  if (hub === "finance") return true;
+  if (hub === "marketing") return hasSectionAccess(role, allowed, "marketing");
+  return canAccessConstructionHub(role, allowed);
+}
+
 export function formatAllowedSectionsRu(sections: ApiSection[]): string {
   if (sections.length === 0) return "—";
   const sorted = [...sections].sort(

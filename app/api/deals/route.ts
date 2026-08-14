@@ -1,7 +1,8 @@
 import { readFile } from "fs/promises";
 
 import { MARKETING_DEALS_CURRENT_FILE, type MarketingDealsCurrentFileBody } from "@/lib/marketingDealsPersistencePaths";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 
 const DEALS_UPSTREAM_URL =
   "https://api.macroserver.ru/estate/export/trankeysdata/777.trziyFNny0gbHXdHERqltKEh6qFkLNGthVnmyfMq7nHSrF75uyadoziu6JlNRjdEFuRZz6kVqxlhO3Hhi4p8MTc3NjI0NjgyMnxjYTQxNA/getData.json?houses=8628781";
@@ -15,7 +16,9 @@ async function readJsonSafe<T>(filePath: string): Promise<T | null> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const local = await readJsonSafe<MarketingDealsCurrentFileBody>(MARKETING_DEALS_CURRENT_FILE);
     if (local?.payload != null) {

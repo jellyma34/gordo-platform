@@ -39,6 +39,8 @@ type AuthContextValue = {
   /** Профиль сессии для UI (null без входа). */
   user: AuthContextUser | null;
   allowedSections: ApiSection[];
+  /** true после сверки сессии с GET /auth/me (или если токена нет). */
+  sessionSynced: boolean;
   isAdmin: boolean;
   isManager: boolean;
   /** Админ или руководитель: полный доступ к разделам строительства. */
@@ -60,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<AuthStoredUser | null>(null);
   const [allowedSections, setAllowedSections] = useState<ApiSection[]>([]);
   const [sessionUserLabel, setSessionUserLabel] = useState<string | null>(null);
+  const [sessionSynced, setSessionSynced] = useState(false);
 
   const setSession = useCallback((s: AuthSnapshot) => {
     const label = s.userLabel?.trim();
@@ -87,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserProfile(profile);
     setAllowedSections(s.allowedSections);
     setSessionUserLabel(s.userLabel?.trim() || null);
+    setSessionSynced(true);
   }, []);
 
   const logout = useCallback(() => {
@@ -96,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserProfile(null);
     setAllowedSections([]);
     setSessionUserLabel(null);
+    setSessionSynced(true);
   }, []);
 
   // Раньше обычного useEffect, чтобы снять вечный «Загрузка…» в AuthGate сразу после коммита на клиенте
@@ -108,10 +113,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserProfile(s.user ?? null);
       setAllowedSections(s.allowedSections);
       setSessionUserLabel(s.userLabel?.trim() || null);
+      saveAuth(s.token, s.role, s.allowedSections, s.userLabel ?? null, s.user ?? null);
       if (s.token) {
         void fetchAuthMe(s.token)
           .then((fresh) => {
-            if (cancelled || !fresh) return;
+            if (cancelled) return;
+            if (!fresh) {
+              setSessionSynced(true);
+              return;
+            }
             setRole(fresh.role);
             setUserProfile(fresh.user ?? null);
             setAllowedSections(fresh.allowedSections);
@@ -123,9 +133,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               fresh.userLabel ?? null,
               fresh.user ?? null,
             );
+            setSessionSynced(true);
           })
-          .catch(() => {});
+          .catch(() => {
+            if (!cancelled) setSessionSynced(true);
+          });
+      } else {
+        setSessionSynced(true);
       }
+    } else {
+      setSessionSynced(true);
     }
     setHydrated(true);
     return () => {
@@ -158,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           : null,
       allowedSections,
+      sessionSynced,
       isAdmin: role === "admin",
       isManager: role === "manager",
       hasFullConstructionAccess: role === "admin" || role === "manager",
@@ -166,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       sessionUserLabel,
     }),
-    [hydrated, token, role, userProfile, allowedSections, sessionUserLabel, setSession, logout],
+    [hydrated, token, role, userProfile, allowedSections, sessionSynced, sessionUserLabel, setSession, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

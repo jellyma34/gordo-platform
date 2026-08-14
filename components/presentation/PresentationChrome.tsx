@@ -6,7 +6,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { UserMenu } from "@/components/auth/UserMenu";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { Logo } from "@/components/presentation/PresentationHeaderLogo";
+import { canAccessHubNav } from "@/lib/auth";
 import {
   resolvePresentationProjectName,
   resolvePresentationProjectPhase,
@@ -23,6 +25,10 @@ type Props = {
  */
 export function PresentationChrome({ children }: Props) {
   const pathname = usePathname() ?? "";
+  const { role, allowedSections } = useAuth();
+  const showConstruction = canAccessHubNav(role, allowedSections, "construction");
+  const showMarketing = canAccessHubNav(role, allowedSections, "marketing");
+  const showFinance = canAccessHubNav(role, allowedSections, "finance");
   const isPresentationHubHome = pathname === "/presentation" || pathname === "/presentation/";
   const isMarketingLight = pathname.startsWith("/presentation/marketing");
   const hideWorkModeInConstructionPres = pathname.startsWith("/presentation/construction");
@@ -109,27 +115,39 @@ export function PresentationChrome({ children }: Props) {
 
   const sectionNavLinks = isMarketingLight ? (
     <>
-      <Link href="/presentation/construction" className={navMarketing("construction")}>
-        Строительство
-      </Link>
-      <Link href="/presentation/marketing/sales-plan" className={navMarketing("marketing")}>
-        Маркетинг
-      </Link>
-      <Link href="/presentation/finance" className={navMarketing("finance")}>
-        Финансы
-      </Link>
+      {showConstruction ? (
+        <Link href="/presentation/construction" className={navMarketing("construction")}>
+          Строительство
+        </Link>
+      ) : null}
+      {showMarketing ? (
+        <Link href="/presentation/marketing/sales-plan" className={navMarketing("marketing")}>
+          Маркетинг
+        </Link>
+      ) : null}
+      {showFinance ? (
+        <Link href="/presentation/finance" className={navMarketing("finance")}>
+          Финансы
+        </Link>
+      ) : null}
     </>
   ) : (
     <>
-      <Link href="/presentation/construction" className={navDark("construction")}>
-        Строительство
-      </Link>
-      <Link href="/presentation/marketing/sales-plan" className={navDark("marketing")}>
-        Маркетинг
-      </Link>
-      <Link href="/presentation/finance" className={navDark("finance")}>
-        Финансы
-      </Link>
+      {showConstruction ? (
+        <Link href="/presentation/construction" className={navDark("construction")}>
+          Строительство
+        </Link>
+      ) : null}
+      {showMarketing ? (
+        <Link href="/presentation/marketing/sales-plan" className={navDark("marketing")}>
+          Маркетинг
+        </Link>
+      ) : null}
+      {showFinance ? (
+        <Link href="/presentation/finance" className={navDark("finance")}>
+          Финансы
+        </Link>
+      ) : null}
     </>
   );
 

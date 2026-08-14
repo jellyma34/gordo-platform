@@ -2,38 +2,55 @@
 
 import { useEffect, useMemo } from "react";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { useAppMode } from "@/components/mode/ModeProvider";
 import { HubSectionCards } from "@/components/presentation/HubSectionCards";
+import { canAccessHubNav } from "@/lib/auth";
 import { getHomeDashboardSnapshot, getHubNavStatusTone } from "@/lib/homeDashboardSnapshot";
 
 export default function EditEntry() {
   const { setMode } = useAppMode();
+  const { role, allowedSections } = useAuth();
   const snapshot = useMemo(() => getHomeDashboardSnapshot(), []);
 
   useEffect(() => {
     setMode("edit");
   }, [setMode]);
 
-  const blocks = [
-    {
-      title: "Строительство",
-      description: "ГПР, тендеры и ТМЦ — контроль стройки.",
-      href: "/edit/construction",
-      status: getHubNavStatusTone(snapshot, "construction"),
-    },
-    {
-      title: "Маркетинг",
-      description: "План продаж, сценарии и таблица план/факт — в рабочем режиме.",
-      href: "/marketing/sales-plan/work",
-      status: getHubNavStatusTone(snapshot, "marketing"),
-    },
-    {
-      title: "Экономика и финансы",
-      description: "Показатели и экономика проекта (модуль в разработке).",
-      href: "/edit/finance",
-      status: getHubNavStatusTone(snapshot, "finance"),
-    },
-  ] as const;
+  const blocks = useMemo(() => {
+    const all: Array<{
+      hub: "construction" | "marketing" | "finance";
+      title: string;
+      description: string;
+      href: string;
+      status: ReturnType<typeof getHubNavStatusTone>;
+    }> = [
+      {
+        hub: "construction",
+        title: "Строительство",
+        description: "ГПР, тендеры и ТМЦ — контроль стройки.",
+        href: "/edit/construction",
+        status: getHubNavStatusTone(snapshot, "construction"),
+      },
+      {
+        hub: "marketing",
+        title: "Маркетинг",
+        description: "План продаж, сценарии и таблица план/факт — в рабочем режиме.",
+        href: "/marketing/sales-plan/work",
+        status: getHubNavStatusTone(snapshot, "marketing"),
+      },
+      {
+        hub: "finance",
+        title: "Экономика и финансы",
+        description: "Показатели и экономика проекта (модуль в разработке).",
+        href: "/edit/finance",
+        status: getHubNavStatusTone(snapshot, "finance"),
+      },
+    ];
+    return all
+      .filter((item) => canAccessHubNav(role, allowedSections, item.hub))
+      .map(({ hub: _hub, ...block }) => block);
+  }, [role, allowedSections, snapshot]);
 
   return (
     <main className="mx-auto min-h-[60vh] max-w-7xl space-y-3 bg-slate-50 p-3 md:p-4">

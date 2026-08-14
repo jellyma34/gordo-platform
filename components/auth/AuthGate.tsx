@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { firstConstructionPath } from "@/lib/auth";
+import { firstConstructionPath, canAccessConstructionHub, hasSectionAccess, pathRequiresConstructionHub, pathRequiresMarketing } from "@/lib/auth";
 
 import { useAuth } from "./AuthProvider";
 
@@ -13,7 +13,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathRaw = usePathname();
   const pathname = pathRaw ?? "";
   const router = useRouter();
-  const { hydrated, token, role, allowedSections } = useAuth();
+  const { hydrated, token, role, allowedSections, sessionSynced } = useAuth();
   const [hydrationTimedOut, setHydrationTimedOut] = useState(false);
 
   const sections = Array.isArray(allowedSections) ? allowedSections : [];
@@ -30,7 +30,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    if (hydrated) return;
+    if (hydrated && (isLogin || !token || sessionSynced)) return;
     const id = window.setTimeout(() => {
       console.error(
         "AuthGate: данные сессии не загрузились за %s мс (проверьте сеть и кэш .next)",
@@ -39,13 +39,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setHydrationTimedOut(true);
     }, HYDRATION_WARN_MS);
     return () => window.clearTimeout(id);
-  }, [hydrated]);
+  }, [hydrated, isLogin, token, sessionSynced]);
 
   useEffect(() => {
     if (!hydrated) return;
 
     if (isLogin) {
-      if (token && role) {
+      if (token && role && sessionSynced) {
         if (role === "admin" || role === "manager") router.replace("/");
         else router.replace(firstConstructionPath(role, sections, "presentation"));
       }
@@ -55,10 +55,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (!token) {
       const next = encodeURIComponent(pathname || "/");
       router.replace(`/login?next=${next}`);
+      return;
     }
-  }, [hydrated, isLogin, token, role, pathname, router]);
 
-  if (!hydrated) {
+    if (!sessionSynced || !role) return;
+
+    if (pathRequiresMarketing(pathname) && !hasSectionAccess(role, sections, "marketing")) {
+      router.replace(firstConstructionPath(role, sections, "presentation"));
+      return;
+    }
+    if (pathRequiresConstructionHub(pathname) && !canAccessConstructionHub(role, sections)) {
+      router.replace(firstConstructionPath(role, sections, "presentation"));
+    }
+  }, [hydrated, sessionSynced, isLogin, token, role, allowedSections, pathname, router]);
+
+  const sessionReady = hydrated && (isLogin || !token || sessionSynced);
+
+  if (!sessionReady) {
     if (hydrationTimedOut) {
       return (
         <div className="mx-auto max-w-md p-6 text-center text-sm text-slate-800">
@@ -97,6 +110,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
         Перенаправление…
       </div>
     );
+  }
+
+  if (role) {
+    if (pathRequiresMarketing(pathname) && !hasSectionAccess(role, sections, "marketing")) {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+          Перенаправление…
+        </div>
+      );
+    }
+    if (pathRequiresConstructionHub(pathname) && !canAccessConstructionHub(role, sections)) {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+          Перенаправление…
+        </div>
+      );
+    }
   }
 
   return <>{children}</>;

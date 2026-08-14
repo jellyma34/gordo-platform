@@ -18,6 +18,7 @@ import {
   decodeSalesPlanExecutionCsvBytes,
   parseSalesPlanExecutionCsv,
 } from "@/lib/salesPlanExecutionCsv";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,8 @@ async function persistDoc(
 
 /** Исполнение плана продаж: JSON-кэш и/или сырой CSV (Верба и др.). */
 export async function GET(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const projectId = sanitizeMarketingSalesPlanExecutionProjectId(
     req.nextUrl.searchParams.get("projectId") ??
       marketingSalesPlanExecutionProjectIdFromEnv(),
@@ -160,6 +163,8 @@ type MigrateExecutionBody = {
 };
 
 export async function POST(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const ct = req.headers.get("content-type") ?? "";
 
@@ -269,6 +274,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const projectId = sanitizeMarketingSalesPlanExecutionProjectId(
     req.nextUrl.searchParams.get("projectId") ??
       marketingSalesPlanExecutionProjectIdFromEnv(),

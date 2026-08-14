@@ -91,6 +91,13 @@ def require_materials_write(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_marketing_access(user: User = Depends(get_current_user)) -> User:
+    if user.role in ("admin", "manager"):
+        return user
+    assert_section_access(user, "marketing")
+    return user
+
+
 def normalize_allowed_sections(raw: list[str] | None) -> list[str]:
     if not raw:
         return []

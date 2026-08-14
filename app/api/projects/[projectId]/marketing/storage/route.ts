@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 
 import { NextRequest, NextResponse } from "next/server";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 
 import {
   marketingPaymentPlanJsonPath,
@@ -381,7 +382,9 @@ async function computePresence(safeProjectId: string): Promise<MarketingStorageP
   };
 }
 
-export async function GET(_req: NextRequest, ctx: RouteCtx) {
+export async function GET(req: NextRequest, ctx: RouteCtx) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const { projectId: raw } = await ctx.params;
   const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
   const presence = await computePresence(safeProjectId);
@@ -435,6 +438,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const { projectId: raw } = await ctx.params;
     const safeProjectId = sanitizeMarketingPaymentPlanProjectId(raw ?? "default");
@@ -1014,6 +1019,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const { projectId: raw } = await ctx.params;
     const safeProjectId = sanitizeMarketingSalesPlanExecutionProjectId(raw ?? "default");

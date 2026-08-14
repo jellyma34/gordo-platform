@@ -13,6 +13,7 @@ import {
   type MarketingDealsVersionsFileBody,
 } from "@/lib/marketingDealsPersistencePaths";
 import { NextRequest, NextResponse } from "next/server";
+import { denyUnlessSectionAccess } from "@/lib/server/requireSectionAccess";
 
 async function readJsonSafe<T>(pathStr: string): Promise<T | null> {
   try {
@@ -67,7 +68,9 @@ function mergeDealPayload(existing: unknown, incoming: unknown, mode: "replace" 
 export const runtime = "nodejs";
 
 /** Список загрузок + метаданные текущего локального набора */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   const doc = await readVersionsDoc();
   const current = await readJsonSafe<MarketingDealsCurrentFileBody>(MARKETING_DEALS_CURRENT_FILE);
   return NextResponse.json(
@@ -87,6 +90,8 @@ type UploadBody = {
 
 /** Сохранить выгрузку (replace | append к текущей локальной) */
 export async function POST(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const bodyUnknown: unknown = await req.json().catch(() => null);
     if (bodyUnknown == null || typeof bodyUnknown !== "object") {
@@ -135,6 +140,8 @@ type RollbackBody = { versionId: string };
 
 /** Восстановить снимок по id версии из history */
 export async function PUT(req: NextRequest) {
+  const denied = await denyUnlessSectionAccess(req, "marketing");
+  if (denied) return denied;
   try {
     const bodyUnknown: unknown = await req.json().catch(() => null);
     if (bodyUnknown == null || typeof bodyUnknown !== "object" || !("versionId" in bodyUnknown)) {
